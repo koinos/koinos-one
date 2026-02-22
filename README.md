@@ -73,4 +73,4 @@ Este README implementa el alcance solicitado en el issue #1.
 ## Referencias oficiales
 
 - Documentación de Koinos: https://koinos.io
-- Backups de blockchain (Koinos Foundation CDN): https://cdn.koinosfoundation.com/backups/
+- Backups de blockchain (Koinos Foundation CDN): https://seed.koinosfoundation.org/backups
