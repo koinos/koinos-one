@@ -55,3 +55,26 @@ npm run build
    ```
 
 > Nota: en esta fase no hay RPC ni datos reales; todo es mock para validar UI y compilación.
+
+
+## Probar en web (sin instalar Electron)
+
+```bash
+npm install
+npm run dev:renderer
+```
+
+Abrir: `http://localhost:5173`
+
+## Deploy 1-click en Vercel (URL pública)
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/pgarciagon/knodel&project-name=knodel-web&repository-name=knodel)
+
+### Configuración de build en Vercel
+- Framework preset: **Vite**
+- Build command: `npm run build:web`
+- Output directory: `dist`
+
+Cuando lo importes en Vercel, te dará una URL pública tipo:
+`https://knodel-web.vercel.app`
+
