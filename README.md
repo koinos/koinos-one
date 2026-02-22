@@ -68,3 +68,9 @@ Proyecto en fase de definición inicial (MVP).
 ## Seguimiento
 
 Este README implementa el alcance solicitado en el issue #1.
+
+
+## Referencias oficiales
+
+- Documentación de Koinos: https://koinos.io
+- Backups de blockchain (Koinos Foundation CDN): https://cdn.koinosfoundation.com/backups/
