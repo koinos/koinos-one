@@ -13,7 +13,8 @@
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build:web": "vite build",
-    "preview:web": "vite preview --host 0.0.0.0 --port 4173"
+    "preview:web": "vite preview --host 0.0.0.0 --port 4173",
+    "koinos:preflight": "node scripts/koinos-local.js preflight"
   },
   "dependencies": {
     "react": "^18.3.1",
