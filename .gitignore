@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-electron/
+backend/data/archives/
+backend/data/extracted/
+backend/data/*.db

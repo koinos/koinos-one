@@ -14,11 +14,16 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "build:web": "vite build",
     "preview:web": "vite preview --host 0.0.0.0 --port 4173",
+    "bootstrap:offline": "node backend/src/bootstrap.js",
+    "api:local": "node backend/src/server.js",
+    "test:backend": "node --test backend/test/*.test.js",
     "koinos:preflight": "node scripts/koinos-local.js preflight"
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "express": "^4.21.2",
+    "better-sqlite3": "^11.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -78,6 +78,36 @@ Abrir: `http://localhost:5173`
 Cuando lo importes en Vercel, te dará una URL pública tipo:
 `https://knodel-web.vercel.app`
 
+## Bootstrap offline-first desde backup
+
+Para evitar sincronizar durante días desde cero, el MVP incluye bootstrap offline con backup de Koinos.
+
+Referencias:
+- Backup: http://seed.koinosfoundation.org/backups/
+- Koinos: https://github.com/koinos/koinos
+- Block store service: https://github.com/koinos/koinos-block-store
+
+Comandos:
+
+```bash
+npm install
+npm run bootstrap:offline
+npm run api:local
+
+# si ya tienes un .tar.gz local (ejemplo /root/koinos_blockchain_backup.tar.gz)
+KNODEL_BACKUP_LOCAL_PATH=/root/koinos_blockchain_backup.tar.gz npm run bootstrap:offline
+```
+
+API local:
+- `GET /health`
+- `GET /blocks/latest?limit=20`
+- `GET /blocks/:height`
+
+Tests backend:
+
+```bash
+npm run test:backend
+```
 
 ## Nodo local sin conflictos de puertos (fase inicial)
 
@@ -102,4 +132,3 @@ El preflight valida:
 - que exista el backup local (`BACKUP_TAR_PATH`).
 
 > Regla acordada: el bootstrap inicial siempre parte de backup local.
-
