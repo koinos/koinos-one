@@ -74,3 +74,14 @@ Este README implementa el alcance solicitado en el issue #1.
 
 - Documentación de Koinos: https://koinos.io
 - Backups de blockchain (Koinos Foundation CDN): https://seed.koinosfoundation.org/backups
+
+
+## Stack recomendado (decisión actual)
+
+- **Desktop app:** Electron + React + TypeScript
+- **Indexador blockchain:** Go
+- **Base de datos local:** SQLite
+- **Comunicación interna:** API local (HTTP) entre Electron UI e indexador
+
+Motivo: priorizar rapidez de desarrollo y portabilidad entre macOS y Windows para el MVP.
+
