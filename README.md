@@ -2,65 +2,110 @@
 
 Explorador local para **Koinos** con enfoque en sincronización eficiente, indexación de bloques y estadísticas sin depender de un servicio externo.
 
-## Idea en una frase
+## Stack recomendado (decisión actual)
 
-Knodel permite correr un explorador de Koinos **100% en local**, mantenerlo sincronizado con la red y consultar métricas de bloques/transacciones con recuperación rápida mediante backups.
+- **Desktop app:** Electron + React + TypeScript
+- **Indexador blockchain:** Go
+- **Base de datos local:** SQLite
+- **Comunicación interna:** API local (HTTP) entre Electron UI e indexador
 
-## Problema que resuelve
+Motivo: priorizar rapidez de desarrollo y portabilidad entre macOS y Windows para el MVP.
 
-Hoy, para analizar actividad de cadena, muchas soluciones dependen de servicios remotos o de infra compleja. Knodel busca:
+## Referencias oficiales
 
-- Reducir dependencia de terceros.
-- Dar control total de los datos al usuario.
-- Permitir análisis y operación local incluso con conectividad irregular.
+- Documentación de Koinos: https://koinos.io
+- Backups de blockchain: https://seed.koinosfoundation.org/backups
 
-## Flujo base
+## MVP actual (Issue #3)
 
-1. **Bootstrap inicial**
-   - Sincroniza desde génesis o snapshot hasta el bloque actual.
-   - Guarda el último bloque procesado.
+Base de app desktop **sin conectividad real** a blockchain, con UI tipo block explorer y tabla dinámica con datos mock.
 
-2. **Indexación local**
-   - Procesa bloques, transacciones y eventos en una base de datos local.
-   - Construye vistas para búsqueda rápida y estadísticas.
+### Desarrollo local
 
-3. **Sincronización incremental**
-   - En cada ejecución, retoma desde el último bloque indexado.
-   - Aplica solo los bloques nuevos para mantener bajo el coste de actualización.
+```bash
+npm install
+npm run dev
+```
 
-4. **Control de desfase y recuperación**
-   - Mide el gap con la altura actual de la red.
-   - Si el desfase supera un umbral, activa estrategia de recuperación.
+### Build local
 
-5. **Backup/restore automático**
-   - Si el desfase es grande o hay corrupción del índice, restaura un backup reciente.
-   - Reanuda sincronización incremental desde ese punto.
+```bash
+npm run build
+```
 
-## Arquitectura MVP propuesta
+## Compilar localmente en macOS
 
-- **Ingesta**: cliente RPC/gRPC para Koinos.
-- **Indexador**: pipeline de procesamiento de bloques/eventos.
-- **Base de datos local**: SQLite o Postgres local (según volumen esperado).
-- **API local**: endpoints para consultas y métricas.
-- **UI web local**: panel con estado de sincronización y exploración de bloques/tx.
-- **Módulo de backups**: snapshots programados del índice + verificación de integridad.
+1. Instalar Node.js 20+ (recomendado con nvm).
+2. Clonar repo:
+   ```bash
+   git clone git@github.com:pgarciagon/knodel.git
+   cd knodel
+   ```
+3. Instalar dependencias:
+   ```bash
+   npm install
+   ```
+4. Ejecutar en desarrollo:
+   ```bash
+   npm run dev
+   ```
+5. Generar build:
+   ```bash
+   npm run build
+   ```
 
-## Métricas clave
+> Nota: en esta fase no hay RPC ni datos reales; todo es mock para validar UI y compilación.
 
-- Altura local vs altura de red.
-- TPS estimado por ventana temporal.
-- Tiempo medio de bloque.
-- Cuentas activas y contratos más usados.
-- Latencia de sincronización.
 
-## Próximos pasos
+## Probar en web (sin instalar Electron)
 
-1. Definir stack técnico (lenguaje principal, DB, framework API/UI).
-2. Implementar indexador mínimo (bloque + transacciones).
-3. Exponer API local para consulta de bloques por altura/hash.
-4. Añadir módulo de estadísticas básicas.
-5. Incorporar backup/restore y política de recuperación por desfase.
+```bash
+npm install
+npm run dev:renderer
+```
 
-## Estado
+Abrir: `http://localhost:5173`
 
-Proyecto en fase de definición inicial (MVP).
+## Deploy 1-click en Vercel (URL pública)
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/pgarciagon/knodel&project-name=knodel-web&repository-name=knodel)
+
+### Configuración de build en Vercel
+- Framework preset: **Vite**
+- Build command: `npm run build:web`
+- Output directory: `dist`
+
+Cuando lo importes en Vercel, te dará una URL pública tipo:
+`https://knodel-web.vercel.app`
+
+
+## Bootstrap offline-first desde backup
+
+Para evitar sincronizar durante días desde cero, el MVP incluye bootstrap offline con backup de Koinos.
+
+Referencias:
+- Backup: http://seed.koinosfoundation.org/backups/
+- Koinos: https://github.com/koinos/koinos
+- Block store service: https://github.com/koinos/koinos-block-store
+
+Comandos:
+
+```bash
+npm install
+npm run bootstrap:offline
+npm run api:local
+
+# si ya tienes un .tar.gz local (ejemplo /root/koinos_blockchain_backup.tar.gz)
+KNODEL_BACKUP_LOCAL_PATH=/root/koinos_blockchain_backup.tar.gz npm run bootstrap:offline
+```
+
+API local:
+- `GET /health`
+- `GET /blocks/latest?limit=20`
+- `GET /blocks/:height`
+
+Tests backend:
+
+```bash
+npm run test:backend
+```

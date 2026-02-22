@@ -1,0 +1,39 @@
+{
+  "name": "knodel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Knodel desktop base app (Electron + React + TypeScript)",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:main": "tsc -p tsconfig.electron.json --watch",
+    "dev:electron": "wait-on tcp:5173 dist-electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:web": "vite build",
+    "preview:web": "vite preview --host 0.0.0.0 --port 4173",
+    "bootstrap:offline": "node backend/src/bootstrap.js",
+    "api:local": "node backend/src/server.js",
+    "test:backend": "node --test backend/test/*.test.js"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "express": "^4.21.2",
+    "better-sqlite3": "^11.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "wait-on": "^8.0.1"
+  }
+}
