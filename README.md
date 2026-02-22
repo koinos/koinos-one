@@ -78,3 +78,28 @@ Abrir: `http://localhost:5173`
 Cuando lo importes en Vercel, te dará una URL pública tipo:
 `https://knodel-web.vercel.app`
 
+
+## Nodo local sin conflictos de puertos (fase inicial)
+
+Para evitar conflictos con un nodo Koinos real ya corriendo en el servidor, Knodel usa un **perfil local con puertos dedicados**.
+
+1. Copiar configuración local:
+
+```bash
+cp infra/koinos/.env.example infra/koinos/.env
+```
+
+2. Ajustar puertos y backup local en `infra/koinos/.env`.
+
+3. Ejecutar preflight antes de arrancar servicios:
+
+```bash
+npm run koinos:preflight
+```
+
+El preflight valida:
+- que los puertos del perfil local estén libres,
+- que exista el backup local (`BACKUP_TAR_PATH`).
+
+> Regla acordada: el bootstrap inicial siempre parte de backup local.
+
