@@ -64,3 +64,7 @@ Hoy, para analizar actividad de cadena, muchas soluciones dependen de servicios 
 ## Estado
 
 Proyecto en fase de definición inicial (MVP).
+
+## Seguimiento
+
+Este README implementa el alcance solicitado en el issue #1.
