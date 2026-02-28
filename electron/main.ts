@@ -332,6 +332,41 @@ const KOINOS_MANAGED_SERVICE_BY_DOCKER_SERVICE = new Map(
 )
 const KOINOS_MANAGED_SERVICE_BY_ID = new Map(KOINOS_MANAGED_SERVICES.map((definition) => [definition.id, definition] as const))
 
+function isAppleSiliconHost(): boolean {
+  return process.platform === 'darwin' && os.arch() === 'arm64'
+}
+
+function nativeCmakeExecutable(): string {
+  const homebrewCmake = '/opt/homebrew/bin/cmake'
+  if (isAppleSiliconHost() && fs.existsSync(homebrewCmake)) return homebrewCmake
+  return 'cmake'
+}
+
+function nativeGitExecutable(): string {
+  const systemGit = '/usr/bin/git'
+  return fs.existsSync(systemGit) ? systemGit : 'git'
+}
+
+function nativeCmakeConfigureArgs(buildDir = 'build'): string[] {
+  const args = ['-S', '.', '-B', buildDir, '-D', 'CMAKE_BUILD_TYPE=Release']
+
+  if (isAppleSiliconHost()) {
+    args.push('-D', 'CMAKE_OSX_ARCHITECTURES=arm64')
+    args.push('-D', 'CMAKE_APPLE_SILICON_PROCESSOR=arm64')
+  }
+
+  args.push('-D', `GIT_EXECUTABLE=${nativeGitExecutable()}`)
+  return args
+}
+
+function nativeCmakeConfigureCommand(buildDir = 'build'): string {
+  return [nativeCmakeExecutable(), ...nativeCmakeConfigureArgs(buildDir)].join(' ')
+}
+
+function nativeCmakeBuildCommand(buildDir = 'build'): string {
+  return [nativeCmakeExecutable(), '--build', buildDir, '--config', 'Release', '--parallel'].join(' ')
+}
+
 function nativeServiceBuildDefinitions(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT): NativeServiceBuildDefinition[] {
   return [
     {
@@ -339,14 +374,14 @@ function nativeServiceBuildDefinitions(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT):
       repoPath: path.join(sourceRoot, 'koinos-chain'),
       buildSystem: 'cmake',
       artifactPath: path.join(sourceRoot, 'koinos-chain', 'build', 'src', 'koinos_chain'),
-      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'mempool',
       repoPath: path.join(sourceRoot, 'koinos-mempool'),
       buildSystem: 'cmake',
       artifactPath: path.join(sourceRoot, 'koinos-mempool', 'build', 'src', 'koinos_mempool'),
-      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'block_store',
@@ -369,7 +404,7 @@ function nativeServiceBuildDefinitions(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT):
       repoPath: path.join(sourceRoot, 'koinos-block-producer'),
       buildSystem: 'cmake',
       artifactPath: path.join(sourceRoot, 'koinos-block-producer', 'build', 'src', 'koinos_block_producer'),
-      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'jsonrpc',
@@ -384,7 +419,7 @@ function nativeServiceBuildDefinitions(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT):
       repoPath: path.join(sourceRoot, 'koinos-grpc'),
       buildSystem: 'cmake',
       artifactPath: path.join(sourceRoot, 'koinos-grpc', 'build', 'src', 'koinos_grpc'),
-      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'transaction_store',
@@ -407,7 +442,7 @@ function nativeServiceBuildDefinitions(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT):
       repoPath: path.join(sourceRoot, 'koinos-account-history'),
       buildSystem: 'cmake',
       artifactPath: path.join(sourceRoot, 'koinos-account-history', 'build', 'src', 'koinos_account_history'),
-      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'rest',
@@ -428,7 +463,7 @@ const ACTIVE_RUNTIME_MODE: KoinosNodeServiceRuntime = 'docker'
 const AVAILABLE_RUNTIME_MODES: KoinosNodeServiceRuntime[] = ['docker']
 
 function nativeDockerPlatform(): string | null {
-  return process.platform === 'darwin' && os.arch() === 'arm64' ? 'linux/arm64' : null
+  return isAppleSiliconHost() ? 'linux/arm64' : null
 }
 
 function buildMacDockerDesktopOverrideContent(): string {
@@ -958,7 +993,7 @@ function firstOutputLine(output: string, fallback: string): string {
 
 async function detectNativeBuildToolStatuses(): Promise<Record<NativeBuildSystem, NativeBuildToolStatus>> {
   const cwd = process.cwd()
-  const cmakeResult = await runCommand('cmake', ['--version'], { cwd })
+  const cmakeResult = await runCommand(nativeCmakeExecutable(), ['--version'], { cwd })
   const clangResult = await runCommand('clang', ['--version'], { cwd })
   const goResult = await runCommand('go', ['version'], { cwd })
   const nodeResult = await runCommand('node', ['--version'], { cwd })
@@ -1088,11 +1123,9 @@ async function buildNativeService(definition: NativeServiceBuildDefinition): Pro
   }
 
   if (definition.buildSystem === 'cmake') {
-    const configureResult = await runCommand(
-      'cmake',
-      ['-S', '.', '-B', 'build', '-D', 'CMAKE_BUILD_TYPE=Release'],
-      { cwd: definition.repoPath }
-    )
+    const configureResult = await runCommand(nativeCmakeExecutable(), nativeCmakeConfigureArgs(), {
+      cwd: definition.repoPath
+    })
     if (!configureResult.ok) {
       return {
         ok: false,
@@ -1100,11 +1133,9 @@ async function buildNativeService(definition: NativeServiceBuildDefinition): Pro
       }
     }
 
-    const buildResult = await runCommand(
-      'cmake',
-      ['--build', 'build', '--config', 'Release', '--parallel'],
-      { cwd: definition.repoPath }
-    )
+    const buildResult = await runCommand(nativeCmakeExecutable(), ['--build', 'build', '--config', 'Release', '--parallel'], {
+      cwd: definition.repoPath
+    })
     return {
       ok: buildResult.ok,
       output: [configureResult.output, buildResult.output].filter(Boolean).join('\n')
