@@ -42,6 +42,7 @@ type NodeServiceActionState = {
   service: string
   action: NodeServiceAction
 }
+type NodeNativeBuildActionState = 'all' | string
 type NodeServiceCapabilities = {
   running: boolean
   dependencyNames: string[]
@@ -306,6 +307,54 @@ function sameProfiles(left: string[], right: string[]): boolean {
 
 function formatPresetProfiles(preset: KnodelKoinosNodePreset): string {
   return preset.profiles.length ? preset.profiles.join(', ') : 'core'
+}
+
+function basenameFromPath(input: string | null): string {
+  if (!input) return '-'
+  const parts = input.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] || input
+}
+
+function formatNativeBuildSystem(buildSystem: KnodelKoinosNativeBuildSystem | null): string {
+  if (buildSystem === 'cmake') return 'CMake'
+  if (buildSystem === 'go') return 'Go'
+  if (buildSystem === 'yarn') return 'Yarn'
+  return '-'
+}
+
+function formatNativeBuildStatus(
+  build: KnodelKoinosNodeNativeBuildStatus
+): { label: string; className: string } {
+  if (!build.supported) {
+    return { label: 'Unsupported', className: 'is-unsupported' }
+  }
+
+  if (!build.repoExists) {
+    return { label: 'Missing repo', className: 'is-blocked' }
+  }
+
+  if (!build.buildable) {
+    return { label: 'Blocked', className: 'is-blocked' }
+  }
+
+  if (build.artifactExists) {
+    return { label: 'Built', className: 'is-built' }
+  }
+
+  return { label: 'Pending', className: 'is-pending' }
+}
+
+function formatNativeBuildTooltip(build: KnodelKoinosNodeNativeBuildStatus): string {
+  const lines = [`Service: ${build.serviceName}`]
+
+  if (build.repoPath) lines.push(`Repo: ${build.repoPath}`)
+  if (build.artifactPath) lines.push(`Artifact: ${build.artifactPath}`)
+  if (build.note) lines.push(`Note: ${build.note}`)
+  if (build.buildCommands.length > 0) {
+    lines.push(`Build: ${build.buildCommands.join(' && ')}`)
+  }
+
+  return lines.join('\n')
 }
 
 function xterm256Color(value: number): string {
@@ -581,6 +630,12 @@ export function App() {
   const [nodePresetsLoading, setNodePresetsLoading] = useState(false)
   const [nodePresetsError, setNodePresetsError] = useState<string | null>(null)
   const [nodePresetActionLoading, setNodePresetActionLoading] = useState<string | null>(null)
+  const [nodeNativeBuilds, setNodeNativeBuilds] = useState<KnodelKoinosNodeNativeBuildsResult | null>(null)
+  const [nodeNativeBuildsLoading, setNodeNativeBuildsLoading] = useState(false)
+  const [nodeNativeBuildsError, setNodeNativeBuildsError] = useState<string | null>(null)
+  const [nodeNativeBuildActionLoading, setNodeNativeBuildActionLoading] = useState<NodeNativeBuildActionState | null>(
+    null
+  )
   const [nodeOutput, setNodeOutput] = useState<string>('')
   const [nodeError, setNodeError] = useState<string | null>(null)
   const [nodeFileEditorOpen, setNodeFileEditorOpen] = useState(false)
@@ -794,12 +849,47 @@ export function App() {
 
   useEffect(() => {
     if (!hasNodeControls) return
+
+    let disposed = false
+
+    const loadNativeBuilds = async () => {
+      const bridge = getKoinosNodeBridge()
+      if (!bridge?.nativeBuilds) return
+      setNodeNativeBuildsLoading(true)
+      setNodeNativeBuildsError(null)
+
+      try {
+        const builds = await bridge.nativeBuilds()
+        if (disposed) return
+        setNodeNativeBuilds(builds)
+        if (!builds.ok) {
+          setNodeNativeBuildsError(builds.output || 'No se pudo inspeccionar el workspace nativo')
+        }
+      } catch (error) {
+        if (disposed) return
+        setNodeNativeBuildsError(
+          error instanceof Error ? error.message : 'No se pudo inspeccionar el workspace nativo'
+        )
+      } finally {
+        if (!disposed) setNodeNativeBuildsLoading(false)
+      }
+    }
+
+    void loadNativeBuilds()
+
+    return () => {
+      disposed = true
+    }
+  }, [hasNodeControls])
+
+  useEffect(() => {
+    if (!hasNodeControls) return
     const bridge = getKoinosNodeBridge()
     if (!bridge) return
 
     let disposed = false
     const timer = window.setInterval(async () => {
-      if (disposed || nodeActionLoading || nodeServiceActionLoading || nodePresetActionLoading) return
+      if (disposed || nodeActionLoading || nodeServiceActionLoading || nodePresetActionLoading || nodeNativeBuildActionLoading) return
       try {
         const status = await bridge.status(toNodeApiSettings(nodeSettings))
         if (disposed) return
@@ -813,7 +903,7 @@ export function App() {
       disposed = true
       window.clearInterval(timer)
     }
-  }, [hasNodeControls, nodeSettings, nodeActionLoading, nodeServiceActionLoading, nodePresetActionLoading])
+  }, [hasNodeControls, nodeSettings, nodeActionLoading, nodeServiceActionLoading, nodePresetActionLoading, nodeNativeBuildActionLoading])
 
   useEffect(() => {
     let disposed = false
@@ -882,10 +972,29 @@ export function App() {
     nodeActionLoading !== null ||
     nodeCloneLoading ||
     nodeServiceActionLoading !== null ||
-    nodePresetActionLoading !== null
+    nodePresetActionLoading !== null ||
+    nodeNativeBuildActionLoading !== null
   const nodeCurrentProfiles = parseProfilesCsv(nodeSettings.profiles)
   const selectedNodePreset =
     nodePresets.find((preset) => sameProfiles(preset.profiles, nodeCurrentProfiles)) ?? null
+  const nodeNativeBuildServices = nodeNativeBuilds?.services ?? []
+  const nodeNativeSupportedCount = nodeNativeBuildServices.filter((service) => service.supported).length
+  const nodeNativeBuiltCount = nodeNativeBuildServices.filter(
+    (service) => service.supported && service.artifactExists
+  ).length
+  const nodeNativeBlockedCount = nodeNativeBuildServices.filter(
+    (service) => service.supported && !service.artifactExists && !service.buildable
+  ).length
+  const nodeNativePendingCount = nodeNativeBuildServices.filter(
+    (service) => service.supported && !service.artifactExists && service.buildable
+  ).length
+  const nodeNativeBuildSummaryText = nodeNativeBuilds
+    ? `${nodeNativeBuiltCount}/${nodeNativeSupportedCount} generados${
+        nodeNativeBlockedCount > 0 ? ` · ${nodeNativeBlockedCount} bloqueados` : ''
+      }${nodeNativePendingCount > 0 ? ` · ${nodeNativePendingCount} pendientes` : ''}`
+    : nodeNativeBuildsLoading
+      ? 'Inspeccionando repos locales...'
+      : 'Sin estado'
   const nodeServices = nodeStatus?.services ?? []
   const nodeServiceById = useMemo(
     () => new Map(nodeServices.map((service) => [service.id, service] as const)),
@@ -971,6 +1080,10 @@ export function App() {
     ? 'Disponible solo en Electron'
     : nodeCloneLoading
       ? 'Sincronizando repo...'
+    : nodeNativeBuildActionLoading
+      ? nodeNativeBuildActionLoading === 'all'
+        ? 'Compilando servicios nativos...'
+        : `Compilando ${nodeNativeBuildActionLoading}...`
     : nodeStatusLoading
       ? 'Consultando docker compose...'
       : nodePresetActionLoading
@@ -1030,6 +1143,24 @@ export function App() {
       setNodeError(error instanceof Error ? error.message : 'Error consultando Docker Compose')
     } finally {
       setNodeStatusLoading(false)
+    }
+  }
+
+  const refreshNodeNativeBuilds = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.nativeBuilds) return
+    setNodeNativeBuildsLoading(true)
+    setNodeNativeBuildsError(null)
+    try {
+      const builds = await bridge.nativeBuilds()
+      setNodeNativeBuilds(builds)
+      if (!builds.ok) {
+        setNodeNativeBuildsError(builds.output || 'No se pudo inspeccionar el workspace nativo')
+      }
+    } catch (error) {
+      setNodeNativeBuildsError(error instanceof Error ? error.message : 'No se pudo inspeccionar el workspace nativo')
+    } finally {
+      setNodeNativeBuildsLoading(false)
     }
   }
 
@@ -1352,6 +1483,54 @@ export function App() {
       )
     } finally {
       setNodeServiceActionLoading(null)
+    }
+  }
+
+  const runNodeNativeBuildAll = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.nativeBuildAll) return
+
+    setNodeNativeBuildActionLoading('all')
+    setNodeNativeBuildsError(null)
+
+    try {
+      const result = await bridge.nativeBuildAll()
+      setNodeNativeBuilds(result.builds)
+      setNodeOutput(result.output || result.builds.output || '')
+
+      if (!result.ok || !result.builds.ok) {
+        setNodeNativeBuildsError(result.output || result.builds.output || 'No se pudo compilar el workspace nativo')
+      }
+    } catch (error) {
+      setNodeNativeBuildsError(error instanceof Error ? error.message : 'Error compilando servicios nativos')
+    } finally {
+      setNodeNativeBuildActionLoading(null)
+    }
+  }
+
+  const runNodeNativeBuildService = async (serviceId: string) => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.nativeBuildService || !serviceId.trim()) return
+
+    setNodeNativeBuildActionLoading(serviceId)
+    setNodeNativeBuildsError(null)
+
+    try {
+      const result = await bridge.nativeBuildService({ serviceId })
+      setNodeNativeBuilds(result.builds)
+      setNodeOutput(result.output || result.builds.output || '')
+
+      if (!result.ok || !result.builds.ok) {
+        setNodeNativeBuildsError(
+          result.output || result.builds.output || `No se pudo compilar el servicio ${serviceId}`
+        )
+      }
+    } catch (error) {
+      setNodeNativeBuildsError(
+        error instanceof Error ? error.message : `Error compilando el servicio ${serviceId}`
+      )
+    } finally {
+      setNodeNativeBuildActionLoading(null)
     }
   }
 
@@ -1862,6 +2041,123 @@ export function App() {
             </div>
           ) : (
             <p className="node-empty">No se detectaron presets en el compose.</p>
+          )}
+        </div>
+
+        <div className="node-native-builds">
+          <div className="node-services-header">
+            <h3>Native Builds</h3>
+            <span>{nodeNativeBuildSummaryText}</span>
+          </div>
+
+          <div className="node-native-build-toolbar">
+            <span
+              className="node-native-build-root mono"
+              title={nodeNativeBuilds?.sourceRoot || '/Users/pgarcgo/code/koinos_code'}
+            >
+              {nodeNativeBuilds?.sourceRoot || '/Users/pgarcgo/code/koinos_code'}
+            </span>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                void refreshNodeNativeBuilds()
+              }}
+              disabled={!hasNodeControls || nodeBusy}
+            >
+              {nodeNativeBuildsLoading ? 'Refreshing...' : 'Refresh builds'}
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                void runNodeNativeBuildAll()
+              }}
+              disabled={!hasNodeControls || nodeBusy}
+            >
+              {nodeNativeBuildActionLoading === 'all' ? 'Building...' : 'Build all'}
+            </button>
+          </div>
+
+          {nodeNativeBuildsError && (
+            <div className="node-inline-error node-native-builds-error" role="alert">
+              {nodeNativeBuildsError}
+            </div>
+          )}
+
+          {nodeNativeBuildServices.length > 0 ? (
+            <div className="node-native-build-table-wrap">
+              <table className="node-native-build-table">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Build</th>
+                    <th>Repo</th>
+                    <th>Artifact</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nodeNativeBuildServices.map((build) => {
+                    const buildStatus = formatNativeBuildStatus(build)
+                    const buildTooltip = formatNativeBuildTooltip(build)
+                    const buildButtonTitle =
+                      !build.supported
+                        ? build.note || 'Servicio no soportado en modo nativo'
+                        : !build.repoExists
+                          ? build.note || 'No existe el repo local'
+                          : !build.buildable
+                            ? build.note || 'Toolchain no disponible'
+                            : `Compilar ${build.serviceName}`
+
+                    return (
+                      <tr key={build.serviceId}>
+                        <td className="node-native-build-service-cell" title={buildTooltip}>
+                          <span className="node-native-build-service mono">{build.serviceName}</span>
+                        </td>
+                        <td className="mono node-native-build-system-cell">{formatNativeBuildSystem(build.buildSystem)}</td>
+                        <td className="node-native-build-path-cell mono" title={build.repoPath || '-'}>
+                          {basenameFromPath(build.repoPath)}
+                        </td>
+                        <td className="node-native-build-path-cell mono" title={build.artifactPath || '-'}>
+                          <span>{basenameFromPath(build.artifactPath)}</span>
+                          <span className="node-native-build-updated">
+                            {build.artifactUpdatedAt ? formatDateTime(build.artifactUpdatedAt) : 'sin artefacto'}
+                          </span>
+                        </td>
+                        <td className="node-native-build-status-cell">
+                          <span className={`node-native-build-status ${buildStatus.className}`.trim()}>
+                            {buildStatus.label}
+                          </span>
+                          <span className="node-native-build-note mono" title={buildTooltip}>
+                            {build.note || '-'}
+                          </span>
+                        </td>
+                        <td className="node-service-action-cell">
+                          <span className="node-service-action-wrap" title={buildButtonTitle}>
+                            <button
+                              type="button"
+                              className="ghost-button node-service-inline-button"
+                              onClick={() => {
+                                void runNodeNativeBuildService(build.serviceId)
+                              }}
+                              disabled={!hasNodeControls || nodeBusy || !build.supported || !build.repoExists || !build.buildable}
+                            >
+                              {nodeNativeBuildActionLoading === build.serviceId ? 'Building...' : 'Build'}
+                            </button>
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="node-empty">
+              {nodeNativeBuildsLoading ? 'Inspeccionando repos locales...' : 'No hay servicios nativos registrados.'}
+            </p>
           )}
         </div>
 

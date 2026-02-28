@@ -13,6 +13,7 @@ const DEFAULT_ENV_FILE = '.env'
 const LEGACY_DEFAULT_ENV_FILE = 'env.example'
 const DEFAULT_PROFILES = ['block_producer', 'jsonrpc']
 const DEFAULT_BASEDIR = path.join(os.homedir(), '.koinos')
+const DEFAULT_KOINOS_SOURCE_ROOT = '/Users/pgarcgo/code/koinos_code'
 const KOINOS_GIT_CLONE_URL = 'https://github.com/koinos/koinos'
 const MAC_DOCKER_DESKTOP_OVERRIDE_PATH = path.join(os.tmpdir(), 'knodel-koinos-docker-desktop.override.yml')
 const MAC_DOCKER_DESKTOP_CONFIG_OVERRIDE_SERVICES = [
@@ -69,6 +70,18 @@ type ComposeServiceDefinition = {
 
 type ComposeResolvedServiceDefinition = {
   image: string | null
+}
+
+type NativeBuildSystem = 'cmake' | 'go' | 'yarn'
+
+type NativeServiceBuildDefinition = {
+  serviceId: string
+  repoPath: string
+  buildSystem: NativeBuildSystem
+  artifactPath: string
+  buildCommands: string[]
+  buildTarget?: string
+  goPackage?: string
 }
 
 type ComposeServiceStatus = {
@@ -147,6 +160,40 @@ type KoinosNodePresetCommandResult = {
   presetId: string
   output: string
   status: KoinosNodeStatus
+}
+
+type KoinosNodeNativeBuildStatus = {
+  serviceId: string
+  serviceName: string
+  supported: boolean
+  buildSystem: NativeBuildSystem | null
+  repoPath: string | null
+  repoExists: boolean
+  artifactPath: string | null
+  artifactExists: boolean
+  artifactUpdatedAt: number | null
+  buildable: boolean
+  note: string | null
+  buildCommands: string[]
+}
+
+type KoinosNodeNativeBuildsResult = {
+  ok: boolean
+  sourceRoot: string
+  services: KoinosNodeNativeBuildStatus[]
+  output: string
+}
+
+type KoinosNodeNativeBuildCommandInput = {
+  serviceId?: string
+}
+
+type KoinosNodeNativeBuildCommandResult = {
+  ok: boolean
+  action: 'build-all' | 'build-service'
+  serviceId: string | null
+  output: string
+  builds: KoinosNodeNativeBuildsResult
 }
 
 type KoinosNodeCloneRepoResult = {
@@ -235,6 +282,11 @@ type PlatformDescriptor = {
   variant?: string
 }
 
+type NativeBuildToolStatus = {
+  ok: boolean
+  note: string | null
+}
+
 const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
 const logsFollowSessions = new Map<string, LogsFollowSession>()
 let logsFollowSessionSeq = 0
@@ -279,6 +331,97 @@ const KOINOS_MANAGED_SERVICE_BY_DOCKER_SERVICE = new Map(
   KOINOS_MANAGED_SERVICES.map((definition) => [definition.dockerService, definition] as const)
 )
 const KOINOS_MANAGED_SERVICE_BY_ID = new Map(KOINOS_MANAGED_SERVICES.map((definition) => [definition.id, definition] as const))
+
+function nativeServiceBuildDefinitions(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT): NativeServiceBuildDefinition[] {
+  return [
+    {
+      serviceId: 'chain',
+      repoPath: path.join(sourceRoot, 'koinos-chain'),
+      buildSystem: 'cmake',
+      artifactPath: path.join(sourceRoot, 'koinos-chain', 'build', 'src', 'koinos_chain'),
+      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+    },
+    {
+      serviceId: 'mempool',
+      repoPath: path.join(sourceRoot, 'koinos-mempool'),
+      buildSystem: 'cmake',
+      artifactPath: path.join(sourceRoot, 'koinos-mempool', 'build', 'src', 'koinos_mempool'),
+      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+    },
+    {
+      serviceId: 'block_store',
+      repoPath: path.join(sourceRoot, 'koinos-block-store'),
+      buildSystem: 'go',
+      artifactPath: path.join(sourceRoot, 'koinos-block-store', 'build', 'bin', 'koinos-block-store'),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-block-store ./cmd/koinos-block-store'],
+      goPackage: './cmd/koinos-block-store'
+    },
+    {
+      serviceId: 'p2p',
+      repoPath: path.join(sourceRoot, 'koinos-p2p'),
+      buildSystem: 'go',
+      artifactPath: path.join(sourceRoot, 'koinos-p2p', 'build', 'bin', 'koinos-p2p'),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-p2p ./cmd/koinos-p2p'],
+      goPackage: './cmd/koinos-p2p'
+    },
+    {
+      serviceId: 'block_producer',
+      repoPath: path.join(sourceRoot, 'koinos-block-producer'),
+      buildSystem: 'cmake',
+      artifactPath: path.join(sourceRoot, 'koinos-block-producer', 'build', 'src', 'koinos_block_producer'),
+      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+    },
+    {
+      serviceId: 'jsonrpc',
+      repoPath: path.join(sourceRoot, 'koinos-jsonrpc'),
+      buildSystem: 'go',
+      artifactPath: path.join(sourceRoot, 'koinos-jsonrpc', 'build', 'bin', 'koinos-jsonrpc'),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-jsonrpc ./cmd/koinos-jsonrpc'],
+      goPackage: './cmd/koinos-jsonrpc'
+    },
+    {
+      serviceId: 'grpc',
+      repoPath: path.join(sourceRoot, 'koinos-grpc'),
+      buildSystem: 'cmake',
+      artifactPath: path.join(sourceRoot, 'koinos-grpc', 'build', 'src', 'koinos_grpc'),
+      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+    },
+    {
+      serviceId: 'transaction_store',
+      repoPath: path.join(sourceRoot, 'koinos-transaction-store'),
+      buildSystem: 'go',
+      artifactPath: path.join(sourceRoot, 'koinos-transaction-store', 'build', 'bin', 'koinos-transaction-store'),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-transaction-store ./cmd/koinos-transaction-store'],
+      goPackage: './cmd/koinos-transaction-store'
+    },
+    {
+      serviceId: 'contract_meta_store',
+      repoPath: path.join(sourceRoot, 'koinos-contract-meta-store'),
+      buildSystem: 'go',
+      artifactPath: path.join(sourceRoot, 'koinos-contract-meta-store', 'build', 'bin', 'koinos-contract-meta-store'),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-contract-meta-store ./cmd/koinos-contract-meta-store'],
+      goPackage: './cmd/koinos-contract-meta-store'
+    },
+    {
+      serviceId: 'account_history',
+      repoPath: path.join(sourceRoot, 'koinos-account-history'),
+      buildSystem: 'cmake',
+      artifactPath: path.join(sourceRoot, 'koinos-account-history', 'build', 'src', 'koinos_account_history'),
+      buildCommands: ['cmake -S . -B build -D CMAKE_BUILD_TYPE=Release', 'cmake --build build --config Release --parallel']
+    },
+    {
+      serviceId: 'rest',
+      repoPath: path.join(sourceRoot, 'koinos-rest'),
+      buildSystem: 'yarn',
+      artifactPath: path.join(sourceRoot, 'koinos-rest', '.next', 'BUILD_ID'),
+      buildCommands: ['yarn install --frozen-lockfile', 'yarn build']
+    }
+  ]
+}
+
+function nativeServiceBuildDefinitionMap(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT): Map<string, NativeServiceBuildDefinition> {
+  return new Map(nativeServiceBuildDefinitions(sourceRoot).map((definition) => [definition.serviceId, definition] as const))
+}
 
 // Native runtime is planned, but Docker remains the only active executor for now.
 const ACTIVE_RUNTIME_MODE: KoinosNodeServiceRuntime = 'docker'
@@ -802,6 +945,256 @@ async function ensureNativeComposeImages(
   return {
     ok: true,
     output: notes.join('\n')
+  }
+}
+
+function firstOutputLine(output: string, fallback: string): string {
+  const firstLine = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+  return firstLine || fallback
+}
+
+async function detectNativeBuildToolStatuses(): Promise<Record<NativeBuildSystem, NativeBuildToolStatus>> {
+  const cwd = process.cwd()
+  const cmakeResult = await runCommand('cmake', ['--version'], { cwd })
+  const clangResult = await runCommand('clang', ['--version'], { cwd })
+  const goResult = await runCommand('go', ['version'], { cwd })
+  const nodeResult = await runCommand('node', ['--version'], { cwd })
+  const yarnResult = await runCommand('yarn', ['--version'], { cwd })
+
+  const cmakeToolStatus =
+    cmakeResult.ok && clangResult.ok
+      ? { ok: true, note: null }
+      : {
+          ok: false,
+          note: /xcode license/i.test(`${cmakeResult.output}\n${clangResult.output}`)
+            ? 'Xcode CLI tools no estan listos: acepta antes la licencia de Xcode'
+            : firstOutputLine(
+                `${cmakeResult.output}\n${clangResult.output}`,
+                'No se encontro un toolchain C/C++ valido para servicios CMake'
+              )
+        }
+
+  const goToolStatus = goResult.ok
+    ? { ok: true, note: null }
+    : { ok: false, note: firstOutputLine(goResult.output, 'No se encontro Go para compilar servicios Go') }
+
+  const yarnToolStatus =
+    nodeResult.ok && yarnResult.ok
+      ? { ok: true, note: null }
+      : {
+          ok: false,
+          note: firstOutputLine(
+            `${nodeResult.output}\n${yarnResult.output}`,
+            'No se encontro Node/Yarn para compilar el servicio rest'
+          )
+        }
+
+  return {
+    cmake: cmakeToolStatus,
+    go: goToolStatus,
+    yarn: yarnToolStatus
+  }
+}
+
+function artifactUpdatedAt(artifactPath: string | null): number | null {
+  if (!artifactPath || !fs.existsSync(artifactPath)) return null
+  try {
+    return fs.statSync(artifactPath).mtimeMs
+  } catch {
+    return null
+  }
+}
+
+async function nativeBuildStatus(): Promise<KoinosNodeNativeBuildsResult> {
+  const sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT
+  const definitions = nativeServiceBuildDefinitionMap(sourceRoot)
+  const toolStatuses = await detectNativeBuildToolStatuses()
+
+  const services = KOINOS_MANAGED_SERVICES.map((service): KoinosNodeNativeBuildStatus => {
+    const definition = definitions.get(service.id)
+    if (!definition) {
+      return {
+        serviceId: service.id,
+        serviceName: service.displayName,
+        supported: false,
+        buildSystem: null,
+        repoPath: null,
+        repoExists: false,
+        artifactPath: null,
+        artifactExists: false,
+        artifactUpdatedAt: null,
+        buildable: false,
+        note: service.id === 'amqp' ? 'RabbitMQ no se compila desde /Users/pgarcgo/code/koinos_code' : 'Sin definicion de build nativa',
+        buildCommands: []
+      }
+    }
+
+    const repoExists = fs.existsSync(definition.repoPath)
+    const artifactExists = fs.existsSync(definition.artifactPath)
+    const toolStatus = toolStatuses[definition.buildSystem]
+
+    return {
+      serviceId: service.id,
+      serviceName: service.displayName,
+      supported: true,
+      buildSystem: definition.buildSystem,
+      repoPath: definition.repoPath,
+      repoExists,
+      artifactPath: definition.artifactPath,
+      artifactExists,
+      artifactUpdatedAt: artifactUpdatedAt(definition.artifactPath),
+      buildable: repoExists && toolStatus.ok,
+      note: !repoExists
+        ? `Repo path not found: ${definition.repoPath}`
+        : !toolStatus.ok
+        ? toolStatus.note
+        : artifactExists
+        ? null
+        : 'Aun no compilado',
+      buildCommands: definition.buildCommands
+    }
+  })
+
+  const builtCount = services.filter((service) => service.supported && service.artifactExists).length
+  const supportedCount = services.filter((service) => service.supported).length
+
+  return {
+    ok: true,
+    sourceRoot,
+    services,
+    output: `Native build workspace: ${sourceRoot} · ${builtCount}/${supportedCount} servicios con artefacto generado`
+  }
+}
+
+async function buildNativeService(definition: NativeServiceBuildDefinition): Promise<{ ok: boolean; output: string }> {
+  const toolStatuses = await detectNativeBuildToolStatuses()
+  const toolStatus = toolStatuses[definition.buildSystem]
+
+  if (!fs.existsSync(definition.repoPath)) {
+    return {
+      ok: false,
+      output: `Repo path not found: ${definition.repoPath}`
+    }
+  }
+
+  if (!toolStatus.ok) {
+    return {
+      ok: false,
+      output: toolStatus.note || `Toolchain no disponible para ${definition.buildSystem}`
+    }
+  }
+
+  if (definition.buildSystem === 'cmake') {
+    const configureResult = await runCommand(
+      'cmake',
+      ['-S', '.', '-B', 'build', '-D', 'CMAKE_BUILD_TYPE=Release'],
+      { cwd: definition.repoPath }
+    )
+    if (!configureResult.ok) {
+      return {
+        ok: false,
+        output: [configureResult.output].filter(Boolean).join('\n')
+      }
+    }
+
+    const buildResult = await runCommand(
+      'cmake',
+      ['--build', 'build', '--config', 'Release', '--parallel'],
+      { cwd: definition.repoPath }
+    )
+    return {
+      ok: buildResult.ok,
+      output: [configureResult.output, buildResult.output].filter(Boolean).join('\n')
+    }
+  }
+
+  if (definition.buildSystem === 'go') {
+    fs.mkdirSync(path.dirname(definition.artifactPath), { recursive: true })
+    const buildResult = await runCommand(
+      'go',
+      ['build', '-o', definition.artifactPath, definition.goPackage || '.'],
+      {
+        cwd: definition.repoPath,
+        env: { CGO_ENABLED: '0' }
+      }
+    )
+    return {
+      ok: buildResult.ok,
+      output: buildResult.output
+    }
+  }
+
+  const installResult = await runCommand('yarn', ['install', '--frozen-lockfile'], { cwd: definition.repoPath })
+  if (!installResult.ok) {
+    return {
+      ok: false,
+      output: installResult.output
+    }
+  }
+
+  const buildResult = await runCommand('yarn', ['build'], { cwd: definition.repoPath })
+  return {
+    ok: buildResult.ok,
+    output: [installResult.output, buildResult.output].filter(Boolean).join('\n')
+  }
+}
+
+async function nativeBuildAll(): Promise<KoinosNodeNativeBuildCommandResult> {
+  const sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT
+  const definitions = nativeServiceBuildDefinitionMap(sourceRoot)
+  const logs: string[] = []
+  let ok = true
+
+  for (const service of KOINOS_MANAGED_SERVICES) {
+    const definition = definitions.get(service.id)
+    if (!definition) {
+      logs.push(`[${service.id}] omitido: sin build nativo definido`)
+      continue
+    }
+
+    const result = await buildNativeService(definition)
+    logs.push(`=== ${service.id} ===\n${result.output || '(sin salida)'}`)
+    if (!result.ok) ok = false
+  }
+
+  const builds = await nativeBuildStatus()
+  return {
+    ok,
+    action: 'build-all',
+    serviceId: null,
+    output: logs.join('\n\n'),
+    builds
+  }
+}
+
+async function nativeBuildServiceAction(input?: KoinosNodeNativeBuildCommandInput): Promise<KoinosNodeNativeBuildCommandResult> {
+  const serviceId = input?.serviceId?.trim() || ''
+  const sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT
+  const definitions = nativeServiceBuildDefinitionMap(sourceRoot)
+  const definition = definitions.get(serviceId)
+
+  if (!serviceId || !definition) {
+    const builds = await nativeBuildStatus()
+    return {
+      ok: false,
+      action: 'build-service',
+      serviceId: serviceId || null,
+      output: serviceId ? `No hay build nativo configurado para ${serviceId}` : 'Parametro serviceId invalido',
+      builds
+    }
+  }
+
+  const result = await buildNativeService(definition)
+  const builds = await nativeBuildStatus()
+  return {
+    ok: result.ok,
+    action: 'build-service',
+    serviceId,
+    output: result.output,
+    builds
   }
 }
 
@@ -1684,6 +2077,9 @@ function registerIpcHandlers() {
     'knodel:koinos-node:file-write',
     'knodel:koinos-node:status',
     'knodel:koinos-node:presets',
+    'knodel:koinos-node:native-builds',
+    'knodel:koinos-node:native-build-all',
+    'knodel:koinos-node:native-build-service',
     'knodel:koinos-node:start',
     'knodel:koinos-node:stop',
     'knodel:koinos-node:service-start',
@@ -1740,6 +2136,18 @@ function registerIpcHandlers() {
 
   ipcMain.handle('knodel:koinos-node:presets', async (_event, input?: KoinosNodeSettingsInput) => {
     return dockerComposePresets(input)
+  })
+
+  ipcMain.handle('knodel:koinos-node:native-builds', async () => {
+    return nativeBuildStatus()
+  })
+
+  ipcMain.handle('knodel:koinos-node:native-build-all', async () => {
+    return nativeBuildAll()
+  })
+
+  ipcMain.handle('knodel:koinos-node:native-build-service', async (_event, input?: KoinosNodeNativeBuildCommandInput) => {
+    return nativeBuildServiceAction(input)
   })
 
   ipcMain.handle('knodel:koinos-node:start', async (_event, input?: KoinosNodeSettingsInput) => {
