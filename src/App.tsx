@@ -12,7 +12,8 @@ const DEFAULT_NODE_SETTINGS = {
   composeFile: 'docker-compose.yml',
   envFile: '.env',
   baseDir: '~/.koinos',
-  profiles: 'block_producer,jsonrpc'
+  profiles: 'block_producer,jsonrpc',
+  runtimeMode: 'docker' as KnodelKoinosNodeServiceRuntime
 } as const
 
 type ExplorerSettings = {
@@ -27,6 +28,7 @@ type NodeManagerSettings = {
   envFile: string
   baseDir: string
   profiles: string
+  runtimeMode: KnodelKoinosNodeServiceRuntime
 }
 
 type NodeAction = 'start' | 'stop'
@@ -34,19 +36,20 @@ type NodeServiceAction = 'start' | 'stop' | 'restart'
 type AppTab = 'explorer' | 'node' | 'settings'
 type NodeManagedFileKind = 'compose' | 'env' | 'config'
 type NodeServiceContextMenuState = {
-  service: string
+  serviceId: string
   x: number
   y: number
 }
 type NodeServiceActionState = {
-  service: string
+  serviceId: string
   action: NodeServiceAction
 }
+type NodeNativeBuildActionState = 'all' | string
 type NodeServiceCapabilities = {
   running: boolean
   dependencyNames: string[]
   missingDependencyNames: string[]
-  runningDependentNames: string[]
+  profileDependentNames: string[]
   startBlockedReason: string | null
   stopBlockedReason: string | null
   restartBlockedReason: string | null
@@ -217,7 +220,8 @@ function loadInitialNodeSettings(): NodeManagerSettings {
           : DEFAULT_NODE_SETTINGS.envFile,
       baseDir:
         typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : DEFAULT_NODE_SETTINGS.baseDir,
-      profiles: typeof parsed.profiles === 'string' ? parsed.profiles : DEFAULT_NODE_SETTINGS.profiles
+      profiles: typeof parsed.profiles === 'string' ? parsed.profiles : DEFAULT_NODE_SETTINGS.profiles,
+      runtimeMode: parsed.runtimeMode === 'native' ? 'native' : DEFAULT_NODE_SETTINGS.runtimeMode
     }
   } catch {
     return { ...DEFAULT_NODE_SETTINGS }
@@ -237,7 +241,8 @@ function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNodeSetti
     composeFile: settings.composeFile.trim(),
     envFile: settings.envFile.trim(),
     baseDir: settings.baseDir.trim(),
-    profiles: parseProfilesCsv(settings.profiles)
+    profiles: parseProfilesCsv(settings.profiles),
+    runtimeMode: settings.runtimeMode
   }
 }
 
@@ -264,6 +269,10 @@ function formatNodeServiceType(service: KnodelKoinosNodeServiceStatus): string {
   return service.runtimeType === 'native' ? 'Native' : 'Docker'
 }
 
+function formatNodeRuntimeMode(mode: KnodelKoinosNodeServiceRuntime): string {
+  return mode === 'native' ? 'Native' : 'Docker'
+}
+
 function formatNodeServiceTooltip(
   service: KnodelKoinosNodeServiceStatus,
   capabilities: NodeServiceCapabilities
@@ -274,8 +283,8 @@ function formatNodeServiceTooltip(
     `Depends on: ${capabilities.dependencyNames.length > 0 ? capabilities.dependencyNames.join(', ') : 'none'}`
   )
 
-  if (capabilities.runningDependentNames.length > 0) {
-    lines.push(`Used by: ${capabilities.runningDependentNames.join(', ')}`)
+  if (capabilities.profileDependentNames.length > 0) {
+    lines.push(`Used by: ${capabilities.profileDependentNames.join(', ')}`)
   }
 
   if (capabilities.missingDependencyNames.length > 0) {
@@ -306,6 +315,54 @@ function sameProfiles(left: string[], right: string[]): boolean {
 
 function formatPresetProfiles(preset: KnodelKoinosNodePreset): string {
   return preset.profiles.length ? preset.profiles.join(', ') : 'core'
+}
+
+function basenameFromPath(input: string | null): string {
+  if (!input) return '-'
+  const parts = input.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] || input
+}
+
+function formatNativeBuildSystem(buildSystem: KnodelKoinosNativeBuildSystem | null): string {
+  if (buildSystem === 'cmake') return 'CMake'
+  if (buildSystem === 'go') return 'Go'
+  if (buildSystem === 'yarn') return 'Yarn'
+  return '-'
+}
+
+function formatNativeBuildStatus(
+  build: KnodelKoinosNodeNativeBuildStatus
+): { label: string; className: string } {
+  if (!build.supported) {
+    return { label: 'Unsupported', className: 'is-unsupported' }
+  }
+
+  if (!build.repoExists) {
+    return { label: 'Missing repo', className: 'is-blocked' }
+  }
+
+  if (!build.buildable) {
+    return { label: 'Blocked', className: 'is-blocked' }
+  }
+
+  if (build.artifactExists) {
+    return { label: 'Built', className: 'is-built' }
+  }
+
+  return { label: 'Pending', className: 'is-pending' }
+}
+
+function formatNativeBuildTooltip(build: KnodelKoinosNodeNativeBuildStatus): string {
+  const lines = [`Service: ${build.serviceName}`]
+
+  if (build.repoPath) lines.push(`Repo: ${build.repoPath}`)
+  if (build.artifactPath) lines.push(`Artifact: ${build.artifactPath}`)
+  if (build.note) lines.push(`Note: ${build.note}`)
+  if (build.buildCommands.length > 0) {
+    lines.push(`Build: ${build.buildCommands.join(' && ')}`)
+  }
+
+  return lines.join('\n')
 }
 
 function xterm256Color(value: number): string {
@@ -572,6 +629,9 @@ export function App() {
   const [draftNodeEnvFile, setDraftNodeEnvFile] = useState(nodeSettings.envFile)
   const [draftNodeBaseDir, setDraftNodeBaseDir] = useState(nodeSettings.baseDir)
   const [draftNodeProfiles, setDraftNodeProfiles] = useState(nodeSettings.profiles)
+  const [draftNodeRuntimeMode, setDraftNodeRuntimeMode] = useState<KnodelKoinosNodeServiceRuntime>(
+    nodeSettings.runtimeMode
+  )
   const [nodeStatus, setNodeStatus] = useState<KnodelKoinosNodeStatus | null>(null)
   const [nodeStatusLoading, setNodeStatusLoading] = useState(false)
   const [nodeActionLoading, setNodeActionLoading] = useState<NodeAction | null>(null)
@@ -581,6 +641,12 @@ export function App() {
   const [nodePresetsLoading, setNodePresetsLoading] = useState(false)
   const [nodePresetsError, setNodePresetsError] = useState<string | null>(null)
   const [nodePresetActionLoading, setNodePresetActionLoading] = useState<string | null>(null)
+  const [nodeNativeBuilds, setNodeNativeBuilds] = useState<KnodelKoinosNodeNativeBuildsResult | null>(null)
+  const [nodeNativeBuildsLoading, setNodeNativeBuildsLoading] = useState(false)
+  const [nodeNativeBuildsError, setNodeNativeBuildsError] = useState<string | null>(null)
+  const [nodeNativeBuildActionLoading, setNodeNativeBuildActionLoading] = useState<NodeNativeBuildActionState | null>(
+    null
+  )
   const [nodeOutput, setNodeOutput] = useState<string>('')
   const [nodeError, setNodeError] = useState<string | null>(null)
   const [nodeFileEditorOpen, setNodeFileEditorOpen] = useState(false)
@@ -624,6 +690,7 @@ export function App() {
     setDraftNodeEnvFile(nodeSettings.envFile)
     setDraftNodeBaseDir(nodeSettings.baseDir)
     setDraftNodeProfiles(nodeSettings.profiles)
+    setDraftNodeRuntimeMode(nodeSettings.runtimeMode)
   }, [nodeSettings])
 
   useEffect(() => {
@@ -646,7 +713,7 @@ export function App() {
   }, [freshBlockIds])
 
   useEffect(() => {
-    const services = nodeStatus?.services.map((svc) => svc.service) ?? []
+    const services = nodeStatus?.services.map((svc) => svc.id) ?? []
     if (nodeLogsService && !services.includes(nodeLogsService)) {
       setNodeLogsService(services.includes('jsonrpc') ? 'jsonrpc' : '')
       setNodeLogsModalOpen(false)
@@ -751,10 +818,10 @@ export function App() {
         const result = await bridge.presets(toNodeApiSettings(nodeSettings))
         if (disposed) return
         setNodePresets(result.presets ?? [])
-        if (!result.ok) setNodePresetsError(result.output || 'No se pudieron leer los presets del compose')
+        if (!result.ok) setNodePresetsError(result.output || 'No se pudieron leer los profiles del compose')
       } catch (error) {
         if (disposed) return
-        setNodePresetsError(error instanceof Error ? error.message : 'No se pudieron leer los presets del compose')
+        setNodePresetsError(error instanceof Error ? error.message : 'No se pudieron leer los profiles del compose')
       } finally {
         if (!disposed) setNodePresetsLoading(false)
       }
@@ -778,7 +845,7 @@ export function App() {
         }
       } catch (error) {
         if (disposed) return
-        setNodeError(error instanceof Error ? error.message : 'Error consultando Docker Compose')
+        setNodeError(error instanceof Error ? error.message : 'Error consultando el nodo local')
       } finally {
         if (!disposed) setNodeStatusLoading(false)
       }
@@ -794,12 +861,47 @@ export function App() {
 
   useEffect(() => {
     if (!hasNodeControls) return
+
+    let disposed = false
+
+    const loadNativeBuilds = async () => {
+      const bridge = getKoinosNodeBridge()
+      if (!bridge?.nativeBuilds) return
+      setNodeNativeBuildsLoading(true)
+      setNodeNativeBuildsError(null)
+
+      try {
+        const builds = await bridge.nativeBuilds()
+        if (disposed) return
+        setNodeNativeBuilds(builds)
+        if (!builds.ok) {
+          setNodeNativeBuildsError(builds.output || 'No se pudo inspeccionar el workspace nativo')
+        }
+      } catch (error) {
+        if (disposed) return
+        setNodeNativeBuildsError(
+          error instanceof Error ? error.message : 'No se pudo inspeccionar el workspace nativo'
+        )
+      } finally {
+        if (!disposed) setNodeNativeBuildsLoading(false)
+      }
+    }
+
+    void loadNativeBuilds()
+
+    return () => {
+      disposed = true
+    }
+  }, [hasNodeControls])
+
+  useEffect(() => {
+    if (!hasNodeControls) return
     const bridge = getKoinosNodeBridge()
     if (!bridge) return
 
     let disposed = false
     const timer = window.setInterval(async () => {
-      if (disposed || nodeActionLoading || nodeServiceActionLoading || nodePresetActionLoading) return
+      if (disposed || nodeActionLoading || nodeServiceActionLoading || nodePresetActionLoading || nodeNativeBuildActionLoading) return
       try {
         const status = await bridge.status(toNodeApiSettings(nodeSettings))
         if (disposed) return
@@ -813,7 +915,7 @@ export function App() {
       disposed = true
       window.clearInterval(timer)
     }
-  }, [hasNodeControls, nodeSettings, nodeActionLoading, nodeServiceActionLoading, nodePresetActionLoading])
+  }, [hasNodeControls, nodeSettings, nodeActionLoading, nodeServiceActionLoading, nodePresetActionLoading, nodeNativeBuildActionLoading])
 
   useEffect(() => {
     let disposed = false
@@ -882,20 +984,40 @@ export function App() {
     nodeActionLoading !== null ||
     nodeCloneLoading ||
     nodeServiceActionLoading !== null ||
-    nodePresetActionLoading !== null
+    nodePresetActionLoading !== null ||
+    nodeNativeBuildActionLoading !== null
+  const nodeRuntimeMode = nodeStatus?.runtimeMode ?? nodeSettings.runtimeMode
+  const nodeAvailableRuntimeModes = nodeStatus?.availableRuntimeModes ?? ['docker', 'native']
   const nodeCurrentProfiles = parseProfilesCsv(nodeSettings.profiles)
   const selectedNodePreset =
     nodePresets.find((preset) => sameProfiles(preset.profiles, nodeCurrentProfiles)) ?? null
+  const nodeNativeBuildServices = nodeNativeBuilds?.services ?? []
+  const nodeNativeSupportedCount = nodeNativeBuildServices.filter((service) => service.supported).length
+  const nodeNativeBuiltCount = nodeNativeBuildServices.filter(
+    (service) => service.supported && service.artifactExists
+  ).length
+  const nodeNativeBlockedCount = nodeNativeBuildServices.filter(
+    (service) => service.supported && !service.artifactExists && !service.buildable
+  ).length
+  const nodeNativePendingCount = nodeNativeBuildServices.filter(
+    (service) => service.supported && !service.artifactExists && service.buildable
+  ).length
+  const nodeNativeBuildSummaryText = nodeNativeBuilds
+    ? `${nodeNativeBuiltCount}/${nodeNativeSupportedCount} generados${
+        nodeNativeBlockedCount > 0 ? ` · ${nodeNativeBlockedCount} bloqueados` : ''
+      }${nodeNativePendingCount > 0 ? ` · ${nodeNativePendingCount} pendientes` : ''}`
+    : nodeNativeBuildsLoading
+      ? 'Inspeccionando repos locales...'
+      : 'Sin estado'
   const nodeServices = nodeStatus?.services ?? []
   const nodeServiceById = useMemo(
     () => new Map(nodeServices.map((service) => [service.id, service] as const)),
     [nodeServices]
   )
-  const nodeRunningDependentsByServiceId = useMemo(() => {
+  const nodeProfileDependentsByServiceId = useMemo(() => {
     const dependents = new Map<string, KnodelKoinosNodeServiceStatus[]>()
 
     for (const service of nodeServices) {
-      if (!isNodeServiceRunning(service)) continue
       for (const dependencyId of service.dependsOn) {
         const current = dependents.get(dependencyId)
         if (current) current.push(service)
@@ -918,7 +1040,7 @@ export function App() {
           return !dependency || !isNodeServiceRunning(dependency)
         })
         .map(serviceLabel)
-      const runningDependentNames = (nodeRunningDependentsByServiceId.get(service.id) ?? []).map(
+      const profileDependentNames = (nodeProfileDependentsByServiceId.get(service.id) ?? []).map(
         (dependent) => dependent.name
       )
 
@@ -926,7 +1048,7 @@ export function App() {
         running,
         dependencyNames,
         missingDependencyNames,
-        runningDependentNames,
+        profileDependentNames,
         startBlockedReason: running
           ? 'El servicio ya esta activo'
           : missingDependencyNames.length > 0
@@ -934,8 +1056,8 @@ export function App() {
             : null,
         stopBlockedReason: !running
           ? 'El servicio ya esta detenido'
-          : runningDependentNames.length > 0
-            ? `Servicios dependientes activos: ${runningDependentNames.join(', ')}`
+          : profileDependentNames.length > 0
+            ? `Servicios dependientes en el profile actual: ${profileDependentNames.join(', ')}`
             : null,
         restartBlockedReason:
           !running && missingDependencyNames.length > 0
@@ -945,14 +1067,15 @@ export function App() {
     }
 
     return capabilities
-  }, [nodeRunningDependentsByServiceId, nodeServiceById, nodeServices])
+  }, [nodeProfileDependentsByServiceId, nodeServiceById, nodeServices])
   const nodeRunningServiceIds = useMemo(
     () => nodeServices.filter((service) => isNodeServiceRunning(service)).map((service) => service.id),
     [nodeServices]
   )
   const nodeContextService = nodeServiceContextMenu
-    ? nodeServices.find((service) => service.service === nodeServiceContextMenu.service) ?? null
+    ? nodeServices.find((service) => service.id === nodeServiceContextMenu.serviceId) ?? null
     : null
+  const nodeLogsTargetService = nodeLogsService ? nodeServiceById.get(nodeLogsService) ?? null : null
   const nodeContextServiceCapabilities = nodeContextService
     ? nodeServiceCapabilities.get(nodeContextService.id) ?? null
     : null
@@ -965,16 +1088,20 @@ export function App() {
     ? sameStringList(selectedNodePreset.services, nodeRunningServiceIds)
     : false
   const nodePresetSummaryText = selectedNodePreset
-    ? `${selectedNodePreset.label} · ${selectedNodePreset.services.length} servicios${selectedNodePresetMatchesRunningState ? '' : ' · pendiente de reconcile'}`
+    ? `${selectedNodePreset.label} · ${selectedNodePreset.services.length} servicios${selectedNodePresetMatchesRunningState ? '' : ' · pendiente de aplicar'}`
     : `Custom · ${nodeCurrentProfiles.length ? nodeCurrentProfiles.join(', ') : 'core'}`
   const nodeStateText = !hasNodeControls
     ? 'Disponible solo en Electron'
     : nodeCloneLoading
       ? 'Sincronizando repo...'
+    : nodeNativeBuildActionLoading
+      ? nodeNativeBuildActionLoading === 'all'
+        ? 'Compilando servicios nativos...'
+        : `Compilando ${nodeNativeBuildActionLoading}...`
     : nodeStatusLoading
-      ? 'Consultando docker compose...'
+      ? 'Consultando estado del nodo...'
       : nodePresetActionLoading
-        ? 'Reconciliando preset...'
+        ? 'Aplicando profile...'
       : nodeActionLoading
         ? `${nodeActionLoading === 'start' ? 'Iniciando' : 'Deteniendo'} nodo...`
         : nodeStatus
@@ -1027,10 +1154,37 @@ export function App() {
       const status = await bridge.status(toNodeApiSettings(effectiveSettings))
       syncNodeStatusState(status)
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'Error consultando Docker Compose')
+      setNodeError(error instanceof Error ? error.message : 'Error consultando el nodo local')
     } finally {
       setNodeStatusLoading(false)
     }
+  }
+
+  const refreshNodeNativeBuilds = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.nativeBuilds) return
+    setNodeNativeBuildsLoading(true)
+    setNodeNativeBuildsError(null)
+    try {
+      const builds = await bridge.nativeBuilds()
+      setNodeNativeBuilds(builds)
+      if (!builds.ok) {
+        setNodeNativeBuildsError(builds.output || 'No se pudo inspeccionar el workspace nativo')
+      }
+    } catch (error) {
+      setNodeNativeBuildsError(error instanceof Error ? error.message : 'No se pudo inspeccionar el workspace nativo')
+    } finally {
+      setNodeNativeBuildsLoading(false)
+    }
+  }
+
+  const switchNodeRuntimeMode = (runtimeMode: KnodelKoinosNodeServiceRuntime) => {
+    const nextSettings = { ...nodeSettings, runtimeMode }
+    setNodeSettings(nextSettings)
+    setDraftNodeRuntimeMode(runtimeMode)
+    setNodeError(null)
+    setNodeOutput(`Runtime seleccionado: ${formatNodeRuntimeMode(runtimeMode)}`)
+    void refreshNodeStatus(nextSettings)
   }
 
   const applyNodePreset = (preset: KnodelKoinosNodePreset) => {
@@ -1040,7 +1194,7 @@ export function App() {
     setDraftNodeProfiles(nextProfiles)
     setFormError(null)
     setNodeError(null)
-    setNodeOutput(`Preset seleccionado: ${preset.label} · profiles: ${formatPresetProfiles(preset)} · usa Reconcile para ajustar servicios`)
+    setNodeOutput(`Profile seleccionado: ${preset.label} · profiles: ${formatPresetProfiles(preset)} · usa Apply para ajustar servicios`)
     void refreshNodeStatus(nextSettings)
   }
 
@@ -1067,14 +1221,14 @@ export function App() {
       setNodeOutput(result.output || result.status.output || '')
 
       if (!result.ok || !result.status.ok) {
-        setNodeError(result.output || result.status.output || `No se pudo reconciliar el preset ${preset.label}`)
+        setNodeError(result.output || result.status.output || `No se pudo aplicar el profile ${preset.label}`)
       } else {
         setNodeError(null)
       }
 
       if (nodeLogsModalOpen && nodeLogsService) {
         const logsServiceStillRunning = result.status.services.some(
-          (service) => service.service === nodeLogsService && isNodeServiceRunning(service)
+          (service) => service.id === nodeLogsService && isNodeServiceRunning(service)
         )
 
         if (logsServiceStillRunning) {
@@ -1084,7 +1238,7 @@ export function App() {
         }
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : `Error reconciliando preset ${preset.label}`)
+      setNodeError(error instanceof Error ? error.message : `Error aplicando profile ${preset.label}`)
     } finally {
       setNodePresetActionLoading(null)
     }
@@ -1125,7 +1279,8 @@ export function App() {
       composeFile: draftNodeComposeFile.trim(),
       envFile: draftNodeEnvFile.trim(),
       baseDir: draftNodeBaseDir.trim(),
-      profiles: parseProfilesCsv(draftNodeProfiles)
+      profiles: parseProfilesCsv(draftNodeProfiles),
+      runtimeMode: draftNodeRuntimeMode
     }
   }
 
@@ -1199,13 +1354,14 @@ export function App() {
     }
   }
 
-  const openServiceLogsModal = (service: string) => {
-    setNodeLogsService(service)
+  const openServiceLogsModal = (serviceId: string) => {
+    setNodeLogsService(serviceId)
     setNodeLogsModalOpen(true)
     setNodeServiceContextMenu(null)
     setNodeLogsError(null)
     setNodeLogsOutput('')
     setNodeLogsLastRefreshAt(null)
+    setNodeLogsStreamId(null)
   }
 
   const stopNodeLogsStream = async (streamIdOverride?: string | null) => {
@@ -1229,11 +1385,11 @@ export function App() {
 
   const refreshNodeLogs = async (serviceOverride?: string) => {
     const bridge = getKoinosNodeBridge()
-    if (!bridge?.logsFollowStart) return
+    if (!bridge?.logsFollowStart || !bridge?.logs) return
 
     const tail = clamp(Number.parseInt(nodeLogsTail, 10) || 200, 20, 2000)
-    const service = (serviceOverride ?? nodeLogsService).trim()
-    if (!service) {
+    const serviceId = (serviceOverride ?? nodeLogsService).trim()
+    if (!serviceId) {
       setNodeLogsError('Selecciona un servicio para ver logs')
       return
     }
@@ -1244,15 +1400,35 @@ export function App() {
     setNodeLogsLastRefreshAt(null)
     try {
       await stopNodeLogsStream()
-      const result = await bridge.logsFollowStart({
+      const logsResult = await bridge.logs({
         ...toNodeApiSettings(nodeSettings),
-        service: service || undefined,
+        service: serviceId || undefined,
         tail
       })
-      setNodeLogsService(service)
+      if (!logsResult.ok) {
+        throw new Error(logsResult.output || `No se pudieron leer los logs de ${serviceId}`)
+      }
+      setNodeLogsOutput(logsResult.output ?? '')
+      setNodeLogsLastRefreshAt(Date.now())
+
+      const result = await bridge.logsFollowStart({
+        ...toNodeApiSettings(nodeSettings),
+        service: serviceId || undefined,
+        tail
+      })
+      if (!result.ok) {
+        setNodeLogsStreamId(null)
+        setNodeLogsLoading(false)
+        setNodeLogsError(
+          result.output || `No se pudo abrir el stream de logs para ${serviceId}. Mostrando snapshot actual.`
+        )
+        return
+      }
+      setNodeLogsService(serviceId)
       setNodeLogsStreamId(result.streamId)
       setNodeLogsLoading(false)
     } catch (error) {
+      setNodeLogsStreamId(null)
       setNodeLogsError(error instanceof Error ? error.message : 'Error cargando logs')
       setNodeLogsLoading(false)
     } finally {
@@ -1299,31 +1475,31 @@ export function App() {
       setNodeError(
         error instanceof Error
           ? error.message
-          : `Error al ${action === 'start' ? 'iniciar' : 'detener'} docker compose`
+          : `Error al ${action === 'start' ? 'iniciar' : 'detener'} el nodo`
       )
     } finally {
       setNodeActionLoading(null)
     }
   }
 
-  const runNodeServiceAction = async (service: string, action: NodeServiceAction) => {
+  const runNodeServiceAction = async (serviceId: string, action: NodeServiceAction) => {
     const bridge = getKoinosNodeBridge()
-    if (!service.trim()) return
+    if (!serviceId.trim()) return
     if (action === 'start' && !bridge?.serviceStart) return
     if (action === 'stop' && !bridge?.serviceStop) return
     if (action === 'restart' && !bridge?.serviceRestart) return
 
-    setNodeServiceActionLoading({ service, action })
+    setNodeServiceActionLoading({ serviceId, action })
     setNodeServiceContextMenu(null)
     setNodeError(null)
 
     try {
       const result =
         action === 'start'
-          ? await bridge.serviceStart({ ...toNodeApiSettings(nodeSettings), service })
+          ? await bridge.serviceStart({ ...toNodeApiSettings(nodeSettings), service: serviceId })
           : action === 'stop'
-            ? await bridge.serviceStop({ ...toNodeApiSettings(nodeSettings), service })
-            : await bridge.serviceRestart({ ...toNodeApiSettings(nodeSettings), service })
+            ? await bridge.serviceStop({ ...toNodeApiSettings(nodeSettings), service: serviceId })
+            : await bridge.serviceRestart({ ...toNodeApiSettings(nodeSettings), service: serviceId })
 
       setNodeStatus(result.status)
       setNodeOutput(result.output || result.status.output || '')
@@ -1332,26 +1508,74 @@ export function App() {
         setNodeError(
           result.output ||
             result.status.output ||
-            `No se pudo ${action === 'start' ? 'iniciar' : action === 'stop' ? 'detener' : 'reiniciar'} el servicio ${service}`
+            `No se pudo ${action === 'start' ? 'iniciar' : action === 'stop' ? 'detener' : 'reiniciar'} el servicio ${serviceId}`
         )
       } else {
         setNodeError(null)
       }
 
-      if ((action === 'start' || action === 'restart') && nodeLogsModalOpen && nodeLogsService === service) {
-        void refreshNodeLogs(service)
+      if ((action === 'start' || action === 'restart') && nodeLogsModalOpen && nodeLogsService === serviceId) {
+        void refreshNodeLogs(serviceId)
       }
-      if (action === 'stop' && nodeLogsModalOpen && nodeLogsService === service) {
+      if (action === 'stop' && nodeLogsModalOpen && nodeLogsService === serviceId) {
         setNodeLogsModalOpen(false)
       }
     } catch (error) {
       setNodeError(
         error instanceof Error
           ? error.message
-          : `Error al ${action === 'start' ? 'iniciar' : action === 'stop' ? 'detener' : 'reiniciar'} el servicio ${service}`
+          : `Error al ${action === 'start' ? 'iniciar' : action === 'stop' ? 'detener' : 'reiniciar'} el servicio ${serviceId}`
       )
     } finally {
       setNodeServiceActionLoading(null)
+    }
+  }
+
+  const runNodeNativeBuildAll = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.nativeBuildAll) return
+
+    setNodeNativeBuildActionLoading('all')
+    setNodeNativeBuildsError(null)
+
+    try {
+      const result = await bridge.nativeBuildAll()
+      setNodeNativeBuilds(result.builds)
+      setNodeOutput(result.output || result.builds.output || '')
+
+      if (!result.ok || !result.builds.ok) {
+        setNodeNativeBuildsError(result.output || result.builds.output || 'No se pudo compilar el workspace nativo')
+      }
+    } catch (error) {
+      setNodeNativeBuildsError(error instanceof Error ? error.message : 'Error compilando servicios nativos')
+    } finally {
+      setNodeNativeBuildActionLoading(null)
+    }
+  }
+
+  const runNodeNativeBuildService = async (serviceId: string) => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.nativeBuildService || !serviceId.trim()) return
+
+    setNodeNativeBuildActionLoading(serviceId)
+    setNodeNativeBuildsError(null)
+
+    try {
+      const result = await bridge.nativeBuildService({ serviceId })
+      setNodeNativeBuilds(result.builds)
+      setNodeOutput(result.output || result.builds.output || '')
+
+      if (!result.ok || !result.builds.ok) {
+        setNodeNativeBuildsError(
+          result.output || result.builds.output || `No se pudo compilar el servicio ${serviceId}`
+        )
+      }
+    } catch (error) {
+      setNodeNativeBuildsError(
+        error instanceof Error ? error.message : `Error compilando el servicio ${serviceId}`
+      )
+    } finally {
+      setNodeNativeBuildActionLoading(null)
     }
   }
 
@@ -1368,6 +1592,7 @@ export function App() {
       const envFile = draftNodeEnvFile.trim() || DEFAULT_NODE_SETTINGS.envFile
       const baseDir = draftNodeBaseDir.trim() || DEFAULT_NODE_SETTINGS.baseDir
       const profiles = parseProfilesCsv(draftNodeProfiles).join(',')
+      const runtimeMode = draftNodeRuntimeMode
 
       if (!repoPath) throw new Error('Repo path de Koinos no puede estar vacio')
       if (!composeFile) throw new Error('Compose file no puede estar vacio')
@@ -1375,7 +1600,7 @@ export function App() {
       if (!baseDir) throw new Error('Base data dir no puede estar vacio')
 
       setSettings({ rpcUrl, pollMs, rowLimit })
-      setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles })
+      setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, runtimeMode })
       setRows([])
       rowsRef.current = []
       setHead(null)
@@ -1395,6 +1620,7 @@ export function App() {
     setDraftNodeEnvFile(DEFAULT_NODE_SETTINGS.envFile)
     setDraftNodeBaseDir(DEFAULT_NODE_SETTINGS.baseDir)
     setDraftNodeProfiles(DEFAULT_NODE_SETTINGS.profiles)
+    setDraftNodeRuntimeMode(DEFAULT_NODE_SETTINGS.runtimeMode)
     setFormError(null)
   }
 
@@ -1458,7 +1684,7 @@ export function App() {
           <form className="settings-form" onSubmit={applySettings}>
             <div className="settings-header">
               <h2>Settings</h2>
-              <p>Cambia RPC y parametros de Docker Compose sin reiniciar la app.</p>
+              <p>Cambia RPC y parametros del nodo local sin reiniciar la app.</p>
             </div>
 
             <div className="settings-subheader">
@@ -1503,8 +1729,8 @@ export function App() {
             </div>
 
             <div className="settings-subheader">
-              <h3>Koinos Node (Docker Compose)</h3>
-              <p>Usado por los botones Start/Stop para levantar el block producer desde Electron. En macOS se requiere Docker Desktop.</p>
+              <h3>Koinos Node</h3>
+              <p>Controla el runtime Docker o Native desde Electron. En `native`, todos los servicios se ejecutan localmente.</p>
             </div>
 
             <label>
@@ -1628,6 +1854,20 @@ export function App() {
               />
             </label>
 
+            <label>
+              Runtime
+              <select
+                value={draftNodeRuntimeMode}
+                onChange={(event) => setDraftNodeRuntimeMode(event.target.value === 'native' ? 'native' : 'docker')}
+              >
+                <option value="docker">Docker</option>
+                <option value="native">Native</option>
+              </select>
+              <span className="settings-inline-help">
+                `native` ejecuta todos los servicios localmente, sin `docker compose`.
+              </span>
+            </label>
+
             {formError && <p className="form-error">{formError}</p>}
 
             <div className="settings-actions">
@@ -1730,12 +1970,28 @@ export function App() {
       <section id="panel-node" className="node-panel" aria-label="Koinos node control" role="tabpanel" aria-labelledby="tab-node">
         <div className="node-panel-header">
           <div>
-            <h2>Local Koinos Node (Docker Compose)</h2>
+            <h2>Local Koinos Node ({formatNodeRuntimeMode(nodeRuntimeMode)})</h2>
             <p>
-              Arranca/parar un nodo con perfil block producer desde la app usando el repo local de Koinos. En macOS se requiere Docker Desktop.
+              {nodeRuntimeMode === 'native'
+                ? 'Ejecuta los servicios Koinos como procesos locales usando los binarios y runtimes nativos del sistema.'
+                : 'Arranca y para el nodo desde la app usando Docker Compose sobre el repo local de Koinos.'}
             </p>
           </div>
           <div className="node-panel-actions">
+            <label className="node-runtime-select">
+              <span>Runtime</span>
+              <select
+                value={nodeRuntimeMode}
+                onChange={(event) => switchNodeRuntimeMode(event.target.value === 'native' ? 'native' : 'docker')}
+                disabled={!hasNodeControls || nodeBusy || nodeStatusLoading}
+              >
+                {nodeAvailableRuntimeModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {formatNodeRuntimeMode(mode)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div
               className={`status-pill ${nodeStatusClass}`.trim()}
             >
@@ -1793,20 +2049,22 @@ export function App() {
 
         {hasNodeControls && nodeStatus && !nodeStatus.ok && /repo path not found/i.test(nodeStatus.output) && (
           <div className="node-warning" role="note">
-            No existe el repo de Koinos en <code>{nodeSettings.repoPath}</code>. La app intentara clonarlo automaticamente en el primer arranque; tambien puedes usar <strong>Refresh Koinos Repo</strong> (clona si falta) y luego lanzar `docker compose` desde ahi.
+            No existe el repo de Koinos en <code>{nodeSettings.repoPath}</code>. La app intentara clonarlo automaticamente en el primer arranque; tambien puedes usar <strong>Refresh Koinos Repo</strong> para clonar o actualizar el workspace local.
           </div>
         )}
 
         {hasNodeControls && nodeHasPartialOutage && (
           <div className="node-warning" role="note">
             Servicios no activos: <strong>{nodeStoppedServices.map((service) => service.name).join(', ')}</strong>.
-            El compose responde, pero el nodo no esta totalmente sano.
+            {nodeRuntimeMode === 'native'
+              ? ' El runtime nativo responde, pero el nodo no esta totalmente sano.'
+              : ' El compose responde, pero el nodo no esta totalmente sano.'}
           </div>
         )}
 
         <div className="node-presets">
           <div className="node-services-header">
-            <h3>Presets</h3>
+            <h3>Profiles</h3>
             <span>{nodePresetSummaryText}</span>
           </div>
 
@@ -1817,7 +2075,7 @@ export function App() {
           )}
 
           {nodePresetsLoading ? (
-            <p className="node-empty">Cargando presets desde el compose...</p>
+            <p className="node-empty">Cargando profiles desde el compose...</p>
           ) : nodePresets.length > 0 ? (
             <div className="node-preset-list">
               {nodePresets.map((preset) => {
@@ -1834,7 +2092,7 @@ export function App() {
                     <span className="node-preset-description">{preset.description}</span>
                     <span className="node-preset-services mono">{preset.services.join(', ') || 'sin servicios'}</span>
                     <span className={`node-preset-state ${matchesRunningState ? 'is-live' : 'is-pending'}`.trim()}>
-                      {matchesRunningState ? 'Estado actual: coincide con el nodo' : 'Estado actual: pendiente de reconcile'}
+                      {matchesRunningState ? 'Estado actual: coincide con el nodo' : 'Estado actual: pendiente de aplicar'}
                     </span>
                     <div className="node-preset-actions">
                       <button
@@ -1843,7 +2101,7 @@ export function App() {
                         onClick={() => applyNodePreset(preset)}
                         disabled={!hasNodeControls || nodeBusy}
                       >
-                        {selected ? 'Selected' : 'Use preset'}
+                        {selected ? 'Selected' : 'Use profile'}
                       </button>
                       <button
                         type="button"
@@ -1853,7 +2111,7 @@ export function App() {
                         }}
                         disabled={!hasNodeControls || nodeBusy}
                       >
-                        {nodePresetActionLoading === preset.id ? 'Reconciling...' : 'Reconcile'}
+                        {nodePresetActionLoading === preset.id ? 'Applying...' : 'Apply'}
                       </button>
                     </div>
                   </article>
@@ -1861,13 +2119,13 @@ export function App() {
               })}
             </div>
           ) : (
-            <p className="node-empty">No se detectaron presets en el compose.</p>
+            <p className="node-empty">No se detectaron profiles en el compose.</p>
           )}
         </div>
 
         {nodeError && (
           <div className="error-banner node-error-banner" role="alert">
-            <strong>Docker Compose:</strong> <span>{nodeError}</span>
+            <strong>{formatNodeRuntimeMode(nodeRuntimeMode)}:</strong> <span>{nodeError}</span>
           </div>
         )}
 
@@ -1907,7 +2165,7 @@ export function App() {
                         onContextMenu={(event) => {
                           event.preventDefault()
                           setNodeServiceContextMenu({
-                            service: service.service,
+                            serviceId: service.id,
                             x: event.clientX,
                             y: event.clientY
                           })
@@ -1939,7 +2197,7 @@ export function App() {
                           <button
                             type="button"
                             className="ghost-button node-service-inline-button"
-                            onClick={() => openServiceLogsModal(service.service)}
+                            onClick={() => openServiceLogsModal(service.id)}
                             disabled={!hasNodeControls || nodeBusy}
                           >
                             Logs
@@ -1954,11 +2212,11 @@ export function App() {
                               type="button"
                               className="ghost-button node-service-inline-button"
                               onClick={() => {
-                                void runNodeServiceAction(service.service, 'start')
+                                void runNodeServiceAction(service.id, 'start')
                               }}
                               disabled={!hasNodeControls || nodeBusy || capabilities.startBlockedReason !== null}
                             >
-                              {nodeServiceActionLoading?.service === service.service &&
+                              {nodeServiceActionLoading?.serviceId === service.id &&
                               nodeServiceActionLoading.action === 'start'
                                 ? 'Starting...'
                                 : 'Start'}
@@ -1974,11 +2232,11 @@ export function App() {
                               type="button"
                               className="ghost-button node-service-inline-button"
                               onClick={() => {
-                                void runNodeServiceAction(service.service, 'restart')
+                                void runNodeServiceAction(service.id, 'restart')
                               }}
                               disabled={!hasNodeControls || nodeBusy || capabilities.restartBlockedReason !== null}
                             >
-                              {nodeServiceActionLoading?.service === service.service &&
+                              {nodeServiceActionLoading?.serviceId === service.id &&
                               nodeServiceActionLoading.action === 'restart'
                                 ? 'Restarting...'
                                 : 'Restart'}
@@ -1994,11 +2252,11 @@ export function App() {
                               type="button"
                               className="ghost-button node-service-inline-button node-service-inline-button-danger"
                               onClick={() => {
-                                void runNodeServiceAction(service.service, 'stop')
+                                void runNodeServiceAction(service.id, 'stop')
                               }}
                               disabled={!hasNodeControls || nodeBusy || capabilities.stopBlockedReason !== null}
                             >
-                              {nodeServiceActionLoading?.service === service.service &&
+                              {nodeServiceActionLoading?.serviceId === service.id &&
                               nodeServiceActionLoading.action === 'stop'
                                 ? 'Stopping...'
                                 : 'Stop'}
@@ -2013,7 +2271,7 @@ export function App() {
             </div>
           ) : (
             <p className="node-empty">
-              {nodeStatusLoading ? 'Consultando servicios...' : 'No hay servicios activos para este compose.'}
+              {nodeStatusLoading ? 'Consultando servicios...' : 'No hay servicios activos para esta configuracion.'}
             </p>
           )}
         </div>
@@ -2042,13 +2300,13 @@ export function App() {
             <div
               className="service-context-menu"
               role="menu"
-              aria-label={`Menu for ${nodeServiceContextMenu.service}`}
+              aria-label={`Menu for ${nodeContextService?.name ?? nodeServiceContextMenu.serviceId}`}
               style={{ left: nodeServiceContextMenu.x, top: nodeServiceContextMenu.y }}
             >
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => openServiceLogsModal(nodeServiceContextMenu.service)}
+                onClick={() => openServiceLogsModal(nodeServiceContextMenu.serviceId)}
               >
                 Show logs
               </button>
@@ -2056,7 +2314,7 @@ export function App() {
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  void runNodeServiceAction(nodeServiceContextMenu.service, 'start')
+                  void runNodeServiceAction(nodeServiceContextMenu.serviceId, 'start')
                 }}
                 disabled={!hasNodeControls || nodeBusy || nodeContextServiceCapabilities?.startBlockedReason !== null}
                 title={nodeContextServiceCapabilities?.startBlockedReason || 'Iniciar servicio'}
@@ -2067,7 +2325,7 @@ export function App() {
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  void runNodeServiceAction(nodeServiceContextMenu.service, 'restart')
+                  void runNodeServiceAction(nodeServiceContextMenu.serviceId, 'restart')
                 }}
                 disabled={!hasNodeControls || nodeBusy || nodeContextServiceCapabilities?.restartBlockedReason !== null}
                 title={nodeContextServiceCapabilities?.restartBlockedReason || 'Reiniciar servicio'}
@@ -2078,7 +2336,7 @@ export function App() {
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  void runNodeServiceAction(nodeServiceContextMenu.service, 'stop')
+                  void runNodeServiceAction(nodeServiceContextMenu.serviceId, 'stop')
                 }}
                 disabled={!hasNodeControls || nodeBusy || nodeContextServiceCapabilities?.stopBlockedReason !== null}
                 title={nodeContextServiceCapabilities?.stopBlockedReason || 'Detener servicio'}
@@ -2106,10 +2364,12 @@ export function App() {
                 <div>
                   <p className="eyebrow">SERVICE LOGS</p>
                   <h3 id="service-log-modal-title" className="log-modal-title mono">
-                    {nodeLogsService}
+                    {nodeLogsTargetService?.name ?? nodeLogsService}
                   </h3>
                   <p className="log-modal-meta">
-                    {nodeLogsStreamId ? 'Streaming en tiempo real (`docker compose logs -f`)' : 'Conectando stream...'}
+                    {nodeLogsStreamId
+                      ? `Streaming en tiempo real (${nodeRuntimeMode === 'native' ? 'native process logs' : 'docker compose logs -f'})`
+                      : 'Conectando stream...'}
                     {nodeLogsLastRefreshAt ? ` · Ultima actividad ${new Date(nodeLogsLastRefreshAt).toLocaleTimeString()}` : ''}
                   </p>
                 </div>

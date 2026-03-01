@@ -2,6 +2,7 @@ export {}
 
 declare global {
   type KnodelKoinosNodeServiceRuntime = 'docker' | 'native'
+  type KnodelKoinosNativeBuildSystem = 'cmake' | 'go' | 'yarn'
 
   type KnodelKoinosNodeServicePort = {
     host: string | null
@@ -17,6 +18,7 @@ declare global {
     envFile?: string
     baseDir?: string
     profiles?: string[]
+    runtimeMode?: KnodelKoinosNodeServiceRuntime
   }
 
   type KnodelKoinosNodeServiceStatus = {
@@ -97,6 +99,40 @@ declare global {
     status: KnodelKoinosNodeStatus
   }
 
+  type KnodelKoinosNodeNativeBuildStatus = {
+    serviceId: string
+    serviceName: string
+    supported: boolean
+    buildSystem: KnodelKoinosNativeBuildSystem | null
+    repoPath: string | null
+    repoExists: boolean
+    artifactPath: string | null
+    artifactExists: boolean
+    artifactUpdatedAt: number | null
+    buildable: boolean
+    note: string | null
+    buildCommands: string[]
+  }
+
+  type KnodelKoinosNodeNativeBuildsResult = {
+    ok: boolean
+    sourceRoot: string
+    services: KnodelKoinosNodeNativeBuildStatus[]
+    output: string
+  }
+
+  type KnodelKoinosNodeNativeBuildParams = {
+    serviceId?: string
+  }
+
+  type KnodelKoinosNodeNativeBuildCommandResult = {
+    ok: boolean
+    action: 'build-all' | 'build-service'
+    serviceId: string | null
+    output: string
+    builds: KnodelKoinosNodeNativeBuildsResult
+  }
+
   type KnodelKoinosNodeCloneRepoResult = {
     ok: boolean
     repoPath: string
@@ -146,6 +182,7 @@ declare global {
     streamId: string
     service: string | null
     tail: number
+    output?: string
   }
 
   type KnodelKoinosNodeLogsFollowStopParams = {
@@ -176,6 +213,11 @@ declare global {
       fileWrite: (params: KnodelKoinosNodeFileWriteParams) => Promise<KnodelKoinosNodeFileWriteResult>
       status: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeStatus>
       presets: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodePresetsResult>
+      nativeBuilds: () => Promise<KnodelKoinosNodeNativeBuildsResult>
+      nativeBuildAll: () => Promise<KnodelKoinosNodeNativeBuildCommandResult>
+      nativeBuildService: (
+        params: KnodelKoinosNodeNativeBuildParams
+      ) => Promise<KnodelKoinosNodeNativeBuildCommandResult>
       start: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeCommandResult>
       stop: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeCommandResult>
       serviceStart: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
