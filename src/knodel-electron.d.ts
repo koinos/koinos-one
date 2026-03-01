@@ -18,6 +18,7 @@ declare global {
     envFile?: string
     baseDir?: string
     profiles?: string[]
+    runtimeMode?: KnodelKoinosNodeServiceRuntime
   }
 
   type KnodelKoinosNodeServiceStatus = {
@@ -181,6 +182,7 @@ declare global {
     streamId: string
     service: string | null
     tail: number
+    output?: string
   }
 
   type KnodelKoinosNodeLogsFollowStopParams = {

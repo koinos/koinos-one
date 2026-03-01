@@ -333,7 +333,8 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.settings-form input {
+.settings-form input,
+.settings-form select {
   width: 100%;
   border-radius: 10px;
   border: 1px solid var(--line);
@@ -343,7 +344,8 @@ body {
   font: inherit;
 }
 
-.settings-form input:focus-visible {
+.settings-form input:focus-visible,
+.settings-form select:focus-visible {
   outline: 2px solid rgba(47, 210, 183, 0.45);
   outline-offset: 1px;
   border-color: rgba(47, 210, 183, 0.45);
@@ -456,6 +458,29 @@ body {
   align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.node-runtime-select {
+  display: grid;
+  gap: 4px;
+  min-width: 132px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.node-runtime-select select {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(5, 11, 15, 0.95);
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.node-runtime-select select:focus-visible {
+  outline: 2px solid rgba(47, 210, 183, 0.45);
+  outline-offset: 1px;
+  border-color: rgba(47, 210, 183, 0.45);
 }
 
 .node-warning {
@@ -1449,6 +1474,10 @@ tbody tr.is-fresh {
   }
 
   .node-panel-actions .status-pill {
+    width: 100%;
+  }
+
+  .node-runtime-select {
     width: 100%;
   }
 
