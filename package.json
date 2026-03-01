@@ -1,6 +1,6 @@
 {
   "name": "knodel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Knodel desktop base app (Electron + React + TypeScript)",
   "main": "dist-electron/main.js",

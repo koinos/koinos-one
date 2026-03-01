@@ -28,6 +28,7 @@ declare global {
     service: string
     runtimeName: string
     runtimeType: KnodelKoinosNodeServiceRuntime
+    version: string | null
     state: string
     status: string
     ports: KnodelKoinosNodeServicePort[]
@@ -81,7 +82,7 @@ declare global {
 
   type KnodelKoinosNodeBackupRestoreResult = {
     ok: boolean
-    action: 'restore-backup'
+    action: 'restore-backup' | 'restore-backup-verify'
     output: string
     status: KnodelKoinosNodeStatus
   }
@@ -176,6 +177,37 @@ declare global {
     output: string
   }
 
+  type KnodelKoinosNodeSelectDirectoryResult = {
+    ok: boolean
+    canceled: boolean
+    path: string
+    restoreWorkspaceParent: string
+    writable: boolean
+    output: string
+  }
+
+  type KnodelKoinosNodeValidateBaseDirResult = {
+    ok: boolean
+    baseDir: string
+    restoreWorkspaceParent: string
+    writable: boolean
+    output: string
+  }
+
+  type KnodelKoinosNodeBaseDirCopyParams = KnodelKoinosNodeSettings & {
+    sourceBaseDir: string
+    targetBaseDir: string
+    stopSourceRuntime?: boolean
+  }
+
+  type KnodelKoinosNodeBaseDirCopyResult = {
+    ok: boolean
+    sourceBaseDir: string
+    targetBaseDir: string
+    output: string
+    status: KnodelKoinosNodeStatus
+  }
+
   type KnodelKoinosNodeLogsParams = KnodelKoinosNodeSettings & {
     service?: string
     tail?: number
@@ -215,6 +247,13 @@ declare global {
     message?: string
   }
 
+  type KnodelKoinosNodeBackupProgressEvent = {
+    action: 'restore-backup' | 'restore-backup-verify'
+    phase: 'prepare' | 'stop' | 'download' | 'checksum' | 'extract' | 'restore' | 'start' | 'verify' | 'complete' | 'error'
+    progress: number
+    message: string
+  }
+
   type KnodelKoinosJsonRpcProxyParams = {
     rpcUrl: string
     method: string
@@ -235,6 +274,9 @@ declare global {
       cloneRepo: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeCloneRepoResult>
       fileRead: (params: KnodelKoinosNodeFileReadParams) => Promise<KnodelKoinosNodeFileReadResult>
       fileWrite: (params: KnodelKoinosNodeFileWriteParams) => Promise<KnodelKoinosNodeFileWriteResult>
+      selectBaseDir: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeSelectDirectoryResult>
+      validateBaseDir: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeValidateBaseDirResult>
+      copyBaseDirData: (params: KnodelKoinosNodeBaseDirCopyParams) => Promise<KnodelKoinosNodeBaseDirCopyResult>
       status: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeStatus>
       presets: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodePresetsResult>
       nativeBuilds: () => Promise<KnodelKoinosNodeNativeBuildsResult>
@@ -245,6 +287,7 @@ declare global {
       start: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeCommandResult>
       stop: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeCommandResult>
       restoreBackup: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeBackupRestoreResult>
+      restoreBackupVerify: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeBackupRestoreResult>
       rpcCall: (params: KnodelKoinosJsonRpcProxyParams) => Promise<KnodelKoinosJsonRpcProxyResult>
       serviceStart: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
       serviceStop: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
@@ -259,6 +302,7 @@ declare global {
         params?: KnodelKoinosNodeLogsFollowStopParams
       ) => Promise<KnodelKoinosNodeLogsFollowStopResult>
       onLogsFollowEvent: (listener: (event: KnodelKoinosNodeLogsFollowEvent) => void) => () => void
+      onBackupProgressEvent: (listener: (event: KnodelKoinosNodeBackupProgressEvent) => void) => () => void
     }
   }
 

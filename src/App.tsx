@@ -72,6 +72,27 @@ type NodeConflictDialogState = {
   message: string
 }
 
+type NodeBackupProgressState = {
+  action: 'restore-backup' | 'restore-backup-verify'
+  phase: KnodelKoinosNodeBackupProgressEvent['phase']
+  progress: number
+  message: string
+  updatedAt: number
+}
+
+type NodeBaseDirValidationState = {
+  ok: boolean
+  baseDir: string
+  restoreWorkspaceParent: string
+  message: string
+}
+
+type NodeBaseDirChangeDialogState = {
+  previousBaseDir: string
+  nextBaseDir: string
+  nodeWasRunning: boolean
+}
+
 type BlockRow = {
   height: number
   blockId: string
@@ -257,8 +278,9 @@ function loadInitialNodeSettings(): NodeManagerSettings {
             ? '.env'
             : parsed.envFile
           : DEFAULT_NODE_SETTINGS.envFile,
-      baseDir:
-        typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : DEFAULT_NODE_SETTINGS.baseDir,
+      baseDir: normalizeNodeBaseDirInput(
+        typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : DEFAULT_NODE_SETTINGS.baseDir
+      ),
       profiles: typeof parsed.profiles === 'string' ? parsed.profiles : DEFAULT_NODE_SETTINGS.profiles,
       blockchainBackupUrl:
         typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
@@ -278,12 +300,21 @@ function parseProfilesCsv(value: string): string[] {
     .filter(Boolean)
 }
 
+function normalizeNodeBaseDirInput(value: string): string {
+  const trimmed = value.trim() || DEFAULT_NODE_SETTINGS.baseDir
+  const normalized = trimmed.replace(/[\\/]+$/, '')
+  if (!normalized) return DEFAULT_NODE_SETTINGS.baseDir
+  const segments = normalized.split(/[\\/]+/).filter(Boolean)
+  if (segments.at(-1) === '.koinos') return normalized
+  return `${normalized}/.koinos`
+}
+
 function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNodeSettings {
   return {
     repoPath: settings.repoPath.trim(),
     composeFile: settings.composeFile.trim(),
     envFile: settings.envFile.trim(),
-    baseDir: settings.baseDir.trim(),
+    baseDir: normalizeNodeBaseDirInput(settings.baseDir),
     profiles: parseProfilesCsv(settings.profiles),
     blockchainBackupUrl: settings.blockchainBackupUrl.trim(),
     runtimeMode: settings.runtimeMode
@@ -339,6 +370,10 @@ function formatNodeServiceType(service: KnodelKoinosNodeServiceStatus): string {
   return service.runtimeType === 'native' ? 'Native' : 'Docker'
 }
 
+function formatNodeServiceVersion(service: KnodelKoinosNodeServiceStatus): string {
+  return service.version?.trim() || 'Unknown'
+}
+
 function formatNodeRuntimeMode(mode: KnodelKoinosNodeServiceRuntime): string {
   return mode === 'native' ? 'Native' : 'Docker'
 }
@@ -348,6 +383,10 @@ function formatNodeServiceTooltip(
   capabilities: NodeServiceCapabilities
 ): string {
   const lines = [`Service: ${service.name}`, `Runtime: ${service.runtimeName}`]
+
+  if (service.version) {
+    lines.push(`Version: ${service.version}`)
+  }
 
   if (service.nativePid) {
     lines.push(`Managed PID: ${service.nativePid}`)
@@ -722,6 +761,7 @@ async function fetchLatestBlocks(
 }
 
 export function App() {
+  const appVersion = window.knodel?.version?.trim() || '0.2.0'
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
   const [nodeSettings, setNodeSettings] = useState<NodeManagerSettings>(() => loadInitialNodeSettings())
   const [rows, setRows] = useState<BlockRow[]>([])
@@ -744,10 +784,14 @@ export function App() {
   const [draftNodeRuntimeMode, setDraftNodeRuntimeMode] = useState<KnodelKoinosNodeServiceRuntime>(
     nodeSettings.runtimeMode
   )
+  const [nodeBaseDirPickerLoading, setNodeBaseDirPickerLoading] = useState(false)
+  const [nodeBaseDirValidationLoading, setNodeBaseDirValidationLoading] = useState(false)
+  const [nodeBaseDirValidation, setNodeBaseDirValidation] = useState<NodeBaseDirValidationState | null>(null)
   const [nodeStatus, setNodeStatus] = useState<KnodelKoinosNodeStatus | null>(null)
   const [nodeStatusLoading, setNodeStatusLoading] = useState(false)
   const [nodeActionLoading, setNodeActionLoading] = useState<NodeAction | null>(null)
   const [nodeRestoreBackupLoading, setNodeRestoreBackupLoading] = useState(false)
+  const [nodeRestoreBackupVerifyLoading, setNodeRestoreBackupVerifyLoading] = useState(false)
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
   const [nodePresets, setNodePresets] = useState<KnodelKoinosNodePreset[]>([])
@@ -770,6 +814,7 @@ export function App() {
   const [nodeFileEditorSaving, setNodeFileEditorSaving] = useState(false)
   const [nodeFileEditorError, setNodeFileEditorError] = useState<string | null>(null)
   const [nodeFileEditorLastSavedAt, setNodeFileEditorLastSavedAt] = useState<number | null>(null)
+  const [nodeBackupProgress, setNodeBackupProgress] = useState<NodeBackupProgressState | null>(null)
   const [nodeLogsService, setNodeLogsService] = useState<string>('')
   const [nodeLogsTail, setNodeLogsTail] = useState<string>('200')
   const [nodeLogsOutput, setNodeLogsOutput] = useState<string>('')
@@ -781,6 +826,9 @@ export function App() {
   const [nodeServiceContextMenu, setNodeServiceContextMenu] = useState<NodeServiceContextMenuState | null>(null)
   const [nodeConflictDialog, setNodeConflictDialog] = useState<NodeConflictDialogState | null>(null)
   const [nodeConflictKillLoading, setNodeConflictKillLoading] = useState<string | null>(null)
+  const [nodeBaseDirChangeDialog, setNodeBaseDirChangeDialog] = useState<NodeBaseDirChangeDialogState | null>(null)
+  const [nodeBaseDirCopyLoading, setNodeBaseDirCopyLoading] = useState(false)
+  const [nodeBaseDirRestartLoading, setNodeBaseDirRestartLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
   const [nowMs, setNowMs] = useState(() => Date.now())
   const rowsRef = useRef<BlockRow[]>([])
@@ -807,6 +855,7 @@ export function App() {
     setDraftNodeProfiles(nodeSettings.profiles)
     setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
     setDraftNodeRuntimeMode(nodeSettings.runtimeMode)
+    setNodeBaseDirValidation(null)
   }, [nodeSettings])
 
   useEffect(() => {
@@ -858,12 +907,16 @@ export function App() {
       }
       if (nodeConflictDialog) {
         setNodeConflictDialog(null)
+        return
+      }
+      if (nodeBaseDirChangeDialog) {
+        setNodeBaseDirChangeDialog(null)
       }
     }
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [nodeServiceContextMenu, nodeFileEditorOpen, nodeLogsModalOpen, nodeConflictDialog])
+  }, [nodeServiceContextMenu, nodeFileEditorOpen, nodeLogsModalOpen, nodeConflictDialog, nodeBaseDirChangeDialog])
 
   useEffect(() => {
     nodeLogsStreamIdRef.current = nodeLogsStreamId
@@ -923,6 +976,36 @@ export function App() {
         if (typeof payload.code === 'number' && payload.code !== 0) {
           setNodeLogsError(`El stream de logs termino (code ${payload.code})`)
         }
+      }
+    })
+
+    return unsubscribe
+  }, [hasNodeControls])
+
+  useEffect(() => {
+    if (!hasNodeControls) return
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.onBackupProgressEvent) return
+
+    const unsubscribe = bridge.onBackupProgressEvent((event) => {
+      if (!event || typeof event !== 'object') return
+      const payload = event as KnodelKoinosNodeBackupProgressEvent
+      if (!payload.action || typeof payload.progress !== 'number') return
+
+      setNodeBackupProgress({
+        action: payload.action,
+        phase: payload.phase,
+        progress: payload.progress,
+        message: payload.message || '',
+        updatedAt: Date.now()
+      })
+
+      if (payload.phase === 'complete') {
+        window.setTimeout(() => {
+          setNodeBackupProgress((current) =>
+            current?.action === payload.action && current.phase === payload.phase ? null : current
+          )
+        }, 2500)
       }
     })
 
@@ -1128,7 +1211,11 @@ export function App() {
   const nodeBusy =
     nodeActionLoading !== null ||
     nodeRestoreBackupLoading ||
+    nodeRestoreBackupVerifyLoading ||
     nodeCloneLoading ||
+    nodeBaseDirPickerLoading ||
+    nodeBaseDirCopyLoading ||
+    nodeBaseDirRestartLoading ||
     nodeServiceActionLoading !== null ||
     nodeConflictKillLoading !== null ||
     nodePresetActionLoading !== null ||
@@ -1182,6 +1269,10 @@ export function App() {
       const running = isNodeServiceRunning(service)
       const conflictReason =
         service.state === 'conflict' ? service.lastError || 'Hay otro proceso nativo usando este servicio' : null
+      const restartRequiredReason =
+        service.state === 'restart required'
+          ? service.lastError || 'El servicio sigue activo con un BASEDIR distinto'
+          : null
       const dependencyNames = service.dependsOn.map(serviceLabel)
       const missingDependencyNames = service.dependsOn
         .filter((dependencyId) => {
@@ -1198,10 +1289,13 @@ export function App() {
         dependencyNames,
         missingDependencyNames,
         profileDependentNames,
-        conflictReason,
+        conflictReason: conflictReason || restartRequiredReason,
         conflictPids: service.conflictPids ?? [],
         startBlockedReason:
           conflictReason ||
+          (restartRequiredReason
+            ? `${restartRequiredReason} Usa Restart para aplicar el nuevo BASEDIR.`
+            : null) ||
           (running
             ? 'El servicio ya esta activo'
             : missingDependencyNames.length > 0
@@ -1209,13 +1303,14 @@ export function App() {
               : null),
         stopBlockedReason:
           conflictReason ||
-          (!running
+          (restartRequiredReason ? null : !running
             ? 'El servicio ya esta detenido'
             : profileDependentNames.length > 0
               ? `Servicios dependientes en el profile actual: ${profileDependentNames.join(', ')}`
               : null),
         restartBlockedReason:
           conflictReason ||
+          (restartRequiredReason ? null : null) ||
           (!running && missingDependencyNames.length > 0
             ? `Dependencias no activas: ${missingDependencyNames.join(', ')}`
             : null)
@@ -1431,15 +1526,83 @@ export function App() {
     }
   }
 
-  const currentDraftNodeApiSettings = (): KnodelKoinosNodeSettings => {
+  const currentDraftNodeApiSettings = (
+    overrides?: Partial<KnodelKoinosNodeSettings>
+  ): KnodelKoinosNodeSettings => {
     return {
-      repoPath: draftNodeRepoPath.trim(),
-      composeFile: draftNodeComposeFile.trim(),
-      envFile: draftNodeEnvFile.trim(),
-      baseDir: draftNodeBaseDir.trim(),
-      profiles: parseProfilesCsv(draftNodeProfiles),
-      blockchainBackupUrl: draftNodeBlockchainBackupUrl.trim(),
-      runtimeMode: draftNodeRuntimeMode
+      repoPath: overrides?.repoPath ?? draftNodeRepoPath.trim(),
+      composeFile: overrides?.composeFile ?? draftNodeComposeFile.trim(),
+      envFile: overrides?.envFile ?? draftNodeEnvFile.trim(),
+      baseDir: overrides?.baseDir ?? normalizeNodeBaseDirInput(draftNodeBaseDir),
+      profiles: overrides?.profiles ?? parseProfilesCsv(draftNodeProfiles),
+      blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim(),
+      runtimeMode: overrides?.runtimeMode ?? draftNodeRuntimeMode
+    }
+  }
+
+  const validateDraftNodeBaseDir = async (baseDirInput: string) => {
+    const bridge = getKoinosNodeBridge()
+    const normalizedBaseDir = normalizeNodeBaseDirInput(baseDirInput)
+    if (!bridge?.validateBaseDir) {
+      return {
+        ok: true,
+        baseDir: normalizedBaseDir,
+        restoreWorkspaceParent: normalizedBaseDir.replace(/[\\/]+\.koinos$/, '') || normalizedBaseDir,
+        writable: true,
+        output: ''
+      } satisfies KnodelKoinosNodeValidateBaseDirResult
+    }
+
+    setNodeBaseDirValidationLoading(true)
+    try {
+      const result = await bridge.validateBaseDir(currentDraftNodeApiSettings({ baseDir: normalizedBaseDir }))
+      setNodeBaseDirValidation({
+        ok: result.ok,
+        baseDir: result.baseDir,
+        restoreWorkspaceParent: result.restoreWorkspaceParent,
+        message: result.output || ''
+      })
+      return result
+    } finally {
+      setNodeBaseDirValidationLoading(false)
+    }
+  }
+
+  const pickNodeBaseDir = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.selectBaseDir) return
+
+    setNodeBaseDirPickerLoading(true)
+    setFormError(null)
+    setNodeError(null)
+
+    try {
+      const result = await bridge.selectBaseDir(currentDraftNodeApiSettings())
+      if (!result.ok) {
+        setNodeBaseDirValidation({
+          ok: false,
+          baseDir: result.path,
+          restoreWorkspaceParent: result.restoreWorkspaceParent,
+          message: result.output || ''
+        })
+        setFormError(result.output || 'No se pudo seleccionar la carpeta para BASEDIR')
+        return
+      }
+
+      if (!result.canceled && result.path.trim()) {
+        setDraftNodeBaseDir(result.path)
+        setNodeBaseDirValidation({
+          ok: result.ok,
+          baseDir: result.path,
+          restoreWorkspaceParent: result.restoreWorkspaceParent,
+          message: result.output || ''
+        })
+        setNodeOutput(result.output || `BASEDIR seleccionado: ${result.path}`)
+      }
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'No se pudo abrir el selector de carpetas')
+    } finally {
+      setNodeBaseDirPickerLoading(false)
     }
   }
 
@@ -1647,6 +1810,13 @@ export function App() {
 
     setNodeRestoreBackupLoading(true)
     setNodeError(null)
+    setNodeBackupProgress({
+      action: 'restore-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: 'Preparing backup restore...',
+      updatedAt: Date.now()
+    })
 
     try {
       const result = await bridge.restoreBackup(toNodeApiSettings(nodeSettings))
@@ -1665,6 +1835,95 @@ export function App() {
       setNodeError(error instanceof Error ? error.message : 'Error restaurando el backup blockchain')
     } finally {
       setNodeRestoreBackupLoading(false)
+    }
+  }
+
+  const runNodeRestoreBackupVerify = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.restoreBackupVerify) return
+
+    setNodeRestoreBackupVerifyLoading(true)
+    setNodeError(null)
+    setNodeBackupProgress({
+      action: 'restore-backup-verify',
+      phase: 'prepare',
+      progress: 0,
+      message: 'Preparing restore + verify...',
+      updatedAt: Date.now()
+    })
+
+    try {
+      const result = await bridge.restoreBackupVerify(toNodeApiSettings(nodeSettings))
+      setNodeStatus(result.status)
+      setNodeOutput(result.output || result.status.output || '')
+
+      if (!result.ok || !result.status.ok) {
+        setNodeError(result.output || result.status.output || 'No se pudo restaurar y verificar el backup blockchain')
+      } else {
+        setNodeError(null)
+        if (nodeLogsModalOpen) {
+          setNodeLogsModalOpen(false)
+        }
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'Error restaurando y verificando el backup blockchain')
+    } finally {
+      setNodeRestoreBackupVerifyLoading(false)
+    }
+  }
+
+  const restartNodeForNewBaseDir = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge || !nodeBaseDirChangeDialog) return
+
+    setNodeBaseDirRestartLoading(true)
+    setNodeError(null)
+
+    try {
+      const stopResult = await bridge.stop(toNodeApiSettings(nodeSettings))
+      const startResult = await bridge.start(toNodeApiSettings(nodeSettings))
+      setNodeStatus(startResult.status)
+      setNodeOutput([stopResult.output, startResult.output].filter(Boolean).join('\n'))
+
+      if (!stopResult.ok || !startResult.ok || !startResult.status.ok) {
+        setNodeError(startResult.output || startResult.status.output || 'No se pudo reiniciar el nodo en el nuevo BASEDIR')
+      } else {
+        setNodeError(null)
+        setNodeBaseDirChangeDialog(null)
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'No se pudo reiniciar el nodo en el nuevo BASEDIR')
+    } finally {
+      setNodeBaseDirRestartLoading(false)
+    }
+  }
+
+  const copyNodeBaseDirData = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.copyBaseDirData || !nodeBaseDirChangeDialog) return
+
+    setNodeBaseDirCopyLoading(true)
+    setNodeError(null)
+
+    try {
+      const result = await bridge.copyBaseDirData({
+        ...toNodeApiSettings(nodeSettings),
+        sourceBaseDir: nodeBaseDirChangeDialog.previousBaseDir,
+        targetBaseDir: nodeBaseDirChangeDialog.nextBaseDir,
+        stopSourceRuntime: nodeBaseDirChangeDialog.nodeWasRunning
+      })
+      setNodeStatus(result.status)
+      setNodeOutput(result.output || result.status.output || '')
+
+      if (!result.ok || !result.status.ok) {
+        setNodeError(result.output || result.status.output || 'No se pudo copiar el estado local al nuevo BASEDIR')
+      } else {
+        setNodeError(null)
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'No se pudo copiar el estado local al nuevo BASEDIR')
+    } finally {
+      setNodeBaseDirCopyLoading(false)
     }
   }
 
@@ -1818,7 +2077,7 @@ export function App() {
     }
   }
 
-  const applySettings = (event: React.FormEvent<HTMLFormElement>) => {
+  const applySettings = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setFormError(null)
 
@@ -1826,10 +2085,11 @@ export function App() {
       const rpcUrl = normalizeRpcUrl(draftRpcUrl)
       const pollMs = clamp(Number.parseInt(draftPollMs, 10) || DEFAULT_SETTINGS.pollMs, 1000, 30000)
       const rowLimit = clamp(Number.parseInt(draftRowLimit, 10) || DEFAULT_SETTINGS.rowLimit, 5, 50)
+      const previousBaseDir = normalizeNodeBaseDirInput(nodeSettings.baseDir)
       const repoPath = draftNodeRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
       const composeFile = draftNodeComposeFile.trim() || DEFAULT_NODE_SETTINGS.composeFile
       const envFile = draftNodeEnvFile.trim() || DEFAULT_NODE_SETTINGS.envFile
-      const baseDir = draftNodeBaseDir.trim() || DEFAULT_NODE_SETTINGS.baseDir
+      const baseDir = normalizeNodeBaseDirInput(draftNodeBaseDir)
       const profiles = parseProfilesCsv(draftNodeProfiles).join(',')
       const blockchainBackupUrl = normalizeBackupTarGzUrl(
         draftNodeBlockchainBackupUrl.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl
@@ -1841,8 +2101,28 @@ export function App() {
       if (!envFile) throw new Error('Env file no puede estar vacio')
       if (!baseDir) throw new Error('Base data dir no puede estar vacio')
 
+      const baseDirValidation = await validateDraftNodeBaseDir(baseDir)
+      if (!baseDirValidation.ok) {
+        throw new Error(baseDirValidation.output || `No se puede usar BASEDIR ${baseDir}`)
+      }
+
       setSettings((current) => ({ ...current, rpcUrl, pollMs, rowLimit }))
       setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, blockchainBackupUrl, runtimeMode })
+      setDraftNodeBaseDir(baseDir)
+      const baseDirChanged = previousBaseDir !== baseDir
+      const settingsSummary = baseDirChanged
+        ? `Settings saved. BASEDIR changed from ${previousBaseDir} to ${baseDir}. Restart the node to use the new location.`
+        : `Settings saved. BASEDIR: ${baseDir}`
+      setNodeOutput(settingsSummary)
+      if (baseDirChanged) {
+        setNodeBaseDirChangeDialog({
+          previousBaseDir,
+          nextBaseDir: baseDir,
+          nodeWasRunning: (nodeStatus?.services ?? []).some((service) => service.managedByKnodel || isNodeServiceRunning(service))
+        })
+      } else {
+        setNodeBaseDirChangeDialog(null)
+      }
       setRows([])
       rowsRef.current = []
       setHead(null)
@@ -1864,12 +2144,27 @@ export function App() {
     setDraftNodeProfiles(DEFAULT_NODE_SETTINGS.profiles)
     setDraftNodeBlockchainBackupUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
     setDraftNodeRuntimeMode(DEFAULT_NODE_SETTINGS.runtimeMode)
+    setNodeBaseDirValidation(null)
     setFormError(null)
   }
 
   return (
     <div className="app-shell">
       <div className="app-background" aria-hidden="true" />
+
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">KOINOS DESKTOP TOOLING</p>
+          <h1>Knodel</h1>
+          <p className="subtitle">Explorer, node operations and native runtime workflows in one desktop surface.</p>
+        </div>
+        <div className="topbar-actions">
+          <div className="app-version-badge" title={`Knodel version ${appVersion}`}>
+            <span className="app-version-label">Version</span>
+            <span className="mono">v{appVersion}</span>
+          </div>
+        </div>
+      </header>
 
       <nav className="tabs-bar" aria-label="Secciones de la aplicacion">
         <div className="tabs-list" role="tablist" aria-label="Tabs">
@@ -2105,14 +2400,56 @@ export function App() {
 
             <label>
               Base Data Dir (`BASEDIR`)
-              <input
-                type="text"
-                value={draftNodeBaseDir}
-                onChange={(event) => setDraftNodeBaseDir(event.target.value)}
-                placeholder="~/.koinos"
-                spellCheck={false}
-                autoComplete="off"
-              />
+              <div className="settings-input-with-button">
+                <input
+                  type="text"
+                  value={draftNodeBaseDir}
+                  onChange={(event) => {
+                    setDraftNodeBaseDir(event.target.value)
+                    setNodeBaseDirValidation(null)
+                  }}
+                  onBlur={(event) => {
+                    const normalized = normalizeNodeBaseDirInput(event.target.value)
+                    setDraftNodeBaseDir(normalized)
+                    void validateDraftNodeBaseDir(normalized).then((result) => {
+                      if (!result.ok) {
+                        setFormError(result.output || `No se puede usar BASEDIR ${normalized}`)
+                      } else {
+                        setFormError(null)
+                      }
+                    })
+                  }}
+                  placeholder="~/.koinos"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="ghost-button settings-inline-button"
+                  onClick={() => {
+                    void pickNodeBaseDir()
+                  }}
+                  disabled={!hasNodeControls || nodeBusy}
+                >
+                  {nodeBaseDirPickerLoading ? 'Opening...' : 'Browse...'}
+                </button>
+              </div>
+              <span
+                className={`settings-inline-help ${
+                  nodeBaseDirValidationLoading
+                    ? 'is-busy'
+                    : nodeBaseDirValidation
+                      ? nodeBaseDirValidation.ok
+                        ? 'is-ok'
+                        : 'is-error'
+                      : ''
+                }`.trim()}
+              >
+                {nodeBaseDirValidationLoading
+                  ? 'Comprobando permisos de escritura del BASEDIR y del volumen para el restore temporal...'
+                  : nodeBaseDirValidation?.message ||
+                    'Puedes seleccionar una carpeta local o un volumen externo SSD para mover ahi el estado del blockchain.'}
+              </span>
             </label>
 
             <label>
@@ -2292,6 +2629,17 @@ export function App() {
             </button>
             <button
               type="button"
+              className="ghost-button"
+              onClick={() => {
+                void runNodeRestoreBackupVerify()
+              }}
+              disabled={!hasNodeControls || nodeBusy}
+              title={`${nodeSettings.blockchainBackupUrl}\nRequiere jsonrpc en el profile actual`}
+            >
+              {nodeRestoreBackupVerifyLoading ? 'Restoring + verifying...' : 'Restore + Verify'}
+            </button>
+            <button
+              type="button"
               className="primary-button"
               onClick={() => {
                 void runNodeAction('start')
@@ -2450,6 +2798,12 @@ export function App() {
                             <span className="node-service-primary mono">{service.name}</span>
                             <span className="node-service-secondary mono">{formatNodeServiceRuntimeDetail(service)}</span>
                           </div>
+                          <div className="node-service-meta">
+                            <span>
+                              <span className="node-service-meta-label">Version</span>{' '}
+                              <span className="mono">{formatNodeServiceVersion(service)}</span>
+                            </span>
+                          </div>
                         </td>
                         <td>
                           <span
@@ -2559,6 +2913,25 @@ export function App() {
             </p>
           )}
         </div>
+
+        {nodeBackupProgress && (
+          <div className="node-backup-progress" role="status" aria-live="polite">
+            <div className="node-services-header">
+              <h3>{nodeBackupProgress.action === 'restore-backup' ? 'Restore Backup' : 'Restore + Verify'}</h3>
+              <span>{nodeBackupProgress.progress}%</span>
+            </div>
+            <p className="node-backup-progress-text">{nodeBackupProgress.message}</p>
+            <div className="node-backup-progress-bar" aria-hidden="true">
+              <span
+                className="node-backup-progress-fill"
+                style={{ width: `${Math.max(2, nodeBackupProgress.progress)}%` }}
+              />
+            </div>
+            <p className="node-backup-progress-meta mono">
+              phase: {nodeBackupProgress.phase} · updated {new Date(nodeBackupProgress.updatedAt).toLocaleTimeString()}
+            </p>
+          </div>
+        )}
 
         {nodeOutput && (
           <div className="node-output">
@@ -2696,6 +3069,89 @@ export function App() {
                     disabled={!hasNodeControls || nodeBusy || Boolean(nodeConflictKillLoading)}
                   >
                     {nodeConflictKillLoading === nodeConflictDialog.serviceId ? 'Killing...' : 'Kill conflicting process'}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {nodeBaseDirChangeDialog && (
+          <div
+            className="log-modal-backdrop"
+            role="presentation"
+            onClick={() => {
+              if (!nodeBaseDirCopyLoading && !nodeBaseDirRestartLoading) setNodeBaseDirChangeDialog(null)
+            }}
+          >
+            <section
+              className="log-modal conflict-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="node-basedir-change-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="log-modal-header">
+                <div>
+                  <p className="eyebrow">BASEDIR CHANGED</p>
+                  <h3 id="node-basedir-change-title" className="log-modal-title">
+                    Settings saved
+                  </h3>
+                  <p className="log-modal-meta">
+                    The node will only use the new location after a restart or after you migrate data to the new BASEDIR.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => setNodeBaseDirChangeDialog(null)}
+                  disabled={nodeBaseDirCopyLoading || nodeBaseDirRestartLoading}
+                >
+                  Close
+                </button>
+              </header>
+              <div className="conflict-modal-body">
+                <p className="conflict-modal-copy">
+                  Previous: <span className="mono">{nodeBaseDirChangeDialog.previousBaseDir}</span>
+                  <br />
+                  New: <span className="mono">{nodeBaseDirChangeDialog.nextBaseDir}</span>
+                </p>
+                <p className="conflict-modal-copy">
+                  {nodeBaseDirChangeDialog.nodeWasRunning
+                    ? 'Knodel detecto servicios activos. Necesitas reiniciarlos para que usen el nuevo BASEDIR.'
+                    : 'No habia servicios activos, pero el nuevo BASEDIR aun no tiene estado local a menos que copies datos o lances un restore.'}
+                </p>
+                <div className="conflict-modal-actions conflict-modal-actions-spread">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      void copyNodeBaseDirData()
+                    }}
+                    disabled={!hasNodeControls || nodeBusy}
+                  >
+                    {nodeBaseDirCopyLoading ? 'Copying...' : 'Copy local state'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      setNodeBaseDirChangeDialog(null)
+                      void runNodeRestoreBackup()
+                    }}
+                    disabled={!hasNodeControls || nodeBusy}
+                  >
+                    Restore backup
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => {
+                      void restartNodeForNewBaseDir()
+                    }}
+                    disabled={!hasNodeControls || nodeBusy}
+                  >
+                    {nodeBaseDirRestartLoading ? 'Restarting...' : 'Restart node now'}
                   </button>
                 </div>
               </div>

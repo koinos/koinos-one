@@ -93,6 +93,25 @@ body {
   justify-content: flex-end;
 }
 
+.app-version-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(9, 16, 22, 0.82);
+  box-shadow: var(--shadow);
+}
+
+.app-version-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+}
+
 .tabs-bar {
   position: relative;
   z-index: 1;
@@ -307,6 +326,18 @@ body {
   font-size: 0.82rem;
 }
 
+.settings-input-with-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-input-with-button .settings-inline-button {
+  justify-self: stretch;
+  height: 100%;
+}
+
 .settings-subheader {
   border-top: 1px solid rgba(151, 184, 199, 0.14);
   padding-top: 12px;
@@ -377,6 +408,18 @@ body {
   color: var(--muted);
   font-size: 0.8rem;
   opacity: 0.9;
+}
+
+.settings-inline-help.is-ok {
+  color: #91f4d5;
+}
+
+.settings-inline-help.is-error {
+  color: #ffd1ce;
+}
+
+.settings-inline-help.is-busy {
+  color: #cde4ff;
 }
 
 .ghost-button {
@@ -1049,6 +1092,43 @@ body {
   word-break: break-word;
 }
 
+.node-backup-progress {
+  border-radius: 16px;
+  border: 1px solid rgba(47, 210, 183, 0.2);
+  background: linear-gradient(180deg, rgba(11, 19, 25, 0.92), rgba(8, 13, 18, 0.95));
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.node-backup-progress-text {
+  margin: 0 0 10px;
+  color: #d5e4e9;
+  line-height: 1.45;
+}
+
+.node-backup-progress-bar {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.node-backup-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(47, 210, 183, 0.85), rgba(120, 232, 208, 0.95));
+  box-shadow: 0 0 18px rgba(47, 210, 183, 0.22);
+  transition: width 220ms ease;
+}
+
+.node-backup-progress-meta {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
 .context-menu-backdrop {
   position: fixed;
   inset: 0;
@@ -1218,6 +1298,11 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.conflict-modal-actions-spread {
+  justify-content: space-between;
+  flex-wrap: wrap;
 }
 
 .file-editor-backdrop {
@@ -1521,6 +1606,10 @@ tbody tr.is-fresh {
   .settings-inline-button {
     width: 100%;
     justify-self: stretch;
+  }
+
+  .settings-input-with-button {
+    grid-template-columns: 1fr;
   }
 
   .settings-inline-help {
