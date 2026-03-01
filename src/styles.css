@@ -974,6 +974,11 @@ body {
   background: rgba(244, 179, 93, 0.08);
 }
 
+.node-service-status.is-conflict {
+  border-color: rgba(255, 116, 108, 0.28);
+  background: rgba(255, 116, 108, 0.1);
+}
+
 .node-service-dot {
   width: 8px;
   height: 8px;
@@ -990,6 +995,10 @@ body {
   background: var(--accent-2);
 }
 
+.node-service-status.is-conflict .node-service-dot {
+  background: #ff8a80;
+}
+
 .node-service-error-cell {
   max-width: 300px;
   color: var(--muted);
@@ -999,6 +1008,12 @@ body {
 
 .node-service-error-cell.has-error {
   color: #ffd9bb;
+}
+
+.node-service-conflict-button {
+  margin-top: 8px;
+  width: 100%;
+  min-width: 0;
 }
 
 .node-service-runtime-tag {
@@ -1171,6 +1186,40 @@ body {
   background: rgba(151, 184, 199, 0.55);
 }
 
+.conflict-modal {
+  width: min(720px, 100%);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.conflict-modal-body {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.conflict-modal-copy {
+  margin: 0;
+  color: #d5e4e9;
+  line-height: 1.5;
+}
+
+.conflict-modal-pids {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(151, 184, 199, 0.12);
+  background: rgba(5, 9, 12, 0.88);
+  color: #d5e4e9;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.conflict-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .file-editor-backdrop {
   position: fixed;
   inset: 0;
@@ -1290,12 +1339,42 @@ body {
   font-size: 0.9rem;
 }
 
+.table-panel-tools {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.table-select {
+  display: grid;
+  gap: 4px;
+  min-width: 170px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.table-select select {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(5, 11, 15, 0.95);
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.table-select select:focus-visible {
+  outline: 2px solid rgba(47, 210, 183, 0.45);
+  outline-offset: 1px;
+  border-color: rgba(47, 210, 183, 0.45);
+}
+
 .table-meta {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   color: var(--muted);
   font-size: 0.85rem;
+  justify-content: flex-end;
 }
 
 .table-meta span {
@@ -1303,6 +1382,12 @@ body {
   border-radius: 999px;
   padding: 6px 10px;
   background: rgba(8, 14, 19, 0.75);
+}
+
+.stat-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .error-banner {
@@ -1454,6 +1539,12 @@ tbody tr.is-fresh {
 
   .table-panel-header {
     flex-direction: column;
+  }
+
+  .table-panel-tools,
+  .table-select {
+    width: 100%;
+    justify-items: stretch;
   }
 
   .table-meta {

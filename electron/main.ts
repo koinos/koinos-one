@@ -16,6 +16,7 @@ const DEFAULT_ENV_FILE = '.env'
 const LEGACY_DEFAULT_ENV_FILE = 'env.example'
 const DEFAULT_PROFILES = ['block_producer', 'jsonrpc']
 const DEFAULT_BASEDIR = path.join(os.homedir(), '.koinos')
+const DEFAULT_BLOCKCHAIN_BACKUP_URL = 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
 const DEFAULT_KOINOS_SOURCE_ROOT = '/Users/pgarcgo/code/koinos_code'
 const KOINOS_GIT_CLONE_URL = 'https://github.com/koinos/koinos'
 const MAC_DOCKER_DESKTOP_OVERRIDE_PATH = path.join(os.tmpdir(), 'knodel-koinos-docker-desktop.override.yml')
@@ -39,6 +40,7 @@ type KoinosNodeSettingsInput = {
   envFile?: string
   baseDir?: string
   profiles?: string[]
+  blockchainBackupUrl?: string
   runtimeMode?: KoinosNodeServiceRuntime
 }
 
@@ -48,6 +50,7 @@ type KoinosNodeSettings = {
   envFile: string
   baseDir: string
   profiles: string[]
+  blockchainBackupUrl: string
   runtimeMode: KoinosNodeServiceRuntime
 }
 
@@ -101,6 +104,9 @@ type ComposeServiceStatus = {
   ports: KoinosNodeServicePort[]
   dependsOn: string[]
   lastError: string | null
+  nativePid: number | null
+  conflictPids: number[]
+  managedByKnodel: boolean
 }
 
 type KoinosNodeStatus = {
@@ -144,13 +150,33 @@ type KoinosNodeCommandResult = {
   status: KoinosNodeStatus
 }
 
+type KoinosNodeBackupRestoreResult = {
+  ok: boolean
+  action: 'restore-backup'
+  output: string
+  status: KoinosNodeStatus
+}
+
+type KoinosJsonRpcProxyInput = {
+  rpcUrl?: string
+  method?: string
+  params?: Record<string, unknown>
+}
+
+type KoinosJsonRpcProxyResult = {
+  ok: boolean
+  method: string
+  result?: unknown
+  output: string
+}
+
 type KoinosNodeServiceCommandInput = KoinosNodeSettingsInput & {
   service?: string
 }
 
 type KoinosNodeServiceCommandResult = {
   ok: boolean
-  action: 'start' | 'stop' | 'restart'
+  action: 'start' | 'stop' | 'restart' | 'kill-conflict'
   service: string
   output: string
   status: KoinosNodeStatus
@@ -288,6 +314,7 @@ type NativeServiceProcessState = {
   child: ChildProcessByStdio<null, Readable, Readable>
   runtimeName: string
   cwd: string
+  baseDir: string | null
   startedAt: number
   lastOutputAt: number | null
   output: string
@@ -311,6 +338,11 @@ type NativeServiceStopResult = {
   output: string
 }
 
+type NativeConflictKillResult = {
+  ok: boolean
+  output: string
+}
+
 type PlatformDescriptor = {
   architecture?: string
   os?: string
@@ -330,6 +362,11 @@ type TcpListenerOwner = {
   port: number | null
 }
 
+type ProcessSnapshotEntry = {
+  pid: number
+  command: string
+}
+
 const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
 const logsFollowSessions = new Map<string, LogsFollowSession>()
 const nativeServiceProcesses = new Map<string, NativeServiceProcessState>()
@@ -337,6 +374,8 @@ const nativeLogsStreamIdsByService = new Map<string, Set<string>>()
 let logsFollowSessionSeq = 0
 const MAX_NATIVE_SERVICE_LOG_BYTES = 512 * 1024
 const NATIVE_AMQP_STARTUP_TIMEOUT_MS = 90000
+const BLOCKCHAIN_BACKUP_RESTORE_DIRS = ['chain', 'block_store'] as const
+const BLOCKCHAIN_BACKUP_RESET_DIRS = ['p2p', 'mempool'] as const
 const DEFAULT_RUNTIME_MODE: KoinosNodeServiceRuntime = 'docker'
 const AVAILABLE_RUNTIME_MODES: KoinosNodeServiceRuntime[] = ['docker', 'native']
 
@@ -1035,6 +1074,7 @@ function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSetti
   const baseDir = expandUserPath(input?.baseDir || DEFAULT_BASEDIR)
   const requestedProfiles = Array.isArray(input?.profiles) ? input?.profiles : DEFAULT_PROFILES
   const profiles = requestedProfiles.map((p) => p.trim()).filter(Boolean)
+  const blockchainBackupUrl = (input?.blockchainBackupUrl || DEFAULT_BLOCKCHAIN_BACKUP_URL).trim() || DEFAULT_BLOCKCHAIN_BACKUP_URL
   const runtimeMode = normalizeRuntimeMode(input?.runtimeMode)
 
   return {
@@ -1043,6 +1083,7 @@ function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSetti
     envFile,
     baseDir,
     profiles,
+    blockchainBackupUrl,
     runtimeMode
   }
 }
@@ -1419,6 +1460,81 @@ function ensureBaseDirKoinosRuntimeFiles(settings: KoinosNodeSettings): string {
   return `Prepared BASEDIR runtime files: ${copied.join(', ')}`
 }
 
+function normalizeBlockchainBackupArchiveUrl(raw: string): string {
+  const value = raw.trim()
+  if (!value) {
+    throw new Error('La URL del backup blockchain no puede estar vacia')
+  }
+
+  const parsed = new URL(value)
+  if (!/^https?:$/.test(parsed.protocol)) {
+    throw new Error('La URL del backup blockchain debe usar http o https')
+  }
+  if (!parsed.pathname.endsWith('.tar.gz')) {
+    throw new Error('La URL del backup blockchain debe apuntar a un archivo .tar.gz')
+  }
+
+  return parsed.toString()
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`
+}
+
+function hasBlockchainBackupPayload(dirPath: string): boolean {
+  return BLOCKCHAIN_BACKUP_RESTORE_DIRS.some((entry) => fs.existsSync(path.join(dirPath, entry)))
+}
+
+function findBlockchainBackupPayloadRoot(dirPath: string, depth = 0): string | null {
+  if (hasBlockchainBackupPayload(dirPath)) return dirPath
+  if (depth >= 4) return null
+
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const candidate = findBlockchainBackupPayloadRoot(path.join(dirPath, entry.name), depth + 1)
+    if (candidate) return candidate
+  }
+
+  return null
+}
+
+async function downloadAndExtractBlockchainBackup(url: string, extractDir: string): Promise<{ ok: boolean; output: string }> {
+  fs.mkdirSync(extractDir, { recursive: true })
+
+  const command = `set -o pipefail && curl --location --fail --silent --show-error ${shellSingleQuote(url)} | tar -xzf - -C ${shellSingleQuote(extractDir)}`
+  return runCommand('/bin/bash', ['-lc', command], {
+    cwd: process.cwd()
+  })
+}
+
+function restoreBlockchainBackupPayload(payloadRoot: string, settings: KoinosNodeSettings): string[] {
+  fs.mkdirSync(settings.baseDir, { recursive: true })
+
+  for (const dirName of BLOCKCHAIN_BACKUP_RESET_DIRS) {
+    fs.rmSync(path.join(settings.baseDir, dirName), { recursive: true, force: true })
+  }
+
+  const restored: string[] = []
+  for (const dirName of BLOCKCHAIN_BACKUP_RESTORE_DIRS) {
+    const sourcePath = path.join(payloadRoot, dirName)
+    if (!fs.existsSync(sourcePath)) continue
+
+    const targetPath = path.join(settings.baseDir, dirName)
+    fs.rmSync(targetPath, { recursive: true, force: true })
+    fs.cpSync(sourcePath, targetPath, { recursive: true })
+    restored.push(dirName)
+  }
+
+  if (restored.length === 0) {
+    throw new Error(
+      `El backup no contiene ninguno de los directorios esperados: ${BLOCKCHAIN_BACKUP_RESTORE_DIRS.join(', ')}`
+    )
+  }
+
+  return restored
+}
+
 function usesMacDockerDesktopWorkaround(): boolean {
   return process.platform === 'darwin'
 }
@@ -1509,6 +1625,170 @@ function runCommand(
       })
     })
   })
+}
+
+function parseProcessSnapshot(output: string): ProcessSnapshotEntry[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(.*)$/)
+      if (!match) return null
+
+      const pid = Number.parseInt(match[1], 10)
+      const command = match[2]?.trim() ?? ''
+      if (!Number.isFinite(pid) || !command) return null
+
+      return { pid, command }
+    })
+    .filter((entry): entry is ProcessSnapshotEntry => entry !== null)
+}
+
+async function listProcessSnapshot(): Promise<ProcessSnapshotEntry[]> {
+  const result = await runCommand('ps', ['-Ao', 'pid=,command='], {
+    cwd: process.cwd(),
+    timeoutMs: 5000
+  })
+
+  if (!result.ok || !result.output.trim()) return []
+  return parseProcessSnapshot(result.output)
+}
+
+function nativeServiceUsesBaseDir(serviceId: string): boolean {
+  return serviceId !== 'amqp' && serviceId !== 'rest'
+}
+
+function nativeServiceCommandHints(serviceId: string): string[] {
+  const buildDefinition = nativeServiceBuildDefinitionMap().get(serviceId)
+  const hints = new Set<string>()
+
+  if (buildDefinition) {
+    hints.add(path.basename(buildDefinition.artifactPath))
+  }
+
+  if (serviceId === 'amqp') {
+    const rabbitmqServer = nativeRabbitmqServerExecutable()
+    if (rabbitmqServer) hints.add(path.basename(rabbitmqServer))
+    hints.add('rabbitmq-server')
+  }
+
+  return [...hints].filter(Boolean)
+}
+
+function detectExternalNativeServiceProcesses(
+  settings: KoinosNodeSettings,
+  serviceId: string,
+  processSnapshot: ProcessSnapshotEntry[],
+  excludePids: number[] = []
+): ProcessSnapshotEntry[] {
+  if (!nativeServiceUsesBaseDir(serviceId)) return []
+
+  const commandHints = nativeServiceCommandHints(serviceId)
+  if (commandHints.length === 0) return []
+
+  const excludedPidSet = new Set(excludePids.filter((pid) => Number.isFinite(pid) && pid > 0))
+  const rawBaseDir = settings.baseDir
+  const resolvedBaseDir = path.resolve(settings.baseDir)
+  const baseDirArgs = new Set([rawBaseDir, resolvedBaseDir].map((baseDir) => `--basedir=${baseDir}`))
+
+  return processSnapshot.filter((entry) => {
+    if (excludedPidSet.has(entry.pid)) return false
+    if (![...baseDirArgs].some((baseDirArg) => entry.command.includes(baseDirArg))) return false
+    return commandHints.some((hint) => entry.command.includes(hint))
+  })
+}
+
+function describeExternalNativeServiceConflict(
+  settings: KoinosNodeSettings,
+  serviceId: string,
+  processes: ProcessSnapshotEntry[]
+): string {
+  const pidLabel = processes.length === 1 ? 'pid' : 'pids'
+  const pidList = processes.map((entry) => String(entry.pid)).join(', ')
+  return `Se detecto otro proceso nativo para ${serviceId} usando el mismo baseDir ${settings.baseDir} (${pidLabel}: ${pidList}). Detenlo antes de arrancar este servicio.`
+}
+
+function nativeManagedProcessRegistryOutput(settings?: KoinosNodeSettings): string {
+  const lines = sortManagedServiceIds(nativeServiceProcesses.keys())
+    .map((serviceId) => {
+      const state = nativeServiceProcesses.get(serviceId)
+      if (!state || state.closed) return ''
+      if (settings && state.baseDir && path.resolve(state.baseDir) !== path.resolve(settings.baseDir)) return ''
+
+      const pid = state.child.pid ?? null
+      const baseDirLabel = state.baseDir ? ` · baseDir ${state.baseDir}` : ''
+      return `- ${serviceId} · pid ${pid ?? 'n/a'}${baseDirLabel}`
+    })
+    .filter(Boolean)
+
+  if (lines.length === 0) return ''
+  return ['Native process registry:', ...lines].join('\n')
+}
+
+async function killConflictingNativeServiceProcesses(
+  settings: KoinosNodeSettings,
+  serviceId: string
+): Promise<NativeConflictKillResult> {
+  const trackedState = nativeServiceProcesses.get(serviceId)
+  const trackedPid = trackedState && !trackedState.closed && trackedState.child.pid ? [trackedState.child.pid] : []
+  const initialSnapshot = await listProcessSnapshot()
+  const conflictingProcesses = detectExternalNativeServiceProcesses(settings, serviceId, initialSnapshot, trackedPid)
+
+  if (conflictingProcesses.length === 0) {
+    return {
+      ok: true,
+      output: `No se detectaron procesos en conflicto para ${serviceId}`
+    }
+  }
+
+  const termOutputs: string[] = []
+  for (const processEntry of conflictingProcesses) {
+    try {
+      process.kill(processEntry.pid, 'SIGTERM')
+      termOutputs.push(`SIGTERM enviado a pid ${processEntry.pid} (${serviceId})`)
+    } catch (error) {
+      termOutputs.push(
+        `No se pudo enviar SIGTERM a pid ${processEntry.pid}: ${error instanceof Error ? error.message : 'error desconocido'}`
+      )
+    }
+  }
+
+  await delay(1500)
+
+  const afterTermSnapshot = await listProcessSnapshot()
+  const remainingAfterTerm = detectExternalNativeServiceProcesses(settings, serviceId, afterTermSnapshot, trackedPid)
+
+  const killOutputs = [...termOutputs]
+  for (const processEntry of remainingAfterTerm) {
+    try {
+      process.kill(processEntry.pid, 'SIGKILL')
+      killOutputs.push(`SIGKILL enviado a pid ${processEntry.pid} (${serviceId})`)
+    } catch (error) {
+      killOutputs.push(
+        `No se pudo enviar SIGKILL a pid ${processEntry.pid}: ${error instanceof Error ? error.message : 'error desconocido'}`
+      )
+    }
+  }
+
+  if (remainingAfterTerm.length > 0) {
+    await delay(750)
+  }
+
+  const finalSnapshot = await listProcessSnapshot()
+  const remainingAfterKill = detectExternalNativeServiceProcesses(settings, serviceId, finalSnapshot, trackedPid)
+
+  return {
+    ok: remainingAfterKill.length === 0,
+    output: [
+      ...killOutputs,
+      remainingAfterKill.length === 0
+        ? `Procesos conflictivos terminados para ${serviceId}`
+        : `Siguen en conflicto para ${serviceId}: ${remainingAfterKill.map((entry) => entry.pid).join(', ')}`
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
 }
 
 function composeCommandEnv(settings: KoinosNodeSettings): NodeJS.ProcessEnv {
@@ -2569,7 +2849,7 @@ async function stopNativeServiceProcess(serviceId: string): Promise<NativeServic
   if (closeCode !== null || state.closed) {
     return {
       ok: true,
-      output: `Stopped ${serviceId}`
+      output: `Stopped ${serviceId} (pid ${state.child.pid ?? 'n/a'})`
     }
   }
 
@@ -2581,7 +2861,7 @@ async function stopNativeServiceProcess(serviceId: string): Promise<NativeServic
 
   return {
     ok: true,
-    output: `Force-stopped ${serviceId}`
+    output: `Force-stopped ${serviceId} (pid ${state.child.pid ?? 'n/a'})`
   }
 }
 
@@ -2694,6 +2974,15 @@ async function startNativeServiceProcess(
     }
   }
 
+  const processSnapshot = await listProcessSnapshot()
+  const conflictingProcesses = detectExternalNativeServiceProcesses(settings, serviceId, processSnapshot)
+  if (conflictingProcesses.length > 0) {
+    return {
+      ok: false,
+      output: describeExternalNativeServiceConflict(settings, serviceId, conflictingProcesses)
+    }
+  }
+
   const child = spawn(launchSpec.command, launchSpec.args, {
     cwd: launchSpec.cwd,
     env: { ...process.env, ...launchSpec.env },
@@ -2705,6 +2994,7 @@ async function startNativeServiceProcess(
     child,
     runtimeName: launchSpec.runtimeName,
     cwd: launchSpec.cwd,
+    baseDir: nativeServiceUsesBaseDir(serviceId) ? settings.baseDir : null,
     startedAt: Date.now(),
     lastOutputAt: null,
     output: '',
@@ -2781,7 +3071,7 @@ async function startNativeServiceProcess(
 
   return {
     ok: true,
-    output: `Started ${serviceId} (${launchSpec.runtimeName})`
+    output: `Started ${serviceId} (${launchSpec.runtimeName}, pid ${child.pid ?? 'n/a'})`
   }
 }
 
@@ -2830,7 +3120,10 @@ function mergeComposeServiceStatuses(
       status: 'Not created',
       ports: definition.ports,
       dependsOn: definition.dependsOn.map(toManagedServiceId),
-      lastError: null
+      lastError: null,
+      nativePid: null,
+      conflictPids: [],
+      managedByKnodel: false
     })
   }
 
@@ -2907,7 +3200,10 @@ function parseComposePsJson(
       status,
       ports: normalizeComposePublishers(item).length > 0 ? normalizeComposePublishers(item) : serviceDefinitions?.get(service)?.ports ?? [],
       dependsOn: (serviceDefinitions?.get(service)?.dependsOn ?? []).map(toManagedServiceId),
-      lastError: deriveComposeServiceLastError(item, state, status)
+      lastError: deriveComposeServiceLastError(item, state, status),
+      nativePid: null,
+      conflictPids: [],
+      managedByKnodel: false
     }
   }
 
@@ -2946,9 +3242,11 @@ function parseComposePsJson(
 }
 
 function nativeServiceStatusFromProcessState(
+  settings: KoinosNodeSettings,
   serviceId: string,
   serviceDefinition: ComposeServiceDefinition,
-  state: NativeServiceProcessState | undefined
+  state: NativeServiceProcessState | undefined,
+  processSnapshot: ProcessSnapshotEntry[]
 ): ComposeServiceStatus {
   const buildDefinition = nativeServiceBuildDefinitionMap().get(serviceId)
   const fallbackRuntimeName = nativeServiceDefaultRuntimeName(serviceId, buildDefinition)
@@ -2958,8 +3256,14 @@ function nativeServiceStatusFromProcessState(
     serviceId === 'amqp' && !rabbitmqExecutable ? 'No se encontro rabbitmq-server para el runtime native' : null
   const artifactMissing =
     serviceId !== 'amqp' && buildDefinition ? !fs.existsSync(buildDefinition.artifactPath) : false
+  const conflictingProcesses = detectExternalNativeServiceProcesses(
+    settings,
+    serviceId,
+    processSnapshot,
+    state && !state.closed && state.child.pid ? [state.child.pid] : []
+  )
 
-  if (state && !state.closed) {
+  if (state && !state.closed && conflictingProcesses.length === 0) {
     return {
       id: serviceId,
       name: serviceDisplayName(serviceId),
@@ -2970,7 +3274,28 @@ function nativeServiceStatusFromProcessState(
       status: `Running (pid ${state.child.pid ?? 'n/a'})`,
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: null
+      lastError: null,
+      nativePid: state.child.pid ?? null,
+      conflictPids: [],
+      managedByKnodel: true
+    }
+  }
+
+  if (conflictingProcesses.length > 0) {
+    return {
+      id: serviceId,
+      name: serviceDisplayName(serviceId),
+      service: toDockerServiceName(serviceId),
+      runtimeName,
+      runtimeType: 'native',
+      state: 'conflict',
+      status: 'Conflicting native process detected',
+      ports: serviceDefinition.ports,
+      dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
+      lastError: describeExternalNativeServiceConflict(settings, serviceId, conflictingProcesses),
+      nativePid: null,
+      conflictPids: conflictingProcesses.map((entry) => entry.pid),
+      managedByKnodel: false
     }
   }
 
@@ -2985,7 +3310,10 @@ function nativeServiceStatusFromProcessState(
       status: 'Missing native runtime',
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: amqpRuntimeMissing
+      lastError: amqpRuntimeMissing,
+      nativePid: null,
+      conflictPids: [],
+      managedByKnodel: false
     }
   }
 
@@ -3000,7 +3328,10 @@ function nativeServiceStatusFromProcessState(
       status: 'Missing native artifact',
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: buildDefinition ? `Falta el artefacto nativo: ${buildDefinition.artifactPath}` : 'Sin build nativo'
+      lastError: buildDefinition ? `Falta el artefacto nativo: ${buildDefinition.artifactPath}` : 'Sin build nativo',
+      nativePid: null,
+      conflictPids: [],
+      managedByKnodel: false
     }
   }
 
@@ -3015,7 +3346,10 @@ function nativeServiceStatusFromProcessState(
       status: `Exited (${state.exitCode ?? 'null'})`,
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: state.lastError || `Exited with code ${state.exitCode ?? 'null'}`
+      lastError: state.lastError || `Exited with code ${state.exitCode ?? 'null'}`,
+      nativePid: state.child.pid ?? null,
+      conflictPids: [],
+      managedByKnodel: true
     }
   }
 
@@ -3029,7 +3363,10 @@ function nativeServiceStatusFromProcessState(
     status: 'Stopped',
     ports: serviceDefinition.ports,
     dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-    lastError: null
+    lastError: null,
+    nativePid: null,
+    conflictPids: [],
+    managedByKnodel: false
   }
 }
 
@@ -3050,7 +3387,10 @@ async function nativeAmqpBrewComposeStatus(
       status: 'Missing native runtime',
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: 'No se encontro rabbitmq-server para el runtime native'
+      lastError: 'No se encontro rabbitmq-server para el runtime native',
+      nativePid: null,
+      conflictPids: [],
+      managedByKnodel: false
     }
   }
 
@@ -3066,7 +3406,10 @@ async function nativeAmqpBrewComposeStatus(
       status: 'Homebrew unavailable',
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: brewState.output
+      lastError: brewState.output,
+      nativePid: null,
+      conflictPids: [],
+      managedByKnodel: false
     }
   }
 
@@ -3090,7 +3433,10 @@ async function nativeAmqpBrewComposeStatus(
       status: 'Ports occupied by Docker',
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: `Los puertos de amqp estan ocupados por Docker Desktop: ${describeTcpListenerOwners(dockerListeners)}`
+      lastError: `Los puertos de amqp estan ocupados por Docker Desktop: ${describeTcpListenerOwners(dockerListeners)}`,
+      nativePid: null,
+      conflictPids: dockerListeners.map((listener) => listener.pid).filter((pid): pid is number => typeof pid === 'number'),
+      managedByKnodel: false
     }
   }
 
@@ -3105,7 +3451,10 @@ async function nativeAmqpBrewComposeStatus(
       status: 'Running (brew service)',
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: null
+      lastError: null,
+      nativePid: null,
+      conflictPids: [],
+      managedByKnodel: false
     }
   }
 
@@ -3120,7 +3469,10 @@ async function nativeAmqpBrewComposeStatus(
       status: 'Starting (brew service)',
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: `rabbitmq esta marcado como ${brewState.status}, pero los puertos 5672/15672 aun no estan listos`
+      lastError: `rabbitmq esta marcado como ${brewState.status}, pero los puertos 5672/15672 aun no estan listos`,
+      nativePid: null,
+      conflictPids: [],
+      managedByKnodel: false
     }
   }
 
@@ -3134,7 +3486,10 @@ async function nativeAmqpBrewComposeStatus(
     status: 'Stopped',
     ports: serviceDefinition.ports,
     dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-    lastError: null
+    lastError: null,
+    nativePid: null,
+    conflictPids: [],
+    managedByKnodel: false
   }
 }
 
@@ -3169,6 +3524,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
   }
 
   const selectedServiceIds = selectedManagedComposeServiceIds(settings, serviceDefinitions)
+  const processSnapshot = await listProcessSnapshot()
   const services = (
     await Promise.all(
       selectedServiceIds.map(async (serviceId): Promise<ComposeServiceStatus | null> => {
@@ -3180,7 +3536,13 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
           return nativeAmqpBrewComposeStatus(settings, serviceDefinition)
         }
 
-        return nativeServiceStatusFromProcessState(serviceId, serviceDefinition, nativeServiceProcesses.get(serviceId))
+        return nativeServiceStatusFromProcessState(
+          settings,
+          serviceId,
+          serviceDefinition,
+          nativeServiceProcesses.get(serviceId),
+          processSnapshot
+        )
       })
     )
   )
@@ -3208,6 +3570,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
     runningServices,
     output: [
       prepNotes,
+      nativeManagedProcessRegistryOutput(settings),
       unavailableNativeServices.length > 0
         ? unavailableNativeServices.map((service) => service.lastError).filter(Boolean).join('\n')
         : ''
@@ -3674,7 +4037,7 @@ async function nativeComposeAction(
 }
 
 async function nativeComposeServiceAction(
-  action: 'start' | 'stop' | 'restart',
+  action: 'start' | 'stop' | 'restart' | 'kill-conflict',
   input?: KoinosNodeServiceCommandInput
 ): Promise<KoinosNodeServiceCommandResult> {
   const settings = normalizeNodeSettings(input)
@@ -3716,6 +4079,18 @@ async function nativeComposeServiceAction(
         output: conflictCheck.output,
         status: currentStatus
       }
+    }
+  }
+
+  if (action === 'kill-conflict') {
+    const killResult = await killConflictingNativeServiceProcesses(settings, serviceId)
+    const status = await nativeComposeStatus(settings)
+    return {
+      ok: killResult.ok,
+      action,
+      service,
+      output: [repoRenameNotes, killResult.output, nativeManagedProcessRegistryOutput(settings)].filter(Boolean).join('\n'),
+      status
     }
   }
 
@@ -3768,7 +4143,9 @@ async function nativeComposeServiceAction(
       ok: stopResult.ok && startResult.ok,
       action,
       service,
-      output: [notes.join('\n'), stopResult.output, startResult.output].filter(Boolean).join('\n'),
+      output: [notes.join('\n'), stopResult.output, startResult.output, nativeManagedProcessRegistryOutput(settings)]
+        .filter(Boolean)
+        .join('\n'),
       status
     }
   }
@@ -3783,7 +4160,7 @@ async function nativeComposeServiceAction(
     ok: result.ok,
     action,
     service,
-    output: [notes.join('\n'), result.output].filter(Boolean).join('\n'),
+    output: [notes.join('\n'), result.output, nativeManagedProcessRegistryOutput(settings)].filter(Boolean).join('\n'),
     status
   }
 }
@@ -3918,7 +4295,7 @@ async function dockerComposeAction(
 }
 
 async function dockerComposeServiceAction(
-  action: 'start' | 'stop' | 'restart',
+  action: 'start' | 'stop' | 'restart' | 'kill-conflict',
   input?: KoinosNodeServiceCommandInput
 ): Promise<KoinosNodeServiceCommandResult> {
   const settings = normalizeNodeSettings(input)
@@ -3938,6 +4315,16 @@ async function dockerComposeServiceAction(
   const currentStatus = await dockerComposeStatus(settings)
   const serviceId = toManagedServiceId(service)
   const targetService = currentStatus.services.find((candidate) => candidate.service === service || candidate.id === serviceId)
+
+  if (action === 'kill-conflict') {
+    return {
+      ok: false,
+      action,
+      service,
+      output: 'Kill conflicting process solo esta disponible en runtime native',
+      status: currentStatus
+    }
+  }
 
   if ((action === 'start' || action === 'restart') && (!targetService || !isComposeServiceRunning(targetService))) {
     const currentServicesById = new Map(currentStatus.services.map((candidate) => [candidate.id, candidate] as const))
@@ -4612,7 +4999,7 @@ async function koinosNodeAction(
 }
 
 async function koinosNodeServiceAction(
-  action: 'start' | 'stop' | 'restart',
+  action: 'start' | 'stop' | 'restart' | 'kill-conflict',
   input?: KoinosNodeServiceCommandInput
 ): Promise<KoinosNodeServiceCommandResult> {
   const runtimeMode = normalizeNodeSettings(input).runtimeMode
@@ -4628,6 +5015,164 @@ async function koinosNodePresetReconcile(
   return runtimeMode === 'native'
     ? nativeComposePresetReconcile(input)
     : dockerComposePresetReconcile(input)
+}
+
+async function koinosNodeRestoreBackup(input?: KoinosNodeSettingsInput): Promise<KoinosNodeBackupRestoreResult> {
+  const settings = normalizeNodeSettings(input)
+  const repoRenameNotes = ensureKoinosRepoRenamedFiles(settings)
+  const notes = repoRenameNotes ? [repoRenameNotes] : []
+
+  try {
+    assertRepoReady(settings)
+    const backupUrl = normalizeBlockchainBackupArchiveUrl(settings.blockchainBackupUrl)
+    const stopResult =
+      settings.runtimeMode === 'native' ? await nativeComposeAction('stop', input) : await dockerComposeAction('stop', input)
+
+    if (stopResult.output) notes.push(stopResult.output)
+    if (!stopResult.ok) {
+      return {
+        ok: false,
+        action: 'restore-backup',
+        output: [...notes, 'No se pudo detener el nodo antes de restaurar el backup'].filter(Boolean).join('\n'),
+        status: stopResult.status
+      }
+    }
+
+    const configPrep = ensureKoinosConfigFiles(settings)
+    if (configPrep.output) notes.push(configPrep.output)
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'knodel-blockchain-backup-'))
+    const extractDir = path.join(tempDir, 'extract')
+
+    try {
+      notes.push(`Restoring blockchain backup from ${backupUrl}`)
+      const extractResult = await downloadAndExtractBlockchainBackup(backupUrl, extractDir)
+      if (!extractResult.ok) {
+        return {
+          ok: false,
+          action: 'restore-backup',
+          output: [...notes, extractResult.output || 'No se pudo descargar o extraer el backup'].filter(Boolean).join('\n'),
+          status: await koinosNodeStatus(settings)
+        }
+      }
+
+      const payloadRoot = findBlockchainBackupPayloadRoot(extractDir)
+      if (!payloadRoot) {
+        return {
+          ok: false,
+          action: 'restore-backup',
+          output: [
+            ...notes,
+            `El backup no contiene los directorios esperados (${BLOCKCHAIN_BACKUP_RESTORE_DIRS.join(', ')})`
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          status: await koinosNodeStatus(settings)
+        }
+      }
+
+      const restoredDirs = restoreBlockchainBackupPayload(payloadRoot, settings)
+      notes.push(`Restored blockchain state: ${restoredDirs.join(', ')}`)
+      notes.push(`Cleared runtime state: ${BLOCKCHAIN_BACKUP_RESET_DIRS.join(', ')}`)
+      notes.push(ensureBaseDirKoinosRuntimeFiles(settings))
+
+      const status = await koinosNodeStatus(settings)
+      return {
+        ok: true,
+        action: 'restore-backup',
+        output: notes.filter(Boolean).join('\n'),
+        status
+      }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      action: 'restore-backup',
+      output: [...notes, error instanceof Error ? error.message : 'No se pudo restaurar el backup blockchain']
+        .filter(Boolean)
+        .join('\n'),
+      status: await koinosNodeStatus(settings)
+    }
+  }
+}
+
+async function koinosJsonRpcProxy(input?: KoinosJsonRpcProxyInput): Promise<KoinosJsonRpcProxyResult> {
+  const rpcUrl = input?.rpcUrl?.trim() || ''
+  const method = input?.method?.trim() || ''
+  const params = input?.params ?? {}
+
+  if (!rpcUrl) {
+    return {
+      ok: false,
+      method,
+      output: 'Parametro rpcUrl invalido'
+    }
+  }
+
+  if (!method) {
+    return {
+      ok: false,
+      method: '',
+      output: 'Parametro method invalido'
+    }
+  }
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15000)
+
+    try {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method,
+          params
+        }),
+        signal: controller.signal
+      })
+
+      if (!response.ok) {
+        return {
+          ok: false,
+          method,
+          output: `RPC HTTP ${response.status}`
+        }
+      }
+
+      const payload = (await response.json()) as { result?: unknown; error?: { message?: string; data?: unknown } }
+      if (payload.error) {
+        return {
+          ok: false,
+          method,
+          output:
+            typeof payload.error.data === 'string' && payload.error.data
+              ? `${payload.error.message || 'RPC error'}: ${payload.error.data}`
+              : payload.error.message || 'RPC error'
+        }
+      }
+
+      return {
+        ok: true,
+        method,
+        result: payload.result,
+        output: ''
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'RPC request failed'
+    return {
+      ok: false,
+      method,
+      output: message
+    }
+  }
 }
 
 async function koinosNodeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNodeLogsResult> {
@@ -4658,6 +5203,8 @@ function registerIpcHandlers() {
     'knodel:koinos-node:native-build-service',
     'knodel:koinos-node:start',
     'knodel:koinos-node:stop',
+    'knodel:koinos-node:restore-backup',
+    'knodel:koinos-node:rpc-call',
     'knodel:koinos-node:service-start',
     'knodel:koinos-node:service-stop',
     'knodel:koinos-node:service-restart',
@@ -4734,6 +5281,14 @@ function registerIpcHandlers() {
     return koinosNodeAction('stop', input)
   })
 
+  ipcMain.handle('knodel:koinos-node:restore-backup', async (_event, input?: KoinosNodeSettingsInput) => {
+    return koinosNodeRestoreBackup(input)
+  })
+
+  ipcMain.handle('knodel:koinos-node:rpc-call', async (_event, input?: KoinosJsonRpcProxyInput) => {
+    return koinosJsonRpcProxy(input)
+  })
+
   ipcMain.handle('knodel:koinos-node:service-start', async (_event, input?: KoinosNodeServiceCommandInput) => {
     return koinosNodeServiceAction('start', input)
   })
@@ -4744,6 +5299,10 @@ function registerIpcHandlers() {
 
   ipcMain.handle('knodel:koinos-node:service-restart', async (_event, input?: KoinosNodeServiceCommandInput) => {
     return koinosNodeServiceAction('restart', input)
+  })
+
+  ipcMain.handle('knodel:koinos-node:service-kill-conflict', async (_event, input?: KoinosNodeServiceCommandInput) => {
+    return koinosNodeServiceAction('kill-conflict', input)
   })
 
   ipcMain.handle('knodel:koinos-node:preset-reconcile', async (_event, input?: KoinosNodePresetCommandInput) => {

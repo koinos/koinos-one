@@ -18,6 +18,7 @@ declare global {
     envFile?: string
     baseDir?: string
     profiles?: string[]
+    blockchainBackupUrl?: string
     runtimeMode?: KnodelKoinosNodeServiceRuntime
   }
 
@@ -32,6 +33,9 @@ declare global {
     ports: KnodelKoinosNodeServicePort[]
     dependsOn: string[]
     lastError: string | null
+    nativePid: number | null
+    conflictPids: number[]
+    managedByKnodel: boolean
   }
 
   type KnodelKoinosNodePresetSource = 'compose-core' | 'compose-profile'
@@ -75,13 +79,20 @@ declare global {
     status: KnodelKoinosNodeStatus
   }
 
+  type KnodelKoinosNodeBackupRestoreResult = {
+    ok: boolean
+    action: 'restore-backup'
+    output: string
+    status: KnodelKoinosNodeStatus
+  }
+
   type KnodelKoinosNodeServiceCommandParams = KnodelKoinosNodeSettings & {
     service: string
   }
 
   type KnodelKoinosNodeServiceCommandResult = {
     ok: boolean
-    action: 'start' | 'stop' | 'restart'
+    action: 'start' | 'stop' | 'restart' | 'kill-conflict'
     service: string
     output: string
     status: KnodelKoinosNodeStatus
@@ -204,6 +215,19 @@ declare global {
     message?: string
   }
 
+  type KnodelKoinosJsonRpcProxyParams = {
+    rpcUrl: string
+    method: string
+    params?: Record<string, unknown>
+  }
+
+  type KnodelKoinosJsonRpcProxyResult = {
+    ok: boolean
+    method: string
+    result?: unknown
+    output: string
+  }
+
   type KnodelApi = {
     version: string
     koinosNode?: {
@@ -220,9 +244,14 @@ declare global {
       ) => Promise<KnodelKoinosNodeNativeBuildCommandResult>
       start: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeCommandResult>
       stop: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeCommandResult>
+      restoreBackup: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeBackupRestoreResult>
+      rpcCall: (params: KnodelKoinosJsonRpcProxyParams) => Promise<KnodelKoinosJsonRpcProxyResult>
       serviceStart: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
       serviceStop: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
       serviceRestart: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
+      serviceKillConflict: (
+        params: KnodelKoinosNodeServiceCommandParams
+      ) => Promise<KnodelKoinosNodeServiceCommandResult>
       presetReconcile: (params: KnodelKoinosNodePresetCommandParams) => Promise<KnodelKoinosNodePresetCommandResult>
       logs: (params?: KnodelKoinosNodeLogsParams) => Promise<KnodelKoinosNodeLogsResult>
       logsFollowStart: (params?: KnodelKoinosNodeLogsParams) => Promise<KnodelKoinosNodeLogsFollowStartResult>

@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 const SETTINGS_STORAGE_KEY = 'knodel.explorer.settings.v1'
 const NODE_SETTINGS_STORAGE_KEY = 'knodel.koinos-node.settings.v1'
+const PUBLIC_RPC_URL = 'https://api.koinos.io/'
+const LOCAL_NODE_RPC_FALLBACK_URL = 'http://127.0.0.1:8080/'
 const DEFAULT_SETTINGS = {
-  rpcUrl: 'https://api.koinos.io',
+  rpcMode: 'local' as ExplorerRpcMode,
+  rpcUrl: PUBLIC_RPC_URL,
   pollMs: 3000,
   rowLimit: 20
 } as const
@@ -13,14 +16,18 @@ const DEFAULT_NODE_SETTINGS = {
   envFile: '.env',
   baseDir: '~/.koinos',
   profiles: 'block_producer,jsonrpc',
+  blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz',
   runtimeMode: 'docker' as KnodelKoinosNodeServiceRuntime
 } as const
 
 type ExplorerSettings = {
+  rpcMode: ExplorerRpcMode
   rpcUrl: string
   pollMs: number
   rowLimit: number
 }
+
+type ExplorerRpcMode = 'local' | 'public' | 'custom'
 
 type NodeManagerSettings = {
   repoPath: string
@@ -28,6 +35,7 @@ type NodeManagerSettings = {
   envFile: string
   baseDir: string
   profiles: string
+  blockchainBackupUrl: string
   runtimeMode: KnodelKoinosNodeServiceRuntime
 }
 
@@ -50,9 +58,18 @@ type NodeServiceCapabilities = {
   dependencyNames: string[]
   missingDependencyNames: string[]
   profileDependentNames: string[]
+  conflictReason: string | null
+  conflictPids: number[]
   startBlockedReason: string | null
   stopBlockedReason: string | null
   restartBlockedReason: string | null
+}
+
+type NodeConflictDialogState = {
+  serviceId: string
+  serviceName: string
+  conflictPids: number[]
+  message: string
 }
 
 type BlockRow = {
@@ -183,12 +200,34 @@ function normalizeRpcUrl(raw: string): string {
   return parsed.toString()
 }
 
+function normalizeExplorerRpcMode(value: unknown): ExplorerRpcMode {
+  return value === 'public' || value === 'custom' ? value : 'local'
+}
+
+function formatExplorerRpcMode(mode: ExplorerRpcMode): string {
+  return mode === 'local' ? 'Local Node' : mode === 'public' ? 'Public RPC' : 'Custom RPC'
+}
+
+function normalizeBackupTarGzUrl(raw: string): string {
+  const value = raw.trim()
+  if (!value) throw new Error('La URL del backup no puede estar vacia')
+  const parsed = new URL(value)
+  if (!/^https?:$/.test(parsed.protocol)) {
+    throw new Error('La URL del backup debe usar http o https')
+  }
+  if (!parsed.pathname.endsWith('.tar.gz')) {
+    throw new Error('La URL del backup debe apuntar a un archivo .tar.gz')
+  }
+  return parsed.toString()
+}
+
 function loadInitialSettings(): ExplorerSettings {
   try {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS }
     const parsed = JSON.parse(raw) as Partial<ExplorerSettings>
     return {
+      rpcMode: normalizeExplorerRpcMode(parsed.rpcMode),
       rpcUrl: typeof parsed.rpcUrl === 'string' && parsed.rpcUrl ? parsed.rpcUrl : DEFAULT_SETTINGS.rpcUrl,
       pollMs: clamp(typeof parsed.pollMs === 'number' ? parsed.pollMs : DEFAULT_SETTINGS.pollMs, 1000, 30000),
       rowLimit: clamp(typeof parsed.rowLimit === 'number' ? parsed.rowLimit : DEFAULT_SETTINGS.rowLimit, 5, 50)
@@ -221,6 +260,10 @@ function loadInitialNodeSettings(): NodeManagerSettings {
       baseDir:
         typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : DEFAULT_NODE_SETTINGS.baseDir,
       profiles: typeof parsed.profiles === 'string' ? parsed.profiles : DEFAULT_NODE_SETTINGS.profiles,
+      blockchainBackupUrl:
+        typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
+          ? parsed.blockchainBackupUrl
+          : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
       runtimeMode: parsed.runtimeMode === 'native' ? 'native' : DEFAULT_NODE_SETTINGS.runtimeMode
     }
   } catch {
@@ -242,6 +285,7 @@ function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNodeSetti
     envFile: settings.envFile.trim(),
     baseDir: settings.baseDir.trim(),
     profiles: parseProfilesCsv(settings.profiles),
+    blockchainBackupUrl: settings.blockchainBackupUrl.trim(),
     runtimeMode: settings.runtimeMode
   }
 }
@@ -254,6 +298,32 @@ function looksLikeNodeErrorOutput(output: string): boolean {
   return /cannot connect to the docker daemon|spawn docker ENOENT|repo path not found|compose file not found|env file not found|missing config dir|no se pudo consultar docker compose|error consultando docker compose/i.test(
     output
   )
+}
+
+function nodeServicePortByTarget(
+  service: KnodelKoinosNodeServiceStatus | null | undefined,
+  targetPort: number
+): KnodelKoinosNodeServicePort | null {
+  return service?.ports.find((port) => port.targetPort === targetPort) ?? null
+}
+
+function normalizeNodeRpcHost(host: string | null | undefined, fallback = '127.0.0.1'): string {
+  const value = host?.trim()
+  return value && value !== '0.0.0.0' && value !== '::' ? value : fallback
+}
+
+function resolveLocalNodeRpcUrl(nodeStatus: KnodelKoinosNodeStatus | null): string {
+  const jsonrpcService = nodeStatus?.services.find((service) => service.id === 'jsonrpc') ?? null
+  const jsonrpcPort = nodeServicePortByTarget(jsonrpcService, 8080)
+  const host = normalizeNodeRpcHost(jsonrpcPort?.host)
+  const port = jsonrpcPort?.publishedPort ?? 8080
+  return `http://${host}:${port}/`
+}
+
+function resolveExplorerRpcUrl(settings: ExplorerSettings, nodeStatus: KnodelKoinosNodeStatus | null): string {
+  if (settings.rpcMode === 'public') return PUBLIC_RPC_URL
+  if (settings.rpcMode === 'custom') return settings.rpcUrl
+  return resolveLocalNodeRpcUrl(nodeStatus)
 }
 
 function isNodeServiceRunning(service: KnodelKoinosNodeServiceStatus): boolean {
@@ -279,6 +349,14 @@ function formatNodeServiceTooltip(
 ): string {
   const lines = [`Service: ${service.name}`, `Runtime: ${service.runtimeName}`]
 
+  if (service.nativePid) {
+    lines.push(`Managed PID: ${service.nativePid}`)
+  }
+
+  if (service.conflictPids.length > 0) {
+    lines.push(`Conflicting PIDs: ${service.conflictPids.join(', ')}`)
+  }
+
   lines.push(
     `Depends on: ${capabilities.dependencyNames.length > 0 ? capabilities.dependencyNames.join(', ') : 'none'}`
   )
@@ -291,11 +369,25 @@ function formatNodeServiceTooltip(
     lines.push(`Missing dependencies: ${capabilities.missingDependencyNames.join(', ')}`)
   }
 
+  if (service.lastError) {
+    lines.push(`Issue: ${service.lastError}`)
+  }
+
   return lines.join('\n')
 }
 
 function normalizeStringList(values: string[]): string[] {
   return [...values].map((value) => value.trim()).filter(Boolean).sort()
+}
+
+function formatNodeServiceRuntimeDetail(service: KnodelKoinosNodeServiceStatus): string {
+  if (service.nativePid) return `${service.runtimeName} · pid ${service.nativePid}`
+  if (service.conflictPids.length > 0) return `${service.runtimeName} · conflict pid ${service.conflictPids.join(', ')}`
+  return service.runtimeName
+}
+
+function canKillNodeConflict(service: KnodelKoinosNodeServiceStatus): boolean {
+  return service.runtimeType === 'native' && service.id !== 'amqp' && service.conflictPids.length > 0
 }
 
 function normalizeProfiles(profiles: string[]): string[] {
@@ -534,6 +626,25 @@ async function rpcCall<T>(
   params: Record<string, unknown>,
   signal: AbortSignal
 ): Promise<T> {
+  const bridge = getKoinosNodeBridge()
+  if (bridge?.rpcCall) {
+    if (signal.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+
+    const proxied = await bridge.rpcCall({ rpcUrl, method, params })
+    if (signal.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+    if (!proxied.ok) {
+      throw new Error(proxied.output || 'RPC error')
+    }
+    if (proxied.result === undefined) {
+      throw new Error('RPC result vacio')
+    }
+    return proxied.result as T
+  }
+
   const response = await fetch(rpcUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -629,12 +740,14 @@ export function App() {
   const [draftNodeEnvFile, setDraftNodeEnvFile] = useState(nodeSettings.envFile)
   const [draftNodeBaseDir, setDraftNodeBaseDir] = useState(nodeSettings.baseDir)
   const [draftNodeProfiles, setDraftNodeProfiles] = useState(nodeSettings.profiles)
+  const [draftNodeBlockchainBackupUrl, setDraftNodeBlockchainBackupUrl] = useState(nodeSettings.blockchainBackupUrl)
   const [draftNodeRuntimeMode, setDraftNodeRuntimeMode] = useState<KnodelKoinosNodeServiceRuntime>(
     nodeSettings.runtimeMode
   )
   const [nodeStatus, setNodeStatus] = useState<KnodelKoinosNodeStatus | null>(null)
   const [nodeStatusLoading, setNodeStatusLoading] = useState(false)
   const [nodeActionLoading, setNodeActionLoading] = useState<NodeAction | null>(null)
+  const [nodeRestoreBackupLoading, setNodeRestoreBackupLoading] = useState(false)
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
   const [nodePresets, setNodePresets] = useState<KnodelKoinosNodePreset[]>([])
@@ -666,6 +779,8 @@ export function App() {
   const [nodeLogsLastRefreshAt, setNodeLogsLastRefreshAt] = useState<number | null>(null)
   const [nodeLogsStreamId, setNodeLogsStreamId] = useState<string | null>(null)
   const [nodeServiceContextMenu, setNodeServiceContextMenu] = useState<NodeServiceContextMenuState | null>(null)
+  const [nodeConflictDialog, setNodeConflictDialog] = useState<NodeConflictDialogState | null>(null)
+  const [nodeConflictKillLoading, setNodeConflictKillLoading] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
   const [nowMs, setNowMs] = useState(() => Date.now())
   const rowsRef = useRef<BlockRow[]>([])
@@ -690,6 +805,7 @@ export function App() {
     setDraftNodeEnvFile(nodeSettings.envFile)
     setDraftNodeBaseDir(nodeSettings.baseDir)
     setDraftNodeProfiles(nodeSettings.profiles)
+    setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
     setDraftNodeRuntimeMode(nodeSettings.runtimeMode)
   }, [nodeSettings])
 
@@ -700,6 +816,11 @@ export function App() {
   useEffect(() => {
     window.localStorage.setItem(NODE_SETTINGS_STORAGE_KEY, JSON.stringify(nodeSettings))
   }, [nodeSettings])
+
+  const effectiveExplorerRpcUrl = useMemo(
+    () => resolveExplorerRpcUrl(settings, nodeStatus),
+    [settings, nodeStatus]
+  )
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
@@ -733,12 +854,16 @@ export function App() {
       }
       if (nodeLogsModalOpen) {
         setNodeLogsModalOpen(false)
+        return
+      }
+      if (nodeConflictDialog) {
+        setNodeConflictDialog(null)
       }
     }
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [nodeServiceContextMenu, nodeFileEditorOpen, nodeLogsModalOpen])
+  }, [nodeServiceContextMenu, nodeFileEditorOpen, nodeLogsModalOpen, nodeConflictDialog])
 
   useEffect(() => {
     nodeLogsStreamIdRef.current = nodeLogsStreamId
@@ -901,7 +1026,15 @@ export function App() {
 
     let disposed = false
     const timer = window.setInterval(async () => {
-      if (disposed || nodeActionLoading || nodeServiceActionLoading || nodePresetActionLoading || nodeNativeBuildActionLoading) return
+      if (
+        disposed ||
+        nodeActionLoading ||
+        nodeRestoreBackupLoading ||
+        nodeServiceActionLoading ||
+        nodePresetActionLoading ||
+        nodeNativeBuildActionLoading
+      )
+        return
       try {
         const status = await bridge.status(toNodeApiSettings(nodeSettings))
         if (disposed) return
@@ -915,13 +1048,25 @@ export function App() {
       disposed = true
       window.clearInterval(timer)
     }
-  }, [hasNodeControls, nodeSettings, nodeActionLoading, nodeServiceActionLoading, nodePresetActionLoading, nodeNativeBuildActionLoading])
+  }, [
+    hasNodeControls,
+    nodeSettings,
+    nodeActionLoading,
+    nodeRestoreBackupLoading,
+    nodeServiceActionLoading,
+    nodePresetActionLoading,
+    nodeNativeBuildActionLoading
+  ])
 
   useEffect(() => {
     let disposed = false
     let inFlight = false
     let pollTimer: number | null = null
     let controller: AbortController | null = null
+    const explorerSettings = {
+      ...settings,
+      rpcUrl: effectiveExplorerRpcUrl
+    }
 
     const tick = async (initial: boolean) => {
       if (disposed || inFlight) return
@@ -932,7 +1077,7 @@ export function App() {
       else setIsRefreshing(true)
 
       try {
-        const snapshot = await fetchLatestBlocks(settings, controller.signal)
+        const snapshot = await fetchLatestBlocks(explorerSettings, controller.signal)
         if (disposed) return
 
         const previousIds = new Set(rowsRef.current.map((row) => row.blockId))
@@ -962,28 +1107,30 @@ export function App() {
     void tick(true)
     pollTimer = window.setInterval(() => {
       void tick(false)
-    }, settings.pollMs)
+    }, explorerSettings.pollMs)
 
     return () => {
       disposed = true
       controller?.abort()
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
-  }, [settings])
+  }, [settings, effectiveExplorerRpcUrl])
 
   const statusText = useMemo(() => {
     if (errorMessage) return `Error RPC · ${errorMessage}`
-    if (isInitialLoading) return 'Conectando a Koinos RPC...'
+    if (isInitialLoading) return `Conectando a ${formatExplorerRpcMode(settings.rpcMode)}...`
     if (isRefreshing) return 'Actualizando bloques...'
     return `Live · ${rows.length} bloques visibles`
-  }, [errorMessage, isInitialLoading, isRefreshing, rows.length])
+  }, [errorMessage, isInitialLoading, isRefreshing, rows.length, settings.rpcMode])
 
   const lastUpdateText = lastSuccessAt ? new Date(lastSuccessAt).toLocaleTimeString() : 'N/A'
   const headBlockTimeText = head ? formatDateTime(head.timestampMs) : 'N/A'
   const nodeBusy =
     nodeActionLoading !== null ||
+    nodeRestoreBackupLoading ||
     nodeCloneLoading ||
     nodeServiceActionLoading !== null ||
+    nodeConflictKillLoading !== null ||
     nodePresetActionLoading !== null ||
     nodeNativeBuildActionLoading !== null
   const nodeRuntimeMode = nodeStatus?.runtimeMode ?? nodeSettings.runtimeMode
@@ -1033,6 +1180,8 @@ export function App() {
 
     for (const service of nodeServices) {
       const running = isNodeServiceRunning(service)
+      const conflictReason =
+        service.state === 'conflict' ? service.lastError || 'Hay otro proceso nativo usando este servicio' : null
       const dependencyNames = service.dependsOn.map(serviceLabel)
       const missingDependencyNames = service.dependsOn
         .filter((dependencyId) => {
@@ -1049,20 +1198,27 @@ export function App() {
         dependencyNames,
         missingDependencyNames,
         profileDependentNames,
-        startBlockedReason: running
-          ? 'El servicio ya esta activo'
-          : missingDependencyNames.length > 0
-            ? `Dependencias no activas: ${missingDependencyNames.join(', ')}`
-            : null,
-        stopBlockedReason: !running
-          ? 'El servicio ya esta detenido'
-          : profileDependentNames.length > 0
-            ? `Servicios dependientes en el profile actual: ${profileDependentNames.join(', ')}`
-            : null,
+        conflictReason,
+        conflictPids: service.conflictPids ?? [],
+        startBlockedReason:
+          conflictReason ||
+          (running
+            ? 'El servicio ya esta activo'
+            : missingDependencyNames.length > 0
+              ? `Dependencias no activas: ${missingDependencyNames.join(', ')}`
+              : null),
+        stopBlockedReason:
+          conflictReason ||
+          (!running
+            ? 'El servicio ya esta detenido'
+            : profileDependentNames.length > 0
+              ? `Servicios dependientes en el profile actual: ${profileDependentNames.join(', ')}`
+              : null),
         restartBlockedReason:
-          !running && missingDependencyNames.length > 0
+          conflictReason ||
+          (!running && missingDependencyNames.length > 0
             ? `Dependencias no activas: ${missingDependencyNames.join(', ')}`
-            : null
+            : null)
       })
     }
 
@@ -1094,6 +1250,8 @@ export function App() {
     ? 'Disponible solo en Electron'
     : nodeCloneLoading
       ? 'Sincronizando repo...'
+    : nodeRestoreBackupLoading
+      ? 'Restaurando backup blockchain...'
     : nodeNativeBuildActionLoading
       ? nodeNativeBuildActionLoading === 'all'
         ? 'Compilando servicios nativos...'
@@ -1280,6 +1438,7 @@ export function App() {
       envFile: draftNodeEnvFile.trim(),
       baseDir: draftNodeBaseDir.trim(),
       profiles: parseProfilesCsv(draftNodeProfiles),
+      blockchainBackupUrl: draftNodeBlockchainBackupUrl.trim(),
       runtimeMode: draftNodeRuntimeMode
     }
   }
@@ -1482,6 +1641,33 @@ export function App() {
     }
   }
 
+  const runNodeRestoreBackup = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.restoreBackup) return
+
+    setNodeRestoreBackupLoading(true)
+    setNodeError(null)
+
+    try {
+      const result = await bridge.restoreBackup(toNodeApiSettings(nodeSettings))
+      setNodeStatus(result.status)
+      setNodeOutput(result.output || result.status.output || '')
+
+      if (!result.ok || !result.status.ok) {
+        setNodeError(result.output || result.status.output || 'No se pudo restaurar el backup blockchain')
+      } else {
+        setNodeError(null)
+        if (nodeLogsModalOpen) {
+          setNodeLogsModalOpen(false)
+        }
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'Error restaurando el backup blockchain')
+    } finally {
+      setNodeRestoreBackupLoading(false)
+    }
+  }
+
   const runNodeServiceAction = async (serviceId: string, action: NodeServiceAction) => {
     const bridge = getKoinosNodeBridge()
     if (!serviceId.trim()) return
@@ -1510,6 +1696,19 @@ export function App() {
             result.status.output ||
             `No se pudo ${action === 'start' ? 'iniciar' : action === 'stop' ? 'detener' : 'reiniciar'} el servicio ${serviceId}`
         )
+
+        const conflictedService =
+          result.status.services.find((service) => service.id === serviceId && service.state === 'conflict') ?? null
+        if (conflictedService && canKillNodeConflict(conflictedService)) {
+          setNodeConflictDialog({
+            serviceId: conflictedService.id,
+            serviceName: conflictedService.name,
+            conflictPids: conflictedService.conflictPids,
+            message:
+              conflictedService.lastError ||
+              `Se detectaron procesos externos en conflicto para ${conflictedService.name}`
+          })
+        }
       } else {
         setNodeError(null)
       }
@@ -1528,6 +1727,46 @@ export function App() {
       )
     } finally {
       setNodeServiceActionLoading(null)
+    }
+  }
+
+  const openNodeConflictDialog = (service: KnodelKoinosNodeServiceStatus) => {
+    if (!canKillNodeConflict(service)) return
+    setNodeServiceContextMenu(null)
+    setNodeConflictDialog({
+      serviceId: service.id,
+      serviceName: service.name,
+      conflictPids: service.conflictPids,
+      message: service.lastError || `Se detectaron procesos externos en conflicto para ${service.name}`
+    })
+  }
+
+  const runNodeKillConflict = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.serviceKillConflict || !nodeConflictDialog) return
+
+    setNodeConflictKillLoading(nodeConflictDialog.serviceId)
+    setNodeError(null)
+
+    try {
+      const result = await bridge.serviceKillConflict({
+        ...toNodeApiSettings(nodeSettings),
+        service: nodeConflictDialog.serviceId
+      })
+
+      setNodeStatus(result.status)
+      setNodeOutput(result.output || result.status.output || '')
+
+      if (!result.ok || !result.status.ok) {
+        setNodeError(result.output || result.status.output || 'No se pudo terminar el proceso conflictivo')
+      } else {
+        setNodeError(null)
+        setNodeConflictDialog(null)
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'Error terminando proceso conflictivo')
+    } finally {
+      setNodeConflictKillLoading(null)
     }
   }
 
@@ -1592,6 +1831,9 @@ export function App() {
       const envFile = draftNodeEnvFile.trim() || DEFAULT_NODE_SETTINGS.envFile
       const baseDir = draftNodeBaseDir.trim() || DEFAULT_NODE_SETTINGS.baseDir
       const profiles = parseProfilesCsv(draftNodeProfiles).join(',')
+      const blockchainBackupUrl = normalizeBackupTarGzUrl(
+        draftNodeBlockchainBackupUrl.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl
+      )
       const runtimeMode = draftNodeRuntimeMode
 
       if (!repoPath) throw new Error('Repo path de Koinos no puede estar vacio')
@@ -1599,8 +1841,8 @@ export function App() {
       if (!envFile) throw new Error('Env file no puede estar vacio')
       if (!baseDir) throw new Error('Base data dir no puede estar vacio')
 
-      setSettings({ rpcUrl, pollMs, rowLimit })
-      setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, runtimeMode })
+      setSettings((current) => ({ ...current, rpcUrl, pollMs, rowLimit }))
+      setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, blockchainBackupUrl, runtimeMode })
       setRows([])
       rowsRef.current = []
       setHead(null)
@@ -1620,6 +1862,7 @@ export function App() {
     setDraftNodeEnvFile(DEFAULT_NODE_SETTINGS.envFile)
     setDraftNodeBaseDir(DEFAULT_NODE_SETTINGS.baseDir)
     setDraftNodeProfiles(DEFAULT_NODE_SETTINGS.profiles)
+    setDraftNodeBlockchainBackupUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
     setDraftNodeRuntimeMode(DEFAULT_NODE_SETTINGS.runtimeMode)
     setFormError(null)
   }
@@ -1689,9 +1932,10 @@ export function App() {
 
             <div className="settings-subheader">
               <h3>Explorer RPC</h3>
+              <p>El origen activo se cambia en el combobox del explorador. Esta URL se usa cuando eliges `Custom RPC`.</p>
             </div>
             <label>
-              RPC URL
+              Custom RPC URL
               <input
                 type="url"
                 value={draftRpcUrl}
@@ -1824,6 +2068,23 @@ export function App() {
                 />
               </label>
             </div>
+
+            <div className="settings-subheader">
+              <h3>Blockchain Backup</h3>
+              <p>URL del snapshot `.tar.gz` que se usara mas adelante para restaurar o precargar el estado de la cadena.</p>
+            </div>
+
+            <label>
+              Backup URL (tar.gz)
+              <input
+                type="url"
+                value={draftNodeBlockchainBackupUrl}
+                onChange={(event) => setDraftNodeBlockchainBackupUrl(event.target.value)}
+                placeholder="http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </label>
 
             <label>
               Config File (`config/config.yml`)
@@ -2020,6 +2281,17 @@ export function App() {
             </button>
             <button
               type="button"
+              className="ghost-button"
+              onClick={() => {
+                void runNodeRestoreBackup()
+              }}
+              disabled={!hasNodeControls || nodeBusy}
+              title={nodeSettings.blockchainBackupUrl}
+            >
+              {nodeRestoreBackupLoading ? 'Restoring backup...' : 'Restore Backup'}
+            </button>
+            <button
+              type="button"
               className="primary-button"
               onClick={() => {
                 void runNodeAction('start')
@@ -2157,11 +2429,13 @@ export function App() {
                     if (!capabilities) return null
 
                     const running = capabilities.running
+                    const statusTone =
+                      service.state === 'conflict' ? 'is-conflict' : running ? 'is-running' : 'is-stopped'
                     const serviceTooltip = formatNodeServiceTooltip(service, capabilities)
                     return (
                       <tr
                         key={`${service.id}-${service.runtimeName}`}
-                        className={running ? 'is-running' : 'is-stopped'}
+                        className={service.state === 'conflict' ? 'is-stopped' : running ? 'is-running' : 'is-stopped'}
                         onContextMenu={(event) => {
                           event.preventDefault()
                           setNodeServiceContextMenu({
@@ -2174,12 +2448,12 @@ export function App() {
                         <td className="node-service-name-cell" title={serviceTooltip}>
                           <div className="node-service-name-row">
                             <span className="node-service-primary mono">{service.name}</span>
-                            <span className="node-service-secondary mono">{service.runtimeName}</span>
+                            <span className="node-service-secondary mono">{formatNodeServiceRuntimeDetail(service)}</span>
                           </div>
                         </td>
                         <td>
                           <span
-                            className={`node-service-status ${running ? 'is-running' : 'is-stopped'}`}
+                            className={`node-service-status ${statusTone}`}
                             title={service.status}
                           >
                             <span className="node-service-dot" aria-hidden="true" />
@@ -2189,6 +2463,16 @@ export function App() {
                         <td className="mono">{formatNodeServicePorts(service)}</td>
                         <td className={`node-service-error-cell mono ${service.lastError ? 'has-error' : ''}`}>
                           {service.lastError || '-'}
+                          {service.state === 'conflict' && canKillNodeConflict(service) && (
+                            <button
+                              type="button"
+                              className="ghost-button node-service-conflict-button"
+                              onClick={() => openNodeConflictDialog(service)}
+                              disabled={!hasNodeControls || nodeBusy}
+                            >
+                              Resolve conflict
+                            </button>
+                          )}
                         </td>
                         <td>
                           <span className="node-service-runtime-tag">{formatNodeServiceType(service)}</span>
@@ -2310,6 +2594,15 @@ export function App() {
               >
                 Show logs
               </button>
+              {nodeContextService?.state === 'conflict' && nodeContextService && canKillNodeConflict(nodeContextService) && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => openNodeConflictDialog(nodeContextService)}
+                >
+                  Kill conflicting process
+                </button>
+              )}
               <button
                 type="button"
                 role="menuitem"
@@ -2345,6 +2638,69 @@ export function App() {
               </button>
             </div>
           </>
+        )}
+
+        {nodeConflictDialog && (
+          <div
+            className="log-modal-backdrop"
+            role="presentation"
+            onClick={() => {
+              if (!nodeConflictKillLoading) setNodeConflictDialog(null)
+            }}
+          >
+            <section
+              className="log-modal conflict-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="node-conflict-modal-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="log-modal-header">
+                <div>
+                  <p className="eyebrow">PROCESS CONFLICT</p>
+                  <h3 id="node-conflict-modal-title" className="log-modal-title">
+                    {nodeConflictDialog.serviceName}
+                  </h3>
+                  <p className="log-modal-meta">{nodeConflictDialog.message}</p>
+                </div>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => setNodeConflictDialog(null)}
+                  disabled={Boolean(nodeConflictKillLoading)}
+                >
+                  Close
+                </button>
+              </header>
+              <div className="conflict-modal-body">
+                <p className="conflict-modal-copy">
+                  Knodel ha detectado procesos nativos externos usando el mismo `baseDir`. Puedes intentar terminarlos
+                  desde aqui antes de volver a arrancar el servicio.
+                </p>
+                <pre className="conflict-modal-pids mono">{nodeConflictDialog.conflictPids.join(', ')}</pre>
+                <div className="conflict-modal-actions">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => setNodeConflictDialog(null)}
+                    disabled={Boolean(nodeConflictKillLoading)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => {
+                      void runNodeKillConflict()
+                    }}
+                    disabled={!hasNodeControls || nodeBusy || Boolean(nodeConflictKillLoading)}
+                  >
+                    {nodeConflictKillLoading === nodeConflictDialog.serviceId ? 'Killing...' : 'Kill conflicting process'}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
         )}
 
         {nodeLogsModalOpen && nodeLogsService && (
@@ -2433,7 +2789,10 @@ export function App() {
       <section id="panel-explorer" className="overview-grid" aria-label="Resumen de sincronizacion" role="tabpanel" aria-labelledby="tab-explorer">
         <article className="stat-card">
           <span className="stat-label">RPC</span>
-          <p className="stat-value mono">{settings.rpcUrl}</p>
+          <p className="stat-value mono" title={effectiveExplorerRpcUrl}>
+            {effectiveExplorerRpcUrl}
+          </p>
+          <p className="stat-note">{formatExplorerRpcMode(settings.rpcMode)}</p>
         </article>
         <article className="stat-card">
           <span className="stat-label">Head</span>
@@ -2455,9 +2814,29 @@ export function App() {
             <h2>Bloques recientes</h2>
             <p>Streaming por polling sobre `chain.get_head_info` y `block_store.get_blocks_by_height`.</p>
           </div>
-          <div className="table-meta">
-            <span>Refresh: {settings.pollMs}ms</span>
-            <span>Rows: {settings.rowLimit}</span>
+          <div className="table-panel-tools">
+            <label className="table-select">
+              <span>RPC Source</span>
+              <select
+                value={settings.rpcMode}
+                onChange={(event) => {
+                  const nextMode = normalizeExplorerRpcMode(event.target.value)
+                  setSettings((current) => ({ ...current, rpcMode: nextMode }))
+                }}
+              >
+                <option value="local">Local Node</option>
+                <option value="public">Public RPC</option>
+                <option value="custom">Custom RPC</option>
+              </select>
+            </label>
+            <div className="table-meta">
+              <span>{formatExplorerRpcMode(settings.rpcMode)}</span>
+              <span className="mono" title={effectiveExplorerRpcUrl}>
+                {effectiveExplorerRpcUrl}
+              </span>
+              <span>Refresh: {settings.pollMs}ms</span>
+              <span>Rows: {settings.rowLimit}</span>
+            </div>
           </div>
         </div>
 
