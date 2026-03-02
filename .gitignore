@@ -1,6 +1,9 @@
 node_modules/
 dist/
 dist-electron/
+release/
+assets/branding/icon.icns
+assets/branding/icon.iconset/
 backend/data/archives/
 backend/data/extracted/
 backend/data/*.db

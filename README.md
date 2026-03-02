@@ -33,6 +33,42 @@ npm run dev
 npm run build
 ```
 
+### Package for macOS
+
+```bash
+npm install
+npm run package:mac
+```
+
+This command generates the macOS app icon from `assets/branding/logo.png`, signs the app, and requires notarization credentials.
+
+Artifacts:
+- `.app`: `release/mac*/Knodel.app`
+- `.dmg`: `release/Knodel-<version>-<arch>.dmg`
+
+Notarization credentials:
+- Recommended: set `APPLE_KEYCHAIN_PROFILE` after storing credentials with `xcrun notarytool store-credentials`
+- Alternative: set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`
+- Alternative: set `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`
+
+For a signed local package without notarization:
+
+```bash
+npm run package:mac:signed
+```
+
+For an unpacked `.app` without generating a DMG:
+
+```bash
+npm run package:mac:dir
+```
+
+For an unsigned local package:
+
+```bash
+npm run package:mac:unsigned
+```
+
 ## Compilar localmente en macOS
 
 1. Instalar Node.js 20+ (recomendado con nvm).

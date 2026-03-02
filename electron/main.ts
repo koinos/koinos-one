@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron'
-import { createHash } from 'node:crypto'
+import { createCipheriv, createHash, createDecipheriv, pbkdf2Sync, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import { Socket } from 'node:net'
 import os from 'node:os'
@@ -9,6 +9,8 @@ import { pathToFileURL } from 'node:url'
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import { Readable, Transform } from 'node:stream'
 import { parse as parseYaml } from 'yaml'
+import { Contract, Provider, Signer, Transaction, utils } from 'koilib'
+import { ethers } from 'ethers'
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL
 const DEFAULT_KOINOS_REPO_PATH = '/Users/pgarcgo/code/koinos_code/koinos'
@@ -19,6 +21,22 @@ const DEFAULT_PROFILES = ['block_producer', 'jsonrpc']
 const DEFAULT_BASEDIR = path.join(os.homedir(), '.koinos')
 const DEFAULT_BLOCKCHAIN_BACKUP_URL = 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
 const DEFAULT_KOINOS_SOURCE_ROOT = '/Users/pgarcgo/code/koinos_code'
+const PUBLIC_KOINOS_RPC_URL = 'https://api.koinos.io/'
+const DEFAULT_PUBLIC_RPC_URLS = ['https://api.koinos.io/', 'https://api.koinosblocks.com/'] as const
+const NODE_SETTINGS_STORAGE_KEY = 'knodel.koinos-node.settings.v1'
+const LANGUAGE_STORAGE_KEY = 'knodel.ui.language.v1'
+const KOIN_CONTRACT_ADDRESS = '19GYjDBVXU7keLbYvMLazsGQn3GTWHjHkK'
+const VHP_CONTRACT_ADDRESS = '12Y5vW6gk8GceH53YfRkRre2Rrcsgw7Naq'
+const POB_CONTRACT_ADDRESS = '159myq5YUhhoVWu3wsHKHiJYKPKGUrGiyv'
+const KNODEL_SECURE_STORAGE_DIR = 'secure-storage'
+const KNODEL_CONFIG_DIR = 'config'
+const KNODEL_PRODUCER_WALLET_FILE = 'producer-wallet.json'
+const KNODEL_PUBLIC_RPCS_FILE = 'public-rpcs.json'
+const KNODEL_ENCRYPTION_ALGORITHM = 'aes-256-gcm'
+const KNODEL_KEY_LENGTH = 32
+const KNODEL_PBKDF2_ITERATIONS = 100000
+const PRODUCER_DAY_WINDOW_MS = 24 * 60 * 60 * 1000
+const BLOCK_STORE_PAGE_SIZE = 1000
 const KOINOS_GIT_CLONE_URL = 'https://github.com/koinos/koinos'
 const MAC_DOCKER_DESKTOP_OVERRIDE_PATH = path.join(os.tmpdir(), 'knodel-koinos-docker-desktop.override.yml')
 const MAC_DOCKER_DESKTOP_CONFIG_OVERRIDE_SERVICES = [
@@ -34,6 +52,8 @@ const MAC_DOCKER_DESKTOP_CONFIG_OVERRIDE_SERVICES = [
   'contract_meta_store',
   'account_history'
 ] as const
+let appShutdownInProgress = false
+let appShutdownApproved = false
 
 type KoinosNodeSettingsInput = {
   repoPath?: string
@@ -43,6 +63,10 @@ type KoinosNodeSettingsInput = {
   profiles?: string[]
   blockchainBackupUrl?: string
   runtimeMode?: KoinosNodeServiceRuntime
+}
+
+type KoinosNodeProducerOverviewInput = KoinosNodeSettingsInput & {
+  producerAddress?: string
 }
 
 type KoinosNodeSettings = {
@@ -56,6 +80,16 @@ type KoinosNodeSettings = {
 }
 
 type KoinosNodeServiceRuntime = 'docker' | 'native'
+
+type PublicRpcConfigInput = {
+  publicRpcUrls?: string[]
+}
+
+type PublicRpcConfigResult = {
+  ok: boolean
+  output: string
+  publicRpcUrls: string[]
+}
 
 type KoinosNodeServicePort = {
   host: string | null
@@ -192,6 +226,65 @@ type KoinosJsonRpcProxyResult = {
   method: string
   result?: unknown
   output: string
+}
+
+type KoinosNodeProducerAddressSource = 'config' | 'vault' | 'none'
+
+type KoinosNodeProducerRegistrationStatus =
+  | 'missing-address'
+  | 'missing-local-key'
+  | 'match'
+  | 'mismatch'
+  | 'unregistered'
+
+type KoinosNodeProducerOverviewResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  rpcSource: 'public'
+  priceSourceUrl: string
+  producerAddress: string | null
+  producerAddressSource: KoinosNodeProducerAddressSource
+  configFilePath: string
+  configHasProducer: boolean
+  walletAddress: string | null
+  walletExists: boolean
+  localPublicKey: string | null
+  localPublicKeyPath: string | null
+  localPrivateKeyPath: string | null
+  registeredPublicKey: string | null
+  registrationStatus: KoinosNodeProducerRegistrationStatus
+  koinBalance: string | null
+  vhpBalance: string | null
+  mana: string | null
+  totalKoinSupply: string | null
+  totalVhpSupply: string | null
+  totalVirtualSupply: string | null
+  targetBlockIntervalMs: number | null
+  analysisWindowBlocks: number
+  activeProducerCount: number
+  producedLast24h: number | null
+  shareLast24hPercent: number | null
+  projectedBlocksPerMonth: number | null
+  estimatedApyPercent: number | null
+  estimatedKoinPerDay: string | null
+  estimatedKoinPerMonth: string | null
+  koinPriceUsd: number | null
+  estimatedUsdPerMonth: number | null
+  lastProducedBlockAt: number | null
+}
+
+type KoinosNodeProducerRegisterInput = KoinosNodeSettingsInput & {
+  producerAddress?: string
+  password?: string
+  persistConfig?: boolean
+}
+
+type KoinosNodeProducerRegisterResult = {
+  ok: boolean
+  producerAddress: string
+  output: string
+  overview: KoinosNodeProducerOverviewResult
 }
 
 type KoinosNodeServiceCommandInput = KoinosNodeSettingsInput & {
@@ -448,12 +541,231 @@ type ProcessSnapshotEntry = {
   command: string
 }
 
+type KnodelEncryptedWallet = {
+  address: string
+  encryptedKey: {
+    encrypted: string
+    salt: string
+    iv: string
+    authTag: string
+  }
+  createdAt?: string
+}
+
+type KnodelUnlockedWallet = {
+  address: string
+  privateKey: string
+}
+
+type WalletRpcInput = {
+  rpcUrl?: string
+}
+
+type WalletOverviewResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  walletFilePath: string
+  walletExists: boolean
+  walletAddress: string | null
+  walletCreatedAt: string | null
+  unlocked: boolean
+}
+
+type WalletGenerateResult = {
+  ok: boolean
+  output: string
+  address: string | null
+  privateKeyWif: string | null
+}
+
+type WalletImportInput = {
+  privateKey?: string
+  password?: string
+}
+
+type WalletImportResult = {
+  ok: boolean
+  output: string
+  address: string | null
+  walletFilePath: string
+  unlocked: boolean
+}
+
+type WalletDeleteResult = {
+  ok: boolean
+  output: string
+  walletFilePath: string
+}
+
+type WalletUnlockInput = {
+  password?: string
+}
+
+type WalletUnlockResult = {
+  ok: boolean
+  output: string
+  walletAddress: string | null
+  unlocked: boolean
+}
+
+type WalletAddressInput = {
+  privateKey?: string
+}
+
+type WalletAddressResult = {
+  ok: boolean
+  output: string
+  address: string | null
+}
+
+type WalletDeriveFromSeedInput = {
+  seedPhrase?: string
+  numAccounts?: number
+}
+
+type WalletDerivedAccount = {
+  index: number
+  derivationPath: string
+  address: string
+  privateKeyWif: string
+}
+
+type WalletDeriveFromSeedResult = {
+  ok: boolean
+  output: string
+  accounts: WalletDerivedAccount[]
+}
+
+type WalletAddressQueryInput = WalletRpcInput & {
+  address?: string
+}
+
+type WalletBalanceResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  address: string | null
+  koin: string | null
+  vhp: string | null
+  mana: string | null
+}
+
+type WalletScalarResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  address: string | null
+  value: string | null
+  unit: string
+}
+
+type WalletChainInfoResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  headHeight: number | null
+  headBlockId: string | null
+  lastIrreversibleBlock: number | null
+  headBlockTime: number | null
+}
+
+type WalletBlockInput = WalletRpcInput & {
+  heightOrId?: string
+  full?: boolean
+}
+
+type WalletBlockOperation = {
+  kind: 'call_contract' | 'upload_contract' | 'unknown'
+  contractId: string | null
+  entryPoint: string | null
+}
+
+type WalletBlockTransaction = {
+  id: string | null
+  payer: string | null
+  operationCount: number
+  operations: WalletBlockOperation[]
+}
+
+type WalletBlockResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  blockHeight: number | null
+  blockId: string | null
+  previous: string | null
+  timestamp: number | null
+  signer: string | null
+  transactionCount: number
+  diskStorageUsed: number | null
+  networkBandwidthUsed: number | null
+  computeBandwidthUsed: number | null
+  transactions: WalletBlockTransaction[]
+}
+
+type WalletTokenBalanceInput = WalletRpcInput & {
+  contractId?: string
+  address?: string
+}
+
+type WalletTokenBalanceResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  contractId: string | null
+  address: string | null
+  tokenName: string | null
+  tokenSymbol: string | null
+  decimals: number | null
+  balance: string | null
+}
+
+type WalletReadContractInput = WalletRpcInput & {
+  contractId?: string
+  method?: string
+  args?: Record<string, unknown> | string
+}
+
+type WalletReadContractResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  contractId: string | null
+  method: string | null
+  args: Record<string, unknown>
+  result?: unknown
+}
+
+type WalletBurnInput = WalletRpcInput & {
+  percent?: number
+  amount?: number
+  password?: string
+  dryRun?: boolean
+}
+
+type WalletBurnResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  dryRun: boolean
+  walletAddress: string | null
+  burnAmountKoin: string | null
+  remainingKoin: string | null
+  previousKoin: string | null
+  previousVhp: string | null
+  newKoin: string | null
+  newVhp: string | null
+  txId: string | null
+}
+
 const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'knodel:koinos-node:backup-progress:event'
 const logsFollowSessions = new Map<string, LogsFollowSession>()
 const nativeServiceProcesses = new Map<string, NativeServiceProcessState>()
 const nativeLogsStreamIdsByService = new Map<string, Set<string>>()
 const nativeServiceVersionCache = new Map<string, ServiceVersionCacheEntry>()
+let knodelUnlockedProducerWallet: KnodelUnlockedWallet | null = null
 let logsFollowSessionSeq = 0
 const MAX_NATIVE_SERVICE_LOG_BYTES = 512 * 1024
 const NATIVE_AMQP_STARTUP_TIMEOUT_MS = 90000
@@ -1429,6 +1741,232 @@ function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSetti
   }
 }
 
+function parsePersistedNodeSettings(input: unknown): KoinosNodeSettingsInput | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const value = input as Record<string, unknown>
+  const profiles = Array.isArray(value.profiles)
+    ? value.profiles.map((entry) => `${entry}`.trim()).filter(Boolean)
+    : typeof value.profiles === 'string'
+      ? value.profiles
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : undefined
+
+  return {
+    repoPath: typeof value.repoPath === 'string' ? value.repoPath : undefined,
+    composeFile: typeof value.composeFile === 'string' ? value.composeFile : undefined,
+    envFile: typeof value.envFile === 'string' ? value.envFile : undefined,
+    baseDir: typeof value.baseDir === 'string' ? value.baseDir : undefined,
+    profiles,
+    blockchainBackupUrl: typeof value.blockchainBackupUrl === 'string' ? value.blockchainBackupUrl : undefined,
+    runtimeMode: value.runtimeMode === 'native' || value.runtimeMode === 'docker' ? value.runtimeMode : undefined
+  }
+}
+
+function localizedShutdownCopy(language: string | null | undefined): {
+  confirmTitle: string
+  confirmMessage: string
+  confirmDetailPrefix: string
+  confirmAction: string
+  cancelAction: string
+  stoppingWindowTitle: string
+  stopFailedTitle: string
+  stopFailedMessage: string
+  stopFailedDetailPrefix: string
+  keepOpenAction: string
+  forceCloseAction: string
+} {
+  const spanish = `${language || ''}`.toLowerCase().startsWith('es')
+  if (spanish) {
+    return {
+      confirmTitle: 'Detener nodo antes de cerrar',
+      confirmMessage: 'Knodel debe detener los servicios activos del nodo antes de cerrar.',
+      confirmDetailPrefix: 'Servicios activos',
+      confirmAction: 'Detener y cerrar',
+      cancelAction: 'Cancelar',
+      stoppingWindowTitle: 'Knodel - Deteniendo nodo...',
+      stopFailedTitle: 'No se pudo detener el nodo',
+      stopFailedMessage: 'Knodel no pudo detener todos los servicios antes de cerrar.',
+      stopFailedDetailPrefix: 'Salida del stop',
+      keepOpenAction: 'Mantener abierta',
+      forceCloseAction: 'Forzar cierre'
+    }
+  }
+
+  return {
+    confirmTitle: 'Stop node before closing',
+    confirmMessage: 'Knodel needs to stop running node services before it closes.',
+    confirmDetailPrefix: 'Running services',
+    confirmAction: 'Stop and close',
+    cancelAction: 'Cancel',
+    stoppingWindowTitle: 'Knodel - Stopping node...',
+    stopFailedTitle: 'Could not stop the node',
+    stopFailedMessage: 'Knodel could not stop all managed services before closing.',
+    stopFailedDetailPrefix: 'Stop output',
+    keepOpenAction: 'Keep open',
+    forceCloseAction: 'Force close'
+  }
+}
+
+async function loadRendererShutdownContext(
+  win: BrowserWindow | null
+): Promise<{ nodeSettings?: KoinosNodeSettingsInput; language: string | null }> {
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+    return { language: null }
+  }
+
+  try {
+    const context = (await win.webContents.executeJavaScript(
+      `(() => {
+        try {
+          const rawNodeSettings = window.localStorage.getItem(${JSON.stringify(NODE_SETTINGS_STORAGE_KEY)})
+          const rawLanguage = window.localStorage.getItem(${JSON.stringify(LANGUAGE_STORAGE_KEY)})
+          return {
+            nodeSettings: rawNodeSettings ? JSON.parse(rawNodeSettings) : null,
+            language: typeof rawLanguage === 'string' ? rawLanguage : null
+          }
+        } catch {
+          return { nodeSettings: null, language: null }
+        }
+      })()`,
+      true
+    )) as { nodeSettings?: unknown; language?: unknown } | null
+
+    return {
+      nodeSettings: parsePersistedNodeSettings(context?.nodeSettings),
+      language: typeof context?.language === 'string' ? context.language : null
+    }
+  } catch {
+    return { language: null }
+  }
+}
+
+function listRunningManagedServiceNames(status: KoinosNodeStatus): string[] {
+  return status.services.filter(isComposeServiceRunning).map((service) => service.name)
+}
+
+function withShutdownWindowState(win: BrowserWindow | null, title: string): () => void {
+  if (!win || win.isDestroyed()) return () => {}
+  const previousTitle = win.getTitle()
+  try {
+    win.setProgressBar(2)
+    win.setTitle(title)
+  } catch {
+    return () => {}
+  }
+
+  return () => {
+    if (win.isDestroyed()) return
+    try {
+      win.setProgressBar(-1)
+      win.setTitle(previousTitle)
+    } catch {
+      // ignore UI reset errors during shutdown
+    }
+  }
+}
+
+function showMessageBoxForWindow(
+  win: BrowserWindow | null,
+  options: Electron.MessageBoxOptions
+): Promise<Electron.MessageBoxReturnValue> {
+  return win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options)
+}
+
+async function confirmNodeShutdownBeforeQuit(win: BrowserWindow | null): Promise<boolean> {
+  const { nodeSettings, language } = await loadRendererShutdownContext(win)
+  const copy = localizedShutdownCopy(language)
+  const status = await koinosNodeStatus(nodeSettings)
+  const runningServiceNames = listRunningManagedServiceNames(status)
+  const needsManagedShutdown = status.runningServices > 0 || nativeServiceProcesses.size > 0
+  const runningServiceCount = Math.max(status.runningServices, runningServiceNames.length, nativeServiceProcesses.size)
+
+  if (!needsManagedShutdown) return true
+
+  const detailLines = [
+    `${copy.confirmDetailPrefix} (${runningServiceCount}): ${
+      runningServiceNames.length
+        ? runningServiceNames.join(', ')
+        : language?.toLowerCase().startsWith('es')
+          ? 'servicios gestionados del nodo'
+          : 'managed node services'
+    }`,
+    '',
+    language?.toLowerCase().startsWith('es')
+      ? 'Detenerlos antes de salir ayuda a evitar corrupcion de archivos y de estado.'
+      : 'Stopping them before quit helps prevent file and runtime state corruption.'
+  ]
+
+  const confirmation = await showMessageBoxForWindow(win, {
+    type: 'warning',
+    title: copy.confirmTitle,
+    message: copy.confirmMessage,
+    detail: detailLines.join('\n'),
+    buttons: [copy.confirmAction, copy.cancelAction],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true
+  })
+
+  if (confirmation.response !== 0) return false
+
+  const restoreWindow = withShutdownWindowState(win, copy.stoppingWindowTitle)
+
+  try {
+    const stopResult = await koinosNodeAction('stop', nodeSettings)
+    if (stopResult.ok) return true
+
+    const failure = await showMessageBoxForWindow(win, {
+      type: 'error',
+      title: copy.stopFailedTitle,
+      message: copy.stopFailedMessage,
+      detail: [stopResult.output ? `${copy.stopFailedDetailPrefix}:\n${stopResult.output}` : '', '']
+        .filter(Boolean)
+        .join('\n'),
+      buttons: [copy.forceCloseAction, copy.keepOpenAction],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    })
+
+    return failure.response === 0
+  } finally {
+    restoreWindow()
+  }
+}
+
+function cleanupAppRuntimeResources(): void {
+  for (const streamId of [...logsFollowSessions.keys()]) {
+    stopLogsFollowStream(streamId)
+  }
+  terminateNativeRuntimeProcesses()
+}
+
+async function requestOrderedAppShutdown(win: BrowserWindow | null): Promise<void> {
+  if (appShutdownApproved || appShutdownInProgress) return
+  appShutdownInProgress = true
+
+  try {
+    const shouldQuit = await confirmNodeShutdownBeforeQuit(win)
+    if (!shouldQuit) return
+    appShutdownApproved = true
+    app.quit()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not prepare the app shutdown.'
+    void showMessageBoxForWindow(win, {
+      type: 'error',
+      title: 'Knodel',
+      message,
+      buttons: ['OK'],
+      defaultId: 0,
+      noLink: true
+    })
+  } finally {
+    if (!appShutdownApproved) appShutdownInProgress = false
+  }
+}
+
 function composeFilePath(settings: KoinosNodeSettings): string {
   return path.isAbsolute(settings.composeFile)
     ? settings.composeFile
@@ -1453,6 +1991,465 @@ function configDirPath(settings: KoinosNodeSettings): string {
 
 function configExampleDirPath(settings: KoinosNodeSettings): string {
   return path.join(settings.repoPath, 'config-example')
+}
+
+function baseDirConfigFilePath(settings: KoinosNodeSettings): string {
+  return path.join(settings.baseDir, 'config.yml')
+}
+
+function blockProducerDirectoryPath(settings: KoinosNodeSettings): string {
+  return path.join(settings.baseDir, 'block_producer')
+}
+
+function blockProducerPublicKeyFilePath(settings: KoinosNodeSettings): string {
+  return path.join(blockProducerDirectoryPath(settings), 'public.key')
+}
+
+function blockProducerPrivateKeyFilePath(settings: KoinosNodeSettings): string {
+  return path.join(blockProducerDirectoryPath(settings), 'private.key')
+}
+
+function readTrimmedFile(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null
+  try {
+    const value = fs.readFileSync(filePath, 'utf8').trim()
+    return value || null
+  } catch {
+    return null
+  }
+}
+
+function knodelSecureStoragePath(...parts: string[]): string {
+  return path.join(app.getPath('userData'), KNODEL_SECURE_STORAGE_DIR, ...parts)
+}
+
+function knodelProducerWalletFilePath(): string {
+  return knodelSecureStoragePath(KNODEL_PRODUCER_WALLET_FILE)
+}
+
+function ensureKnodelSecureStorageDir(): void {
+  const dirPath = knodelSecureStoragePath()
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 })
+  }
+}
+
+function knodelConfigPath(...parts: string[]): string {
+  return path.join(app.getPath('userData'), KNODEL_CONFIG_DIR, ...parts)
+}
+
+function knodelPublicRpcsFilePath(): string {
+  return knodelConfigPath(KNODEL_PUBLIC_RPCS_FILE)
+}
+
+function ensureKnodelConfigDir(): void {
+  const dirPath = knodelConfigPath()
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true })
+  }
+}
+
+function normalizePublicRpcUrl(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  try {
+    const parsed = new URL(trimmed)
+    if (!/^https?:$/.test(parsed.protocol)) return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+function sanitizePublicRpcUrls(value: unknown): string[] {
+  if (!Array.isArray(value)) return [...DEFAULT_PUBLIC_RPC_URLS]
+  const seen = new Set<string>()
+  const urls: string[] = []
+
+  for (const candidate of value) {
+    if (typeof candidate !== 'string') continue
+    const normalized = normalizePublicRpcUrl(candidate)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    urls.push(normalized)
+  }
+
+  return urls.length > 0 ? urls : [...DEFAULT_PUBLIC_RPC_URLS]
+}
+
+function loadPublicRpcConfig(): PublicRpcConfigResult {
+  const filePath = knodelPublicRpcsFilePath()
+  if (!fs.existsSync(filePath)) {
+    return {
+      ok: true,
+      output: `Using default public RPC list (${DEFAULT_PUBLIC_RPC_URLS.length} entries)`,
+      publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS]
+    }
+  }
+
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8')
+    const parsed = JSON.parse(raw) as PublicRpcConfigInput
+    const publicRpcUrls = sanitizePublicRpcUrls(parsed.publicRpcUrls)
+    return {
+      ok: true,
+      output: `Loaded ${publicRpcUrls.length} public RPC URLs from ${filePath}`,
+      publicRpcUrls
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not read public RPC config',
+      publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS]
+    }
+  }
+}
+
+function savePublicRpcConfig(input?: PublicRpcConfigInput): PublicRpcConfigResult {
+  try {
+    const publicRpcUrls = sanitizePublicRpcUrls(input?.publicRpcUrls)
+    ensureKnodelConfigDir()
+    const filePath = knodelPublicRpcsFilePath()
+    fs.writeFileSync(filePath, JSON.stringify({ publicRpcUrls }, null, 2))
+    return {
+      ok: true,
+      output: `Saved ${publicRpcUrls.length} public RPC URLs to ${filePath}`,
+      publicRpcUrls
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not save public RPC config',
+      publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS]
+    }
+  }
+}
+
+function loadKnodelWalletFile(): KnodelEncryptedWallet | null {
+  const walletFilePath = knodelProducerWalletFilePath()
+  if (!fs.existsSync(walletFilePath)) return null
+  try {
+    const parsed = JSON.parse(fs.readFileSync(walletFilePath, 'utf8')) as KnodelEncryptedWallet
+    if (typeof parsed?.address !== 'string' || !parsed.address.trim()) return null
+    if (!parsed.encryptedKey) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function decryptKnodelWalletKey(wallet: KnodelEncryptedWallet, password: string): string {
+  const salt = Buffer.from(wallet.encryptedKey.salt, 'hex')
+  const iv = Buffer.from(wallet.encryptedKey.iv, 'hex')
+  const authTag = Buffer.from(wallet.encryptedKey.authTag, 'hex')
+  const key = pbkdf2Sync(password, salt, KNODEL_PBKDF2_ITERATIONS, KNODEL_KEY_LENGTH, 'sha256')
+  const decipher = createDecipheriv(KNODEL_ENCRYPTION_ALGORITHM, key, iv)
+  decipher.setAuthTag(authTag)
+  let decrypted = decipher.update(wallet.encryptedKey.encrypted, 'hex', 'utf8')
+  decrypted += decipher.final('utf8')
+  return decrypted
+}
+
+function loadKnodelWallet(password: string): KnodelUnlockedWallet | null {
+  const wallet = loadKnodelWalletFile()
+  if (!wallet) return null
+
+  const privateKey = decryptKnodelWalletKey(wallet, password)
+  return {
+    address: wallet.address,
+    privateKey
+  }
+}
+
+function unlockKnodelWalletSession(password: string): KnodelUnlockedWallet | null {
+  const wallet = loadKnodelWallet(password)
+  if (!wallet) return null
+  knodelUnlockedProducerWallet = wallet
+  return wallet
+}
+
+function encryptKnodelWalletKey(privateKey: string, password: string): KnodelEncryptedWallet['encryptedKey'] {
+  const salt = randomBytes(32)
+  const iv = randomBytes(16)
+  const key = pbkdf2Sync(password, salt, KNODEL_PBKDF2_ITERATIONS, KNODEL_KEY_LENGTH, 'sha256')
+  const cipher = createCipheriv(KNODEL_ENCRYPTION_ALGORITHM, key, iv)
+  let encrypted = cipher.update(privateKey, 'utf8', 'hex')
+  encrypted += cipher.final('hex')
+  const authTag = cipher.getAuthTag()
+  return {
+    encrypted,
+    salt: salt.toString('hex'),
+    iv: iv.toString('hex'),
+    authTag: authTag.toString('hex')
+  }
+}
+
+function saveKnodelWallet(privateKey: string, address: string, password: string): string {
+  ensureKnodelSecureStorageDir()
+  const encryptedKey = encryptKnodelWalletKey(privateKey, password)
+  const payload: KnodelEncryptedWallet = {
+    address,
+    encryptedKey,
+    createdAt: new Date().toISOString()
+  }
+  const walletFilePath = knodelProducerWalletFilePath()
+  fs.writeFileSync(walletFilePath, JSON.stringify(payload, null, 2), { mode: 0o600 })
+  knodelUnlockedProducerWallet = { address, privateKey }
+  return walletFilePath
+}
+
+function deleteKnodelWallet(): boolean {
+  const walletFilePath = knodelProducerWalletFilePath()
+  if (!fs.existsSync(walletFilePath)) return false
+  fs.unlinkSync(walletFilePath)
+  knodelUnlockedProducerWallet = null
+  return true
+}
+
+function resolveWalletRpcUrl(input?: WalletRpcInput): string {
+  const requested = `${input?.rpcUrl || ''}`.trim()
+  if (requested) return requested
+  return PUBLIC_KOINOS_RPC_URL
+}
+
+function parseWalletArgs(value: WalletReadContractInput['args']): Record<string, unknown> {
+  if (!value) return {}
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return {}
+    const parsed = JSON.parse(trimmed)
+    return typeof parsed === 'object' && parsed ? (parsed as Record<string, unknown>) : {}
+  }
+  return value
+}
+
+function resolveWalletQueryAddress(address?: string): string | null {
+  const explicit = `${address || ''}`.trim()
+  if (explicit) return explicit
+  if (knodelUnlockedProducerWallet?.address) return knodelUnlockedProducerWallet.address
+  const storedWallet = loadKnodelWalletFile()
+  return storedWallet?.address?.trim() || null
+}
+
+function fixFetchedAbi(abi: unknown): unknown {
+  if (!abi || typeof abi !== 'object') return abi
+  const typedAbi = abi as { methods?: Record<string, Record<string, unknown>> }
+  if (!typedAbi.methods) return abi
+
+  for (const method of Object.values(typedAbi.methods)) {
+    if (method['entry-point'] && !method.entry_point) {
+      method.entry_point = parseInt(`${method['entry-point']}`, 16)
+      delete method['entry-point']
+    }
+    if (typeof method['read-only'] !== 'undefined' && typeof method.read_only === 'undefined') {
+      method.read_only = method['read-only']
+      delete method['read-only']
+    }
+  }
+
+  return typedAbi
+}
+
+async function loadContractWithFetchedAbi(provider: Provider, contractId: string): Promise<Contract> {
+  const contract = new Contract({ id: contractId, provider })
+  const abi = await contract.fetchAbi()
+  if (!abi) {
+    throw new Error(`Could not load ABI for contract ${contractId}`)
+  }
+  contract.abi = fixFetchedAbi(abi) as typeof contract.abi
+  contract.updateFunctionsFromAbi()
+  return contract
+}
+
+function formatWholeUnits(value: bigint | string | number | null | undefined, decimals = 8): string | null {
+  if (value === null || value === undefined) return null
+  try {
+    const formatted = utils.formatUnits(`${value}`, decimals)
+    if (!formatted.includes('.')) return formatted
+    return formatted.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') || '0'
+  } catch {
+    return null
+  }
+}
+
+function parseWholeUnits(value: bigint | string | number | null | undefined, decimals = 8): number | null {
+  const formatted = formatWholeUnits(value, decimals)
+  if (!formatted) return null
+  const parsed = Number.parseFloat(formatted)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function safeIsChecksumAddress(value: string | null | undefined): boolean {
+  if (!value) return false
+  try {
+    return utils.isChecksumAddress(value)
+  } catch {
+    return false
+  }
+}
+
+function producerAddressFromRuntimeConfig(settings: KoinosNodeSettings): {
+  producerAddress: string | null
+  configHasProducer: boolean
+  configFilePath: string
+} {
+  const filePath = baseDirConfigFilePath(settings)
+  if (!fs.existsSync(filePath)) {
+    return {
+      producerAddress: null,
+      configHasProducer: false,
+      configFilePath: filePath
+    }
+  }
+
+  try {
+    const parsed = parseYaml(fs.readFileSync(filePath, 'utf8')) as {
+      block_producer?: { producer?: unknown }
+    }
+    const value =
+      typeof parsed?.block_producer?.producer === 'string' ? parsed.block_producer.producer.trim() : ''
+    return {
+      producerAddress: value || null,
+      configHasProducer: Boolean(value),
+      configFilePath: filePath
+    }
+  } catch {
+    return {
+      producerAddress: null,
+      configHasProducer: false,
+      configFilePath: filePath
+    }
+  }
+}
+
+function derivePublicKeyFromPrivateKeyFile(settings: KoinosNodeSettings): string | null {
+  const privateKeyWif = readTrimmedFile(blockProducerPrivateKeyFilePath(settings))
+  if (!privateKeyWif) return null
+
+  try {
+    const signer = Signer.fromWif(privateKeyWif)
+    const publicKeyBytes =
+      signer.publicKey instanceof Uint8Array ? signer.publicKey : utils.toUint8Array(`${signer.publicKey}`)
+    return utils.encodeBase64url(publicKeyBytes)
+  } catch {
+    return null
+  }
+}
+
+function resolveLocalProducerPublicKey(settings: KoinosNodeSettings): {
+  publicKey: string | null
+  publicKeyPath: string | null
+  privateKeyPath: string | null
+} {
+  const publicKeyPath = blockProducerPublicKeyFilePath(settings)
+  const privateKeyPath = blockProducerPrivateKeyFilePath(settings)
+  const direct = readTrimmedFile(publicKeyPath)
+  if (direct) {
+    return {
+      publicKey: direct,
+      publicKeyPath,
+      privateKeyPath: fs.existsSync(privateKeyPath) ? privateKeyPath : null
+    }
+  }
+
+  const derived = derivePublicKeyFromPrivateKeyFile(settings)
+  return {
+    publicKey: derived,
+    publicKeyPath: fs.existsSync(publicKeyPath) ? publicKeyPath : null,
+    privateKeyPath: fs.existsSync(privateKeyPath) ? privateKeyPath : null
+  }
+}
+
+async function fetchBlocksByHeightPaged(
+  provider: Provider,
+  headBlockId: string,
+  startHeight: number,
+  endHeight: number
+): Promise<Array<Record<string, unknown>>> {
+  const items: Array<Record<string, unknown>> = []
+  let nextStartHeight = startHeight
+
+  while (nextStartHeight <= endHeight) {
+    const remainingBlocks = endHeight - nextStartHeight + 1
+    const chunkSize = Math.min(BLOCK_STORE_PAGE_SIZE, remainingBlocks)
+    const response = await provider.call<{ block_items?: Array<Record<string, unknown>> }>('block_store.get_blocks_by_height', {
+      head_block_id: headBlockId,
+      ancestor_start_height: nextStartHeight,
+      num_blocks: chunkSize,
+      return_block: true,
+      return_receipt: false
+    })
+    const chunkItems = Array.isArray(response?.block_items) ? response.block_items : []
+    if (!chunkItems.length) break
+    items.push(...chunkItems)
+    if (chunkItems.length < chunkSize) break
+    nextStartHeight += chunkSize
+  }
+
+  return items
+}
+
+async function fetchCoinMarketCapKoinPriceUsd(): Promise<number | null> {
+  try {
+    const response = await fetch('https://coinmarketcap.com/currencies/koinos/', {
+      headers: { 'user-agent': 'Mozilla/5.0 (Knodel Producer Panel)' }
+    })
+    if (!response.ok) return null
+    const html = await response.text()
+    const match =
+      html.match(/Koinos price today is \$([0-9]+(?:\.[0-9]+)?)/i) ??
+      html.match(/"price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/i)
+    if (!match) return null
+    const parsed = Number.parseFloat(match[1])
+    return Number.isFinite(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function upsertBlockProducerConfigValue(content: string, key: string, value: string): string {
+  const lines = content.split(/\r?\n/)
+  let sectionStart = lines.findIndex((line) => line.trim() === 'block_producer:')
+  if (sectionStart < 0) {
+    const prefix = content.trimEnd()
+    const separator = prefix ? '\n\n' : ''
+    return `${prefix}${separator}block_producer:\n  ${key}: ${value}\n`
+  }
+
+  let sectionEnd = lines.length
+  for (let index = sectionStart + 1; index < lines.length; index += 1) {
+    if (/^\S/.test(lines[index]) && !lines[index].trim().startsWith('#')) {
+      sectionEnd = index
+      break
+    }
+  }
+
+  let replaced = false
+  for (let index = sectionStart + 1; index < sectionEnd; index += 1) {
+    if (new RegExp(`^\\s*#?\\s*${key}:`).test(lines[index])) {
+      lines[index] = `  ${key}: ${value}`
+      replaced = true
+      break
+    }
+  }
+
+  if (!replaced) {
+    lines.splice(sectionStart + 1, 0, `  ${key}: ${value}`)
+  }
+
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`
+}
+
+function persistProducerRuntimeConfig(settings: KoinosNodeSettings, producerAddress: string): string {
+  const configPath = baseDirConfigFilePath(settings)
+  const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : ''
+  let nextContent = upsertBlockProducerConfigValue(existing, 'producer', producerAddress)
+  if (fs.existsSync(blockProducerPrivateKeyFilePath(settings))) {
+    nextContent = upsertBlockProducerConfigValue(nextContent, 'private-key-file', 'private.key')
+  }
+  fs.writeFileSync(configPath, nextContent)
+  return configPath
 }
 
 function assertRepoReady(settings: KoinosNodeSettings): void {
@@ -6754,6 +7751,1000 @@ async function koinosJsonRpcProxy(input?: KoinosJsonRpcProxyInput): Promise<Koin
   }
 }
 
+async function koinosNodeProducerOverview(input?: KoinosNodeProducerOverviewInput): Promise<KoinosNodeProducerOverviewResult> {
+  const settings = normalizeNodeSettings(input)
+  const configProducer = producerAddressFromRuntimeConfig(settings)
+  const wallet = loadKnodelWalletFile()
+  const localProducerKey = resolveLocalProducerPublicKey(settings)
+  const requestedProducerAddress = `${input?.producerAddress || ''}`.trim()
+  const producerAddress = requestedProducerAddress || configProducer.producerAddress || null
+  const producerAddressSource: KoinosNodeProducerAddressSource = requestedProducerAddress
+    ? wallet?.address && requestedProducerAddress.toLowerCase() === wallet.address.toLowerCase()
+      ? 'vault'
+      : 'config'
+    : configProducer.producerAddress
+      ? 'config'
+      : 'none'
+
+  const baseResult: KoinosNodeProducerOverviewResult = {
+    ok: true,
+    output: '',
+    rpcUrl: PUBLIC_KOINOS_RPC_URL,
+    rpcSource: 'public',
+    priceSourceUrl: 'https://coinmarketcap.com/currencies/koinos/',
+    producerAddress,
+    producerAddressSource,
+    configFilePath: configProducer.configFilePath,
+    configHasProducer: configProducer.configHasProducer,
+    walletAddress: wallet?.address ?? null,
+    walletExists: Boolean(wallet),
+    localPublicKey: localProducerKey.publicKey,
+    localPublicKeyPath: localProducerKey.publicKeyPath,
+    localPrivateKeyPath: localProducerKey.privateKeyPath,
+    registeredPublicKey: null,
+    registrationStatus: !producerAddress
+      ? 'missing-address'
+      : !localProducerKey.publicKey
+        ? 'missing-local-key'
+        : 'unregistered',
+    koinBalance: null,
+    vhpBalance: null,
+    mana: null,
+    totalKoinSupply: null,
+    totalVhpSupply: null,
+    totalVirtualSupply: null,
+    targetBlockIntervalMs: null,
+    analysisWindowBlocks: 0,
+    activeProducerCount: 0,
+    producedLast24h: null,
+    shareLast24hPercent: null,
+    projectedBlocksPerMonth: null,
+    estimatedApyPercent: null,
+    estimatedKoinPerDay: null,
+    estimatedKoinPerMonth: null,
+    koinPriceUsd: null,
+    estimatedUsdPerMonth: null,
+    lastProducedBlockAt: null
+  }
+
+  try {
+    const provider = new Provider([PUBLIC_KOINOS_RPC_URL])
+    const [koin, vhp, pob, priceUsd] = await Promise.all([
+      loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS),
+      loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS),
+      loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS),
+      fetchCoinMarketCapKoinPriceUsd()
+    ])
+
+    baseResult.koinPriceUsd = priceUsd
+
+    const [headInfo, consensusParams] = await Promise.all([
+      provider.getHeadInfo(),
+      pob.functions.get_consensus_parameters({})
+    ])
+
+    const headHeight = Number.parseInt(`${headInfo.head_topology?.height ?? '0'}`, 10)
+    const headBlockId = `${headInfo.head_topology?.id ?? ''}`.trim()
+    const targetBlockIntervalMs = Number.parseInt(
+      `${(consensusParams.result as { value?: { target_block_interval?: number } } | undefined)?.value?.target_block_interval ?? 3000}`,
+      10
+    )
+    const blocksPerDay = Math.max(1, Math.round(PRODUCER_DAY_WINDOW_MS / Math.max(1, targetBlockIntervalMs || 3000)))
+    baseResult.targetBlockIntervalMs = Number.isFinite(targetBlockIntervalMs) ? targetBlockIntervalMs : 3000
+
+    if (!headHeight || !headBlockId) {
+      baseResult.ok = false
+      baseResult.output = 'Could not retrieve the public chain head'
+      return baseResult
+    }
+
+    const startHeight = Math.max(1, headHeight - blocksPerDay + 1)
+    const items = await fetchBlocksByHeightPaged(provider, headBlockId, startHeight, headHeight)
+    baseResult.analysisWindowBlocks = items.length
+
+    const producerStats = new Map<string, { count: number; lastTimestamp: number }>()
+    for (const item of items) {
+      const block = item.block as { header?: { signer?: string; timestamp?: string | number } } | undefined
+      const signer = `${block?.header?.signer ?? ''}`.trim()
+      if (!signer) continue
+      const timestamp = Number.parseInt(`${block?.header?.timestamp ?? '0'}`, 10)
+      const current = producerStats.get(signer)
+      if (current) {
+        current.count += 1
+        if (timestamp > current.lastTimestamp) current.lastTimestamp = timestamp
+      } else {
+        producerStats.set(signer, { count: 1, lastTimestamp: timestamp })
+      }
+    }
+
+    baseResult.activeProducerCount = producerStats.size
+
+    if (producerAddress) {
+      try {
+        const { result } = await pob.functions.get_public_key({ producer: producerAddress })
+        const registeredPublicKey = `${(result as { value?: string } | undefined)?.value ?? ''}`.trim() || null
+        baseResult.registeredPublicKey = registeredPublicKey
+        if (!baseResult.localPublicKey) {
+          baseResult.registrationStatus = 'missing-local-key'
+        } else if (!registeredPublicKey) {
+          baseResult.registrationStatus = 'unregistered'
+        } else {
+          baseResult.registrationStatus = registeredPublicKey === baseResult.localPublicKey ? 'match' : 'mismatch'
+        }
+      } catch {
+        baseResult.registeredPublicKey = null
+      }
+    }
+
+    const producerRanking = Array.from(producerStats.entries()).sort((a, b) => {
+      if (b[1].count !== a[1].count) return b[1].count - a[1].count
+      return b[1].lastTimestamp - a[1].lastTimestamp
+    })
+
+    const [koinSupply, vhpSupply] = await Promise.all([
+      koin.functions.total_supply({}),
+      vhp.functions.total_supply({})
+    ])
+
+    const koinSupplyRaw = BigInt(`${(koinSupply.result as { value?: string } | undefined)?.value ?? '0'}`)
+    const vhpSupplyRaw = BigInt(`${(vhpSupply.result as { value?: string } | undefined)?.value ?? '0'}`)
+    const virtualSupplyRaw = koinSupplyRaw + vhpSupplyRaw
+
+    baseResult.totalKoinSupply = formatWholeUnits(koinSupplyRaw)
+    baseResult.totalVhpSupply = formatWholeUnits(vhpSupplyRaw)
+    baseResult.totalVirtualSupply = formatWholeUnits(virtualSupplyRaw)
+
+    const activeVhpByProducer = new Map<string, bigint>()
+    await Promise.all(
+      producerRanking.map(async ([activeProducer]) => {
+        if (!safeIsChecksumAddress(activeProducer)) {
+          activeVhpByProducer.set(activeProducer, BigInt(0))
+          return
+        }
+        try {
+          const { result } = await vhp.functions.balance_of({ owner: activeProducer })
+          activeVhpByProducer.set(activeProducer, BigInt(`${(result as { value?: string } | undefined)?.value ?? '0'}`))
+        } catch {
+          activeVhpByProducer.set(activeProducer, BigInt(0))
+        }
+      })
+    )
+
+    const activeVhpRaw = Array.from(activeVhpByProducer.values()).reduce((acc, value) => acc + value, BigInt(0))
+
+    if (producerAddress && safeIsChecksumAddress(producerAddress)) {
+      const [koinBalance, vhpBalance, mana] = await Promise.all([
+        koin.functions.balance_of({ owner: producerAddress }),
+        vhp.functions.balance_of({ owner: producerAddress }),
+        provider.getAccountRc(producerAddress)
+      ])
+      const koinBalanceRaw = BigInt(`${(koinBalance.result as { value?: string } | undefined)?.value ?? '0'}`)
+      const vhpBalanceRaw = BigInt(`${(vhpBalance.result as { value?: string } | undefined)?.value ?? '0'}`)
+
+      baseResult.koinBalance = formatWholeUnits(koinBalanceRaw)
+      baseResult.vhpBalance = formatWholeUnits(vhpBalanceRaw)
+      baseResult.mana = formatWholeUnits(mana) || '0'
+
+      const ownStats = producerStats.get(producerAddress)
+      const producedLast24h = ownStats?.count ?? 0
+      baseResult.producedLast24h = producedLast24h
+      baseResult.lastProducedBlockAt = ownStats?.lastTimestamp ?? null
+      baseResult.shareLast24hPercent =
+        items.length > 0 ? Number.parseFloat(((producedLast24h / items.length) * 100).toFixed(2)) : 0
+      baseResult.projectedBlocksPerMonth = producedLast24h * 30
+
+      const activeVhp = parseWholeUnits(activeVhpRaw)
+      const virtualSupply = parseWholeUnits(virtualSupplyRaw)
+      const ownVhp = parseWholeUnits(vhpBalanceRaw)
+      if (activeVhp && virtualSupply && ownVhp) {
+        const estimatedApyPercent = Number.parseFloat(((2 * virtualSupply) / activeVhp).toFixed(2))
+        const estimatedKoinPerMonth = Number.parseFloat(((ownVhp * (estimatedApyPercent / 100)) / 12).toFixed(4))
+        const estimatedKoinPerDay = Number.parseFloat(((ownVhp * (estimatedApyPercent / 100)) / 365).toFixed(4))
+        baseResult.estimatedApyPercent = estimatedApyPercent
+        baseResult.estimatedKoinPerMonth = `${estimatedKoinPerMonth}`
+        baseResult.estimatedKoinPerDay = `${estimatedKoinPerDay}`
+        if (priceUsd !== null) {
+          baseResult.estimatedUsdPerMonth = Number.parseFloat((estimatedKoinPerMonth * priceUsd).toFixed(2))
+        }
+      }
+    }
+
+    const outputNotes = [
+      producerAddress ? `Producer address: ${producerAddress}` : 'No producer address configured',
+      baseResult.localPublicKey ? 'Local producer key detected' : 'Local producer public key not found',
+      `Active producers (24h): ${baseResult.activeProducerCount}`,
+      baseResult.koinPriceUsd !== null ? `KOIN price: $${baseResult.koinPriceUsd}` : 'KOIN price unavailable'
+    ]
+    baseResult.output = outputNotes.join('\n')
+    return baseResult
+  } catch (error) {
+    baseResult.ok = false
+    baseResult.output = error instanceof Error ? error.message : 'Could not load producer overview'
+    return baseResult
+  }
+}
+
+function isMissingProducerPublicKeyRecordError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : `${error ?? ''}`
+  return /given address has no public key record/i.test(message)
+}
+
+async function koinosNodeProducerRegister(
+  input?: KoinosNodeProducerRegisterInput
+): Promise<KoinosNodeProducerRegisterResult> {
+  const settings = normalizeNodeSettings(input)
+  const configuredProducer = producerAddressFromRuntimeConfig(settings).producerAddress
+  const producerAddress = `${input?.producerAddress || configuredProducer || ''}`.trim()
+  const password = `${input?.password || ''}`
+  const persistConfig = input?.persistConfig !== false
+  const localProducerKey = resolveLocalProducerPublicKey(settings)
+
+  const fail = async (message: string): Promise<KoinosNodeProducerRegisterResult> => ({
+    ok: false,
+    producerAddress,
+    output: message,
+    overview: await koinosNodeProducerOverview({ ...settings, producerAddress })
+  })
+
+  if (!producerAddress) {
+    return fail('No producer address available. Configure one in the Producer tab or import an account into Knodel.')
+  }
+
+  if (!safeIsChecksumAddress(producerAddress)) {
+    return fail('Invalid producer address format.')
+  }
+
+  if (!localProducerKey.publicKey) {
+    return fail('No local producer public key was found in BASEDIR/block_producer.')
+  }
+
+  let wallet: KnodelUnlockedWallet | null = knodelUnlockedProducerWallet
+  if (!wallet && password.trim()) {
+    try {
+      wallet = unlockKnodelWalletSession(password)
+    } catch {
+      return fail('Invalid producer account password.')
+    }
+  }
+
+  if (!wallet) {
+    return fail('Producer account is locked. Unlock it in the Producer tab.')
+  }
+
+  try {
+    const provider = new Provider([PUBLIC_KOINOS_RPC_URL])
+    const pobReadContract = await loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS)
+    let registeredPublicKey = ''
+    try {
+      const existingRegistration = await pobReadContract.functions.get_public_key({ producer: producerAddress })
+      registeredPublicKey = `${(existingRegistration.result as { value?: string } | undefined)?.value ?? ''}`.trim()
+    } catch (error) {
+      if (!isMissingProducerPublicKeyRecordError(error)) throw error
+    }
+
+    const notes: string[] = []
+
+    if (registeredPublicKey && registeredPublicKey === localProducerKey.publicKey) {
+      notes.push('The producer public key is already registered on-chain.')
+    } else {
+      const signer = Signer.fromWif(wallet.privateKey)
+      signer.provider = provider
+      const manaRaw = await provider.getAccountRc(wallet.address)
+      const manaValue = manaRaw ? BigInt(manaRaw) : BigInt(0)
+      if (manaValue < BigInt(50_000_000)) {
+        return fail('Insufficient mana to execute producer registration.')
+      }
+
+      const pobWriteContract = new Contract({
+        id: POB_CONTRACT_ADDRESS,
+        provider,
+        signer,
+        abi: pobReadContract.abi
+      })
+      pobWriteContract.updateFunctionsFromAbi()
+
+      const { operation } = await pobWriteContract.functions.register_public_key(
+        {
+          producer: producerAddress,
+          public_key: localProducerKey.publicKey
+        },
+        { onlyOperation: true }
+      )
+
+      const transaction = new Transaction({
+        signer,
+        provider,
+        options: {
+          rcLimit: ((manaValue * BigInt(10)) / BigInt(100)).toString()
+        }
+      })
+      await transaction.pushOperation(operation)
+      await transaction.prepare()
+      await transaction.sign()
+      await transaction.send()
+      notes.push(`Registration transaction submitted for producer ${producerAddress}.`)
+
+      try {
+        await transaction.wait('byTransactionId', 60000)
+        notes.push('Registration transaction confirmed on-chain.')
+      } catch {
+        notes.push('Registration transaction submitted, but confirmation timed out.')
+      }
+    }
+
+    if (persistConfig) {
+      const configPath = persistProducerRuntimeConfig(settings, producerAddress)
+      notes.push(`Updated ${configPath} with block_producer.producer = ${producerAddress}.`)
+      if (fs.existsSync(blockProducerPrivateKeyFilePath(settings))) {
+        notes.push('Ensured block_producer.private-key-file = private.key in runtime config.')
+      }
+    }
+
+    if (wallet.address !== producerAddress) {
+      notes.push(`Wallet address used for signing: ${wallet.address}`)
+    }
+
+    return {
+      ok: true,
+      producerAddress,
+      output: notes.join('\n'),
+      overview: await koinosNodeProducerOverview({ ...settings, producerAddress })
+    }
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : 'Could not register the producer public key')
+  }
+}
+
+async function walletOverview(input?: WalletRpcInput): Promise<WalletOverviewResult> {
+  const wallet = loadKnodelWalletFile()
+  return {
+    ok: true,
+    output: wallet ? `Producer account stored for ${wallet.address}` : 'No producer account stored in Knodel yet.',
+    rpcUrl: resolveWalletRpcUrl(input),
+    walletFilePath: knodelProducerWalletFilePath(),
+    walletExists: Boolean(wallet),
+    walletAddress: wallet?.address || null,
+    walletCreatedAt: wallet?.createdAt || null,
+    unlocked: Boolean(wallet && knodelUnlockedProducerWallet?.address === wallet.address)
+  }
+}
+
+async function walletGenerate(): Promise<WalletGenerateResult> {
+  try {
+    const signer = Signer.fromSeed(randomBytes(32).toString('hex'))
+    return {
+      ok: true,
+      output: 'Generated a new wallet. Save the private key securely before importing it.',
+      address: signer.getAddress(),
+      privateKeyWif: signer.getPrivateKey('wif')
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not generate wallet',
+      address: null,
+      privateKeyWif: null
+    }
+  }
+}
+
+async function walletImport(input?: WalletImportInput): Promise<WalletImportResult> {
+  try {
+    const privateKey = `${input?.privateKey || ''}`.trim()
+    const password = `${input?.password || ''}`
+    if (!privateKey) throw new Error('Private key is required.')
+    if (password.length < 8) throw new Error('Password must be at least 8 characters long.')
+    const signer = Signer.fromWif(privateKey)
+    const address = signer.getAddress()
+    const walletFilePath = saveKnodelWallet(privateKey, address, password)
+    return {
+      ok: true,
+      output: `Producer account imported for ${address}.`,
+      address,
+      walletFilePath,
+      unlocked: true
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not import producer account',
+      address: null,
+      walletFilePath: knodelProducerWalletFilePath(),
+      unlocked: false
+    }
+  }
+}
+
+async function walletDelete(): Promise<WalletDeleteResult> {
+  try {
+    const deleted = deleteKnodelWallet()
+    return {
+      ok: deleted,
+      output: deleted ? 'Producer account deleted.' : 'No producer account stored.',
+      walletFilePath: knodelProducerWalletFilePath()
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not delete producer account',
+      walletFilePath: knodelProducerWalletFilePath()
+    }
+  }
+}
+
+async function walletUnlock(input?: WalletUnlockInput): Promise<WalletUnlockResult> {
+  try {
+    const walletFile = loadKnodelWalletFile()
+    if (!walletFile) {
+      return {
+        ok: false,
+        output: 'No producer account stored in Knodel yet.',
+        walletAddress: null,
+        unlocked: false
+      }
+    }
+
+    const password = `${input?.password || ''}`
+    if (!password) {
+      return {
+        ok: false,
+        output: 'Password is required to unlock the producer account.',
+        walletAddress: walletFile.address,
+        unlocked: false
+      }
+    }
+
+    const wallet = unlockKnodelWalletSession(password)
+    if (!wallet) {
+      return {
+        ok: false,
+        output: 'Could not unlock the producer account.',
+        walletAddress: walletFile.address,
+        unlocked: false
+      }
+    }
+
+    return {
+      ok: true,
+      output: `Producer account unlocked for this Knodel session: ${wallet.address}.`,
+      walletAddress: wallet.address,
+      unlocked: true
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not unlock producer account',
+      walletAddress: loadKnodelWalletFile()?.address ?? null,
+      unlocked: false
+    }
+  }
+}
+
+async function walletAddressFromWif(input?: WalletAddressInput): Promise<WalletAddressResult> {
+  try {
+    const privateKey = `${input?.privateKey || ''}`.trim()
+    if (!privateKey) throw new Error('Private key is required.')
+    const signer = Signer.fromWif(privateKey)
+    return {
+      ok: true,
+      output: 'Address derived successfully.',
+      address: signer.getAddress()
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not derive address',
+      address: null
+    }
+  }
+}
+
+async function walletDeriveFromSeed(input?: WalletDeriveFromSeedInput): Promise<WalletDeriveFromSeedResult> {
+  try {
+    const seedPhrase = `${input?.seedPhrase || ''}`.trim()
+    const numAccounts = Number.isFinite(input?.numAccounts) ? Number(input?.numAccounts) : 2
+    if (!seedPhrase) throw new Error('Seed phrase is required.')
+    if (!Number.isInteger(numAccounts) || numAccounts < 1 || numAccounts > 100) {
+      throw new Error('Number of accounts must be between 1 and 100.')
+    }
+    const hdNode = ethers.utils.HDNode.fromMnemonic(seedPhrase)
+    const accounts: WalletDerivedAccount[] = []
+    for (let index = 0; index < numAccounts; index += 1) {
+      const derivationPath = `m/44'/659'/${index}'/0/0`
+      const derived = hdNode.derivePath(derivationPath)
+      const signer = new Signer({ privateKey: derived.privateKey.slice(2) })
+      accounts.push({
+        index: index + 1,
+        derivationPath,
+        address: signer.getAddress(),
+        privateKeyWif: signer.getPrivateKey('wif')
+      })
+    }
+    return {
+      ok: true,
+      output: `Derived ${accounts.length} accounts from the seed phrase.`,
+      accounts
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not derive accounts',
+      accounts: []
+    }
+  }
+}
+
+async function walletChainInfo(input?: WalletRpcInput): Promise<WalletChainInfoResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  try {
+    const provider = new Provider([rpcUrl])
+    const headInfo = await provider.getHeadInfo()
+    return {
+      ok: true,
+      output: `Chain head at ${headInfo.head_topology?.height ?? 'n/a'}.`,
+      rpcUrl,
+      headHeight: Number.parseInt(`${headInfo.head_topology?.height ?? ''}`, 10) || null,
+      headBlockId: `${headInfo.head_topology?.id || ''}` || null,
+      lastIrreversibleBlock: Number.parseInt(`${headInfo.last_irreversible_block ?? ''}`, 10) || null,
+      headBlockTime: Number.parseInt(`${headInfo.head_block_time ?? ''}`, 10) || null
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not load chain info',
+      rpcUrl,
+      headHeight: null,
+      headBlockId: null,
+      lastIrreversibleBlock: null,
+      headBlockTime: null
+    }
+  }
+}
+
+async function walletBlock(input?: WalletBlockInput): Promise<WalletBlockResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  const heightOrId = `${input?.heightOrId || ''}`.trim()
+  const full = Boolean(input?.full)
+  const emptyResult = (output: string): WalletBlockResult => ({
+    ok: false,
+    output,
+    rpcUrl,
+    blockHeight: null,
+    blockId: null,
+    previous: null,
+    timestamp: null,
+    signer: null,
+    transactionCount: 0,
+    diskStorageUsed: null,
+    networkBandwidthUsed: null,
+    computeBandwidthUsed: null,
+    transactions: []
+  })
+  if (!heightOrId) return emptyResult('Height or block ID is required.')
+
+  try {
+    const provider = new Provider([rpcUrl])
+    let blockItem: Record<string, unknown> | null = null
+
+    if (/^\d+$/.test(heightOrId)) {
+      const headInfo = await provider.getHeadInfo()
+      const response = await provider.call<{ block_items?: Array<Record<string, unknown>> }>('block_store.get_blocks_by_height', {
+        head_block_id: headInfo.head_topology?.id,
+        ancestor_start_height: Number.parseInt(heightOrId, 10),
+        num_blocks: 1,
+        return_block: true,
+        return_receipt: true
+      })
+      blockItem = Array.isArray(response?.block_items) && response.block_items.length ? response.block_items[0] : null
+    } else {
+      const response = await provider.call<{ block_items?: Array<Record<string, unknown>> }>('block_store.get_blocks_by_id', {
+        block_ids: [heightOrId],
+        return_block: true,
+        return_receipt: true
+      })
+      blockItem = Array.isArray(response?.block_items) && response.block_items.length ? response.block_items[0] : null
+    }
+
+    if (!blockItem) return emptyResult('Block not found.')
+
+    const block = (blockItem.block as Record<string, unknown> | undefined) || {}
+    const header = (block.header as Record<string, unknown> | undefined) || {}
+    const receipt = (blockItem.receipt as Record<string, unknown> | undefined) || {}
+    const rawTransactions = Array.isArray(block.transactions) ? block.transactions : []
+    const transactions: WalletBlockTransaction[] = rawTransactions.map((transaction) => {
+      const typedTransaction = (transaction as Record<string, unknown>) || {}
+      const operations = Array.isArray(typedTransaction.operations) ? typedTransaction.operations : []
+      return {
+        id: `${typedTransaction.id || ''}` || null,
+        payer: `${(typedTransaction.header as Record<string, unknown> | undefined)?.payer || ''}` || null,
+        operationCount: operations.length,
+        operations: full
+          ? operations.map((operation) => {
+              const typedOperation = (operation as Record<string, unknown>) || {}
+              const callContract = (typedOperation.call_contract as Record<string, unknown> | undefined) || null
+              if (callContract) {
+                return {
+                  kind: 'call_contract',
+                  contractId: `${callContract.contract_id || ''}` || null,
+                  entryPoint: callContract.entry_point === undefined ? null : `${callContract.entry_point}`
+                } satisfies WalletBlockOperation
+              }
+              if (typedOperation.upload_contract) {
+                return {
+                  kind: 'upload_contract',
+                  contractId: null,
+                  entryPoint: null
+                } satisfies WalletBlockOperation
+              }
+              return {
+                kind: 'unknown',
+                contractId: null,
+                entryPoint: null
+              } satisfies WalletBlockOperation
+            })
+          : []
+      }
+    })
+
+    return {
+      ok: true,
+      output: `Loaded block ${blockItem.block_height ?? heightOrId}.`,
+      rpcUrl,
+      blockHeight: Number.parseInt(`${blockItem.block_height ?? ''}`, 10) || null,
+      blockId: `${blockItem.block_id || ''}` || null,
+      previous: `${header.previous || ''}` || null,
+      timestamp: Number.parseInt(`${header.timestamp ?? ''}`, 10) || null,
+      signer: `${header.signer || ''}` || null,
+      transactionCount: transactions.length,
+      diskStorageUsed: Number.parseInt(`${receipt.disk_storage_used ?? ''}`, 10) || null,
+      networkBandwidthUsed: Number.parseInt(`${receipt.network_bandwidth_used ?? ''}`, 10) || null,
+      computeBandwidthUsed: Number.parseInt(`${receipt.compute_bandwidth_used ?? ''}`, 10) || null,
+      transactions
+    }
+  } catch (error) {
+    return emptyResult(error instanceof Error ? error.message : 'Could not load block')
+  }
+}
+
+async function walletBalance(input?: WalletAddressQueryInput): Promise<WalletBalanceResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  const address = resolveWalletQueryAddress(input?.address)
+  const empty = (output: string): WalletBalanceResult => ({
+    ok: false,
+    output,
+    rpcUrl,
+    address,
+    koin: null,
+    vhp: null,
+    mana: null
+  })
+  if (!address) return empty('No address provided and no default account configured.')
+  try {
+    const provider = new Provider([rpcUrl])
+    const [koin, vhp] = await Promise.all([
+      loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS),
+      loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS)
+    ])
+    const [{ result: koinResult }, { result: vhpResult }, rc] = await Promise.all([
+      koin.functions.balance_of({ owner: address }),
+      vhp.functions.balance_of({ owner: address }),
+      provider.getAccountRc(address)
+    ])
+    return {
+      ok: true,
+      output: `Balances loaded for ${address}.`,
+      rpcUrl,
+      address,
+      koin: formatWholeUnits(koinResult?.value) || '0',
+      vhp: formatWholeUnits(vhpResult?.value) || '0',
+      mana: formatWholeUnits(rc) || '0'
+    }
+  } catch (error) {
+    return empty(error instanceof Error ? error.message : 'Could not load balances')
+  }
+}
+
+async function walletVhp(input?: WalletAddressQueryInput): Promise<WalletScalarResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  const address = resolveWalletQueryAddress(input?.address)
+  const empty = (output: string): WalletScalarResult => ({ ok: false, output, rpcUrl, address, value: null, unit: 'VHP' })
+  if (!address) return empty('Address is required.')
+  try {
+    const provider = new Provider([rpcUrl])
+    const vhp = await loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS)
+    const { result } = await vhp.functions.balance_of({ owner: address })
+    return { ok: true, output: `VHP loaded for ${address}.`, rpcUrl, address, value: formatWholeUnits(result?.value) || '0', unit: 'VHP' }
+  } catch (error) {
+    return empty(error instanceof Error ? error.message : 'Could not load VHP balance')
+  }
+}
+
+async function walletNonce(input?: WalletAddressQueryInput): Promise<WalletScalarResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  const address = resolveWalletQueryAddress(input?.address)
+  const empty = (output: string): WalletScalarResult => ({ ok: false, output, rpcUrl, address, value: null, unit: 'nonce' })
+  if (!address) return empty('Address is required.')
+  try {
+    const provider = new Provider([rpcUrl])
+    const nonce = await provider.getNonce(address)
+    return { ok: true, output: `Nonce loaded for ${address}.`, rpcUrl, address, value: `${nonce}`, unit: 'nonce' }
+  } catch (error) {
+    return empty(error instanceof Error ? error.message : 'Could not load nonce')
+  }
+}
+
+async function walletRc(input?: WalletAddressQueryInput): Promise<WalletScalarResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  const address = resolveWalletQueryAddress(input?.address)
+  const empty = (output: string): WalletScalarResult => ({ ok: false, output, rpcUrl, address, value: null, unit: 'mana' })
+  if (!address) return empty('Address is required.')
+  try {
+    const provider = new Provider([rpcUrl])
+    const rc = await provider.getAccountRc(address)
+    return { ok: true, output: `Resource credits loaded for ${address}.`, rpcUrl, address, value: formatWholeUnits(rc) || '0', unit: 'mana' }
+  } catch (error) {
+    return empty(error instanceof Error ? error.message : 'Could not load resource credits')
+  }
+}
+
+async function walletTokenBalance(input?: WalletTokenBalanceInput): Promise<WalletTokenBalanceResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  const contractId = `${input?.contractId || ''}`.trim() || null
+  const address = `${input?.address || ''}`.trim() || null
+  const empty = (output: string): WalletTokenBalanceResult => ({
+    ok: false,
+    output,
+    rpcUrl,
+    contractId,
+    address,
+    tokenName: null,
+    tokenSymbol: null,
+    decimals: null,
+    balance: null
+  })
+  if (!contractId || !address) return empty('Contract ID and address are required.')
+  try {
+    const provider = new Provider([rpcUrl])
+    const contract = await loadContractWithFetchedAbi(provider, contractId)
+    const [nameResult, symbolResult, decimalsResult, balanceResult] = await Promise.all([
+      contract.functions.name ? contract.functions.name({}) : { result: { value: 'Unknown' } },
+      contract.functions.symbol ? contract.functions.symbol({}) : { result: { value: '???' } },
+      contract.functions.decimals ? contract.functions.decimals({}) : { result: { value: 8 } },
+      contract.functions.balance_of({ owner: address })
+    ])
+    const decimals = Number.parseInt(`${decimalsResult.result?.value ?? '8'}`, 10)
+    return {
+      ok: true,
+      output: `Token balance loaded for ${address}.`,
+      rpcUrl,
+      contractId,
+      address,
+      tokenName: `${nameResult.result?.value || 'Unknown'}`,
+      tokenSymbol: `${symbolResult.result?.value || '???'}`,
+      decimals: Number.isFinite(decimals) ? decimals : 8,
+      balance: formatWholeUnits(balanceResult.result?.value, Number.isFinite(decimals) ? decimals : 8) || '0'
+    }
+  } catch (error) {
+    return empty(error instanceof Error ? error.message : 'Could not load token balance')
+  }
+}
+
+async function walletReadContract(input?: WalletReadContractInput): Promise<WalletReadContractResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  const contractId = `${input?.contractId || ''}`.trim() || null
+  const method = `${input?.method || ''}`.trim() || null
+  let args: Record<string, unknown> = {}
+  try {
+    args = parseWalletArgs(input?.args)
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Invalid JSON arguments',
+      rpcUrl,
+      contractId,
+      method,
+      args: {},
+      result: undefined
+    }
+  }
+  if (!contractId || !method) {
+    return {
+      ok: false,
+      output: 'Contract ID and method are required.',
+      rpcUrl,
+      contractId,
+      method,
+      args,
+      result: undefined
+    }
+  }
+  try {
+    const provider = new Provider([rpcUrl])
+    const contract = await loadContractWithFetchedAbi(provider, contractId)
+    const handler = contract.functions[method]
+    if (typeof handler !== 'function') throw new Error(`Method ${method} was not found in the contract ABI.`)
+    const { result } = await handler(args)
+    return {
+      ok: true,
+      output: `Contract method ${method} executed successfully.`,
+      rpcUrl,
+      contractId,
+      method,
+      args,
+      result
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not read contract method',
+      rpcUrl,
+      contractId,
+      method,
+      args,
+      result: undefined
+    }
+  }
+}
+
+async function walletBurn(input?: WalletBurnInput): Promise<WalletBurnResult> {
+  const rpcUrl = resolveWalletRpcUrl(input)
+  const dryRun = Boolean(input?.dryRun)
+  const fail = (output: string): WalletBurnResult => ({
+    ok: false,
+    output,
+    rpcUrl,
+    dryRun,
+    walletAddress: null,
+    burnAmountKoin: null,
+    remainingKoin: null,
+    previousKoin: null,
+    previousVhp: null,
+    newKoin: null,
+    newVhp: null,
+    txId: null
+  })
+
+  const walletFile = loadKnodelWalletFile()
+  if (!walletFile) return fail('No producer account stored in Knodel yet.')
+
+  const hasPercent = typeof input?.percent === 'number' && Number.isFinite(input.percent)
+  const hasAmount = typeof input?.amount === 'number' && Number.isFinite(input.amount)
+  if (!hasPercent && !hasAmount) return fail('Provide either a percent or an amount to burn.')
+  if (hasPercent && hasAmount) return fail('Percent and amount are mutually exclusive.')
+
+  try {
+    const password = `${input?.password || ''}`
+    const wallet =
+      knodelUnlockedProducerWallet ||
+      (password ? unlockKnodelWalletSession(password) : null)
+    if (!wallet) return fail('Producer account is locked. Unlock it in the Producer tab.')
+    const provider = new Provider([rpcUrl])
+    const signer = Signer.fromWif(wallet.privateKey)
+    signer.provider = provider
+
+    const [koin, vhp, pob] = await Promise.all([
+      loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS),
+      loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS),
+      loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS)
+    ])
+    koin.signer = signer
+    pob.signer = signer
+
+    const [{ result: koinBalanceResult }, { result: oldVhpResult }, manaRaw] = await Promise.all([
+      koin.functions.balance_of({ owner: wallet.address }),
+      vhp.functions.balance_of({ owner: wallet.address }),
+      provider.getAccountRc(wallet.address)
+    ])
+
+    const currentBalance = BigInt(koinBalanceResult?.value || '0')
+    if (currentBalance <= BigInt(0)) return fail('No KOIN balance available to burn.')
+
+    const percent = hasPercent ? Number(input?.percent) : null
+    const amount = hasAmount ? Number(input?.amount) : null
+    if (percent !== null && (percent <= 0 || percent > 100)) return fail('Percent must be between 0 and 100.')
+    if (amount !== null && amount <= 0) return fail('Amount must be greater than zero.')
+
+    const burnAmount =
+      amount !== null
+        ? BigInt(Math.floor(amount * 1e8))
+        : (currentBalance * BigInt(Math.floor((percent || 0) * 100))) / BigInt(10000)
+
+    if (burnAmount <= BigInt(0)) return fail('Computed burn amount is zero.')
+    if (burnAmount > currentBalance) return fail('Insufficient KOIN balance for that burn amount.')
+
+    const remainingAmount = currentBalance - burnAmount
+    const manaValue = manaRaw ? BigInt(manaRaw) : BigInt(0)
+    if (manaValue < BigInt(50_000_000)) return fail('Insufficient mana to execute burn transaction.')
+
+    let currentAllowance = BigInt(0)
+    try {
+      const { result: allowanceResult } = await koin.functions.allowance({
+        owner: wallet.address,
+        spender: POB_CONTRACT_ADDRESS
+      })
+      currentAllowance = BigInt(allowanceResult?.value || '0')
+    } catch {
+      currentAllowance = BigInt(0)
+    }
+
+    const operations: Array<Record<string, unknown>> = []
+    if (currentAllowance < burnAmount) {
+      const { operation: approveOp } = await koin.functions.approve({
+        owner: wallet.address,
+        spender: POB_CONTRACT_ADDRESS,
+        value: burnAmount.toString()
+      }, { onlyOperation: true })
+      operations.push(approveOp)
+    }
+
+    const { operation: burnOp } = await pob.functions.burn({
+      token_amount: burnAmount.toString(),
+      burn_address: wallet.address,
+      vhp_address: wallet.address
+    }, { onlyOperation: true })
+    operations.push(burnOp)
+
+    const transaction = new Transaction({
+      signer,
+      provider,
+      options: {
+        rcLimit: ((manaValue * BigInt(10)) / BigInt(100)).toString()
+      }
+    })
+    for (const operation of operations) {
+      await transaction.pushOperation(operation)
+    }
+    await transaction.prepare()
+
+    if (dryRun) {
+      return {
+        ok: true,
+        output: `Dry run prepared ${operations.length} operation(s) for burn.`,
+        rpcUrl,
+        dryRun: true,
+        walletAddress: wallet.address,
+        burnAmountKoin: formatWholeUnits(burnAmount),
+        remainingKoin: formatWholeUnits(remainingAmount),
+        previousKoin: formatWholeUnits(currentBalance),
+        previousVhp: formatWholeUnits(oldVhpResult?.value) || '0',
+        newKoin: null,
+        newVhp: null,
+        txId: transaction.transaction.id || null
+      }
+    }
+
+    await transaction.sign()
+    await transaction.send()
+    try {
+      await transaction.wait('byTransactionId', 60_000)
+    } catch {
+      // best effort
+    }
+
+    const [{ result: newKoinResult }, { result: newVhpResult }] = await Promise.all([
+      koin.functions.balance_of({ owner: wallet.address }),
+      vhp.functions.balance_of({ owner: wallet.address })
+    ])
+
+    return {
+      ok: true,
+      output: `Burn transaction submitted for ${wallet.address}.`,
+      rpcUrl,
+      dryRun: false,
+      walletAddress: wallet.address,
+      burnAmountKoin: formatWholeUnits(burnAmount),
+      remainingKoin: formatWholeUnits(remainingAmount),
+      previousKoin: formatWholeUnits(currentBalance),
+      previousVhp: formatWholeUnits(oldVhpResult?.value) || '0',
+      newKoin: formatWholeUnits(newKoinResult?.value) || '0',
+      newVhp: formatWholeUnits(newVhpResult?.value) || '0',
+      txId: transaction.transaction.id || null
+    }
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : 'Could not burn KOIN')
+  }
+}
+
 async function koinosNodeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNodeLogsResult> {
   const runtimeMode = normalizeNodeSettings(input).runtimeMode
   return runtimeMode === 'native' ? nativeComposeLogs(input) : dockerComposeLogs(input)
@@ -6771,6 +8762,8 @@ async function koinosNodeLogsFollowStart(
 
 function registerIpcHandlers() {
   const handlers = [
+    'knodel:app-config:public-rpcs:load',
+    'knodel:app-config:public-rpcs:save',
     'knodel:koinos-node:defaults',
     'knodel:koinos-node:clone-repo',
     'knodel:koinos-node:file-read',
@@ -6797,6 +8790,14 @@ function registerIpcHandlers() {
     'knodel:koinos-node:logs-follow-stop'
   ] as const
   for (const channel of handlers) ipcMain.removeHandler(channel)
+
+  ipcMain.handle('knodel:app-config:public-rpcs:load', async () => {
+    return loadPublicRpcConfig()
+  })
+
+  ipcMain.handle('knodel:app-config:public-rpcs:save', async (_event, input?: PublicRpcConfigInput) => {
+    return savePublicRpcConfig(input)
+  })
 
   ipcMain.handle('knodel:koinos-node:defaults', () => {
     const defaults = normalizeNodeSettings()
@@ -6888,6 +8889,78 @@ function registerIpcHandlers() {
     return koinosJsonRpcProxy(input)
   })
 
+  ipcMain.handle('knodel:koinos-node:producer-overview', async (_event, input?: KoinosNodeProducerOverviewInput) => {
+    return koinosNodeProducerOverview(input)
+  })
+
+  ipcMain.handle('knodel:koinos-node:producer-register', async (_event, input?: KoinosNodeProducerRegisterInput) => {
+    return koinosNodeProducerRegister(input)
+  })
+
+  ipcMain.handle('knodel:wallet:overview', async (_event, input?: WalletRpcInput) => {
+    return walletOverview(input)
+  })
+
+  ipcMain.handle('knodel:wallet:generate', async () => {
+    return walletGenerate()
+  })
+
+  ipcMain.handle('knodel:wallet:import', async (_event, input?: WalletImportInput) => {
+    return walletImport(input)
+  })
+
+  ipcMain.handle('knodel:wallet:unlock', async (_event, input?: WalletUnlockInput) => {
+    return walletUnlock(input)
+  })
+
+  ipcMain.handle('knodel:wallet:delete', async () => {
+    return walletDelete()
+  })
+
+  ipcMain.handle('knodel:wallet:address-from-wif', async (_event, input?: WalletAddressInput) => {
+    return walletAddressFromWif(input)
+  })
+
+  ipcMain.handle('knodel:wallet:derive-from-seed', async (_event, input?: WalletDeriveFromSeedInput) => {
+    return walletDeriveFromSeed(input)
+  })
+
+  ipcMain.handle('knodel:wallet:chain-info', async (_event, input?: WalletRpcInput) => {
+    return walletChainInfo(input)
+  })
+
+  ipcMain.handle('knodel:wallet:block', async (_event, input?: WalletBlockInput) => {
+    return walletBlock(input)
+  })
+
+  ipcMain.handle('knodel:wallet:balance', async (_event, input?: WalletAddressQueryInput) => {
+    return walletBalance(input)
+  })
+
+  ipcMain.handle('knodel:wallet:vhp', async (_event, input?: WalletAddressQueryInput) => {
+    return walletVhp(input)
+  })
+
+  ipcMain.handle('knodel:wallet:nonce', async (_event, input?: WalletAddressQueryInput) => {
+    return walletNonce(input)
+  })
+
+  ipcMain.handle('knodel:wallet:rc', async (_event, input?: WalletAddressQueryInput) => {
+    return walletRc(input)
+  })
+
+  ipcMain.handle('knodel:wallet:token-balance', async (_event, input?: WalletTokenBalanceInput) => {
+    return walletTokenBalance(input)
+  })
+
+  ipcMain.handle('knodel:wallet:read-contract', async (_event, input?: WalletReadContractInput) => {
+    return walletReadContract(input)
+  })
+
+  ipcMain.handle('knodel:wallet:burn', async (_event, input?: WalletBurnInput) => {
+    return walletBurn(input)
+  })
+
   ipcMain.handle('knodel:koinos-node:service-start', async (_event, input?: KoinosNodeServiceCommandInput) => {
     return koinosNodeServiceAction('start', input)
   })
@@ -6940,6 +9013,12 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
+
+  win.on('close', (event) => {
+    if (appShutdownApproved) return
+    event.preventDefault()
+    void requestOrderedAppShutdown(win)
+  })
 }
 
 function terminateNativeRuntimeProcesses(): void {
@@ -6962,17 +9041,18 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
-  for (const streamId of [...logsFollowSessions.keys()]) {
-    stopLogsFollowStream(streamId)
+app.on('before-quit', (event) => {
+  if (!appShutdownApproved) {
+    event.preventDefault()
+    const targetWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
+    void requestOrderedAppShutdown(targetWindow)
+    return
   }
-  terminateNativeRuntimeProcesses()
+
+  cleanupAppRuntimeResources()
 })
 
 app.on('window-all-closed', () => {
-  for (const streamId of [...logsFollowSessions.keys()]) {
-    stopLogsFollowStream(streamId)
-  }
-  terminateNativeRuntimeProcesses()
+  cleanupAppRuntimeResources()
   if (process.platform !== 'darwin') app.quit()
 })

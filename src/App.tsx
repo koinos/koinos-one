@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { detectAppLanguage, localeForLanguage, normalizeAppLanguage, translate, type AppLanguage } from './i18n'
 
 const SETTINGS_STORAGE_KEY = 'knodel.explorer.settings.v1'
 const NODE_SETTINGS_STORAGE_KEY = 'knodel.koinos-node.settings.v1'
-const PUBLIC_RPC_URL = 'https://api.koinos.io/'
+const LANGUAGE_STORAGE_KEY = 'knodel.ui.language.v1'
+const LOCAL_RPC_SOURCE = 'local'
+const DEFAULT_PUBLIC_RPC_URLS = ['https://api.koinos.io/', 'https://api.koinosblocks.com/'] as const
 const LOCAL_NODE_RPC_FALLBACK_URL = 'http://127.0.0.1:8080/'
 const DEFAULT_SETTINGS = {
-  rpcMode: 'local' as ExplorerRpcMode,
-  rpcUrl: PUBLIC_RPC_URL,
+  rpcSource: LOCAL_RPC_SOURCE as ExplorerRpcSource,
+  publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS],
   pollMs: 3000,
-  rowLimit: 20
+  rowLimit: 20,
+  producerAdvancedMode: false
 } as const
 const DEFAULT_NODE_SETTINGS = {
   repoPath: '/Users/pgarcgo/code/koinos_code/koinos',
@@ -19,15 +23,18 @@ const DEFAULT_NODE_SETTINGS = {
   blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz',
   runtimeMode: 'docker' as KnodelKoinosNodeServiceRuntime
 } as const
+const SYNC_GAP_BLOCK_THRESHOLD = 50
+const SYNC_GAP_TIME_THRESHOLD_MS = 30_000
 
 type ExplorerSettings = {
-  rpcMode: ExplorerRpcMode
-  rpcUrl: string
+  rpcSource: ExplorerRpcSource
+  publicRpcUrls: string[]
   pollMs: number
   rowLimit: number
+  producerAdvancedMode: boolean
 }
 
-type ExplorerRpcMode = 'local' | 'public' | 'custom'
+type ExplorerRpcSource = typeof LOCAL_RPC_SOURCE | string
 
 type NodeManagerSettings = {
   repoPath: string
@@ -41,7 +48,7 @@ type NodeManagerSettings = {
 
 type NodeAction = 'start' | 'stop'
 type NodeServiceAction = 'start' | 'stop' | 'restart'
-type AppTab = 'explorer' | 'node' | 'settings'
+type AppTab = 'explorer' | 'node' | 'producer' | 'settings'
 type NodeManagedFileKind = 'compose' | 'env' | 'config'
 type NodeServiceContextMenuState = {
   serviceId: string
@@ -107,6 +114,8 @@ type HeadSnapshot = {
   timestampMs: number
 }
 
+type NodeProducerActionState = 'register' | null
+
 type JsonRpcError = {
   code: number
   message: string
@@ -169,9 +178,14 @@ function safeParseInt(value: string | undefined, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function formatDateTime(timestampMs: number): string {
-  if (!Number.isFinite(timestampMs) || timestampMs <= 0) return 'N/A'
-  return new Date(timestampMs).toLocaleString()
+function formatDateTime(timestampMs: number, locale: string, emptyLabel: string): string {
+  if (!Number.isFinite(timestampMs) || timestampMs <= 0) return emptyLabel
+  return new Date(timestampMs).toLocaleString(locale)
+}
+
+function formatTime(timestampMs: number, locale: string, emptyLabel = ''): string {
+  if (!Number.isFinite(timestampMs) || timestampMs <= 0) return emptyLabel
+  return new Date(timestampMs).toLocaleTimeString(locale)
 }
 
 function formatRelativeAge(timestampMs: number, nowMs: number): string {
@@ -184,6 +198,31 @@ function formatRelativeAge(timestampMs: number, nowMs: number): string {
   if (diffHours < 24) return `${diffHours}h`
   const diffDays = Math.floor(diffHours / 24)
   return `${diffDays}d`
+}
+
+function formatDecimalValue(
+  value: number | string | null | undefined,
+  locale: string,
+  maximumFractionDigits = 4,
+  emptyLabel = 'N/A'
+): string {
+  if (value === null || value === undefined || value === '') return emptyLabel
+  const numeric = typeof value === 'number' ? value : Number.parseFloat(value)
+  if (!Number.isFinite(numeric)) return emptyLabel
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits
+  }).format(numeric)
+}
+
+function formatUsdValue(value: number | null | undefined, locale: string, emptyLabel = 'N/A'): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return emptyLabel
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: value >= 1 ? 2 : 4,
+    maximumFractionDigits: value >= 1 ? 2 : 6
+  }).format(value)
 }
 
 function shortHash(value: string, head = 12, tail = 8): string {
@@ -211,35 +250,120 @@ function resolveNodeFileDisplayPath(repoPath: string, filePathValue: string): st
   return joinDisplayPath(repoPath.trim(), raw)
 }
 
-function normalizeRpcUrl(raw: string): string {
+function normalizeRpcUrl(raw: string, language: AppLanguage): string {
   const value = raw.trim()
-  if (!value) throw new Error('La URL RPC no puede estar vacia')
+  if (!value) throw new Error(translate(language, 'rpc.validation.empty'))
   const parsed = new URL(value)
   if (!/^https?:$/.test(parsed.protocol)) {
-    throw new Error('La URL RPC debe usar http o https')
+    throw new Error(translate(language, 'rpc.validation.http'))
   }
   return parsed.toString()
 }
 
-function normalizeExplorerRpcMode(value: unknown): ExplorerRpcMode {
-  return value === 'public' || value === 'custom' ? value : 'local'
-}
-
-function formatExplorerRpcMode(mode: ExplorerRpcMode): string {
-  return mode === 'local' ? 'Local Node' : mode === 'public' ? 'Public RPC' : 'Custom RPC'
-}
-
-function normalizeBackupTarGzUrl(raw: string): string {
+function normalizeBackupTarGzUrl(raw: string, language: AppLanguage): string {
   const value = raw.trim()
-  if (!value) throw new Error('La URL del backup no puede estar vacia')
+  if (!value) throw new Error(translate(language, 'backup.validation.empty'))
   const parsed = new URL(value)
   if (!/^https?:$/.test(parsed.protocol)) {
-    throw new Error('La URL del backup debe usar http o https')
+    throw new Error(translate(language, 'backup.validation.http'))
   }
   if (!parsed.pathname.endsWith('.tar.gz')) {
-    throw new Error('La URL del backup debe apuntar a un archivo .tar.gz')
+    throw new Error(translate(language, 'backup.validation.tar'))
   }
   return parsed.toString()
+}
+
+function tryNormalizeHttpUrl(raw: string): string | null {
+  const value = raw.trim()
+  if (!value) return null
+
+  try {
+    const parsed = new URL(value)
+    if (!/^https?:$/.test(parsed.protocol)) return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+function sanitizeStoredPublicRpcUrls(value: unknown): string[] {
+  if (!Array.isArray(value)) return [...DEFAULT_PUBLIC_RPC_URLS]
+  const seen = new Set<string>()
+  const urls: string[] = []
+
+  for (const candidate of value) {
+    const normalized = typeof candidate === 'string' ? tryNormalizeHttpUrl(candidate) : null
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    urls.push(normalized)
+  }
+
+  return urls.length > 0 ? urls : [...DEFAULT_PUBLIC_RPC_URLS]
+}
+
+function normalizeExplorerRpcSource(
+  value: unknown,
+  publicRpcUrls: string[],
+  fallback: ExplorerRpcSource = LOCAL_RPC_SOURCE
+): ExplorerRpcSource {
+  if (value === LOCAL_RPC_SOURCE) return LOCAL_RPC_SOURCE
+
+  if (typeof value === 'string') {
+    const normalized = tryNormalizeHttpUrl(value)
+    if (normalized && publicRpcUrls.includes(normalized)) return normalized
+  }
+
+  if (fallback === LOCAL_RPC_SOURCE) return LOCAL_RPC_SOURCE
+  if (typeof fallback === 'string') {
+    const normalizedFallback = tryNormalizeHttpUrl(fallback)
+    if (normalizedFallback && publicRpcUrls.includes(normalizedFallback)) return normalizedFallback
+  }
+
+  return publicRpcUrls[0] ?? LOCAL_RPC_SOURCE
+}
+
+function formatRpcDisplayUrl(url: string): string {
+  return url.replace(/\/$/, '')
+}
+
+function formatExplorerRpcSourceKind(source: ExplorerRpcSource, language: AppLanguage): string {
+  return source === LOCAL_RPC_SOURCE ? translate(language, 'rpc.mode.local') : translate(language, 'rpc.mode.public')
+}
+
+function formatExplorerRpcSourceTarget(source: ExplorerRpcSource, language: AppLanguage): string {
+  return source === LOCAL_RPC_SOURCE ? translate(language, 'rpc.mode.local') : formatRpcDisplayUrl(source)
+}
+
+function parsePublicRpcUrlsInput(raw: string, language: AppLanguage): string[] {
+  const seen = new Set<string>()
+  const urls: string[] = []
+
+  for (const part of raw.split(/[\n,]+/)) {
+    const value = part.trim()
+    if (!value) continue
+    const normalized = normalizeRpcUrl(value, language)
+    if (seen.has(normalized)) continue
+    seen.add(normalized)
+    urls.push(normalized)
+  }
+
+  if (urls.length === 0) {
+    throw new Error(translate(language, 'rpc.validation.publicListEmpty'))
+  }
+
+  return urls
+}
+
+function formatProducerWalletBalanceError(message: string, rpcUrl: string, language: AppLanguage): string {
+  if (/context deadline exceeded|timed out|timeout/i.test(message)) {
+    return translate(language, 'producer.signingWalletRpcTimeout', { rpcUrl: formatRpcDisplayUrl(rpcUrl) })
+  }
+
+  if (/rpc failed|internal server error/i.test(message)) {
+    return translate(language, 'producer.signingWalletRpcError', { rpcUrl: formatRpcDisplayUrl(rpcUrl) })
+  }
+
+  return message
 }
 
 function loadInitialSettings(): ExplorerSettings {
@@ -247,11 +371,26 @@ function loadInitialSettings(): ExplorerSettings {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS }
     const parsed = JSON.parse(raw) as Partial<ExplorerSettings>
+    const publicRpcUrls = sanitizeStoredPublicRpcUrls((parsed as Partial<ExplorerSettings> & { publicRpcUrls?: unknown }).publicRpcUrls)
+    const legacyRpcUrl = typeof (parsed as { rpcUrl?: unknown }).rpcUrl === 'string'
+      ? tryNormalizeHttpUrl((parsed as { rpcUrl?: string }).rpcUrl ?? '')
+      : null
+
+    if (legacyRpcUrl && (parsed as { rpcMode?: unknown }).rpcMode !== LOCAL_RPC_SOURCE && !publicRpcUrls.includes(legacyRpcUrl)) {
+      publicRpcUrls.push(legacyRpcUrl)
+    }
+
+    const legacyFallback =
+      (parsed as { rpcMode?: unknown }).rpcMode === LOCAL_RPC_SOURCE
+        ? LOCAL_RPC_SOURCE
+        : legacyRpcUrl ?? publicRpcUrls[0] ?? LOCAL_RPC_SOURCE
+
     return {
-      rpcMode: normalizeExplorerRpcMode(parsed.rpcMode),
-      rpcUrl: typeof parsed.rpcUrl === 'string' && parsed.rpcUrl ? parsed.rpcUrl : DEFAULT_SETTINGS.rpcUrl,
+      rpcSource: normalizeExplorerRpcSource((parsed as { rpcSource?: unknown }).rpcSource, publicRpcUrls, legacyFallback),
+      publicRpcUrls,
       pollMs: clamp(typeof parsed.pollMs === 'number' ? parsed.pollMs : DEFAULT_SETTINGS.pollMs, 1000, 30000),
-      rowLimit: clamp(typeof parsed.rowLimit === 'number' ? parsed.rowLimit : DEFAULT_SETTINGS.rowLimit, 5, 50)
+      rowLimit: clamp(typeof parsed.rowLimit === 'number' ? parsed.rowLimit : DEFAULT_SETTINGS.rowLimit, 5, 50),
+      producerAdvancedMode: parsed.producerAdvancedMode === true
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -293,6 +432,17 @@ function loadInitialNodeSettings(): NodeManagerSettings {
   }
 }
 
+function loadInitialLanguage(): AppLanguage {
+  try {
+    const raw = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
+    if (raw) return normalizeAppLanguage(raw)
+  } catch {
+    // ignore
+  }
+
+  return detectAppLanguage()
+}
+
 function parseProfilesCsv(value: string): string[] {
   return value
     .split(',')
@@ -325,6 +475,14 @@ function getKoinosNodeBridge() {
   return window.knodel?.koinosNode
 }
 
+function getAppConfigBridge() {
+  return window.knodel?.appConfig
+}
+
+function getWalletBridge() {
+  return window.knodel?.wallet
+}
+
 function looksLikeNodeErrorOutput(output: string): boolean {
   return /cannot connect to the docker daemon|spawn docker ENOENT|repo path not found|compose file not found|env file not found|missing config dir|no se pudo consultar docker compose|error consultando docker compose/i.test(
     output
@@ -352,8 +510,7 @@ function resolveLocalNodeRpcUrl(nodeStatus: KnodelKoinosNodeStatus | null): stri
 }
 
 function resolveExplorerRpcUrl(settings: ExplorerSettings, nodeStatus: KnodelKoinosNodeStatus | null): string {
-  if (settings.rpcMode === 'public') return PUBLIC_RPC_URL
-  if (settings.rpcMode === 'custom') return settings.rpcUrl
+  if (settings.rpcSource !== LOCAL_RPC_SOURCE) return settings.rpcSource
   return resolveLocalNodeRpcUrl(nodeStatus)
 }
 
@@ -366,50 +523,65 @@ function formatNodeServicePorts(service: KnodelKoinosNodeServiceStatus): string 
   return service.ports.map((port) => port.label || `${port.targetPort ?? '?'}${port.protocol ? `/${port.protocol}` : ''}`).join(', ')
 }
 
-function formatNodeServiceType(service: KnodelKoinosNodeServiceStatus): string {
-  return service.runtimeType === 'native' ? 'Native' : 'Docker'
+function formatNodeServiceType(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
+  return service.runtimeType === 'native'
+    ? translate(language, 'common.runtimeNative')
+    : translate(language, 'common.runtimeDocker')
 }
 
-function formatNodeServiceVersion(service: KnodelKoinosNodeServiceStatus): string {
-  return service.version?.trim() || 'Unknown'
+function formatNodeServiceVersion(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
+  return service.version?.trim() || translate(language, 'common.unknown')
 }
 
-function formatNodeRuntimeMode(mode: KnodelKoinosNodeServiceRuntime): string {
-  return mode === 'native' ? 'Native' : 'Docker'
+function formatNodeRuntimeMode(mode: KnodelKoinosNodeServiceRuntime, language: AppLanguage): string {
+  return mode === 'native' ? translate(language, 'common.runtimeNative') : translate(language, 'common.runtimeDocker')
 }
 
 function formatNodeServiceTooltip(
   service: KnodelKoinosNodeServiceStatus,
-  capabilities: NodeServiceCapabilities
+  capabilities: NodeServiceCapabilities,
+  language: AppLanguage
 ): string {
-  const lines = [`Service: ${service.name}`, `Runtime: ${service.runtimeName}`]
+  const lines = [
+    translate(language, 'node.serviceTooltip.service', { value: service.name }),
+    translate(language, 'node.serviceTooltip.runtime', { value: service.runtimeName })
+  ]
 
   if (service.version) {
-    lines.push(`Version: ${service.version}`)
+    lines.push(translate(language, 'node.serviceTooltip.version', { value: service.version }))
   }
 
   if (service.nativePid) {
-    lines.push(`Managed PID: ${service.nativePid}`)
+    lines.push(translate(language, 'node.serviceTooltip.managedPid', { value: service.nativePid }))
   }
 
   if (service.conflictPids.length > 0) {
-    lines.push(`Conflicting PIDs: ${service.conflictPids.join(', ')}`)
+    lines.push(translate(language, 'node.serviceTooltip.conflictingPids', { value: service.conflictPids.join(', ') }))
   }
 
   lines.push(
-    `Depends on: ${capabilities.dependencyNames.length > 0 ? capabilities.dependencyNames.join(', ') : 'none'}`
+    translate(language, 'node.serviceTooltip.dependsOn', {
+      value:
+        capabilities.dependencyNames.length > 0
+          ? capabilities.dependencyNames.join(', ')
+          : translate(language, 'common.none')
+    })
   )
 
   if (capabilities.profileDependentNames.length > 0) {
-    lines.push(`Used by: ${capabilities.profileDependentNames.join(', ')}`)
+    lines.push(translate(language, 'node.serviceTooltip.usedBy', { value: capabilities.profileDependentNames.join(', ') }))
   }
 
   if (capabilities.missingDependencyNames.length > 0) {
-    lines.push(`Missing dependencies: ${capabilities.missingDependencyNames.join(', ')}`)
+    lines.push(
+      translate(language, 'node.serviceTooltip.missingDependencies', {
+        value: capabilities.missingDependencyNames.join(', ')
+      })
+    )
   }
 
   if (service.lastError) {
-    lines.push(`Issue: ${service.lastError}`)
+    lines.push(translate(language, 'node.serviceTooltip.issue', { value: service.lastError }))
   }
 
   return lines.join('\n')
@@ -419,9 +591,19 @@ function normalizeStringList(values: string[]): string[] {
   return [...values].map((value) => value.trim()).filter(Boolean).sort()
 }
 
-function formatNodeServiceRuntimeDetail(service: KnodelKoinosNodeServiceStatus): string {
-  if (service.nativePid) return `${service.runtimeName} · pid ${service.nativePid}`
-  if (service.conflictPids.length > 0) return `${service.runtimeName} · conflict pid ${service.conflictPids.join(', ')}`
+function formatNodeServiceRuntimeDetail(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
+  if (service.nativePid) {
+    return translate(language, 'node.serviceRuntimeDetail.pid', {
+      runtime: service.runtimeName,
+      pid: service.nativePid
+    })
+  }
+  if (service.conflictPids.length > 0) {
+    return translate(language, 'node.serviceRuntimeDetail.conflict', {
+      runtime: service.runtimeName,
+      pid: service.conflictPids.join(', ')
+    })
+  }
   return service.runtimeName
 }
 
@@ -444,8 +626,8 @@ function sameProfiles(left: string[], right: string[]): boolean {
   return sameStringList(left, right)
 }
 
-function formatPresetProfiles(preset: KnodelKoinosNodePreset): string {
-  return preset.profiles.length ? preset.profiles.join(', ') : 'core'
+function formatPresetProfiles(preset: KnodelKoinosNodePreset, language: AppLanguage): string {
+  return preset.profiles.length ? preset.profiles.join(', ') : translate(language, 'common.core')
 }
 
 function basenameFromPath(input: string | null): string {
@@ -462,35 +644,36 @@ function formatNativeBuildSystem(buildSystem: KnodelKoinosNativeBuildSystem | nu
 }
 
 function formatNativeBuildStatus(
-  build: KnodelKoinosNodeNativeBuildStatus
+  build: KnodelKoinosNodeNativeBuildStatus,
+  language: AppLanguage
 ): { label: string; className: string } {
   if (!build.supported) {
-    return { label: 'Unsupported', className: 'is-unsupported' }
+    return { label: translate(language, 'node.buildStatus.unsupported'), className: 'is-unsupported' }
   }
 
   if (!build.repoExists) {
-    return { label: 'Missing repo', className: 'is-blocked' }
+    return { label: translate(language, 'node.buildStatus.missingRepo'), className: 'is-blocked' }
   }
 
   if (!build.buildable) {
-    return { label: 'Blocked', className: 'is-blocked' }
+    return { label: translate(language, 'node.buildStatus.blocked'), className: 'is-blocked' }
   }
 
   if (build.artifactExists) {
-    return { label: 'Built', className: 'is-built' }
+    return { label: translate(language, 'node.buildStatus.built'), className: 'is-built' }
   }
 
-  return { label: 'Pending', className: 'is-pending' }
+  return { label: translate(language, 'node.buildStatus.pending'), className: 'is-pending' }
 }
 
-function formatNativeBuildTooltip(build: KnodelKoinosNodeNativeBuildStatus): string {
-  const lines = [`Service: ${build.serviceName}`]
+function formatNativeBuildTooltip(build: KnodelKoinosNodeNativeBuildStatus, language: AppLanguage): string {
+  const lines = [translate(language, 'node.buildTooltip.service', { value: build.serviceName })]
 
-  if (build.repoPath) lines.push(`Repo: ${build.repoPath}`)
-  if (build.artifactPath) lines.push(`Artifact: ${build.artifactPath}`)
-  if (build.note) lines.push(`Note: ${build.note}`)
+  if (build.repoPath) lines.push(translate(language, 'node.buildTooltip.repo', { value: build.repoPath }))
+  if (build.artifactPath) lines.push(translate(language, 'node.buildTooltip.artifact', { value: build.artifactPath }))
+  if (build.note) lines.push(translate(language, 'node.buildTooltip.note', { value: build.note }))
   if (build.buildCommands.length > 0) {
-    lines.push(`Build: ${build.buildCommands.join(' && ')}`)
+    lines.push(translate(language, 'node.buildTooltip.build', { value: build.buildCommands.join(' && ') }))
   }
 
   return lines.join('\n')
@@ -660,6 +843,7 @@ function renderAnsiLog(input: string) {
 }
 
 async function rpcCall<T>(
+  language: AppLanguage,
   rpcUrl: string,
   method: string,
   params: Record<string, unknown>,
@@ -679,7 +863,7 @@ async function rpcCall<T>(
       throw new Error(proxied.output || 'RPC error')
     }
     if (proxied.result === undefined) {
-      throw new Error('RPC result vacio')
+      throw new Error(translate(language, 'rpc.resultEmpty'))
     }
     return proxied.result as T
   }
@@ -697,7 +881,7 @@ async function rpcCall<T>(
   })
 
   if (!response.ok) {
-    throw new Error(`RPC HTTP ${response.status}`)
+    throw new Error(translate(language, 'rpc.httpStatus', { status: response.status }))
   }
 
   const payload = (await response.json()) as JsonRpcResponse<T>
@@ -705,7 +889,7 @@ async function rpcCall<T>(
     throw new Error(payload.error.message || 'RPC error')
   }
   if (payload.result === undefined) {
-    throw new Error('RPC result vacio')
+    throw new Error(translate(language, 'rpc.resultEmpty'))
   }
   return payload.result
 }
@@ -723,27 +907,23 @@ function mapBlockItem(item: BlockStoreItem): BlockRow | null {
 }
 
 async function fetchLatestBlocks(
-  settings: ExplorerSettings,
+  language: AppLanguage,
+  rpcUrl: string,
+  rowLimit: number,
   signal: AbortSignal
 ): Promise<{ head: HeadSnapshot; rows: BlockRow[] }> {
-  const headInfo = await rpcCall<HeadInfoResult>(settings.rpcUrl, 'chain.get_head_info', {}, signal)
-  const headId = headInfo.head_topology?.id ?? ''
-  const headHeight = safeParseInt(headInfo.head_topology?.height, 0)
-  const headTimestampMs = safeParseInt(headInfo.head_block_time, 0)
+  const head = await fetchHeadSnapshot(language, rpcUrl, signal)
 
-  if (!headId || !headHeight) {
-    throw new Error('Respuesta invalida de chain.get_head_info')
-  }
-
-  const ancestorStartHeight = Math.max(1, headHeight - settings.rowLimit + 1)
+  const ancestorStartHeight = Math.max(1, head.height - rowLimit + 1)
 
   const blockStore = await rpcCall<BlocksByHeightResult>(
-    settings.rpcUrl,
+    language,
+    rpcUrl,
     'block_store.get_blocks_by_height',
     {
-      head_block_id: headId,
+      head_block_id: head.id,
       ancestor_start_height: String(ancestorStartHeight),
-      num_blocks: String(settings.rowLimit),
+      num_blocks: String(rowLimit),
       return_block: true
     },
     signal
@@ -755,24 +935,45 @@ async function fetchLatestBlocks(
     .sort((a, b) => b.height - a.height)
 
   return {
-    head: { id: headId, height: headHeight, timestampMs: headTimestampMs },
+    head,
     rows
   }
 }
 
+async function fetchHeadSnapshot(
+  language: AppLanguage,
+  rpcUrl: string,
+  signal: AbortSignal
+): Promise<HeadSnapshot> {
+  const headInfo = await rpcCall<HeadInfoResult>(language, rpcUrl, 'chain.get_head_info', {}, signal)
+  const headId = headInfo.head_topology?.id ?? ''
+  const headHeight = safeParseInt(headInfo.head_topology?.height, 0)
+  const headTimestampMs = safeParseInt(headInfo.head_block_time, 0)
+
+  if (!headId || !headHeight) {
+    throw new Error(translate(language, 'rpc.invalidHeadInfo'))
+  }
+
+  return { id: headId, height: headHeight, timestampMs: headTimestampMs }
+}
+
 export function App() {
   const appVersion = window.knodel?.version?.trim() || '0.2.0'
+  const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
   const [nodeSettings, setNodeSettings] = useState<NodeManagerSettings>(() => loadInitialNodeSettings())
   const [rows, setRows] = useState<BlockRow[]>([])
   const [head, setHead] = useState<HeadSnapshot | null>(null)
+  const [publicChainHead, setPublicChainHead] = useState<HeadSnapshot | null>(null)
+  const [localChainHead, setLocalChainHead] = useState<HeadSnapshot | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [freshBlockIds, setFreshBlockIds] = useState<string[]>([])
-  const [draftRpcUrl, setDraftRpcUrl] = useState(settings.rpcUrl)
+  const [draftPublicRpcUrls, setDraftPublicRpcUrls] = useState(settings.publicRpcUrls.join('\n'))
+  const [publicRpcConfigLoaded, setPublicRpcConfigLoaded] = useState(() => !Boolean(getAppConfigBridge()?.loadPublicRpcUrls))
   const [draftPollMs, setDraftPollMs] = useState(String(settings.pollMs))
   const [draftRowLimit, setDraftRowLimit] = useState(String(settings.rowLimit))
   const [draftNodeRepoPath, setDraftNodeRepoPath] = useState(nodeSettings.repoPath)
@@ -794,6 +995,12 @@ export function App() {
   const [nodeRestoreBackupVerifyLoading, setNodeRestoreBackupVerifyLoading] = useState(false)
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
+  const [nodeProducerOverview, setNodeProducerOverview] = useState<KnodelKoinosNodeProducerOverviewResult | null>(null)
+  const [nodeProducerLoading, setNodeProducerLoading] = useState(false)
+  const [nodeProducerError, setNodeProducerError] = useState<string | null>(null)
+  const [nodeProducerActionLoading, setNodeProducerActionLoading] = useState<NodeProducerActionState>(null)
+  const [nodeProducerAddressDraft, setNodeProducerAddressDraft] = useState('')
+  const [producerUnlockPassword, setProducerUnlockPassword] = useState('')
   const [nodePresets, setNodePresets] = useState<KnodelKoinosNodePreset[]>([])
   const [nodePresetsLoading, setNodePresetsLoading] = useState(false)
   const [nodePresetsError, setNodePresetsError] = useState<string | null>(null)
@@ -830,22 +1037,68 @@ export function App() {
   const [nodeBaseDirCopyLoading, setNodeBaseDirCopyLoading] = useState(false)
   const [nodeBaseDirRestartLoading, setNodeBaseDirRestartLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
+  const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
+  const [walletOverview, setWalletOverview] = useState<KnodelWalletOverviewResult | null>(null)
+  const [producerSigningWalletBalance, setProducerSigningWalletBalance] = useState<KnodelWalletBalanceResult | null>(null)
+  const [walletLoading, setWalletLoading] = useState(false)
+  const [producerSigningWalletBalanceLoading, setProducerSigningWalletBalanceLoading] = useState(false)
+  const [walletError, setWalletError] = useState<string | null>(null)
+  const [producerSigningWalletBalanceError, setProducerSigningWalletBalanceError] = useState<string | null>(null)
+  const [walletActionLoading, setWalletActionLoading] = useState<string | null>(null)
+  const [walletResultTitle, setWalletResultTitle] = useState('')
+  const [walletResultData, setWalletResultData] = useState<unknown>(null)
+  const [walletImportPrivateKey, setWalletImportPrivateKey] = useState('')
+  const [walletImportPassword, setWalletImportPassword] = useState('')
+  const [walletBurnPercentDraft, setWalletBurnPercentDraft] = useState('95')
+  const [walletBurnAmountDraft, setWalletBurnAmountDraft] = useState('')
+  const [walletBurnDryRun, setWalletBurnDryRun] = useState(true)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const rowsRef = useRef<BlockRow[]>([])
   const nodeOutputRef = useRef(nodeOutput)
   const nodeLogsStreamIdRef = useRef<string | null>(null)
   const nodeLogsPreRef = useRef<HTMLPreElement | null>(null)
   const nodeRepoBootstrapAttemptsRef = useRef<Set<string>>(new Set())
+  const locale = localeForLanguage(language)
+  const t = useMemo(() => {
+    return (key: string, values?: Record<string, string | number>) => translate(language, key, values)
+  }, [language])
   const hasNodeControls = Boolean(getKoinosNodeBridge())
+  const hasWalletControls = Boolean(getWalletBridge())
   const composeFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, draftNodeComposeFile)
   const envFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, draftNodeEnvFile)
   const configFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, 'config/config.yml')
 
   useEffect(() => {
-    setDraftRpcUrl(settings.rpcUrl)
+    setDraftPublicRpcUrls(settings.publicRpcUrls.join('\n'))
     setDraftPollMs(String(settings.pollMs))
     setDraftRowLimit(String(settings.rowLimit))
-  }, [settings.rpcUrl, settings.pollMs, settings.rowLimit])
+  }, [settings.publicRpcUrls, settings.pollMs, settings.rowLimit])
+
+  useEffect(() => {
+    const bridge = getAppConfigBridge()
+    if (!bridge?.loadPublicRpcUrls) {
+      setPublicRpcConfigLoaded(true)
+      return
+    }
+
+    let disposed = false
+    void bridge.loadPublicRpcUrls()
+      .then((result) => {
+        if (disposed || !result.ok || result.publicRpcUrls.length === 0) return
+        setSettings((current) => ({
+          ...current,
+          publicRpcUrls: result.publicRpcUrls,
+          rpcSource: normalizeExplorerRpcSource(current.rpcSource, result.publicRpcUrls, current.rpcSource)
+        }))
+      })
+      .finally(() => {
+        if (!disposed) setPublicRpcConfigLoaded(true)
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [])
 
   useEffect(() => {
     setDraftNodeRepoPath(nodeSettings.repoPath)
@@ -859,17 +1112,39 @@ export function App() {
   }, [nodeSettings])
 
   useEffect(() => {
+    if (!settings.producerAdvancedMode) return
+    if (nodeProducerAddressDraft.trim()) return
+    const nextAddress = nodeProducerOverview?.producerAddress?.trim() || ''
+    if (nextAddress) {
+      setNodeProducerAddressDraft(nextAddress)
+    }
+  }, [settings.producerAdvancedMode, nodeProducerOverview, nodeProducerAddressDraft])
+
+  useEffect(() => {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
   }, [settings])
+
+  useEffect(() => {
+    const bridge = getAppConfigBridge()
+    if (!publicRpcConfigLoaded || !bridge?.savePublicRpcUrls) return
+    void bridge.savePublicRpcUrls({ publicRpcUrls: settings.publicRpcUrls })
+  }, [publicRpcConfigLoaded, settings.publicRpcUrls])
 
   useEffect(() => {
     window.localStorage.setItem(NODE_SETTINGS_STORAGE_KEY, JSON.stringify(nodeSettings))
   }, [nodeSettings])
 
+  useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
+    document.documentElement.lang = language
+  }, [language])
+
   const effectiveExplorerRpcUrl = useMemo(
     () => resolveExplorerRpcUrl(settings, nodeStatus),
     [settings, nodeStatus]
   )
+  const primaryPublicRpcUrl = settings.publicRpcUrls[0] ?? DEFAULT_PUBLIC_RPC_URLS[0]
+  const localNodeRpcUrl = useMemo(() => resolveLocalNodeRpcUrl(nodeStatus), [nodeStatus])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
@@ -891,6 +1166,40 @@ export function App() {
   }, [nodeStatus, nodeLogsService])
 
   useEffect(() => {
+    if (activeTab !== 'producer') return
+    if (!hasNodeControls) return
+    void refreshNodeProducerOverview()
+  }, [
+    activeTab,
+    hasNodeControls,
+    nodeSettings.repoPath,
+    nodeSettings.baseDir,
+    nodeSettings.runtimeMode,
+    nodeSettings.profiles,
+    nodeStatus?.runningServices,
+    settings.producerAdvancedMode,
+    walletOverview?.walletAddress
+  ])
+
+  useEffect(() => {
+    if (activeTab !== 'producer') return
+    if (!getWalletBridge()) return
+    void refreshWalletOverview()
+  }, [activeTab, effectiveExplorerRpcUrl])
+
+  useEffect(() => {
+    if (activeTab !== 'producer') return
+    const signingWalletAddress = walletOverview?.walletAddress?.trim() || ''
+    if (!signingWalletAddress) {
+      setProducerSigningWalletBalance(null)
+      setProducerSigningWalletBalanceError(null)
+      setProducerSigningWalletBalanceLoading(false)
+      return
+    }
+    void refreshProducerSigningWalletBalance(signingWalletAddress)
+  }, [activeTab, primaryPublicRpcUrl, walletOverview?.walletAddress])
+
+  useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (nodeServiceContextMenu) {
@@ -905,6 +1214,10 @@ export function App() {
         setNodeLogsModalOpen(false)
         return
       }
+      if (nodeProfilesModalOpen) {
+        setNodeProfilesModalOpen(false)
+        return
+      }
       if (nodeConflictDialog) {
         setNodeConflictDialog(null)
         return
@@ -916,7 +1229,7 @@ export function App() {
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [nodeServiceContextMenu, nodeFileEditorOpen, nodeLogsModalOpen, nodeConflictDialog, nodeBaseDirChangeDialog])
+  }, [nodeServiceContextMenu, nodeFileEditorOpen, nodeLogsModalOpen, nodeProfilesModalOpen, nodeConflictDialog, nodeBaseDirChangeDialog])
 
   useEffect(() => {
     nodeLogsStreamIdRef.current = nodeLogsStreamId
@@ -965,7 +1278,7 @@ export function App() {
 
       if (payload.type === 'error') {
         setNodeLogsLoading(false)
-        setNodeLogsError(payload.message || 'Error en stream de logs')
+        setNodeLogsError(payload.message || t('node.logsStreamError'))
         setNodeLogsStreamId(null)
         return
       }
@@ -974,13 +1287,13 @@ export function App() {
         setNodeLogsLoading(false)
         setNodeLogsStreamId(null)
         if (typeof payload.code === 'number' && payload.code !== 0) {
-          setNodeLogsError(`El stream de logs termino (code ${payload.code})`)
+          setNodeLogsError(t('node.logsStreamEnded', { code: payload.code }))
         }
       }
     })
 
     return unsubscribe
-  }, [hasNodeControls])
+  }, [hasNodeControls, t])
 
   useEffect(() => {
     if (!hasNodeControls) return
@@ -1026,10 +1339,10 @@ export function App() {
         const result = await bridge.presets(toNodeApiSettings(nodeSettings))
         if (disposed) return
         setNodePresets(result.presets ?? [])
-        if (!result.ok) setNodePresetsError(result.output || 'No se pudieron leer los profiles del compose')
+        if (!result.ok) setNodePresetsError(result.output || t('node.unableReadProfiles'))
       } catch (error) {
         if (disposed) return
-        setNodePresetsError(error instanceof Error ? error.message : 'No se pudieron leer los profiles del compose')
+        setNodePresetsError(error instanceof Error ? error.message : t('node.unableReadProfiles'))
       } finally {
         if (!disposed) setNodePresetsLoading(false)
       }
@@ -1053,7 +1366,7 @@ export function App() {
         }
       } catch (error) {
         if (disposed) return
-        setNodeError(error instanceof Error ? error.message : 'Error consultando el nodo local')
+        setNodeError(error instanceof Error ? error.message : t('node.unableQueryNode'))
       } finally {
         if (!disposed) setNodeStatusLoading(false)
       }
@@ -1065,7 +1378,7 @@ export function App() {
     return () => {
       disposed = true
     }
-  }, [hasNodeControls, nodeSettings])
+  }, [hasNodeControls, nodeSettings, t])
 
   useEffect(() => {
     if (!hasNodeControls) return
@@ -1083,13 +1396,11 @@ export function App() {
         if (disposed) return
         setNodeNativeBuilds(builds)
         if (!builds.ok) {
-          setNodeNativeBuildsError(builds.output || 'No se pudo inspeccionar el workspace nativo')
+          setNodeNativeBuildsError(builds.output || t('node.unableInspectNativeWorkspace'))
         }
       } catch (error) {
         if (disposed) return
-        setNodeNativeBuildsError(
-          error instanceof Error ? error.message : 'No se pudo inspeccionar el workspace nativo'
-        )
+        setNodeNativeBuildsError(error instanceof Error ? error.message : t('node.unableInspectNativeWorkspace'))
       } finally {
         if (!disposed) setNodeNativeBuildsLoading(false)
       }
@@ -1100,7 +1411,7 @@ export function App() {
     return () => {
       disposed = true
     }
-  }, [hasNodeControls])
+  }, [hasNodeControls, t])
 
   useEffect(() => {
     if (!hasNodeControls) return
@@ -1146,10 +1457,6 @@ export function App() {
     let inFlight = false
     let pollTimer: number | null = null
     let controller: AbortController | null = null
-    const explorerSettings = {
-      ...settings,
-      rpcUrl: effectiveExplorerRpcUrl
-    }
 
     const tick = async (initial: boolean) => {
       if (disposed || inFlight) return
@@ -1160,7 +1467,7 @@ export function App() {
       else setIsRefreshing(true)
 
       try {
-        const snapshot = await fetchLatestBlocks(explorerSettings, controller.signal)
+        const snapshot = await fetchLatestBlocks(language, effectiveExplorerRpcUrl, settings.rowLimit, controller.signal)
         if (disposed) return
 
         const previousIds = new Set(rowsRef.current.map((row) => row.blockId))
@@ -1177,7 +1484,7 @@ export function App() {
       } catch (error) {
         if (disposed) return
         if (error instanceof DOMException && error.name === 'AbortError') return
-        setErrorMessage(error instanceof Error ? error.message : 'Error de conexion RPC')
+        setErrorMessage(error instanceof Error ? error.message : t('status.connectionError'))
       } finally {
         if (!disposed) {
           setIsInitialLoading(false)
@@ -1190,24 +1497,26 @@ export function App() {
     void tick(true)
     pollTimer = window.setInterval(() => {
       void tick(false)
-    }, explorerSettings.pollMs)
+    }, settings.pollMs)
 
     return () => {
       disposed = true
       controller?.abort()
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
-  }, [settings, effectiveExplorerRpcUrl])
+  }, [settings, effectiveExplorerRpcUrl, language, t])
 
   const statusText = useMemo(() => {
-    if (errorMessage) return `Error RPC · ${errorMessage}`
-    if (isInitialLoading) return `Conectando a ${formatExplorerRpcMode(settings.rpcMode)}...`
-    if (isRefreshing) return 'Actualizando bloques...'
-    return `Live · ${rows.length} bloques visibles`
-  }, [errorMessage, isInitialLoading, isRefreshing, rows.length, settings.rpcMode])
+    if (errorMessage) return t('status.rpcError', { message: errorMessage })
+    if (isInitialLoading) {
+      return t('status.connectingTo', { target: formatExplorerRpcSourceTarget(settings.rpcSource, language) })
+    }
+    if (isRefreshing) return t('status.updatingBlocks')
+    return t('status.liveBlocksVisible', { count: rows.length })
+  }, [errorMessage, isInitialLoading, isRefreshing, language, rows.length, settings.rpcSource, t])
 
-  const lastUpdateText = lastSuccessAt ? new Date(lastSuccessAt).toLocaleTimeString() : 'N/A'
-  const headBlockTimeText = head ? formatDateTime(head.timestampMs) : 'N/A'
+  const lastUpdateText = lastSuccessAt ? formatTime(lastSuccessAt, locale, t('common.na')) : t('common.na')
+  const headBlockTimeText = head ? formatDateTime(head.timestampMs, locale, t('common.na')) : t('common.na')
   const nodeBusy =
     nodeActionLoading !== null ||
     nodeRestoreBackupLoading ||
@@ -1221,7 +1530,6 @@ export function App() {
     nodePresetActionLoading !== null ||
     nodeNativeBuildActionLoading !== null
   const nodeRuntimeMode = nodeStatus?.runtimeMode ?? nodeSettings.runtimeMode
-  const nodeAvailableRuntimeModes = nodeStatus?.availableRuntimeModes ?? ['docker', 'native']
   const nodeCurrentProfiles = parseProfilesCsv(nodeSettings.profiles)
   const selectedNodePreset =
     nodePresets.find((preset) => sameProfiles(preset.profiles, nodeCurrentProfiles)) ?? null
@@ -1237,12 +1545,17 @@ export function App() {
     (service) => service.supported && !service.artifactExists && service.buildable
   ).length
   const nodeNativeBuildSummaryText = nodeNativeBuilds
-    ? `${nodeNativeBuiltCount}/${nodeNativeSupportedCount} generados${
-        nodeNativeBlockedCount > 0 ? ` · ${nodeNativeBlockedCount} bloqueados` : ''
-      }${nodeNativePendingCount > 0 ? ` · ${nodeNativePendingCount} pendientes` : ''}`
+    ? t('node.nativeBuild.summary', {
+        built: nodeNativeBuiltCount,
+        supported: nodeNativeSupportedCount,
+        blocked:
+          nodeNativeBlockedCount > 0 ? t('node.nativeBuild.blockedSuffix', { count: nodeNativeBlockedCount }) : '',
+        pending:
+          nodeNativePendingCount > 0 ? t('node.nativeBuild.pendingSuffix', { count: nodeNativePendingCount }) : ''
+      })
     : nodeNativeBuildsLoading
-      ? 'Inspeccionando repos locales...'
-      : 'Sin estado'
+      ? t('node.nativeBuild.inspecting')
+      : t('node.nativeBuild.noState')
   const nodeServices = nodeStatus?.services ?? []
   const nodeServiceById = useMemo(
     () => new Map(nodeServices.map((service) => [service.id, service] as const)),
@@ -1268,10 +1581,10 @@ export function App() {
     for (const service of nodeServices) {
       const running = isNodeServiceRunning(service)
       const conflictReason =
-        service.state === 'conflict' ? service.lastError || 'Hay otro proceso nativo usando este servicio' : null
+        service.state === 'conflict' ? service.lastError || t('node.serviceConflictNative') : null
       const restartRequiredReason =
         service.state === 'restart required'
-          ? service.lastError || 'El servicio sigue activo con un BASEDIR distinto'
+          ? service.lastError || t('node.serviceRestartRequired')
           : null
       const dependencyNames = service.dependsOn.map(serviceLabel)
       const missingDependencyNames = service.dependsOn
@@ -1294,25 +1607,25 @@ export function App() {
         startBlockedReason:
           conflictReason ||
           (restartRequiredReason
-            ? `${restartRequiredReason} Usa Restart para aplicar el nuevo BASEDIR.`
+            ? t('node.serviceRestartUseRestart', { reason: restartRequiredReason })
             : null) ||
           (running
-            ? 'El servicio ya esta activo'
+            ? t('node.serviceAlreadyActive')
             : missingDependencyNames.length > 0
-              ? `Dependencias no activas: ${missingDependencyNames.join(', ')}`
+              ? t('node.inactiveDependencies', { services: missingDependencyNames.join(', ') })
               : null),
         stopBlockedReason:
           conflictReason ||
           (restartRequiredReason ? null : !running
-            ? 'El servicio ya esta detenido'
+            ? t('node.serviceAlreadyStopped')
             : profileDependentNames.length > 0
-              ? `Servicios dependientes en el profile actual: ${profileDependentNames.join(', ')}`
+              ? t('node.profileDependentServices', { services: profileDependentNames.join(', ') })
               : null),
         restartBlockedReason:
           conflictReason ||
           (restartRequiredReason ? null : null) ||
           (!running && missingDependencyNames.length > 0
-            ? `Dependencias no activas: ${missingDependencyNames.join(', ')}`
+            ? t('node.inactiveDependencies', { services: missingDependencyNames.join(', ') })
             : null)
       })
     }
@@ -1339,44 +1652,233 @@ export function App() {
     ? sameStringList(selectedNodePreset.services, nodeRunningServiceIds)
     : false
   const nodePresetSummaryText = selectedNodePreset
-    ? `${selectedNodePreset.label} · ${selectedNodePreset.services.length} servicios${selectedNodePresetMatchesRunningState ? '' : ' · pendiente de aplicar'}`
-    : `Custom · ${nodeCurrentProfiles.length ? nodeCurrentProfiles.join(', ') : 'core'}`
+    ? t('node.presetSummarySelected', {
+        label: selectedNodePreset.label,
+        count: selectedNodePreset.services.length,
+        pending: selectedNodePresetMatchesRunningState ? '' : t('node.presetSummaryPendingSuffix')
+      })
+    : t('node.presetSummaryCustom', {
+        profiles: nodeCurrentProfiles.length ? nodeCurrentProfiles.join(', ') : t('common.core')
+      })
   const nodeStateText = !hasNodeControls
-    ? 'Disponible solo en Electron'
+    ? t('status.electronOnly')
     : nodeCloneLoading
-      ? 'Sincronizando repo...'
+      ? t('status.syncingRepo')
     : nodeRestoreBackupLoading
-      ? 'Restaurando backup blockchain...'
+      ? t('status.restoringBackup')
     : nodeNativeBuildActionLoading
       ? nodeNativeBuildActionLoading === 'all'
-        ? 'Compilando servicios nativos...'
-        : `Compilando ${nodeNativeBuildActionLoading}...`
+        ? t('status.compilingNativeAll')
+        : t('status.compilingNativeService', { service: nodeNativeBuildActionLoading })
     : nodeStatusLoading
-      ? 'Consultando estado del nodo...'
-      : nodePresetActionLoading
-        ? 'Aplicando profile...'
+      ? t('status.checkingNode')
+    : nodePresetActionLoading
+        ? t('status.applyingProfile')
       : nodeActionLoading
-        ? `${nodeActionLoading === 'start' ? 'Iniciando' : 'Deteniendo'} nodo...`
+        ? nodeActionLoading === 'start'
+          ? t('status.startingNode')
+          : t('status.stoppingNode')
         : nodeStatus
           ? nodeHasPartialOutage
-            ? `Degraded (${nodeRunningCount}/${nodeServiceCount})`
+            ? t('status.degraded', { running: nodeRunningCount, total: nodeServiceCount })
             : nodeRunningCount > 0
-              ? `Running (${nodeRunningCount}/${nodeServiceCount})`
+              ? t('status.running', { running: nodeRunningCount, total: nodeServiceCount })
               : nodeStatus.ok
-                ? 'Stopped'
-                : 'Error'
-          : 'Sin estado'
+                ? t('status.stopped')
+                : t('status.error')
+          : t('status.noState')
   const nodeStatusClass = nodeError || nodeHasPartialOutage ? 'is-error' : nodeRunningCount > 0 ? 'is-live' : 'is-idle'
-  const topbarStatusClass =
-    activeTab === 'settings'
-      ? 'is-idle'
-      : activeTab === 'node'
-      ? nodeStatusClass
-      : errorMessage
+  const syncGapBlocks =
+    publicChainHead && localChainHead ? Math.max(0, publicChainHead.height - localChainHead.height) : null
+  const syncGapTimeMs =
+    publicChainHead && localChainHead ? Math.max(0, publicChainHead.timestampMs - localChainHead.timestampMs) : null
+  const showChainSyncProgress = Boolean(
+    nodeRunningCount > 0 &&
+      publicChainHead &&
+      localChainHead &&
+      ((syncGapBlocks ?? 0) > SYNC_GAP_BLOCK_THRESHOLD || (syncGapTimeMs ?? 0) > SYNC_GAP_TIME_THRESHOLD_MS)
+  )
+  const chainSyncPercent = showChainSyncProgress && publicChainHead
+    ? clamp((localChainHead!.height / publicChainHead.height) * 100, 0, 100)
+    : null
+  const walletResultText = walletResultData ? JSON.stringify(walletResultData, null, 2) : ''
+  const producerVaultExists = Boolean(walletOverview?.walletExists)
+  const producerVaultUnlocked = Boolean(walletOverview?.unlocked)
+  const producerUnlockRequired = producerVaultExists && !producerVaultUnlocked
+  const producerWalletReady = producerVaultExists && producerVaultUnlocked
+  const producerAdvancedMode = settings.producerAdvancedMode
+  const signingWalletAddress = walletOverview?.walletAddress?.trim() || ''
+  const draftedProducerAddress = nodeProducerAddressDraft.trim()
+  const signingWalletManaValue = producerSigningWalletBalance?.mana
+    ? Number.parseFloat(producerSigningWalletBalance.mana)
+    : null
+  const effectiveProducerTargetAddress = producerAdvancedMode
+    ? draftedProducerAddress || nodeProducerOverview?.producerAddress?.trim() || ''
+    : signingWalletAddress || nodeProducerOverview?.producerAddress?.trim() || ''
+  const signingWalletHasRegistrationMana =
+    signingWalletManaValue !== null && Number.isFinite(signingWalletManaValue) ? signingWalletManaValue >= 0.5 : null
+  const producerAndSigningWalletMatch =
+    Boolean(effectiveProducerTargetAddress && signingWalletAddress) &&
+    effectiveProducerTargetAddress.toLowerCase() === signingWalletAddress.toLowerCase()
+  const producerRegistrationStatusText = (() => {
+    switch (nodeProducerOverview?.registrationStatus) {
+      case 'match':
+        return t('producer.status.match')
+      case 'mismatch':
+        return t('producer.status.mismatch')
+      case 'unregistered':
+        return t('producer.status.unregistered')
+      case 'missing-local-key':
+        return t('producer.status.missingLocalKey')
+      case 'missing-address':
+      default:
+        return t('producer.status.missingAddress')
+    }
+  })()
+  const producerAddressSourceText = (() => {
+    if (!producerAdvancedMode) {
+      if (signingWalletAddress) return t('producer.source.vault')
+      if (nodeProducerOverview?.producerAddress?.trim()) return t('producer.source.config')
+      return t('producer.source.walletMissing')
+    }
+    if (draftedProducerAddress) {
+      return t('producer.source.draft')
+    }
+    switch (nodeProducerOverview?.producerAddressSource) {
+      case 'config':
+        return t('producer.source.config')
+      default:
+        return t('producer.source.none')
+    }
+  })()
+  const producerSigningWalletStatusText = (() => {
+    if (!signingWalletAddress) return t('producer.signingWalletMissing')
+    if (producerSigningWalletBalanceLoading) return t('common.loading')
+    if (producerSigningWalletBalanceError) return producerSigningWalletBalanceError
+    if (signingWalletHasRegistrationMana === null) return t('producer.signingWalletManaUnknown')
+    return signingWalletHasRegistrationMana
+      ? t('producer.signingWalletManaReady')
+      : t('producer.signingWalletManaLow')
+  })()
+  const producerSigningWalletRelationText = signingWalletAddress
+    ? producerAndSigningWalletMatch
+      ? t('producer.signingWalletSame')
+      : t('producer.signingWalletDifferent')
+    : t('producer.signingWalletMissing')
+  const producerRegisterHintText = (() => {
+    if (!producerVaultExists) return t('producer.registerNeedsSigningWallet')
+    if (!producerVaultUnlocked) return t('producer.registerNeedsUnlock')
+    if (!effectiveProducerTargetAddress) return t('producer.registerNeedsAddress')
+    if (!nodeProducerOverview?.localPublicKey) return t('producer.registerNeedsLocalKey')
+    if (producerSigningWalletBalanceLoading) return t('common.loading')
+    if (producerSigningWalletBalanceError) return producerSigningWalletBalanceError
+    if (signingWalletHasRegistrationMana === false) return t('producer.registerNeedsMana')
+    return t('producer.registerHint')
+  })()
+  const producerRegisterDisabled =
+    !hasNodeControls ||
+    nodeProducerActionLoading !== null ||
+    nodeProducerLoading ||
+    !producerWalletReady ||
+    !effectiveProducerTargetAddress ||
+    !nodeProducerOverview?.localPublicKey ||
+    signingWalletHasRegistrationMana === false
+  const producerRegisterHintClass =
+    producerSigningWalletBalanceLoading
+      ? 'is-busy'
+      : producerRegisterDisabled
         ? 'is-error'
-        : 'is-live'
-  const topbarStatusText =
-    activeTab === 'settings' ? 'Settings · Configuracion' : activeTab === 'node' ? `Node · ${nodeStateText}` : statusText
+        : signingWalletHasRegistrationMana === true
+          ? 'is-ok'
+          : ''
+  const chainSyncPercentLabel = chainSyncPercent === null
+    ? ''
+    : chainSyncPercent >= 99
+      ? chainSyncPercent.toFixed(2)
+      : chainSyncPercent >= 90
+        ? chainSyncPercent.toFixed(1)
+        : chainSyncPercent.toFixed(0)
+  const footerStatusClass = !hasNodeControls
+    ? errorMessage
+      ? 'is-error'
+      : 'is-idle'
+    : nodeStatusClass
+  const footerStatusText = !hasNodeControls
+    ? statusText
+    : showChainSyncProgress
+      ? t('status.syncingChain')
+      : nodeRunningCount > 0 && !nodeHasPartialOutage
+        ? t('status.live')
+        : nodeStateText
+  const footerStatusMeta = showChainSyncProgress && publicChainHead && localChainHead
+    ? t('status.syncProgress', {
+        current: localChainHead.height.toLocaleString(locale),
+        target: publicChainHead.height.toLocaleString(locale),
+        percent: chainSyncPercentLabel
+      })
+    : null
+  const hasAppOverlayOpen =
+    nodeProfilesModalOpen ||
+    nodeLogsModalOpen ||
+    nodeFileEditorOpen ||
+    nodeConflictDialog !== null ||
+    nodeBaseDirChangeDialog !== null
+
+  useEffect(() => {
+    let disposed = false
+    let controller: AbortController | null = null
+    let pollTimer: number | null = null
+    const pollMs = Math.max(5000, Math.min(settings.pollMs, 15000))
+    const shouldQueryLocalHead =
+      hasNodeControls &&
+      (nodeRunningCount > 0 ||
+        nodeStatusLoading ||
+        nodeActionLoading === 'start' ||
+        nodeRestoreBackupLoading ||
+        nodeRestoreBackupVerifyLoading)
+
+    const tick = async () => {
+      controller?.abort()
+      controller = new AbortController()
+
+      try {
+        const [nextPublicHead, nextLocalHead] = await Promise.all([
+          fetchHeadSnapshot(language, primaryPublicRpcUrl, controller.signal).catch(() => null),
+          shouldQueryLocalHead
+            ? fetchHeadSnapshot(language, localNodeRpcUrl, controller.signal).catch(() => null)
+            : Promise.resolve<HeadSnapshot | null>(null)
+        ])
+
+        if (disposed) return
+        setPublicChainHead(nextPublicHead)
+        setLocalChainHead(nextLocalHead)
+      } catch {
+        if (disposed) return
+      }
+    }
+
+    void tick()
+    pollTimer = window.setInterval(() => {
+      void tick()
+    }, pollMs)
+
+    return () => {
+      disposed = true
+      controller?.abort()
+      if (pollTimer !== null) window.clearInterval(pollTimer)
+    }
+  }, [
+    hasNodeControls,
+    language,
+    localNodeRpcUrl,
+    nodeActionLoading,
+    nodeRestoreBackupLoading,
+    nodeRestoreBackupVerifyLoading,
+    nodeRunningCount,
+    nodeStatusLoading,
+    primaryPublicRpcUrl,
+    settings.pollMs
+  ])
 
   const syncNodeStatusState = (
     status: KnodelKoinosNodeStatus,
@@ -1392,7 +1894,7 @@ export function App() {
       return
     }
 
-    const output = status.output || 'No se pudo consultar el nodo'
+    const output = status.output || t('node.unableQueryNode')
     setNodeError(output)
     setNodeOutput(output)
   }
@@ -1407,7 +1909,7 @@ export function App() {
       const status = await bridge.status(toNodeApiSettings(effectiveSettings))
       syncNodeStatusState(status)
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'Error consultando el nodo local')
+      setNodeError(error instanceof Error ? error.message : t('node.unableQueryNode'))
     } finally {
       setNodeStatusLoading(false)
     }
@@ -1422,10 +1924,10 @@ export function App() {
       const builds = await bridge.nativeBuilds()
       setNodeNativeBuilds(builds)
       if (!builds.ok) {
-        setNodeNativeBuildsError(builds.output || 'No se pudo inspeccionar el workspace nativo')
+        setNodeNativeBuildsError(builds.output || t('node.unableInspectNativeWorkspace'))
       }
     } catch (error) {
-      setNodeNativeBuildsError(error instanceof Error ? error.message : 'No se pudo inspeccionar el workspace nativo')
+      setNodeNativeBuildsError(error instanceof Error ? error.message : t('node.unableInspectNativeWorkspace'))
     } finally {
       setNodeNativeBuildsLoading(false)
     }
@@ -1436,7 +1938,7 @@ export function App() {
     setNodeSettings(nextSettings)
     setDraftNodeRuntimeMode(runtimeMode)
     setNodeError(null)
-    setNodeOutput(`Runtime seleccionado: ${formatNodeRuntimeMode(runtimeMode)}`)
+    setNodeOutput(t('node.runtimeSelected', { runtime: formatNodeRuntimeMode(runtimeMode, language) }))
     void refreshNodeStatus(nextSettings)
   }
 
@@ -1447,7 +1949,12 @@ export function App() {
     setDraftNodeProfiles(nextProfiles)
     setFormError(null)
     setNodeError(null)
-    setNodeOutput(`Profile seleccionado: ${preset.label} · profiles: ${formatPresetProfiles(preset)} · usa Apply para ajustar servicios`)
+    setNodeOutput(
+      t('node.profileSelected', {
+        label: preset.label,
+        profiles: formatPresetProfiles(preset, language)
+      })
+    )
     void refreshNodeStatus(nextSettings)
   }
 
@@ -1474,7 +1981,7 @@ export function App() {
       setNodeOutput(result.output || result.status.output || '')
 
       if (!result.ok || !result.status.ok) {
-        setNodeError(result.output || result.status.output || `No se pudo aplicar el profile ${preset.label}`)
+        setNodeError(result.output || result.status.output || t('node.unableApplyProfile', { label: preset.label }))
       } else {
         setNodeError(null)
       }
@@ -1491,7 +1998,7 @@ export function App() {
         }
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : `Error aplicando profile ${preset.label}`)
+      setNodeError(error instanceof Error ? error.message : t('node.errorApplyingProfile', { label: preset.label }))
     } finally {
       setNodePresetActionLoading(null)
     }
@@ -1517,12 +2024,234 @@ export function App() {
         // Refresh immediately so the UI picks up services/status if the user cloned or refreshed the repo.
         void refreshNodeStatus(nextNodeSettings)
       } else {
-        setNodeError(result.output || 'No se pudo sincronizar el repo de Koinos')
+        setNodeError(result.output || t('node.unableSyncRepo'))
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'Error ejecutando git refresh/clone')
+      setNodeError(error instanceof Error ? error.message : t('node.errorRunningGit'))
     } finally {
       setNodeCloneLoading(false)
+    }
+  }
+
+  const refreshNodeProducerOverview = async (
+    settingsOverride?: NodeManagerSettings,
+    producerAddressOverride?: string
+  ) => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.producerOverview) return
+
+    setNodeProducerLoading(true)
+    setNodeProducerError(null)
+    try {
+      const producerAddress =
+        producerAddressOverride !== undefined
+          ? producerAddressOverride.trim()
+          : producerAdvancedMode
+            ? nodeProducerAddressDraft.trim()
+            : walletOverview?.walletAddress?.trim() || ''
+      const result = await bridge.producerOverview({
+        ...toNodeApiSettings(settingsOverride ?? nodeSettings),
+        producerAddress: producerAddress || undefined
+      })
+      setNodeProducerOverview(result)
+      if (!result.ok) {
+        setNodeProducerError(result.output || t('producer.unableLoadOverview'))
+      }
+    } catch (error) {
+      setNodeProducerError(error instanceof Error ? error.message : t('producer.unableLoadOverview'))
+    } finally {
+      setNodeProducerLoading(false)
+    }
+  }
+
+  const registerNodeProducer = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.producerRegister) return
+
+    setNodeProducerActionLoading('register')
+    setNodeProducerError(null)
+    setNodeError(null)
+
+    try {
+      const result = await bridge.producerRegister({
+        ...toNodeApiSettings(nodeSettings),
+        producerAddress: effectiveProducerTargetAddress,
+        persistConfig: true
+      })
+
+      setNodeProducerOverview(result.overview)
+      setNodeOutput(result.output || '')
+
+      if (!result.ok) {
+        setNodeProducerError(result.output || t('producer.unableRegister'))
+      } else {
+        if (producerAdvancedMode) {
+          setNodeProducerAddressDraft(result.overview.producerAddress || nodeProducerAddressDraft.trim())
+        }
+        void refreshNodeStatus()
+        void refreshProducerSigningWalletBalance(signingWalletAddress)
+      }
+    } catch (error) {
+      setNodeProducerError(error instanceof Error ? error.message : t('producer.unableRegister'))
+    } finally {
+      setNodeProducerActionLoading(null)
+    }
+  }
+
+  const unlockProducerAccount = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.unlock) return
+
+    setWalletActionLoading('producer-unlock')
+    setWalletError(null)
+
+    try {
+      const result = await bridge.unlock({ password: producerUnlockPassword })
+      setWalletResultTitle(t('producer.unlockTitle'))
+      setWalletResultData(result)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('producer.unlockError'))
+        return
+      }
+
+      setProducerUnlockPassword('')
+      await refreshWalletOverview()
+      await refreshNodeProducerOverview(undefined, producerAdvancedMode ? undefined : result.walletAddress || undefined)
+      await refreshProducerSigningWalletBalance(result.walletAddress || undefined)
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('producer.unlockError'))
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const importProducerAccount = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.importWallet) return
+
+    setWalletActionLoading('producer-import')
+    setWalletError(null)
+
+    try {
+      const importResult = await bridge.importWallet({
+        privateKey: walletImportPrivateKey.trim(),
+        password: walletImportPassword
+      })
+
+      if (importResult.ok && importResult.address) {
+        setWalletImportPrivateKey('')
+        setWalletImportPassword('')
+      }
+
+      setWalletResultTitle(t('producer.importTitle'))
+      setWalletResultData(importResult)
+
+      if (!importResult.ok) {
+        setWalletError(importResult.output || t('producer.unableImport'))
+        return
+      }
+
+      await refreshWalletOverview()
+      await refreshNodeProducerOverview(undefined, producerAdvancedMode ? undefined : importResult.address)
+      await refreshProducerSigningWalletBalance(importResult.address)
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('producer.unableImport'))
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const refreshWalletOverview = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.overview) return
+    setWalletLoading(true)
+    setWalletError(null)
+    try {
+      const result = await bridge.overview({ rpcUrl: effectiveExplorerRpcUrl })
+      setWalletOverview(result)
+      if (!result.ok) {
+        setWalletError(result.output || 'Could not load wallet overview')
+      }
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : 'Could not load wallet overview')
+    } finally {
+      setWalletLoading(false)
+    }
+  }
+
+  const refreshProducerSigningWalletBalance = async (addressOverride?: string) => {
+    const bridge = getWalletBridge()
+    if (!bridge?.balance) return
+    const address = addressOverride?.trim() || walletOverview?.walletAddress?.trim() || ''
+    if (!address) {
+      setProducerSigningWalletBalance(null)
+      setProducerSigningWalletBalanceError(null)
+      setProducerSigningWalletBalanceLoading(false)
+      return
+    }
+
+    setProducerSigningWalletBalanceLoading(true)
+    setProducerSigningWalletBalanceError(null)
+    try {
+      const result = await bridge.balance({
+        rpcUrl: primaryPublicRpcUrl,
+        address
+      })
+      setProducerSigningWalletBalance(result)
+      if (!result.ok) {
+        setProducerSigningWalletBalanceError(
+          formatProducerWalletBalanceError(
+            result.output || 'Could not load signing wallet balances',
+            primaryPublicRpcUrl,
+            language
+          )
+        )
+      }
+    } catch (error) {
+      setProducerSigningWalletBalance(null)
+      setProducerSigningWalletBalanceError(
+        formatProducerWalletBalanceError(
+          error instanceof Error ? error.message : 'Could not load signing wallet balances',
+          primaryPublicRpcUrl,
+          language
+        )
+      )
+    } finally {
+      setProducerSigningWalletBalanceLoading(false)
+    }
+  }
+
+  const runWalletAction = async (
+    actionId: string,
+    title: string,
+    runner: () => Promise<unknown>,
+    options?: { refreshOverview?: boolean; refreshProducer?: boolean }
+  ) => {
+    setWalletActionLoading(actionId)
+    setWalletError(null)
+    try {
+      const result = await runner()
+      setWalletResultTitle(title)
+      setWalletResultData(result)
+
+      if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
+        setWalletError(
+          'output' in result && typeof result.output === 'string' ? result.output : `${title} failed.`
+        )
+      }
+
+      if (options?.refreshOverview) {
+        await refreshWalletOverview()
+      }
+
+      if (options?.refreshProducer) {
+        await refreshNodeProducerOverview()
+      }
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : `${title} failed.`)
+    } finally {
+      setWalletActionLoading(null)
     }
   }
 
@@ -1585,7 +2314,7 @@ export function App() {
           restoreWorkspaceParent: result.restoreWorkspaceParent,
           message: result.output || ''
         })
-        setFormError(result.output || 'No se pudo seleccionar la carpeta para BASEDIR')
+        setFormError(result.output || t('node.unableSelectBaseDir'))
         return
       }
 
@@ -1600,7 +2329,7 @@ export function App() {
         setNodeOutput(result.output || `BASEDIR seleccionado: ${result.path}`)
       }
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'No se pudo abrir el selector de carpetas')
+      setFormError(error instanceof Error ? error.message : t('node.errorOpeningFolderPicker'))
     } finally {
       setNodeBaseDirPickerLoading(false)
     }
@@ -1626,10 +2355,10 @@ export function App() {
       setNodeFileEditorContent(result.content ?? '')
 
       if (!result.ok) {
-        setNodeFileEditorError(result.output || `No se pudo leer ${kind} file`)
+        setNodeFileEditorError(result.output || t('node.unableReadFile', { kind }))
       }
     } catch (error) {
-      setNodeFileEditorError(error instanceof Error ? error.message : `Error leyendo ${kind} file`)
+      setNodeFileEditorError(error instanceof Error ? error.message : t('node.errorReadingFile', { kind }))
       setNodeFileEditorPath(kind === 'compose' ? composeFileDisplayPath : envFileDisplayPath)
       setNodeFileEditorContent('')
     } finally {
@@ -1664,13 +2393,13 @@ export function App() {
 
       setNodeFileEditorPath(result.filePath || nodeFileEditorPath)
       if (!result.ok) {
-        setNodeFileEditorError(result.output || 'No se pudo guardar el archivo')
+        setNodeFileEditorError(result.output || t('node.unableSaveFile'))
       } else {
         setNodeFileEditorLastSavedAt(Date.now())
         setNodeOutput(result.output || '')
       }
     } catch (error) {
-      setNodeFileEditorError(error instanceof Error ? error.message : 'Error guardando archivo')
+      setNodeFileEditorError(error instanceof Error ? error.message : t('node.errorSavingFile'))
     } finally {
       setNodeFileEditorSaving(false)
     }
@@ -1712,7 +2441,7 @@ export function App() {
     const tail = clamp(Number.parseInt(nodeLogsTail, 10) || 200, 20, 2000)
     const serviceId = (serviceOverride ?? nodeLogsService).trim()
     if (!serviceId) {
-      setNodeLogsError('Selecciona un servicio para ver logs')
+      setNodeLogsError(t('node.selectServiceForLogs'))
       return
     }
 
@@ -1728,7 +2457,7 @@ export function App() {
         tail
       })
       if (!logsResult.ok) {
-        throw new Error(logsResult.output || `No se pudieron leer los logs de ${serviceId}`)
+        throw new Error(logsResult.output || t('node.unableReadLogs', { service: serviceId }))
       }
       setNodeLogsOutput(logsResult.output ?? '')
       setNodeLogsLastRefreshAt(Date.now())
@@ -1741,9 +2470,7 @@ export function App() {
       if (!result.ok) {
         setNodeLogsStreamId(null)
         setNodeLogsLoading(false)
-        setNodeLogsError(
-          result.output || `No se pudo abrir el stream de logs para ${serviceId}. Mostrando snapshot actual.`
-        )
+        setNodeLogsError(result.output || t('node.unableOpenLogsStream', { service: serviceId }))
         return
       }
       setNodeLogsService(serviceId)
@@ -1751,7 +2478,7 @@ export function App() {
       setNodeLogsLoading(false)
     } catch (error) {
       setNodeLogsStreamId(null)
-      setNodeLogsError(error instanceof Error ? error.message : 'Error cargando logs')
+      setNodeLogsError(error instanceof Error ? error.message : t('node.errorLoadingLogs'))
       setNodeLogsLoading(false)
     } finally {
       // loading ends when "start" or first chunk event arrives
@@ -1789,7 +2516,9 @@ export function App() {
       setNodeStatus(result.status)
       setNodeOutput(result.output || result.status.output || '')
       if (!result.ok) {
-        setNodeError(result.output || `No se pudo ${action === 'start' ? 'iniciar' : 'detener'} el nodo`)
+        setNodeError(
+          result.output || (action === 'start' ? t('node.unableStartNode') : t('node.unableStopNode'))
+        )
       } else if (action === 'start' && nodeLogsModalOpen && nodeLogsService) {
         void refreshNodeLogs(nodeLogsService)
       }
@@ -1797,7 +2526,9 @@ export function App() {
       setNodeError(
         error instanceof Error
           ? error.message
-          : `Error al ${action === 'start' ? 'iniciar' : 'detener'} el nodo`
+          : action === 'start'
+            ? t('node.errorStartingNode')
+            : t('node.errorStoppingNode')
       )
     } finally {
       setNodeActionLoading(null)
@@ -1814,7 +2545,7 @@ export function App() {
       action: 'restore-backup',
       phase: 'prepare',
       progress: 0,
-      message: 'Preparing backup restore...',
+      message: t('node.preparingRestore'),
       updatedAt: Date.now()
     })
 
@@ -1824,7 +2555,7 @@ export function App() {
       setNodeOutput(result.output || result.status.output || '')
 
       if (!result.ok || !result.status.ok) {
-        setNodeError(result.output || result.status.output || 'No se pudo restaurar el backup blockchain')
+        setNodeError(result.output || result.status.output || t('node.unableRestoreBackup'))
       } else {
         setNodeError(null)
         if (nodeLogsModalOpen) {
@@ -1832,7 +2563,7 @@ export function App() {
         }
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'Error restaurando el backup blockchain')
+      setNodeError(error instanceof Error ? error.message : t('node.errorRestoringBackup'))
     } finally {
       setNodeRestoreBackupLoading(false)
     }
@@ -1848,7 +2579,7 @@ export function App() {
       action: 'restore-backup-verify',
       phase: 'prepare',
       progress: 0,
-      message: 'Preparing restore + verify...',
+      message: t('node.preparingRestoreVerify'),
       updatedAt: Date.now()
     })
 
@@ -1858,7 +2589,7 @@ export function App() {
       setNodeOutput(result.output || result.status.output || '')
 
       if (!result.ok || !result.status.ok) {
-        setNodeError(result.output || result.status.output || 'No se pudo restaurar y verificar el backup blockchain')
+        setNodeError(result.output || result.status.output || t('node.unableRestoreVerify'))
       } else {
         setNodeError(null)
         if (nodeLogsModalOpen) {
@@ -1866,7 +2597,7 @@ export function App() {
         }
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'Error restaurando y verificando el backup blockchain')
+      setNodeError(error instanceof Error ? error.message : t('node.errorRestoringVerify'))
     } finally {
       setNodeRestoreBackupVerifyLoading(false)
     }
@@ -1886,13 +2617,13 @@ export function App() {
       setNodeOutput([stopResult.output, startResult.output].filter(Boolean).join('\n'))
 
       if (!stopResult.ok || !startResult.ok || !startResult.status.ok) {
-        setNodeError(startResult.output || startResult.status.output || 'No se pudo reiniciar el nodo en el nuevo BASEDIR')
+        setNodeError(startResult.output || startResult.status.output || t('node.unableRestartBaseDir'))
       } else {
         setNodeError(null)
         setNodeBaseDirChangeDialog(null)
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'No se pudo reiniciar el nodo en el nuevo BASEDIR')
+      setNodeError(error instanceof Error ? error.message : t('node.unableRestartBaseDir'))
     } finally {
       setNodeBaseDirRestartLoading(false)
     }
@@ -1916,12 +2647,12 @@ export function App() {
       setNodeOutput(result.output || result.status.output || '')
 
       if (!result.ok || !result.status.ok) {
-        setNodeError(result.output || result.status.output || 'No se pudo copiar el estado local al nuevo BASEDIR')
+        setNodeError(result.output || result.status.output || t('node.unableCopyBaseDir'))
       } else {
         setNodeError(null)
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'No se pudo copiar el estado local al nuevo BASEDIR')
+      setNodeError(error instanceof Error ? error.message : t('node.unableCopyBaseDir'))
     } finally {
       setNodeBaseDirCopyLoading(false)
     }
@@ -1953,7 +2684,11 @@ export function App() {
         setNodeError(
           result.output ||
             result.status.output ||
-            `No se pudo ${action === 'start' ? 'iniciar' : action === 'stop' ? 'detener' : 'reiniciar'} el servicio ${serviceId}`
+            (action === 'start'
+              ? t('node.unableStartService', { service: serviceId })
+              : action === 'stop'
+                ? t('node.unableStopService', { service: serviceId })
+                : t('node.unableRestartService', { service: serviceId }))
         )
 
         const conflictedService =
@@ -1965,7 +2700,7 @@ export function App() {
             conflictPids: conflictedService.conflictPids,
             message:
               conflictedService.lastError ||
-              `Se detectaron procesos externos en conflicto para ${conflictedService.name}`
+              t('node.conflictingProcessDetected', { service: conflictedService.name })
           })
         }
       } else {
@@ -1982,7 +2717,11 @@ export function App() {
       setNodeError(
         error instanceof Error
           ? error.message
-          : `Error al ${action === 'start' ? 'iniciar' : action === 'stop' ? 'detener' : 'reiniciar'} el servicio ${serviceId}`
+          : action === 'start'
+            ? t('node.errorStartingService', { service: serviceId })
+            : action === 'stop'
+              ? t('node.errorStoppingService', { service: serviceId })
+              : t('node.errorRestartingService', { service: serviceId })
       )
     } finally {
       setNodeServiceActionLoading(null)
@@ -1996,7 +2735,7 @@ export function App() {
       serviceId: service.id,
       serviceName: service.name,
       conflictPids: service.conflictPids,
-      message: service.lastError || `Se detectaron procesos externos en conflicto para ${service.name}`
+      message: service.lastError || t('node.conflictingProcessDetected', { service: service.name })
     })
   }
 
@@ -2017,13 +2756,13 @@ export function App() {
       setNodeOutput(result.output || result.status.output || '')
 
       if (!result.ok || !result.status.ok) {
-        setNodeError(result.output || result.status.output || 'No se pudo terminar el proceso conflictivo')
+        setNodeError(result.output || result.status.output || t('node.unableKillConflict'))
       } else {
         setNodeError(null)
         setNodeConflictDialog(null)
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'Error terminando proceso conflictivo')
+      setNodeError(error instanceof Error ? error.message : t('node.errorKillingConflict'))
     } finally {
       setNodeConflictKillLoading(null)
     }
@@ -2042,10 +2781,10 @@ export function App() {
       setNodeOutput(result.output || result.builds.output || '')
 
       if (!result.ok || !result.builds.ok) {
-        setNodeNativeBuildsError(result.output || result.builds.output || 'No se pudo compilar el workspace nativo')
+        setNodeNativeBuildsError(result.output || result.builds.output || t('node.unableCompileWorkspace'))
       }
     } catch (error) {
-      setNodeNativeBuildsError(error instanceof Error ? error.message : 'Error compilando servicios nativos')
+      setNodeNativeBuildsError(error instanceof Error ? error.message : t('node.errorCompilingServices'))
     } finally {
       setNodeNativeBuildActionLoading(null)
     }
@@ -2065,12 +2804,12 @@ export function App() {
 
       if (!result.ok || !result.builds.ok) {
         setNodeNativeBuildsError(
-          result.output || result.builds.output || `No se pudo compilar el servicio ${serviceId}`
+          result.output || result.builds.output || t('node.unableCompileService', { service: serviceId })
         )
       }
     } catch (error) {
       setNodeNativeBuildsError(
-        error instanceof Error ? error.message : `Error compilando el servicio ${serviceId}`
+        error instanceof Error ? error.message : t('node.errorCompilingService', { service: serviceId })
       )
     } finally {
       setNodeNativeBuildActionLoading(null)
@@ -2082,7 +2821,7 @@ export function App() {
     setFormError(null)
 
     try {
-      const rpcUrl = normalizeRpcUrl(draftRpcUrl)
+      const publicRpcUrls = parsePublicRpcUrlsInput(draftPublicRpcUrls, language)
       const pollMs = clamp(Number.parseInt(draftPollMs, 10) || DEFAULT_SETTINGS.pollMs, 1000, 30000)
       const rowLimit = clamp(Number.parseInt(draftRowLimit, 10) || DEFAULT_SETTINGS.rowLimit, 5, 50)
       const previousBaseDir = normalizeNodeBaseDirInput(nodeSettings.baseDir)
@@ -2092,27 +2831,34 @@ export function App() {
       const baseDir = normalizeNodeBaseDirInput(draftNodeBaseDir)
       const profiles = parseProfilesCsv(draftNodeProfiles).join(',')
       const blockchainBackupUrl = normalizeBackupTarGzUrl(
-        draftNodeBlockchainBackupUrl.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl
+        draftNodeBlockchainBackupUrl.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
+        language
       )
       const runtimeMode = draftNodeRuntimeMode
 
-      if (!repoPath) throw new Error('Repo path de Koinos no puede estar vacio')
-      if (!composeFile) throw new Error('Compose file no puede estar vacio')
-      if (!envFile) throw new Error('Env file no puede estar vacio')
-      if (!baseDir) throw new Error('Base data dir no puede estar vacio')
+      if (!repoPath) throw new Error(t('settings.repoRequired'))
+      if (!composeFile) throw new Error(t('settings.composeRequired'))
+      if (!envFile) throw new Error(t('settings.envRequired'))
+      if (!baseDir) throw new Error(t('settings.baseDirRequired'))
 
       const baseDirValidation = await validateDraftNodeBaseDir(baseDir)
       if (!baseDirValidation.ok) {
-        throw new Error(baseDirValidation.output || `No se puede usar BASEDIR ${baseDir}`)
+        throw new Error(baseDirValidation.output || t('settings.baseDirNotUsable', { baseDir }))
       }
 
-      setSettings((current) => ({ ...current, rpcUrl, pollMs, rowLimit }))
+      setSettings((current) => ({
+        ...current,
+        publicRpcUrls,
+        rpcSource: normalizeExplorerRpcSource(current.rpcSource, publicRpcUrls, current.rpcSource),
+        pollMs,
+        rowLimit
+      }))
       setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, blockchainBackupUrl, runtimeMode })
       setDraftNodeBaseDir(baseDir)
       const baseDirChanged = previousBaseDir !== baseDir
       const settingsSummary = baseDirChanged
-        ? `Settings saved. BASEDIR changed from ${previousBaseDir} to ${baseDir}. Restart the node to use the new location.`
-        : `Settings saved. BASEDIR: ${baseDir}`
+        ? t('settings.savedBaseDirChanged', { previous: previousBaseDir, next: baseDir })
+        : t('settings.savedBaseDir', { baseDir })
       setNodeOutput(settingsSummary)
       if (baseDirChanged) {
         setNodeBaseDirChangeDialog({
@@ -2129,12 +2875,12 @@ export function App() {
       setIsInitialLoading(true)
       setErrorMessage(null)
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Configuracion invalida')
+      setFormError(error instanceof Error ? error.message : t('settings.invalidConfig'))
     }
   }
 
   const resetDefaults = () => {
-    setDraftRpcUrl(DEFAULT_SETTINGS.rpcUrl)
+    setDraftPublicRpcUrls(DEFAULT_SETTINGS.publicRpcUrls.join('\n'))
     setDraftPollMs(String(DEFAULT_SETTINGS.pollMs))
     setDraftRowLimit(String(DEFAULT_SETTINGS.rowLimit))
     setDraftNodeRepoPath(DEFAULT_NODE_SETTINGS.repoPath)
@@ -2152,98 +2898,129 @@ export function App() {
     <div className="app-shell">
       <div className="app-background" aria-hidden="true" />
 
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">KOINOS DESKTOP TOOLING</p>
-          <h1>Knodel</h1>
-          <p className="subtitle">Explorer, node operations and native runtime workflows in one desktop surface.</p>
-        </div>
-        <div className="topbar-actions">
-          <div className="app-version-badge" title={`Knodel version ${appVersion}`}>
-            <span className="app-version-label">Version</span>
-            <span className="mono">v{appVersion}</span>
+      <div className="app-chrome">
+        <nav className="tabs-bar" aria-label={t('sections.aria')}>
+          <div className="tabs-list" role="tablist" aria-label={t('tabs.aria')}>
+            <button
+              id="tab-explorer"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'explorer'}
+              aria-controls="panel-explorer"
+              className={`tab-button ${activeTab === 'explorer' ? 'is-active' : ''}`.trim()}
+              onClick={() => setActiveTab('explorer')}
+            >
+              {t('tab.explorer')}
+            </button>
+            <button
+              id="tab-node"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'node'}
+              aria-controls="panel-node"
+              className={`tab-button ${activeTab === 'node' ? 'is-active' : ''}`.trim()}
+              onClick={() => setActiveTab('node')}
+            >
+              {t('tab.node')}
+            </button>
+            <button
+              id="tab-producer"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'producer'}
+              aria-controls="panel-producer"
+              className={`tab-button ${activeTab === 'producer' ? 'is-active' : ''}`.trim()}
+              onClick={() => setActiveTab('producer')}
+            >
+              {t('tab.producer')}
+            </button>
+            <button
+              id="tab-settings"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'settings'}
+              aria-controls="panel-settings"
+              className={`tab-button ${activeTab === 'settings' ? 'is-active' : ''}`.trim()}
+              onClick={() => {
+                setActiveTab('settings')
+                setFormError(null)
+              }}
+            >
+              {t('tab.settings')}
+            </button>
           </div>
-        </div>
-      </header>
+        </nav>
+      </div>
 
-      <nav className="tabs-bar" aria-label="Secciones de la aplicacion">
-        <div className="tabs-list" role="tablist" aria-label="Tabs">
-          <button
-            id="tab-explorer"
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'explorer'}
-            aria-controls="panel-explorer"
-            className={`tab-button ${activeTab === 'explorer' ? 'is-active' : ''}`.trim()}
-            onClick={() => setActiveTab('explorer')}
-          >
-            Block Explorer
-          </button>
-          <button
-            id="tab-node"
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'node'}
-            aria-controls="panel-node"
-            className={`tab-button ${activeTab === 'node' ? 'is-active' : ''}`.trim()}
-            onClick={() => setActiveTab('node')}
-          >
-            Node
-          </button>
-          <button
-            id="tab-settings"
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'settings'}
-            aria-controls="panel-settings"
-            className={`tab-button ${activeTab === 'settings' ? 'is-active' : ''}`.trim()}
-            onClick={() => {
-              setActiveTab('settings')
-              setFormError(null)
-            }}
-          >
-            Settings
-          </button>
-        </div>
-        <div className={`status-pill ${topbarStatusClass}`}>
-          <span className="status-dot" aria-hidden="true" />
-          <span>{topbarStatusText}</span>
-        </div>
-      </nav>
+      <div className={`app-content ${hasAppOverlayOpen ? 'has-overlay' : ''}`.trim()}>
 
       {activeTab === 'settings' && (
         <section
           id="panel-settings"
           className="settings-panel"
-          aria-label="Settings"
+          aria-label={t('settings.panelAria')}
           role="tabpanel"
           aria-labelledby="tab-settings"
         >
           <form className="settings-form" onSubmit={applySettings}>
             <div className="settings-header">
-              <h2>Settings</h2>
-              <p>Cambia RPC y parametros del nodo local sin reiniciar la app.</p>
+              <h2>{t('settings.title')}</h2>
+              <p>{t('settings.description')}</p>
             </div>
 
             <div className="settings-subheader">
-              <h3>Explorer RPC</h3>
-              <p>El origen activo se cambia en el combobox del explorador. Esta URL se usa cuando eliges `Custom RPC`.</p>
+              <h3>{t('settings.interfaceTitle')}</h3>
+              <p>{t('settings.interfaceDescription')}</p>
             </div>
             <label>
-              Custom RPC URL
-              <input
-                type="url"
-                value={draftRpcUrl}
-                onChange={(event) => setDraftRpcUrl(event.target.value)}
-                placeholder="https://api.koinos.io"
+              {t('settings.language')}
+              <select value={language} onChange={(event) => setLanguage(normalizeAppLanguage(event.target.value))}>
+                <option value="en">{t('language.english')}</option>
+                <option value="es">{t('language.spanish')}</option>
+              </select>
+            </label>
+
+            <div className="settings-subheader">
+              <h3>{t('settings.producerModeTitle')}</h3>
+              <p>{t('settings.producerModeDescription')}</p>
+            </div>
+            <label className="settings-toggle">
+          <span className="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={settings.producerAdvancedMode}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, producerAdvancedMode: event.target.checked }))
+                  }}
+                />
+                <span>{t('settings.producerAdvancedMode')}</span>
+              </span>
+              <span className="settings-inline-help">
+                {settings.producerAdvancedMode ? t('settings.producerAdvancedHelpOn') : t('settings.producerAdvancedHelpOff')}
+              </span>
+            </label>
+
+            <div className="settings-subheader">
+              <h3>{t('settings.explorerTitle')}</h3>
+              <p>{t('settings.explorerDescription')}</p>
+            </div>
+            <label>
+              {t('settings.publicRpcUrls')}
+              <textarea
+                className="settings-textarea mono"
+                value={draftPublicRpcUrls}
+                onChange={(event) => setDraftPublicRpcUrls(event.target.value)}
+                placeholder={`https://api.koinos.io\nhttps://api.koinosblocks.com`}
+                rows={4}
                 spellCheck={false}
                 autoComplete="off"
               />
+              <span className="settings-inline-help">{t('settings.publicRpcUrlsHelp')}</span>
             </label>
 
             <div className="settings-row">
               <label>
-                Refresh (ms)
+                {t('settings.refreshMs')}
                 <input
                   type="number"
                   min={1000}
@@ -2255,7 +3032,7 @@ export function App() {
               </label>
 
               <label>
-                Rows
+                {t('settings.rows')}
                 <input
                   type="number"
                   min={5}
@@ -2268,12 +3045,12 @@ export function App() {
             </div>
 
             <div className="settings-subheader">
-              <h3>Koinos Node</h3>
-              <p>Controla el runtime Docker o Native desde Electron. En `native`, todos los servicios se ejecutan localmente.</p>
+              <h3>{t('settings.nodeTitle')}</h3>
+              <p>{t('settings.nodeDescription')}</p>
             </div>
 
             <label>
-              Koinos Repo Path
+              {t('settings.repoPath')}
               <input
                 type="text"
                 value={draftNodeRepoPath}
@@ -2293,16 +3070,16 @@ export function App() {
                 }}
                 disabled={!hasNodeControls || nodeCloneLoading || nodeActionLoading !== null}
               >
-                {nodeCloneLoading ? 'Refreshing repo...' : 'Refresh Koinos Repo'}
+                {nodeCloneLoading ? t('node.refreshingRepo') : t('node.refreshRepo')}
               </button>
               <span className="settings-inline-help mono">
-                Primer uso: hace `git clone`; despues: `git fetch --all --prune` + `git pull --ff-only`
+                {t('settings.refreshRepoHelp')}
               </span>
             </div>
 
             <div className="settings-row settings-row-3">
               <label>
-                Compose File
+                {t('settings.composeFile')}
                 <input
                   type="text"
                   value={draftNodeComposeFile}
@@ -2312,7 +3089,7 @@ export function App() {
                   autoComplete="off"
                 />
                 <span className="settings-path-preview mono" title={composeFileDisplayPath || draftNodeComposeFile}>
-                  {composeFileDisplayPath || '(path vacio)'}
+                  {composeFileDisplayPath || t('common.emptyPath')}
                 </span>
                 <button
                   type="button"
@@ -2322,12 +3099,12 @@ export function App() {
                   }}
                   disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
                 >
-                  View / Edit
+                  {t('common.viewEdit')}
                 </button>
               </label>
 
               <label>
-                Env File
+                {t('settings.envFile')}
                 <input
                   type="text"
                   value={draftNodeEnvFile}
@@ -2337,7 +3114,7 @@ export function App() {
                   autoComplete="off"
                 />
                 <span className="settings-path-preview mono" title={envFileDisplayPath || draftNodeEnvFile}>
-                  {envFileDisplayPath || '(path vacio)'}
+                  {envFileDisplayPath || t('common.emptyPath')}
                 </span>
                 <button
                   type="button"
@@ -2347,12 +3124,12 @@ export function App() {
                   }}
                   disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
                 >
-                  View / Edit
+                  {t('common.viewEdit')}
                 </button>
               </label>
 
               <label>
-                Profiles (csv)
+                {t('settings.profilesCsv')}
                 <input
                   type="text"
                   value={draftNodeProfiles}
@@ -2365,12 +3142,12 @@ export function App() {
             </div>
 
             <div className="settings-subheader">
-              <h3>Blockchain Backup</h3>
-              <p>URL del snapshot `.tar.gz` que se usara mas adelante para restaurar o precargar el estado de la cadena.</p>
+              <h3>{t('settings.blockchainBackupTitle')}</h3>
+              <p>{t('settings.blockchainBackupDescription')}</p>
             </div>
 
             <label>
-              Backup URL (tar.gz)
+              {t('settings.backupUrl')}
               <input
                 type="url"
                 value={draftNodeBlockchainBackupUrl}
@@ -2381,10 +3158,27 @@ export function App() {
               />
             </label>
 
+            <div className="settings-actions settings-actions-inline">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  void runNodeRestoreBackupVerify()
+                }}
+                disabled={!hasNodeControls || nodeBusy}
+                title={`${nodeSettings.blockchainBackupUrl}\n${t('node.restoreVerifyRequiresJsonrpc')}`}
+              >
+                {nodeRestoreBackupVerifyLoading ? t('node.restoringVerify') : t('node.restoreVerify')}
+              </button>
+              <span className="settings-inline-help">
+                {t('node.restoreVerifyRequiresJsonrpc')}
+              </span>
+            </div>
+
             <label>
-              Config File (`config/config.yml`)
+              {t('settings.configFile')}
               <span className="settings-path-preview mono" title={configFileDisplayPath || 'config/config.yml'}>
-                {configFileDisplayPath || '(path vacio)'}
+                {configFileDisplayPath || t('common.emptyPath')}
               </span>
               <button
                 type="button"
@@ -2394,12 +3188,12 @@ export function App() {
                 }}
                 disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
               >
-                View / Edit
+                {t('common.viewEdit')}
               </button>
             </label>
 
             <label>
-              Base Data Dir (`BASEDIR`)
+              {t('settings.baseDataDir')}
               <div className="settings-input-with-button">
                 <input
                   type="text"
@@ -2413,7 +3207,7 @@ export function App() {
                     setDraftNodeBaseDir(normalized)
                     void validateDraftNodeBaseDir(normalized).then((result) => {
                       if (!result.ok) {
-                        setFormError(result.output || `No se puede usar BASEDIR ${normalized}`)
+                        setFormError(result.output || t('settings.baseDirNotUsable', { baseDir: normalized }))
                       } else {
                         setFormError(null)
                       }
@@ -2431,7 +3225,7 @@ export function App() {
                   }}
                   disabled={!hasNodeControls || nodeBusy}
                 >
-                  {nodeBaseDirPickerLoading ? 'Opening...' : 'Browse...'}
+                  {nodeBaseDirPickerLoading ? t('common.opening') : t('common.browse')}
                 </button>
               </div>
               <span
@@ -2446,23 +3240,22 @@ export function App() {
                 }`.trim()}
               >
                 {nodeBaseDirValidationLoading
-                  ? 'Comprobando permisos de escritura del BASEDIR y del volumen para el restore temporal...'
-                  : nodeBaseDirValidation?.message ||
-                    'Puedes seleccionar una carpeta local o un volumen externo SSD para mover ahi el estado del blockchain.'}
+                  ? t('settings.baseDirChecking')
+                  : nodeBaseDirValidation?.message || t('settings.baseDirHelp')}
               </span>
             </label>
 
             <label>
-              Runtime
+              {t('common.runtime')}
               <select
                 value={draftNodeRuntimeMode}
                 onChange={(event) => setDraftNodeRuntimeMode(event.target.value === 'native' ? 'native' : 'docker')}
               >
-                <option value="docker">Docker</option>
-                <option value="native">Native</option>
+                <option value="docker">{t('common.runtimeDocker')}</option>
+                <option value="native">{t('common.runtimeNative')}</option>
               </select>
               <span className="settings-inline-help">
-                `native` ejecuta todos los servicios localmente, sin `docker compose`.
+                {t('settings.runtimeHelp')}
               </span>
             </label>
 
@@ -2470,10 +3263,10 @@ export function App() {
 
             <div className="settings-actions">
               <button type="button" className="ghost-button" onClick={resetDefaults}>
-                Reset
+                {t('settings.reset')}
               </button>
               <button type="submit" className="primary-button">
-                Guardar y reconectar
+                {t('settings.saveReconnect')}
               </button>
             </div>
           </form>
@@ -2495,16 +3288,16 @@ export function App() {
           >
             <header className="file-editor-header">
               <div>
-                <p className="eyebrow">FILE EDITOR</p>
+                <p className="eyebrow">{t('fileEditor.eyebrow')}</p>
                 <h3 id="node-file-editor-title" className="file-editor-title">
                   {nodeFileEditorKind === 'compose'
-                    ? 'Compose File'
+                    ? t('fileEditor.compose')
                     : nodeFileEditorKind === 'env'
-                      ? 'Env File'
-                      : 'Config File (config.yml)'}
+                      ? t('fileEditor.env')
+                      : t('fileEditor.config')}
                 </h3>
                 <p className="file-editor-path mono" title={nodeFileEditorPath}>
-                  {nodeFileEditorPath || '(sin path)'}
+                  {nodeFileEditorPath || t('common.emptyPath')}
                 </p>
               </div>
               <button
@@ -2512,7 +3305,7 @@ export function App() {
                 className="ghost-button"
                 onClick={() => setNodeFileEditorOpen(false)}
               >
-                Close
+                {t('common.close')}
               </button>
             </header>
 
@@ -2525,7 +3318,7 @@ export function App() {
                 }}
                 disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
               >
-                {nodeFileEditorLoading ? 'Loading...' : 'Reload'}
+                {nodeFileEditorLoading ? t('common.loading') : t('common.reload')}
               </button>
               <button
                 type="button"
@@ -2535,13 +3328,13 @@ export function App() {
                 }}
                 disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
               >
-                {nodeFileEditorSaving ? 'Saving...' : 'Save'}
+                {nodeFileEditorSaving ? t('common.saving') : t('common.save')}
               </button>
               <span className="file-editor-meta">
                 {nodeFileEditorLastSavedAt
-                  ? `Guardado ${new Date(nodeFileEditorLastSavedAt).toLocaleTimeString()}`
+                  ? t('fileEditor.savedAt', { time: formatTime(nodeFileEditorLastSavedAt, locale) })
                   : nodeFileEditorLoading
-                    ? 'Cargando archivo...'
+                    ? t('fileEditor.loadingFile')
                     : ''}
               </span>
             </div>
@@ -2558,38 +3351,16 @@ export function App() {
               onChange={(event) => setNodeFileEditorContent(event.target.value)}
               spellCheck={false}
               disabled={nodeFileEditorLoading || nodeFileEditorSaving}
-              aria-label={`${nodeFileEditorKind} file content`}
+              aria-label={t('fileEditor.contentAria', { kind: nodeFileEditorKind })}
             />
           </section>
         </div>
       )}
 
       {activeTab === 'node' && (
-      <section id="panel-node" className="node-panel" aria-label="Koinos node control" role="tabpanel" aria-labelledby="tab-node">
-        <div className="node-panel-header">
-          <div>
-            <h2>Local Koinos Node ({formatNodeRuntimeMode(nodeRuntimeMode)})</h2>
-            <p>
-              {nodeRuntimeMode === 'native'
-                ? 'Ejecuta los servicios Koinos como procesos locales usando los binarios y runtimes nativos del sistema.'
-                : 'Arranca y para el nodo desde la app usando Docker Compose sobre el repo local de Koinos.'}
-            </p>
-          </div>
+      <section id="panel-node" className="node-panel" aria-label={t('node.panelAria')} role="tabpanel" aria-labelledby="tab-node">
+        <div className="node-panel-header is-compact">
           <div className="node-panel-actions">
-            <label className="node-runtime-select">
-              <span>Runtime</span>
-              <select
-                value={nodeRuntimeMode}
-                onChange={(event) => switchNodeRuntimeMode(event.target.value === 'native' ? 'native' : 'docker')}
-                disabled={!hasNodeControls || nodeBusy || nodeStatusLoading}
-              >
-                {nodeAvailableRuntimeModes.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {formatNodeRuntimeMode(mode)}
-                  </option>
-                ))}
-              </select>
-            </label>
             <div
               className={`status-pill ${nodeStatusClass}`.trim()}
             >
@@ -2604,39 +3375,15 @@ export function App() {
               }}
               disabled={!hasNodeControls || nodeStatusLoading || nodeBusy}
             >
-              Refresh
+              {t('common.refresh')}
             </button>
             <button
               type="button"
               className="ghost-button"
-              onClick={() => {
-                void cloneKoinosRepo(nodeSettings.repoPath)
-              }}
-              disabled={!hasNodeControls || nodeBusy}
+              onClick={() => setNodeProfilesModalOpen(true)}
+              disabled={!hasNodeControls}
             >
-              {nodeCloneLoading ? 'Refreshing repo...' : 'Refresh Koinos Repo'}
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => {
-                void runNodeRestoreBackup()
-              }}
-              disabled={!hasNodeControls || nodeBusy}
-              title={nodeSettings.blockchainBackupUrl}
-            >
-              {nodeRestoreBackupLoading ? 'Restoring backup...' : 'Restore Backup'}
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => {
-                void runNodeRestoreBackupVerify()
-              }}
-              disabled={!hasNodeControls || nodeBusy}
-              title={`${nodeSettings.blockchainBackupUrl}\nRequiere jsonrpc en el profile actual`}
-            >
-              {nodeRestoreBackupVerifyLoading ? 'Restoring + verifying...' : 'Restore + Verify'}
+              {t('node.profilesTitle')}
             </button>
             <button
               type="button"
@@ -2646,7 +3393,7 @@ export function App() {
               }}
               disabled={!hasNodeControls || nodeBusy}
             >
-              {nodeActionLoading === 'start' ? 'Starting...' : 'Start Node'}
+              {nodeActionLoading === 'start' ? t('common.starting') : t('node.startNode')}
             </button>
             <button
               type="button"
@@ -2656,119 +3403,51 @@ export function App() {
               }}
               disabled={!hasNodeControls || nodeBusy}
             >
-              {nodeActionLoading === 'stop' ? 'Stopping...' : 'Stop Node'}
+              {nodeActionLoading === 'stop' ? t('common.stopping') : t('node.stopNode')}
             </button>
           </div>
         </div>
 
         {!hasNodeControls && (
           <div className="node-warning" role="note">
-            Este control solo esta disponible dentro de Electron (no en `npm run dev:renderer`).
+            {t('node.electronOnlyWarning')}
           </div>
         )}
 
         {hasNodeControls && nodeStatus && !nodeStatus.ok && /repo path not found/i.test(nodeStatus.output) && (
           <div className="node-warning" role="note">
-            No existe el repo de Koinos en <code>{nodeSettings.repoPath}</code>. La app intentara clonarlo automaticamente en el primer arranque; tambien puedes usar <strong>Refresh Koinos Repo</strong> para clonar o actualizar el workspace local.
+            {t('node.repoMissingWarning', { repoPath: nodeSettings.repoPath })}
           </div>
         )}
 
         {hasNodeControls && nodeHasPartialOutage && (
           <div className="node-warning" role="note">
-            Servicios no activos: <strong>{nodeStoppedServices.map((service) => service.name).join(', ')}</strong>.
-            {nodeRuntimeMode === 'native'
-              ? ' El runtime nativo responde, pero el nodo no esta totalmente sano.'
-              : ' El compose responde, pero el nodo no esta totalmente sano.'}
+            {t('node.partialOutagePrefix')} <strong>{nodeStoppedServices.map((service) => service.name).join(', ')}</strong>.
+            {nodeRuntimeMode === 'native' ? t('node.partialOutageNativeDetail') : t('node.partialOutageDockerDetail')}
           </div>
         )}
 
-        <div className="node-presets">
-          <div className="node-services-header">
-            <h3>Profiles</h3>
-            <span>{nodePresetSummaryText}</span>
-          </div>
-
-          {nodePresetsError && (
-            <div className="node-inline-error node-presets-error" role="alert">
-              {nodePresetsError}
-            </div>
-          )}
-
-          {nodePresetsLoading ? (
-            <p className="node-empty">Cargando profiles desde el compose...</p>
-          ) : nodePresets.length > 0 ? (
-            <div className="node-preset-list">
-              {nodePresets.map((preset) => {
-                const selected = selectedNodePreset?.id === preset.id
-                const matchesRunningState = sameStringList(preset.services, nodeRunningServiceIds)
-                return (
-                  <article
-                    key={preset.id}
-                    className={`node-preset-card ${selected ? 'is-selected' : ''}`.trim()}
-                    title={preset.description}
-                  >
-                    <span className="node-preset-label">{preset.label}</span>
-                    <span className="node-preset-profiles mono">{formatPresetProfiles(preset)}</span>
-                    <span className="node-preset-description">{preset.description}</span>
-                    <span className="node-preset-services mono">{preset.services.join(', ') || 'sin servicios'}</span>
-                    <span className={`node-preset-state ${matchesRunningState ? 'is-live' : 'is-pending'}`.trim()}>
-                      {matchesRunningState ? 'Estado actual: coincide con el nodo' : 'Estado actual: pendiente de aplicar'}
-                    </span>
-                    <div className="node-preset-actions">
-                      <button
-                        type="button"
-                        className="ghost-button node-preset-button"
-                        onClick={() => applyNodePreset(preset)}
-                        disabled={!hasNodeControls || nodeBusy}
-                      >
-                        {selected ? 'Selected' : 'Use profile'}
-                      </button>
-                      <button
-                        type="button"
-                        className="primary-button node-preset-button"
-                        onClick={() => {
-                          void reconcileNodePreset(preset)
-                        }}
-                        disabled={!hasNodeControls || nodeBusy}
-                      >
-                        {nodePresetActionLoading === preset.id ? 'Applying...' : 'Apply'}
-                      </button>
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
-          ) : (
-            <p className="node-empty">No se detectaron profiles en el compose.</p>
-          )}
-        </div>
-
         {nodeError && (
           <div className="error-banner node-error-banner" role="alert">
-            <strong>{formatNodeRuntimeMode(nodeRuntimeMode)}:</strong> <span>{nodeError}</span>
+            <strong>{formatNodeRuntimeMode(nodeRuntimeMode, language)}:</strong> <span>{nodeError}</span>
           </div>
         )}
 
         <div className="node-services">
-          <div className="node-services-header">
-            <h3>Services</h3>
-            <span>{nodeServiceCount} detectados · click derecho o acciones a la derecha</span>
-          </div>
-
           {nodeServiceCount > 0 ? (
             <div className="node-services-table-wrap">
               <table className="node-services-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Port</th>
-                    <th>Last Error</th>
-                    <th>Type</th>
-                    <th>Logs</th>
-                    <th>Start</th>
-                    <th>Restart</th>
-                    <th>Stop</th>
+                    <th>{t('common.name')}</th>
+                    <th>{t('common.status')}</th>
+                    <th>{t('common.port')}</th>
+                    <th>{t('node.col.lastError')}</th>
+                    <th>{t('common.type')}</th>
+                    <th>{t('common.logs')}</th>
+                    <th>{t('common.start')}</th>
+                    <th>{t('common.restart')}</th>
+                    <th>{t('common.stop')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2779,7 +3458,7 @@ export function App() {
                     const running = capabilities.running
                     const statusTone =
                       service.state === 'conflict' ? 'is-conflict' : running ? 'is-running' : 'is-stopped'
-                    const serviceTooltip = formatNodeServiceTooltip(service, capabilities)
+                    const serviceTooltip = formatNodeServiceTooltip(service, capabilities, language)
                     return (
                       <tr
                         key={`${service.id}-${service.runtimeName}`}
@@ -2796,12 +3475,14 @@ export function App() {
                         <td className="node-service-name-cell" title={serviceTooltip}>
                           <div className="node-service-name-row">
                             <span className="node-service-primary mono">{service.name}</span>
-                            <span className="node-service-secondary mono">{formatNodeServiceRuntimeDetail(service)}</span>
+                            <span className="node-service-secondary mono">
+                              {formatNodeServiceRuntimeDetail(service, language)}
+                            </span>
                           </div>
                           <div className="node-service-meta">
                             <span>
-                              <span className="node-service-meta-label">Version</span>{' '}
-                              <span className="mono">{formatNodeServiceVersion(service)}</span>
+                              <span className="node-service-meta-label">{t('node.serviceVersionLabel')}</span>{' '}
+                              <span className="mono">{formatNodeServiceVersion(service, language)}</span>
                             </span>
                           </div>
                         </td>
@@ -2824,12 +3505,12 @@ export function App() {
                               onClick={() => openNodeConflictDialog(service)}
                               disabled={!hasNodeControls || nodeBusy}
                             >
-                              Resolve conflict
+                              {t('node.resolveConflict')}
                             </button>
                           )}
                         </td>
                         <td>
-                          <span className="node-service-runtime-tag">{formatNodeServiceType(service)}</span>
+                          <span className="node-service-runtime-tag">{formatNodeServiceType(service, language)}</span>
                         </td>
                         <td className="node-service-action-cell">
                           <button
@@ -2838,13 +3519,13 @@ export function App() {
                             onClick={() => openServiceLogsModal(service.id)}
                             disabled={!hasNodeControls || nodeBusy}
                           >
-                            Logs
+                            {t('common.logs')}
                           </button>
                         </td>
                         <td className="node-service-action-cell">
                           <span
                             className="node-service-action-wrap"
-                            title={capabilities.startBlockedReason || 'Iniciar servicio'}
+                            title={capabilities.startBlockedReason || t('node.startService')}
                           >
                             <button
                               type="button"
@@ -2856,15 +3537,15 @@ export function App() {
                             >
                               {nodeServiceActionLoading?.serviceId === service.id &&
                               nodeServiceActionLoading.action === 'start'
-                                ? 'Starting...'
-                                : 'Start'}
+                                ? t('common.starting')
+                                : t('common.start')}
                             </button>
                           </span>
                         </td>
                         <td className="node-service-action-cell">
                           <span
                             className="node-service-action-wrap"
-                            title={capabilities.restartBlockedReason || 'Reiniciar servicio'}
+                            title={capabilities.restartBlockedReason || t('node.restartService')}
                           >
                             <button
                               type="button"
@@ -2876,15 +3557,15 @@ export function App() {
                             >
                               {nodeServiceActionLoading?.serviceId === service.id &&
                               nodeServiceActionLoading.action === 'restart'
-                                ? 'Restarting...'
-                                : 'Restart'}
+                                ? t('common.restarting')
+                                : t('common.restart')}
                             </button>
                           </span>
                         </td>
                         <td className="node-service-action-cell">
                           <span
                             className="node-service-action-wrap"
-                            title={capabilities.stopBlockedReason || 'Detener servicio'}
+                            title={capabilities.stopBlockedReason || t('node.stopService')}
                           >
                             <button
                               type="button"
@@ -2896,8 +3577,8 @@ export function App() {
                             >
                               {nodeServiceActionLoading?.serviceId === service.id &&
                               nodeServiceActionLoading.action === 'stop'
-                                ? 'Stopping...'
-                                : 'Stop'}
+                                ? t('common.stopping')
+                                : t('common.stop')}
                             </button>
                           </span>
                         </td>
@@ -2909,7 +3590,7 @@ export function App() {
             </div>
           ) : (
             <p className="node-empty">
-              {nodeStatusLoading ? 'Consultando servicios...' : 'No hay servicios activos para esta configuracion.'}
+              {nodeStatusLoading ? t('node.checkingServices') : t('node.noServices')}
             </p>
           )}
         </div>
@@ -2917,7 +3598,11 @@ export function App() {
         {nodeBackupProgress && (
           <div className="node-backup-progress" role="status" aria-live="polite">
             <div className="node-services-header">
-              <h3>{nodeBackupProgress.action === 'restore-backup' ? 'Restore Backup' : 'Restore + Verify'}</h3>
+              <h3>
+                {nodeBackupProgress.action === 'restore-backup'
+                  ? t('node.backupProgress.restore')
+                  : t('node.backupProgress.verify')}
+              </h3>
               <span>{nodeBackupProgress.progress}%</span>
             </div>
             <p className="node-backup-progress-text">{nodeBackupProgress.message}</p>
@@ -2928,7 +3613,10 @@ export function App() {
               />
             </div>
             <p className="node-backup-progress-meta mono">
-              phase: {nodeBackupProgress.phase} · updated {new Date(nodeBackupProgress.updatedAt).toLocaleTimeString()}
+              {t('node.backupPhaseMeta', {
+                phase: nodeBackupProgress.phase,
+                time: formatTime(nodeBackupProgress.updatedAt, locale)
+              })}
             </p>
           </div>
         )}
@@ -2936,9 +3624,97 @@ export function App() {
         {nodeOutput && (
           <div className="node-output">
             <div className="node-services-header">
-              <h3>Command Output</h3>
+              <h3>{t('node.commandOutput')}</h3>
             </div>
             <pre>{nodeOutput}</pre>
+          </div>
+        )}
+
+        {nodeProfilesModalOpen && (
+          <div
+            className="log-modal-backdrop node-profiles-backdrop"
+            role="presentation"
+            onClick={() => setNodeProfilesModalOpen(false)}
+          >
+            <section
+              className="log-modal node-profiles-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="node-profiles-modal-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="log-modal-header">
+                <div>
+                  <h3 id="node-profiles-modal-title" className="log-modal-title">
+                    {t('node.profilesTitle')}
+                  </h3>
+                  <p className="log-modal-meta">{nodePresetSummaryText}</p>
+                </div>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => setNodeProfilesModalOpen(false)}
+                >
+                  {t('common.close')}
+                </button>
+              </header>
+
+              <div className="node-profiles-modal-body">
+                {nodePresetsError && (
+                  <div className="node-inline-error node-presets-error" role="alert">
+                    {nodePresetsError}
+                  </div>
+                )}
+
+                {nodePresetsLoading ? (
+                  <p className="node-empty">{t('node.loadingProfiles')}</p>
+                ) : nodePresets.length > 0 ? (
+                  <div className="node-preset-list">
+                    {nodePresets.map((preset) => {
+                      const selected = selectedNodePreset?.id === preset.id
+                      const matchesRunningState = sameStringList(preset.services, nodeRunningServiceIds)
+                      return (
+                        <article
+                          key={preset.id}
+                          className={`node-preset-card ${selected ? 'is-selected' : ''}`.trim()}
+                          title={preset.description}
+                        >
+                          <span className="node-preset-label">{preset.label}</span>
+                          <span className="node-preset-profiles mono">{formatPresetProfiles(preset, language)}</span>
+                          <span className="node-preset-description">{preset.description}</span>
+                          <span className="node-preset-services mono">{preset.services.join(', ') || t('common.none')}</span>
+                          <span className={`node-preset-state ${matchesRunningState ? 'is-live' : 'is-pending'}`.trim()}>
+                            {matchesRunningState ? t('node.profileStateMatch') : t('node.profileStatePending')}
+                          </span>
+                          <div className="node-preset-actions">
+                            <button
+                              type="button"
+                              className="ghost-button node-preset-button"
+                              onClick={() => applyNodePreset(preset)}
+                              disabled={!hasNodeControls || nodeBusy}
+                            >
+                              {selected ? t('common.selected') : t('node.useProfile')}
+                            </button>
+                            <button
+                              type="button"
+                              className="primary-button node-preset-button"
+                              onClick={() => {
+                                void reconcileNodePreset(preset)
+                              }}
+                              disabled={!hasNodeControls || nodeBusy}
+                            >
+                              {nodePresetActionLoading === preset.id ? t('common.applying') : t('common.apply')}
+                            </button>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="node-empty">{t('node.noProfiles')}</p>
+                )}
+              </div>
+            </section>
           </div>
         )}
 
@@ -2947,7 +3723,7 @@ export function App() {
             <button
               type="button"
               className="context-menu-backdrop"
-              aria-label="Close service menu"
+              aria-label={t('node.closeServiceMenu')}
               onClick={() => setNodeServiceContextMenu(null)}
               onContextMenu={(event) => {
                 event.preventDefault()
@@ -2957,7 +3733,9 @@ export function App() {
             <div
               className="service-context-menu"
               role="menu"
-              aria-label={`Menu for ${nodeContextService?.name ?? nodeServiceContextMenu.serviceId}`}
+              aria-label={t('node.contextMenuAria', {
+                service: nodeContextService?.name ?? nodeServiceContextMenu.serviceId
+              })}
               style={{ left: nodeServiceContextMenu.x, top: nodeServiceContextMenu.y }}
             >
               <button
@@ -2965,7 +3743,7 @@ export function App() {
                 role="menuitem"
                 onClick={() => openServiceLogsModal(nodeServiceContextMenu.serviceId)}
               >
-                Show logs
+                {t('node.showLogs')}
               </button>
               {nodeContextService?.state === 'conflict' && nodeContextService && canKillNodeConflict(nodeContextService) && (
                 <button
@@ -2973,7 +3751,7 @@ export function App() {
                   role="menuitem"
                   onClick={() => openNodeConflictDialog(nodeContextService)}
                 >
-                  Kill conflicting process
+                  {t('node.killConflictingProcess')}
                 </button>
               )}
               <button
@@ -2983,9 +3761,9 @@ export function App() {
                   void runNodeServiceAction(nodeServiceContextMenu.serviceId, 'start')
                 }}
                 disabled={!hasNodeControls || nodeBusy || nodeContextServiceCapabilities?.startBlockedReason !== null}
-                title={nodeContextServiceCapabilities?.startBlockedReason || 'Iniciar servicio'}
+                title={nodeContextServiceCapabilities?.startBlockedReason || t('node.startService')}
               >
-                Start service
+                {t('node.startService')}
               </button>
               <button
                 type="button"
@@ -2994,9 +3772,9 @@ export function App() {
                   void runNodeServiceAction(nodeServiceContextMenu.serviceId, 'restart')
                 }}
                 disabled={!hasNodeControls || nodeBusy || nodeContextServiceCapabilities?.restartBlockedReason !== null}
-                title={nodeContextServiceCapabilities?.restartBlockedReason || 'Reiniciar servicio'}
+                title={nodeContextServiceCapabilities?.restartBlockedReason || t('node.restartService')}
               >
-                Restart service
+                {t('node.restartService')}
               </button>
               <button
                 type="button"
@@ -3005,9 +3783,9 @@ export function App() {
                   void runNodeServiceAction(nodeServiceContextMenu.serviceId, 'stop')
                 }}
                 disabled={!hasNodeControls || nodeBusy || nodeContextServiceCapabilities?.stopBlockedReason !== null}
-                title={nodeContextServiceCapabilities?.stopBlockedReason || 'Detener servicio'}
+                title={nodeContextServiceCapabilities?.stopBlockedReason || t('node.stopService')}
               >
-                Stop service
+                {t('node.stopService')}
               </button>
             </div>
           </>
@@ -3030,7 +3808,7 @@ export function App() {
             >
               <header className="log-modal-header">
                 <div>
-                  <p className="eyebrow">PROCESS CONFLICT</p>
+                  <p className="eyebrow">{t('node.conflictEyebrow')}</p>
                   <h3 id="node-conflict-modal-title" className="log-modal-title">
                     {nodeConflictDialog.serviceName}
                   </h3>
@@ -3042,13 +3820,12 @@ export function App() {
                   onClick={() => setNodeConflictDialog(null)}
                   disabled={Boolean(nodeConflictKillLoading)}
                 >
-                  Close
+                  {t('common.close')}
                 </button>
               </header>
               <div className="conflict-modal-body">
                 <p className="conflict-modal-copy">
-                  Knodel ha detectado procesos nativos externos usando el mismo `baseDir`. Puedes intentar terminarlos
-                  desde aqui antes de volver a arrancar el servicio.
+                  {t('node.conflictCopy')}
                 </p>
                 <pre className="conflict-modal-pids mono">{nodeConflictDialog.conflictPids.join(', ')}</pre>
                 <div className="conflict-modal-actions">
@@ -3058,7 +3835,7 @@ export function App() {
                     onClick={() => setNodeConflictDialog(null)}
                     disabled={Boolean(nodeConflictKillLoading)}
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button
                     type="button"
@@ -3068,7 +3845,9 @@ export function App() {
                     }}
                     disabled={!hasNodeControls || nodeBusy || Boolean(nodeConflictKillLoading)}
                   >
-                    {nodeConflictKillLoading === nodeConflictDialog.serviceId ? 'Killing...' : 'Kill conflicting process'}
+                    {nodeConflictKillLoading === nodeConflictDialog.serviceId
+                      ? t('common.loading')
+                      : t('node.killConflictingProcess')}
                   </button>
                 </div>
               </div>
@@ -3093,12 +3872,12 @@ export function App() {
             >
               <header className="log-modal-header">
                 <div>
-                  <p className="eyebrow">BASEDIR CHANGED</p>
+                  <p className="eyebrow">{t('node.basedirChangedEyebrow')}</p>
                   <h3 id="node-basedir-change-title" className="log-modal-title">
-                    Settings saved
+                    {t('node.basedirChangedTitle')}
                   </h3>
                   <p className="log-modal-meta">
-                    The node will only use the new location after a restart or after you migrate data to the new BASEDIR.
+                    {t('node.basedirChangedMeta')}
                   </p>
                 </div>
                 <button
@@ -3107,19 +3886,19 @@ export function App() {
                   onClick={() => setNodeBaseDirChangeDialog(null)}
                   disabled={nodeBaseDirCopyLoading || nodeBaseDirRestartLoading}
                 >
-                  Close
+                  {t('common.close')}
                 </button>
               </header>
               <div className="conflict-modal-body">
                 <p className="conflict-modal-copy">
-                  Previous: <span className="mono">{nodeBaseDirChangeDialog.previousBaseDir}</span>
+                  {t('node.basedirPrevious')} <span className="mono">{nodeBaseDirChangeDialog.previousBaseDir}</span>
                   <br />
-                  New: <span className="mono">{nodeBaseDirChangeDialog.nextBaseDir}</span>
+                  {t('node.basedirNew')} <span className="mono">{nodeBaseDirChangeDialog.nextBaseDir}</span>
                 </p>
                 <p className="conflict-modal-copy">
                   {nodeBaseDirChangeDialog.nodeWasRunning
-                    ? 'Knodel detecto servicios activos. Necesitas reiniciarlos para que usen el nuevo BASEDIR.'
-                    : 'No habia servicios activos, pero el nuevo BASEDIR aun no tiene estado local a menos que copies datos o lances un restore.'}
+                    ? t('node.basedirRunningHelp')
+                    : t('node.basedirStoppedHelp')}
                 </p>
                 <div className="conflict-modal-actions conflict-modal-actions-spread">
                   <button
@@ -3130,18 +3909,18 @@ export function App() {
                     }}
                     disabled={!hasNodeControls || nodeBusy}
                   >
-                    {nodeBaseDirCopyLoading ? 'Copying...' : 'Copy local state'}
+                    {nodeBaseDirCopyLoading ? t('common.copying') : t('node.copyLocalState')}
                   </button>
                   <button
                     type="button"
                     className="ghost-button"
                     onClick={() => {
                       setNodeBaseDirChangeDialog(null)
-                      void runNodeRestoreBackup()
+                      void runNodeRestoreBackupVerify()
                     }}
                     disabled={!hasNodeControls || nodeBusy}
                   >
-                    Restore backup
+                    {nodeRestoreBackupVerifyLoading ? t('node.restoringVerify') : t('node.restoreVerify')}
                   </button>
                   <button
                     type="button"
@@ -3151,7 +3930,7 @@ export function App() {
                     }}
                     disabled={!hasNodeControls || nodeBusy}
                   >
-                    {nodeBaseDirRestartLoading ? 'Restarting...' : 'Restart node now'}
+                    {nodeBaseDirRestartLoading ? t('common.restarting') : t('node.restartNodeNow')}
                   </button>
                 </div>
               </div>
@@ -3174,15 +3953,17 @@ export function App() {
             >
               <header className="log-modal-header">
                 <div>
-                  <p className="eyebrow">SERVICE LOGS</p>
+                  <p className="eyebrow">{t('node.serviceLogsEyebrow')}</p>
                   <h3 id="service-log-modal-title" className="log-modal-title mono">
                     {nodeLogsTargetService?.name ?? nodeLogsService}
                   </h3>
                   <p className="log-modal-meta">
                     {nodeLogsStreamId
-                      ? `Streaming en tiempo real (${nodeRuntimeMode === 'native' ? 'native process logs' : 'docker compose logs -f'})`
-                      : 'Conectando stream...'}
-                    {nodeLogsLastRefreshAt ? ` · Ultima actividad ${new Date(nodeLogsLastRefreshAt).toLocaleTimeString()}` : ''}
+                      ? nodeRuntimeMode === 'native'
+                        ? t('node.logsStreamingNative')
+                        : t('node.logsStreamingDocker')
+                      : t('node.logsConnectingStream')}
+                    {nodeLogsLastRefreshAt ? ` · ${t('node.logsLastActivity', { time: formatTime(nodeLogsLastRefreshAt, locale) })}` : ''}
                   </p>
                 </div>
 
@@ -3191,13 +3972,13 @@ export function App() {
                   className="ghost-button"
                   onClick={() => setNodeLogsModalOpen(false)}
                 >
-                  Close
+                  {t('common.close')}
                 </button>
               </header>
 
               <div className="node-logs-controls log-modal-toolbar">
                 <label className="node-field node-field-tail">
-                  <span>Tail</span>
+                  <span>{t('node.tail')}</span>
                   <input
                     type="number"
                     min={20}
@@ -3217,7 +3998,7 @@ export function App() {
                   }}
                   disabled={!hasNodeControls || nodeLogsLoading}
                 >
-                  {nodeLogsLoading ? 'Connecting...' : 'Reconnect stream'}
+                  {nodeLogsLoading ? t('common.connecting') : t('node.reconnectStream')}
                 </button>
               </div>
 
@@ -3231,8 +4012,8 @@ export function App() {
                 {nodeLogsOutput
                   ? renderedNodeLogsOutput
                   : nodeLogsLoading
-                    ? 'Conectando al stream de logs...'
-                    : 'Esperando logs...'}
+                    ? t('node.connectingLogs')
+                    : t('node.waitingLogs')}
               </pre>
             </section>
           </div>
@@ -3240,26 +4021,444 @@ export function App() {
       </section>
       )}
 
+      {activeTab === 'producer' && (
+      <section id="panel-producer" className="producer-panel" aria-label={t('producer.panelAria')} role="tabpanel" aria-labelledby="tab-producer">
+        <div className="wallet-header">
+          <div>
+            <h2>{t('producer.title')}</h2>
+            <p>{t('producer.description')}</p>
+          </div>
+          <div className="wallet-header-meta">
+            <span className="status-pill is-idle">
+              <span className="status-dot" aria-hidden="true" />
+              <span>{effectiveExplorerRpcUrl}</span>
+            </span>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                void Promise.all([
+                  refreshNodeProducerOverview(
+                    undefined,
+                    producerAdvancedMode ? nodeProducerAddressDraft.trim() : signingWalletAddress
+                  ),
+                  refreshWalletOverview(),
+                  refreshProducerSigningWalletBalance(signingWalletAddress)
+                ])
+              }}
+              disabled={!hasNodeControls || nodeProducerLoading || walletLoading || walletActionLoading !== null}
+            >
+              {nodeProducerLoading || walletLoading ? t('common.loading') : t('common.refresh')}
+            </button>
+          </div>
+        </div>
+
+        {!hasNodeControls && (
+          <div className="node-warning" role="note">
+            {t('node.electronOnlyWarning')}
+          </div>
+        )}
+
+        {nodeProducerError && (
+          <div className="error-banner node-error-banner" role="alert">
+            <span>{nodeProducerError}</span>
+          </div>
+        )}
+
+        {walletError && (
+          <div className="error-banner node-error-banner" role="alert">
+            <span>{walletError}</span>
+          </div>
+        )}
+
+        {nodeProducerOverview && (
+          <div className="producer-grid">
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.address')}</span>
+              <p className="stat-value mono" title={effectiveProducerTargetAddress || t('common.na')}>
+                {effectiveProducerTargetAddress ? shortHash(effectiveProducerTargetAddress, 16, 12) : t('common.na')}
+              </p>
+              <p className="stat-note">{producerAddressSourceText}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.registrationStatus')}</span>
+              <p className="stat-value">{producerRegistrationStatusText}</p>
+              <p className="stat-note">
+                {nodeProducerOverview.registeredPublicKey ? shortHash(nodeProducerOverview.registeredPublicKey, 18, 12) : t('common.na')}
+              </p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.signingWallet')}</span>
+              <p className="stat-value mono" title={signingWalletAddress || t('common.na')}>
+                {signingWalletAddress ? shortHash(signingWalletAddress, 16, 12) : t('common.na')}
+              </p>
+              <p className="stat-note">{producerSigningWalletRelationText}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.signingWalletMana')}</span>
+              <p className="stat-value">
+                {producerSigningWalletBalanceLoading
+                  ? '...'
+                  : formatDecimalValue(producerSigningWalletBalance?.mana, locale, 4, t('common.na'))}
+              </p>
+              <p
+                className={`stat-note ${
+                  signingWalletHasRegistrationMana === true
+                    ? 'is-ok'
+                    : signingWalletHasRegistrationMana === false
+                      ? 'is-error'
+                      : ''
+                }`}
+              >
+                {producerSigningWalletStatusText}
+              </p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.vhpBalance')}</span>
+              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.vhpBalance, locale, 2, t('common.na'))}</p>
+              <p className="stat-note">{t('producer.estimatedApy')}: {formatDecimalValue(nodeProducerOverview.estimatedApyPercent, locale, 2, t('common.na'))}%</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.koinBalance')}</span>
+              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.koinBalance, locale, 2, t('common.na'))}</p>
+              <p className="stat-note">{t('producer.koinPrice')}: {formatUsdValue(nodeProducerOverview.koinPriceUsd, locale, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.manaBalance')}</span>
+              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.mana, locale, 2, t('common.na'))}</p>
+              <p className="stat-note">
+                {t('producer.address')}: {nodeProducerOverview.producerAddress ? shortHash(nodeProducerOverview.producerAddress, 16, 12) : t('common.na')}
+              </p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.producedLast24h')}</span>
+              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.producedLast24h, locale, 0, t('common.na'))}</p>
+              <p className="stat-note">{t('producer.activeProducers')}: {formatDecimalValue(nodeProducerOverview.activeProducerCount, locale, 0, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.projectedBlocksMonth')}</span>
+              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.projectedBlocksPerMonth, locale, 0, t('common.na'))}</p>
+              <p className="stat-note">{t('producer.shareLast24h')}: {formatDecimalValue(nodeProducerOverview.shareLast24hPercent, locale, 2, t('common.na'))}%</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.estimatedKoinDay')}</span>
+              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.estimatedKoinPerDay, locale, 4, t('common.na'))}</p>
+              <p className="stat-note">{t('producer.lastProducedAt')}: {formatDateTime(nodeProducerOverview.lastProducedBlockAt ?? 0, locale, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.estimatedKoinMonth')}</span>
+              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.estimatedKoinPerMonth, locale, 2, t('common.na'))}</p>
+              <p className="stat-note">{t('producer.priceSource')}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('producer.estimatedUsdMonth')}</span>
+              <p className="stat-value">{formatUsdValue(nodeProducerOverview.estimatedUsdPerMonth, locale, t('common.na'))}</p>
+              <p className="stat-note">{t('producer.rpcSource')}</p>
+            </article>
+          </div>
+        )}
+
+        {!nodeProducerLoading && !nodeProducerOverview && !nodeProducerError && (
+          <p className="node-empty">{t('producer.noOverview')}</p>
+        )}
+
+        <div className="wallet-card-grid">
+          {producerUnlockRequired && (
+            <article className="wallet-card">
+              <h3>{t('producer.unlockTitle')}</h3>
+              <p>{t('producer.unlockDescription')}</p>
+              <label>
+                {t('wallet.password')}
+                <input
+                  type="password"
+                  value={producerUnlockPassword}
+                  onChange={(event) => setProducerUnlockPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  void unlockProducerAccount()
+                }}
+                disabled={!hasWalletControls || walletActionLoading !== null}
+              >
+                {walletActionLoading === 'producer-unlock' ? t('common.loading') : t('producer.unlockAction')}
+              </button>
+            </article>
+          )}
+
+          <article className="wallet-card">
+            <h3>{t('producer.importTitle')}</h3>
+            <p>{t('producer.importDescription')}</p>
+            <label>
+              {t('wallet.privateKey')}
+              <input
+                type="text"
+                value={walletImportPrivateKey}
+                onChange={(event) => setWalletImportPrivateKey(event.target.value)}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              {t('wallet.password')}
+              <input
+                type="password"
+                value={walletImportPassword}
+                onChange={(event) => setWalletImportPassword(event.target.value)}
+                autoComplete="new-password"
+              />
+            </label>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                void importProducerAccount()
+              }}
+              disabled={!hasWalletControls || walletActionLoading !== null}
+            >
+              {walletActionLoading === 'producer-import' ? t('common.loading') : t('producer.importAction')}
+            </button>
+            <p className="stat-note mono" title={walletOverview?.walletAddress || t('common.na')}>
+              {t('producer.walletAddress')}: {walletOverview?.walletAddress || t('common.na')}
+            </p>
+          </article>
+
+          <article className="wallet-card">
+            <h3>{t('producer.burnTitle')}</h3>
+            <p>{t('producer.burnDescription')}</p>
+            <label>
+              {t('wallet.burnPercent')}
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={walletBurnPercentDraft}
+                onChange={(event) => {
+                  setWalletBurnPercentDraft(event.target.value)
+                  if (event.target.value.trim()) setWalletBurnAmountDraft('')
+                }}
+              />
+            </label>
+            <label>
+              {t('wallet.burnAmount')}
+              <input
+                type="number"
+                min={0}
+                step="0.00000001"
+                value={walletBurnAmountDraft}
+                onChange={(event) => {
+                  setWalletBurnAmountDraft(event.target.value)
+                  if (event.target.value.trim()) setWalletBurnPercentDraft('')
+                }}
+              />
+            </label>
+            <label className="wallet-checkbox">
+              <input
+                type="checkbox"
+                checked={walletBurnDryRun}
+                onChange={(event) => setWalletBurnDryRun(event.target.checked)}
+              />
+              <span>{t('wallet.dryRun')}</span>
+            </label>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                const bridge = getWalletBridge()
+                if (!bridge) return
+                const percent = walletBurnPercentDraft.trim() ? Number.parseFloat(walletBurnPercentDraft) : undefined
+                const amount = walletBurnAmountDraft.trim() ? Number.parseFloat(walletBurnAmountDraft) : undefined
+                void runWalletAction('producer-burn', t('producer.burnTitle'), () =>
+                  bridge.burn({
+                    rpcUrl: effectiveExplorerRpcUrl,
+                    percent,
+                    amount,
+                    dryRun: walletBurnDryRun
+                  }), {
+                  refreshOverview: true,
+                  refreshProducer: true
+                })
+              }}
+              disabled={!hasWalletControls || walletActionLoading !== null || !producerWalletReady}
+            >
+              {walletActionLoading === 'producer-burn' ? t('common.loading') : t('producer.burnAction')}
+            </button>
+          </article>
+        </div>
+
+        <div className="producer-setup">
+          <div className="node-services-header producer-header">
+            <div>
+              <h3>{t('producer.setupTitle')}</h3>
+              <p className="producer-header-copy">{t('producer.setupDescription')}</p>
+            </div>
+          </div>
+
+          <div className="producer-form">
+            {producerAdvancedMode ? (
+              <label>
+                {t('producer.addressInput')}
+                <input
+                  type="text"
+                  value={nodeProducerAddressDraft}
+                  onChange={(event) => setNodeProducerAddressDraft(event.target.value)}
+                  onBlur={() => {
+                    void refreshNodeProducerOverview(undefined, nodeProducerAddressDraft.trim())
+                  }}
+                  placeholder="14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </label>
+            ) : (
+              <div className="producer-derived-address">
+                <span>{t('producer.addressInput')}</span>
+                <span className="mono" title={effectiveProducerTargetAddress || t('common.na')}>
+                  {effectiveProducerTargetAddress || t('common.na')}
+                </span>
+                <p className="settings-inline-help">{t('producer.addressDerived')}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="producer-setup-copy">
+            <p className="settings-inline-help">{t('producer.addressHelp')}</p>
+            <p className="settings-inline-help">{t('producer.localKeyHelp')}</p>
+            <p className="settings-inline-help">{t('producer.signingWalletHelp')}</p>
+          </div>
+
+          <div className="producer-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                void registerNodeProducer()
+              }}
+              disabled={producerRegisterDisabled}
+            >
+              {nodeProducerActionLoading === 'register' ? t('producer.registering') : t('producer.registerAction')}
+            </button>
+            <span
+              className={`settings-inline-help ${producerRegisterHintClass}`}
+            >
+              {producerRegisterHintText}
+            </span>
+          </div>
+
+          {nodeProducerOverview ? (
+            <div className="producer-details">
+              <div className="producer-detail-row">
+                <span>{t('producer.addressInput')}</span>
+                <span className="mono" title={effectiveProducerTargetAddress || t('common.na')}>
+                  {effectiveProducerTargetAddress || t('common.na')}
+                </span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.signingWallet')}</span>
+                <span className="mono" title={signingWalletAddress || t('common.na')}>
+                  {signingWalletAddress || t('common.na')}
+                </span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.signingWalletRelation')}</span>
+                <span>{producerSigningWalletRelationText}</span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.signingWalletKoin')}</span>
+                <span>{formatDecimalValue(producerSigningWalletBalance?.koin, locale, 4, t('common.na'))}</span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.signingWalletVhp')}</span>
+                <span>{formatDecimalValue(producerSigningWalletBalance?.vhp, locale, 4, t('common.na'))}</span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.signingWalletMana')}</span>
+                <span>{formatDecimalValue(producerSigningWalletBalance?.mana, locale, 4, t('common.na'))}</span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.signingWalletStatus')}</span>
+                <span>{producerSigningWalletStatusText}</span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.localPublicKey')}</span>
+                <span className="mono" title={nodeProducerOverview.localPublicKey || t('common.na')}>
+                  {nodeProducerOverview.localPublicKey ? shortHash(nodeProducerOverview.localPublicKey, 26, 16) : t('common.na')}
+                </span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.registeredPublicKey')}</span>
+                <span className="mono" title={nodeProducerOverview.registeredPublicKey || t('common.na')}>
+                  {nodeProducerOverview.registeredPublicKey ? shortHash(nodeProducerOverview.registeredPublicKey, 26, 16) : t('common.na')}
+                </span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.configPath')}</span>
+                <span className="mono" title={nodeProducerOverview.configFilePath}>
+                  {nodeProducerOverview.configFilePath}
+                </span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.publicKeyPath')}</span>
+                <span className="mono" title={nodeProducerOverview.localPublicKeyPath || t('common.na')}>
+                  {nodeProducerOverview.localPublicKeyPath || t('common.na')}
+                </span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.privateKeyPath')}</span>
+                <span className="mono" title={nodeProducerOverview.localPrivateKeyPath || t('common.na')}>
+                  {nodeProducerOverview.localPrivateKeyPath || t('common.na')}
+                </span>
+              </div>
+              <div className="producer-detail-row">
+                <span>{t('producer.dataSources')}</span>
+                <span className="mono" title={`${nodeProducerOverview.rpcUrl} | ${nodeProducerOverview.priceSourceUrl}`}>
+                  {nodeProducerOverview.rpcUrl} | {nodeProducerOverview.priceSourceUrl}
+                </span>
+              </div>
+              <div className="producer-detail-note">
+                {producerSigningWalletBalanceError || nodeProducerOverview.output || t('producer.setupHint')}
+              </div>
+            </div>
+          ) : (
+            <p className="node-empty">{nodeProducerLoading ? t('producer.loading') : t('producer.noOverview')}</p>
+          )}
+        </div>
+
+        {(walletResultData || walletLoading) && (
+          <div className="wallet-output">
+            <div className="node-services-header">
+              <h3>{walletResultTitle || t('producer.outputTitle')}</h3>
+              <span>{walletLoading ? t('common.loading') : effectiveExplorerRpcUrl}</span>
+            </div>
+            <pre className="mono">{walletResultText || t('common.loading')}</pre>
+          </div>
+        )}
+      </section>
+      )}
+
       {activeTab === 'explorer' && (
       <>
-      <section id="panel-explorer" className="overview-grid" aria-label="Resumen de sincronizacion" role="tabpanel" aria-labelledby="tab-explorer">
+      <section id="panel-explorer" className="overview-grid" aria-label={t('explorer.panelAria')} role="tabpanel" aria-labelledby="tab-explorer">
         <article className="stat-card">
-          <span className="stat-label">RPC</span>
+          <span className="stat-label">{t('explorer.rpcLabel')}</span>
           <p className="stat-value mono" title={effectiveExplorerRpcUrl}>
             {effectiveExplorerRpcUrl}
           </p>
-          <p className="stat-note">{formatExplorerRpcMode(settings.rpcMode)}</p>
+          <p className="stat-note">{formatExplorerRpcSourceKind(settings.rpcSource, language)}</p>
         </article>
         <article className="stat-card">
-          <span className="stat-label">Head</span>
-          <p className="stat-value">{head ? `#${head.height.toLocaleString()}` : '...'}</p>
+          <span className="stat-label">{t('explorer.headLabel')}</span>
+          <p className="stat-value">{head ? `#${head.height.toLocaleString(locale)}` : '...'}</p>
         </article>
         <article className="stat-card">
-          <span className="stat-label">Head Time</span>
+          <span className="stat-label">{t('explorer.headTimeLabel')}</span>
           <p className="stat-value">{headBlockTimeText}</p>
         </article>
         <article className="stat-card">
-          <span className="stat-label">Ultima sync</span>
+          <span className="stat-label">{t('explorer.lastSyncLabel')}</span>
           <p className="stat-value">{lastUpdateText}</p>
         </article>
       </section>
@@ -3267,38 +4466,41 @@ export function App() {
       <main className="table-panel" aria-busy={isInitialLoading}>
         <div className="table-panel-header">
           <div>
-            <h2>Bloques recientes</h2>
-            <p>Streaming por polling sobre `chain.get_head_info` y `block_store.get_blocks_by_height`.</p>
+            <h2>{t('explorer.recentBlocksTitle')}</h2>
+            <p>{t('explorer.recentBlocksDescription')}</p>
           </div>
           <div className="table-panel-tools">
             <label className="table-select">
-              <span>RPC Source</span>
+              <span>{t('explorer.rpcSource')}</span>
               <select
-                value={settings.rpcMode}
+                value={settings.rpcSource}
                 onChange={(event) => {
-                  const nextMode = normalizeExplorerRpcMode(event.target.value)
-                  setSettings((current) => ({ ...current, rpcMode: nextMode }))
+                  const nextSource = normalizeExplorerRpcSource(event.target.value, settings.publicRpcUrls, settings.rpcSource)
+                  setSettings((current) => ({ ...current, rpcSource: nextSource }))
                 }}
               >
-                <option value="local">Local Node</option>
-                <option value="public">Public RPC</option>
-                <option value="custom">Custom RPC</option>
+                <option value={LOCAL_RPC_SOURCE}>{t('rpc.mode.local')}</option>
+                {settings.publicRpcUrls.map((rpcUrl) => (
+                  <option key={rpcUrl} value={rpcUrl}>
+                    {formatRpcDisplayUrl(rpcUrl)}
+                  </option>
+                ))}
               </select>
             </label>
             <div className="table-meta">
-              <span>{formatExplorerRpcMode(settings.rpcMode)}</span>
+              <span>{formatExplorerRpcSourceKind(settings.rpcSource, language)}</span>
               <span className="mono" title={effectiveExplorerRpcUrl}>
-                {effectiveExplorerRpcUrl}
+                {formatRpcDisplayUrl(effectiveExplorerRpcUrl)}
               </span>
-              <span>Refresh: {settings.pollMs}ms</span>
-              <span>Rows: {settings.rowLimit}</span>
+              <span>{t('explorer.refreshMeta', { ms: settings.pollMs })}</span>
+              <span>{t('explorer.rowsMeta', { count: settings.rowLimit })}</span>
             </div>
           </div>
         </div>
 
         {errorMessage && (
           <div className="error-banner" role="alert">
-            <strong>RPC error:</strong> <span>{errorMessage}</span>
+            <strong>{t('explorer.rpcErrorBanner')}</strong> <span>{errorMessage}</span>
           </div>
         )}
 
@@ -3306,11 +4508,11 @@ export function App() {
           <table>
             <thead>
               <tr>
-                <th>Height</th>
-                <th>Block ID</th>
-                <th>Producer</th>
-                <th>Age</th>
-                <th>Timestamp</th>
+                <th>{t('explorer.col.height')}</th>
+                <th>{t('explorer.col.blockId')}</th>
+                <th>{t('explorer.col.producer')}</th>
+                <th>{t('explorer.col.age')}</th>
+                <th>{t('explorer.col.timestamp')}</th>
               </tr>
             </thead>
             <tbody>
@@ -3319,22 +4521,22 @@ export function App() {
                   key={row.blockId}
                   className={freshBlockIds.includes(row.blockId) ? 'is-fresh' : undefined}
                 >
-                  <td className="mono">#{row.height.toLocaleString()}</td>
-                  <td className="mono" title={`${row.blockId}\nPrev: ${row.previousId || 'N/A'}`}>
+                  <td className="mono">#{row.height.toLocaleString(locale)}</td>
+                  <td className="mono" title={`${row.blockId}\nPrev: ${row.previousId || t('common.na')}`}>
                     {shortHash(row.blockId, 18, 12)}
                   </td>
-                  <td className="mono" title={row.signer || 'N/A'}>
+                  <td className="mono" title={row.signer || t('common.na')}>
                     {shortHash(row.signer, 14, 10)}
                   </td>
                   <td>{formatRelativeAge(row.timestampMs, nowMs)}</td>
-                  <td>{formatDateTime(row.timestampMs)}</td>
+                  <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>
                 </tr>
               ))}
 
               {!isInitialLoading && rows.length === 0 && (
                 <tr>
                   <td colSpan={5} className="empty-cell">
-                    No se recibieron bloques desde el RPC configurado.
+                    {t('explorer.noBlocks')}
                   </td>
                 </tr>
               )}
@@ -3342,7 +4544,7 @@ export function App() {
               {isInitialLoading && rows.length === 0 && (
                 <tr>
                   <td colSpan={5} className="empty-cell">
-                    Conectando al RPC y cargando bloques recientes...
+                    {t('explorer.connectingBlocks')}
                   </td>
                 </tr>
               )}
@@ -3352,6 +4554,30 @@ export function App() {
       </main>
       </>
       )}
+
+      </div>
+
+      <footer className="app-footer">
+        <div className={`status-pill footer-status ${footerStatusClass}`.trim()} role="status" aria-live="polite">
+          <div className="footer-status-main">
+            <span className="status-dot" aria-hidden="true" />
+            <span className="footer-status-text">{footerStatusText}</span>
+          </div>
+          {footerStatusMeta && <span className="footer-status-meta mono">{footerStatusMeta}</span>}
+          {showChainSyncProgress && chainSyncPercent !== null && (
+            <div className="footer-status-progress" aria-hidden="true">
+              <span
+                className="footer-status-progress-fill"
+                style={{ width: `${Math.max(2, chainSyncPercent)}%` }}
+              />
+            </div>
+          )}
+        </div>
+        <div className="app-version-badge" title={t('app.versionTitle', { version: appVersion })}>
+          <span className="app-version-label">{t('common.version')}</span>
+          <span className="mono">v{appVersion}</span>
+        </div>
+      </footer>
     </div>
   )
 }

@@ -16,7 +16,7 @@ let shutdownRequested = false
 let restartTimer = null
 
 function spawnElectron() {
-  child = spawn(electronBinary, ['.'], {
+  child = spawn(electronBinary, [projectRoot], {
     cwd: projectRoot,
     env,
     stdio: 'inherit'

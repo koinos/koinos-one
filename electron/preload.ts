@@ -1,25 +1,14 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import { contextBridge, ipcRenderer } from 'electron'
 
 const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'knodel:koinos-node:backup-progress:event'
-const FALLBACK_KNODEL_VERSION = '0.2.0'
-
-function resolveKnodelVersion(): string {
-  try {
-    const packageJsonPath = path.resolve(__dirname, '..', 'package.json')
-    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { version?: unknown }
-    return typeof parsed.version === 'string' && parsed.version.trim() ? parsed.version.trim() : FALLBACK_KNODEL_VERSION
-  } catch {
-    return FALLBACK_KNODEL_VERSION
-  }
-}
-
-const KNODEL_VERSION = resolveKnodelVersion()
 
 contextBridge.exposeInMainWorld('knodel', {
-  version: KNODEL_VERSION,
+  version: '0.2.0',
+  appConfig: {
+    loadPublicRpcUrls: () => ipcRenderer.invoke('knodel:app-config:public-rpcs:load'),
+    savePublicRpcUrls: (params?: unknown) => ipcRenderer.invoke('knodel:app-config:public-rpcs:save', params)
+  },
   koinosNode: {
     defaults: () => ipcRenderer.invoke('knodel:koinos-node:defaults'),
     cloneRepo: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:clone-repo', settings),
@@ -38,6 +27,8 @@ contextBridge.exposeInMainWorld('knodel', {
     restoreBackup: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:restore-backup', settings),
     restoreBackupVerify: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:restore-backup-verify', settings),
     rpcCall: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:rpc-call', params),
+    producerOverview: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-overview', settings),
+    producerRegister: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-register', params),
     serviceStart: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-start', params),
     serviceStop: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-stop', params),
     serviceRestart: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-restart', params),
@@ -60,5 +51,23 @@ contextBridge.exposeInMainWorld('knodel', {
         ipcRenderer.removeListener(BACKUP_PROGRESS_EVENT_CHANNEL, wrapped)
       }
     }
+  },
+  wallet: {
+    overview: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:overview', params),
+    generate: () => ipcRenderer.invoke('knodel:wallet:generate'),
+    importWallet: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:import', params),
+    unlock: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:unlock', params),
+    deleteWallet: () => ipcRenderer.invoke('knodel:wallet:delete'),
+    addressFromWif: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:address-from-wif', params),
+    deriveFromSeed: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:derive-from-seed', params),
+    chainInfo: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:chain-info', params),
+    block: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:block', params),
+    balance: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:balance', params),
+    vhp: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:vhp', params),
+    nonce: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:nonce', params),
+    rc: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:rc', params),
+    tokenBalance: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:token-balance', params),
+    readContract: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:read-contract', params),
+    burn: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:burn', params)
   }
 })
