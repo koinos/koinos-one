@@ -39,6 +39,9 @@ const PRODUCER_DAY_WINDOW_MS = 24 * 60 * 60 * 1000
 const BLOCK_STORE_PAGE_SIZE = 1000
 const KOINOS_GIT_CLONE_URL = 'https://github.com/koinos/koinos'
 const MAC_DOCKER_DESKTOP_OVERRIDE_PATH = path.join(os.tmpdir(), 'knodel-koinos-docker-desktop.override.yml')
+const MAC_DOCKER_DESKTOP_APP_PATH = '/Applications/Docker.app'
+const MAC_DOCKER_DESKTOP_STARTUP_TIMEOUT_MS = 90_000
+const MAC_DOCKER_DESKTOP_STARTUP_POLL_MS = 1500
 const MAC_DOCKER_DESKTOP_CONFIG_OVERRIDE_SERVICES = [
   'amqp',
   'chain',
@@ -54,6 +57,7 @@ const MAC_DOCKER_DESKTOP_CONFIG_OVERRIDE_SERVICES = [
 ] as const
 let appShutdownInProgress = false
 let appShutdownApproved = false
+let dockerDesktopStartupPromise: Promise<{ ok: boolean; output: string }> | null = null
 
 type KoinosNodeSettingsInput = {
   repoPath?: string
@@ -1633,7 +1637,8 @@ async function resolveNativeServiceVersion(
 }
 
 function nativeDockerPlatform(): string | null {
-  return isAppleSiliconHost() ? 'linux/arm64' : null
+  // On macOS, prefer linux/arm64 images in Docker mode when available.
+  return process.platform === 'darwin' ? 'linux/arm64' : null
 }
 
 function buildMacDockerDesktopOverrideContent(): string {
@@ -3645,6 +3650,119 @@ function runCommand(
   })
 }
 
+type DockerCommandRunResult = {
+  result: { ok: boolean; code: number | null; output: string }
+  notes: string[]
+}
+
+function dockerCommandMissingCli(output: string): boolean {
+  return /spawn docker ENOENT/i.test(output)
+}
+
+function dockerDaemonConnectionError(output: string): boolean {
+  return /Cannot connect to the Docker daemon|error during connect|Is the docker daemon running|dial unix .*docker\.sock|context deadline exceeded/i.test(
+    output
+  )
+}
+
+async function ensureDockerDesktopDaemonReady(): Promise<{ ok: boolean; output: string }> {
+  if (process.platform !== 'darwin') {
+    return {
+      ok: false,
+      output: 'El arranque automatico de Docker Desktop solo esta soportado en macOS.'
+    }
+  }
+
+  if (!fs.existsSync(MAC_DOCKER_DESKTOP_APP_PATH)) {
+    return {
+      ok: false,
+      output: `No se encontro Docker Desktop en ${MAC_DOCKER_DESKTOP_APP_PATH}.`
+    }
+  }
+
+  if (!dockerDesktopStartupPromise) {
+    dockerDesktopStartupPromise = (async () => {
+      const notes: string[] = ['Intentando abrir Docker Desktop automaticamente...']
+      const openResult = await runCommand('open', ['-a', 'Docker'], {
+        cwd: process.cwd(),
+        timeoutMs: 10_000
+      })
+
+      if (!openResult.ok) {
+        return {
+          ok: false,
+          output: [notes.join('\n'), openResult.output].filter(Boolean).join('\n')
+        }
+      }
+
+      const deadline = Date.now() + MAC_DOCKER_DESKTOP_STARTUP_TIMEOUT_MS
+      let lastInfoOutput = ''
+      while (Date.now() < deadline) {
+        const infoResult = await runCommand('docker', ['info'], {
+          cwd: process.cwd(),
+          timeoutMs: 5_000
+        })
+        if (infoResult.ok) {
+          return {
+            ok: true,
+            output: [...notes, 'Docker daemon listo.'].join('\n')
+          }
+        }
+        if (dockerCommandMissingCli(infoResult.output)) {
+          return {
+            ok: false,
+            output: [notes.join('\n'), infoResult.output].filter(Boolean).join('\n')
+          }
+        }
+        if (infoResult.output.trim()) lastInfoOutput = infoResult.output.trim()
+        await delay(MAC_DOCKER_DESKTOP_STARTUP_POLL_MS)
+      }
+
+      return {
+        ok: false,
+        output: [
+          notes.join('\n'),
+          lastInfoOutput || `Docker daemon no estuvo listo tras ${MAC_DOCKER_DESKTOP_STARTUP_TIMEOUT_MS}ms.`
+        ]
+          .filter(Boolean)
+          .join('\n')
+      }
+    })().finally(() => {
+      dockerDesktopStartupPromise = null
+    })
+  }
+
+  return dockerDesktopStartupPromise
+}
+
+async function runDockerCommandWithAutoStart(
+  args: string[],
+  options: { cwd: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; allowAutoStart?: boolean }
+): Promise<DockerCommandRunResult> {
+  const firstResult = await runCommand('docker', args, options)
+  if (firstResult.ok || options.allowAutoStart === false || process.platform !== 'darwin') {
+    return { result: firstResult, notes: [] }
+  }
+
+  if (!dockerDaemonConnectionError(firstResult.output) || dockerCommandMissingCli(firstResult.output)) {
+    return { result: firstResult, notes: [] }
+  }
+
+  const startup = await ensureDockerDesktopDaemonReady()
+  if (!startup.ok) {
+    return {
+      result: firstResult,
+      notes: startup.output ? [startup.output] : []
+    }
+  }
+
+  const retryResult = await runCommand('docker', args, options)
+  return {
+    result: retryResult,
+    notes: startup.output ? [startup.output] : []
+  }
+}
+
 function parseProcessSnapshot(output: string): ProcessSnapshotEntry[] {
   return output
     .split(/\r?\n/)
@@ -3901,13 +4019,15 @@ function platformMatchesTarget(candidate: string, target: string): boolean {
 async function resolveComposeServiceImages(
   settings: KoinosNodeSettings
 ): Promise<Map<string, ComposeResolvedServiceDefinition>> {
-  const result = await runCommand('docker', [...composeBaseArgs(settings), 'config'], {
+  const dockerRun = await runDockerCommandWithAutoStart([...composeBaseArgs(settings), 'config'], {
     cwd: settings.repoPath,
-    env: composeCommandEnv(settings)
+    env: composeCommandEnv(settings),
+    allowAutoStart: true
   })
+  const result = dockerRun.result
 
   if (!result.ok) {
-    throw new Error(result.output || 'No se pudo resolver la configuracion de docker compose')
+    throw new Error([dockerRun.notes.join('\n'), result.output || 'No se pudo resolver la configuracion de docker compose'].filter(Boolean).join('\n'))
   }
 
   const parsed = parseYaml(result.output) as { services?: Record<string, { image?: unknown }> } | null
@@ -3926,9 +4046,10 @@ async function resolveComposeServiceImages(
 }
 
 async function inspectRemoteImagePlatforms(image: string): Promise<string[]> {
-  const buildxResult = await runCommand('docker', ['buildx', 'imagetools', 'inspect', '--raw', image], {
+  const buildxRun = await runDockerCommandWithAutoStart(['buildx', 'imagetools', 'inspect', '--raw', image], {
     cwd: process.cwd()
   })
+  const buildxResult = buildxRun.result
 
   if (buildxResult.ok) {
     try {
@@ -3946,12 +4067,13 @@ async function inspectRemoteImagePlatforms(image: string): Promise<string[]> {
     }
   }
 
-  const manifestResult = await runCommand('docker', ['manifest', 'inspect', '--verbose', image], {
+  const manifestRun = await runDockerCommandWithAutoStart(['manifest', 'inspect', '--verbose', image], {
     cwd: process.cwd()
   })
+  const manifestResult = manifestRun.result
 
   if (!manifestResult.ok) {
-    throw new Error(manifestResult.output || `No se pudo inspeccionar el manifiesto de ${image}`)
+    throw new Error([manifestRun.notes.join('\n'), manifestResult.output || `No se pudo inspeccionar el manifiesto de ${image}`].filter(Boolean).join('\n'))
   }
 
   try {
@@ -3976,7 +4098,7 @@ async function ensureNativeComposeImages(
     return { ok: true, output: '' }
   }
 
-  const notes = [`Apple Silicon detectado: comprobando y descargando imagenes nativas ${targetPlatform}`]
+  const notes = [`macOS detectado: comprobando y descargando imagenes ${targetPlatform}`]
   const resolvedServices = await resolveComposeServiceImages(settings)
   const selectedServiceNames = serviceNames?.length ? serviceNames : [...resolvedServices.keys()]
   const filteredServices = selectedServiceNames
@@ -4016,9 +4138,13 @@ async function ensureNativeComposeImages(
   }
 
   for (const image of images) {
-    const pullResult = await runCommand('docker', ['pull', '--platform', targetPlatform, image], {
+    const pullRun = await runDockerCommandWithAutoStart(['pull', '--platform', targetPlatform, image], {
       cwd: settings.repoPath
     })
+    const pullResult = pullRun.result
+    if (pullRun.notes.length > 0) {
+      notes.push(...pullRun.notes)
+    }
     notes.push(pullResult.output || `Pulled ${image} (${targetPlatform})`)
     if (!pullResult.ok) {
       return {
@@ -5675,7 +5801,10 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
   }
 }
 
-async function dockerComposeStatus(input?: KoinosNodeSettingsInput): Promise<KoinosNodeStatus> {
+async function dockerComposeStatus(
+  input?: KoinosNodeSettingsInput,
+  options?: { allowAutoStart?: boolean }
+): Promise<KoinosNodeStatus> {
   const settings = normalizeNodeSettings(input)
   const configDir = configDirPath(settings)
   const prepNotes = ensureKoinosRepoRenamedFiles(settings)
@@ -5707,10 +5836,12 @@ async function dockerComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
 
   const args = [...composeBaseArgs(settings), 'ps', '--all', '--format', 'json']
 
-  const result = await runCommand('docker', args, {
+  const dockerRun = await runDockerCommandWithAutoStart(args, {
     cwd: settings.repoPath,
-    env: composeCommandEnv(settings)
+    env: composeCommandEnv(settings),
+    allowAutoStart: options?.allowAutoStart !== false
   })
+  const result = dockerRun.result
 
   const services = result.ok
     ? mergeComposeServiceStatuses(
@@ -5735,7 +5866,7 @@ async function dockerComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
     configDir,
     services,
     runningServices,
-    output: [prepNotes, result.output].filter(Boolean).join('\n')
+    output: [prepNotes, dockerRun.notes.join('\n'), result.output].filter(Boolean).join('\n')
   }
 }
 
@@ -5810,7 +5941,10 @@ function prepareNativeStartNotes(settings: KoinosNodeSettings, initialNotes: str
 }
 
 async function nativeRuntimeDockerConflictCheck(settings: KoinosNodeSettings): Promise<{ ok: boolean; output: string }> {
-  const dockerStatus = await dockerComposeStatus({ ...settings, runtimeMode: 'docker' })
+  const dockerStatus = await dockerComposeStatus(
+    { ...settings, runtimeMode: 'docker' },
+    { allowAutoStart: false }
+  )
   if (
     !dockerStatus.dockerAvailable ||
     (!dockerStatus.ok &&
@@ -6375,16 +6509,18 @@ async function dockerComposeAction(
       ? [...composeBaseArgs(settings), 'up', '-d']
       : [...composeBaseArgs(settings), 'down']
 
-  const result = await runCommand('docker', composeArgs, {
+  const dockerRun = await runDockerCommandWithAutoStart(composeArgs, {
     cwd: settings.repoPath,
-    env: composeCommandEnv(settings)
+    env: composeCommandEnv(settings),
+    allowAutoStart: true
   })
+  const result = dockerRun.result
 
   const status = await dockerComposeStatus(settings)
   return {
     ok: result.ok,
     action,
-    output: [notes.join('\n'), result.output].filter(Boolean).join('\n'),
+    output: [notes.join('\n'), dockerRun.notes.join('\n'), result.output].filter(Boolean).join('\n'),
     status
   }
 }
@@ -6485,17 +6621,19 @@ async function dockerComposeServiceAction(
       ? [...composeBaseArgs(settings), 'restart', service]
       : [...composeBaseArgs(settings), 'up', '-d', '--force-recreate', '--no-deps', service]
 
-  const result = await runCommand('docker', composeArgs, {
+  const dockerRun = await runDockerCommandWithAutoStart(composeArgs, {
     cwd: settings.repoPath,
-    env: composeCommandEnv(settings)
+    env: composeCommandEnv(settings),
+    allowAutoStart: true
   })
+  const result = dockerRun.result
 
   const status = await dockerComposeStatus(settings)
   return {
     ok: result.ok,
     action,
     service,
-    output: [notes.join('\n'), result.output].filter(Boolean).join('\n'),
+    output: [notes.join('\n'), dockerRun.notes.join('\n'), result.output].filter(Boolean).join('\n'),
     status
   }
 }
@@ -6565,18 +6703,24 @@ async function dockerComposePresetReconcile(
     }
   }
 
-  const upResult = await runCommand('docker', [...composeBaseArgs(presetSettings), 'up', '-d', ...servicesToUp], {
+  const upDockerRun = await runDockerCommandWithAutoStart([...composeBaseArgs(presetSettings), 'up', '-d', ...servicesToUp], {
     cwd: presetSettings.repoPath,
-    env: composeCommandEnv(presetSettings)
+    env: composeCommandEnv(presetSettings),
+    allowAutoStart: true
   })
+  const upResult = upDockerRun.result
 
   let stopOutput = ''
   let stopOk = true
+  const stopNotes: string[] = []
   if (servicesToStop.length > 0) {
-    const stopResult = await runCommand('docker', [...composeBaseArgs(presetSettings), 'stop', ...servicesToStop], {
+    const stopDockerRun = await runDockerCommandWithAutoStart([...composeBaseArgs(presetSettings), 'stop', ...servicesToStop], {
       cwd: presetSettings.repoPath,
-      env: composeCommandEnv(presetSettings)
+      env: composeCommandEnv(presetSettings),
+      allowAutoStart: true
     })
+    const stopResult = stopDockerRun.result
+    if (stopDockerRun.notes.length > 0) stopNotes.push(...stopDockerRun.notes)
     stopOk = stopResult.ok
     stopOutput = stopResult.output
   }
@@ -6586,7 +6730,14 @@ async function dockerComposePresetReconcile(
     ok: upResult.ok && stopOk,
     action: 'reconcile',
     presetId,
-    output: [notes.join('\n'), upResult.output, stopOutput, servicesToStop.length ? `Stopped extras: ${servicesToStop.join(', ')}` : '']
+    output: [
+      notes.join('\n'),
+      upDockerRun.notes.join('\n'),
+      stopNotes.join('\n'),
+      upResult.output,
+      stopOutput,
+      servicesToStop.length ? `Stopped extras: ${servicesToStop.join(', ')}` : ''
+    ]
       .filter(Boolean)
       .join('\n'),
     status
@@ -6737,16 +6888,18 @@ async function dockerComposeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNod
   const composeArgs = [...composeBaseArgs(settings), 'logs', '--tail', String(tail)]
   if (service) composeArgs.push(service)
 
-  const result = await runCommand('docker', composeArgs, {
+  const dockerRun = await runDockerCommandWithAutoStart(composeArgs, {
     cwd: settings.repoPath,
-    env: composeLogsCommandEnv(settings)
+    env: composeLogsCommandEnv(settings),
+    allowAutoStart: true
   })
+  const result = dockerRun.result
 
   return {
     ok: result.ok,
     service: service || null,
     tail,
-    output: result.output
+    output: [dockerRun.notes.join('\n'), result.output].filter(Boolean).join('\n')
   }
 }
 
