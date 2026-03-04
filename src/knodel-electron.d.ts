@@ -1,7 +1,7 @@
 export {}
 
 declare global {
-  type KnodelKoinosNodeServiceRuntime = 'docker' | 'native'
+  type KnodelKoinosNodeServiceRuntime = 'native'
   type KnodelKoinosNativeBuildSystem = 'cmake' | 'go' | 'yarn'
 
   type KnodelKoinosNodeServicePort = {

@@ -21,7 +21,7 @@ const DEFAULT_NODE_SETTINGS = {
   baseDir: '~/.koinos',
   profiles: 'block_producer,jsonrpc',
   blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz',
-  runtimeMode: 'docker' as KnodelKoinosNodeServiceRuntime
+  runtimeMode: 'native' as KnodelKoinosNodeServiceRuntime
 } as const
 const SYNC_GAP_BLOCK_THRESHOLD = 50
 const SYNC_GAP_TIME_THRESHOLD_MS = 30_000
@@ -425,7 +425,7 @@ function loadInitialNodeSettings(): NodeManagerSettings {
         typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
           ? parsed.blockchainBackupUrl
           : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
-      runtimeMode: parsed.runtimeMode === 'native' ? 'native' : DEFAULT_NODE_SETTINGS.runtimeMode
+      runtimeMode: 'native'
     }
   } catch {
     return { ...DEFAULT_NODE_SETTINGS }
@@ -467,7 +467,7 @@ function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNodeSetti
     baseDir: normalizeNodeBaseDirInput(settings.baseDir),
     profiles: parseProfilesCsv(settings.profiles),
     blockchainBackupUrl: settings.blockchainBackupUrl.trim(),
-    runtimeMode: settings.runtimeMode
+    runtimeMode: 'native'
   }
 }
 
@@ -523,18 +523,16 @@ function formatNodeServicePorts(service: KnodelKoinosNodeServiceStatus): string 
   return service.ports.map((port) => port.label || `${port.targetPort ?? '?'}${port.protocol ? `/${port.protocol}` : ''}`).join(', ')
 }
 
-function formatNodeServiceType(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
-  return service.runtimeType === 'native'
-    ? translate(language, 'common.runtimeNative')
-    : translate(language, 'common.runtimeDocker')
+function formatNodeServiceType(_service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
+  return translate(language, 'common.runtimeNative')
 }
 
 function formatNodeServiceVersion(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
   return service.version?.trim() || translate(language, 'common.unknown')
 }
 
-function formatNodeRuntimeMode(mode: KnodelKoinosNodeServiceRuntime, language: AppLanguage): string {
-  return mode === 'native' ? translate(language, 'common.runtimeNative') : translate(language, 'common.runtimeDocker')
+function formatNodeRuntimeMode(_mode: KnodelKoinosNodeServiceRuntime, language: AppLanguage): string {
+  return translate(language, 'common.runtimeNative')
 }
 
 function formatNodeServiceTooltip(
@@ -982,9 +980,6 @@ export function App() {
   const [draftNodeBaseDir, setDraftNodeBaseDir] = useState(nodeSettings.baseDir)
   const [draftNodeProfiles, setDraftNodeProfiles] = useState(nodeSettings.profiles)
   const [draftNodeBlockchainBackupUrl, setDraftNodeBlockchainBackupUrl] = useState(nodeSettings.blockchainBackupUrl)
-  const [draftNodeRuntimeMode, setDraftNodeRuntimeMode] = useState<KnodelKoinosNodeServiceRuntime>(
-    nodeSettings.runtimeMode
-  )
   const [nodeBaseDirPickerLoading, setNodeBaseDirPickerLoading] = useState(false)
   const [nodeBaseDirValidationLoading, setNodeBaseDirValidationLoading] = useState(false)
   const [nodeBaseDirValidation, setNodeBaseDirValidation] = useState<NodeBaseDirValidationState | null>(null)
@@ -1107,7 +1102,6 @@ export function App() {
     setDraftNodeBaseDir(nodeSettings.baseDir)
     setDraftNodeProfiles(nodeSettings.profiles)
     setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
-    setDraftNodeRuntimeMode(nodeSettings.runtimeMode)
     setNodeBaseDirValidation(null)
   }, [nodeSettings])
 
@@ -1174,7 +1168,6 @@ export function App() {
     hasNodeControls,
     nodeSettings.repoPath,
     nodeSettings.baseDir,
-    nodeSettings.runtimeMode,
     nodeSettings.profiles,
     nodeStatus?.runningServices,
     settings.producerAdvancedMode,
@@ -1933,15 +1926,6 @@ export function App() {
     }
   }
 
-  const switchNodeRuntimeMode = (runtimeMode: KnodelKoinosNodeServiceRuntime) => {
-    const nextSettings = { ...nodeSettings, runtimeMode }
-    setNodeSettings(nextSettings)
-    setDraftNodeRuntimeMode(runtimeMode)
-    setNodeError(null)
-    setNodeOutput(t('node.runtimeSelected', { runtime: formatNodeRuntimeMode(runtimeMode, language) }))
-    void refreshNodeStatus(nextSettings)
-  }
-
   const applyNodePreset = (preset: KnodelKoinosNodePreset) => {
     const nextProfiles = preset.profiles.join(',')
     const nextSettings = { ...nodeSettings, profiles: nextProfiles }
@@ -2265,7 +2249,7 @@ export function App() {
       baseDir: overrides?.baseDir ?? normalizeNodeBaseDirInput(draftNodeBaseDir),
       profiles: overrides?.profiles ?? parseProfilesCsv(draftNodeProfiles),
       blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim(),
-      runtimeMode: overrides?.runtimeMode ?? draftNodeRuntimeMode
+      runtimeMode: 'native'
     }
   }
 
@@ -2834,7 +2818,6 @@ export function App() {
         draftNodeBlockchainBackupUrl.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
         language
       )
-      const runtimeMode = draftNodeRuntimeMode
 
       if (!repoPath) throw new Error(t('settings.repoRequired'))
       if (!composeFile) throw new Error(t('settings.composeRequired'))
@@ -2853,7 +2836,7 @@ export function App() {
         pollMs,
         rowLimit
       }))
-      setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, blockchainBackupUrl, runtimeMode })
+      setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, blockchainBackupUrl, runtimeMode: 'native' })
       setDraftNodeBaseDir(baseDir)
       const baseDirChanged = previousBaseDir !== baseDir
       const settingsSummary = baseDirChanged
@@ -2889,7 +2872,6 @@ export function App() {
     setDraftNodeBaseDir(DEFAULT_NODE_SETTINGS.baseDir)
     setDraftNodeProfiles(DEFAULT_NODE_SETTINGS.profiles)
     setDraftNodeBlockchainBackupUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
-    setDraftNodeRuntimeMode(DEFAULT_NODE_SETTINGS.runtimeMode)
     setNodeBaseDirValidation(null)
     setFormError(null)
   }
@@ -3245,20 +3227,6 @@ export function App() {
               </span>
             </label>
 
-            <label>
-              {t('common.runtime')}
-              <select
-                value={draftNodeRuntimeMode}
-                onChange={(event) => setDraftNodeRuntimeMode(event.target.value === 'native' ? 'native' : 'docker')}
-              >
-                <option value="docker">{t('common.runtimeDocker')}</option>
-                <option value="native">{t('common.runtimeNative')}</option>
-              </select>
-              <span className="settings-inline-help">
-                {t('settings.runtimeHelp')}
-              </span>
-            </label>
-
             {formError && <p className="form-error">{formError}</p>}
 
             <div className="settings-actions">
@@ -3423,7 +3391,7 @@ export function App() {
         {hasNodeControls && nodeHasPartialOutage && (
           <div className="node-warning" role="note">
             {t('node.partialOutagePrefix')} <strong>{nodeStoppedServices.map((service) => service.name).join(', ')}</strong>.
-            {nodeRuntimeMode === 'native' ? t('node.partialOutageNativeDetail') : t('node.partialOutageDockerDetail')}
+            {t('node.partialOutageNativeDetail')}
           </div>
         )}
 
@@ -3959,9 +3927,7 @@ export function App() {
                   </h3>
                   <p className="log-modal-meta">
                     {nodeLogsStreamId
-                      ? nodeRuntimeMode === 'native'
-                        ? t('node.logsStreamingNative')
-                        : t('node.logsStreamingDocker')
+                      ? t('node.logsStreamingNative')
                       : t('node.logsConnectingStream')}
                     {nodeLogsLastRefreshAt ? ` · ${t('node.logsLastActivity', { time: formatTime(nodeLogsLastRefreshAt, locale) })}` : ''}
                   </p>

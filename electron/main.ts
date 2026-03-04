@@ -776,8 +776,8 @@ const NATIVE_AMQP_STARTUP_TIMEOUT_MS = 90000
 const BLOCKCHAIN_BACKUP_REQUIRED_DIRS = ['chain', 'block_store'] as const
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.knodel-blockchain-backup-cache'
-const DEFAULT_RUNTIME_MODE: KoinosNodeServiceRuntime = 'docker'
-const AVAILABLE_RUNTIME_MODES: KoinosNodeServiceRuntime[] = ['docker', 'native']
+const DEFAULT_RUNTIME_MODE: KoinosNodeServiceRuntime = 'native'
+const AVAILABLE_RUNTIME_MODES: KoinosNodeServiceRuntime[] = ['native']
 
 // Service IDs stay stable even if their runtime later moves from Docker to bundled native binaries.
 const KOINOS_MANAGED_SERVICES: ManagedKoinosServiceDefinition[] = [
@@ -820,8 +820,8 @@ const KOINOS_MANAGED_SERVICE_BY_DOCKER_SERVICE = new Map(
 )
 const KOINOS_MANAGED_SERVICE_BY_ID = new Map(KOINOS_MANAGED_SERVICES.map((definition) => [definition.id, definition] as const))
 
-function normalizeRuntimeMode(value?: string | null): KoinosNodeServiceRuntime {
-  return value === 'native' ? 'native' : DEFAULT_RUNTIME_MODE
+function normalizeRuntimeMode(_value?: string | null): KoinosNodeServiceRuntime {
+  return 'native'
 }
 
 function isAppleSiliconHost(): boolean {
@@ -1765,7 +1765,7 @@ function parsePersistedNodeSettings(input: unknown): KoinosNodeSettingsInput | u
     baseDir: typeof value.baseDir === 'string' ? value.baseDir : undefined,
     profiles,
     blockchainBackupUrl: typeof value.blockchainBackupUrl === 'string' ? value.blockchainBackupUrl : undefined,
-    runtimeMode: value.runtimeMode === 'native' || value.runtimeMode === 'docker' ? value.runtimeMode : undefined
+    runtimeMode: value.runtimeMode === 'native' ? value.runtimeMode : undefined
   }
 }
 
@@ -5870,7 +5870,7 @@ async function dockerComposeStatus(
   }
 }
 
-async function dockerComposePresets(input?: KoinosNodeSettingsInput): Promise<KoinosNodePresetsResult> {
+async function composePresets(input?: KoinosNodeSettingsInput): Promise<KoinosNodePresetsResult> {
   const settings = normalizeNodeSettings(input)
 
   try {
@@ -5916,7 +5916,7 @@ async function resolvePresetOrThrow(
   settings: KoinosNodeSettings,
   presetId: string
 ): Promise<{ preset: KoinosNodePreset; settings: KoinosNodeSettings }> {
-  const presetsResult = await dockerComposePresets(settings)
+  const presetsResult = await composePresets(settings)
   const preset = presetsResult.presets.find((candidate) => candidate.id === presetId)
   if (!preset) {
     throw new Error(`Profile not found: ${presetId}`)
@@ -7113,10 +7113,6 @@ async function nativeComposeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNod
       }
     }
 
-    if (targetService.runtimeType === 'docker') {
-      return dockerComposeLogs({ ...settings, runtimeMode: 'docker', service: targetService.service, tail })
-    }
-
     const state = nativeServiceProcesses.get(serviceId)
     return {
       ok: true,
@@ -7168,10 +7164,6 @@ async function nativeComposeLogsFollowStart(
       tail,
       output: `Servicio no gestionado en el perfil actual: ${service || '(vacio)'}`
     }
-  }
-
-  if (targetService.runtimeType === 'docker') {
-    return dockerComposeLogsFollowStart(sender, { ...settings, runtimeMode: 'docker', service: targetService.service, tail })
   }
 
   if (targetService.id === 'amqp' && nativeAmqpUsesBrewService()) {
@@ -7233,7 +7225,7 @@ async function nativeComposeLogsFollowStart(
 
 async function koinosNodeStatus(input?: KoinosNodeSettingsInput): Promise<KoinosNodeStatus> {
   const settings = normalizeNodeSettings(input)
-  return settings.runtimeMode === 'native' ? nativeComposeStatus(settings) : dockerComposeStatus(settings)
+  return nativeComposeStatus(settings)
 }
 
 async function koinosNodeAction(
@@ -7241,28 +7233,20 @@ async function koinosNodeAction(
   input?: KoinosNodeSettingsInput
 ): Promise<KoinosNodeCommandResult> {
   const settings = normalizeNodeSettings(input)
-  return settings.runtimeMode === 'native'
-    ? nativeComposeAction(action, settings)
-    : dockerComposeAction(action, settings)
+  return nativeComposeAction(action, settings)
 }
 
 async function koinosNodeServiceAction(
   action: 'start' | 'stop' | 'restart' | 'kill-conflict',
   input?: KoinosNodeServiceCommandInput
 ): Promise<KoinosNodeServiceCommandResult> {
-  const runtimeMode = normalizeNodeSettings(input).runtimeMode
-  return runtimeMode === 'native'
-    ? nativeComposeServiceAction(action, input)
-    : dockerComposeServiceAction(action, input)
+  return nativeComposeServiceAction(action, input)
 }
 
 async function koinosNodePresetReconcile(
   input?: KoinosNodePresetCommandInput
 ): Promise<KoinosNodePresetCommandResult> {
-  const runtimeMode = normalizeNodeSettings(input).runtimeMode
-  return runtimeMode === 'native'
-    ? nativeComposePresetReconcile(input)
-    : dockerComposePresetReconcile(input)
+  return nativeComposePresetReconcile(input)
 }
 
 async function koinosNodeRestoreBackup(
@@ -7298,8 +7282,7 @@ async function koinosNodeRestoreBackup(
       `Writable BASEDIR confirmed. Temporary restore workspace: ${baseDirValidation.restoreWorkspaceParent}`
     )
     reportProgress('stop', 8, 'Stopping node before restoring backup')
-    const stopResult =
-      settings.runtimeMode === 'native' ? await nativeComposeAction('stop', input) : await dockerComposeAction('stop', input)
+    const stopResult = await nativeComposeAction('stop', input)
 
     if (stopResult.output) notes.push(stopResult.output)
     if (!stopResult.ok) {
@@ -7724,10 +7707,7 @@ async function copyNodeBaseDirData(input?: KoinosNodeBaseDirCopyInput): Promise<
   }
 
   if (input?.stopSourceRuntime) {
-    const stopResult =
-      settings.runtimeMode === 'native'
-        ? await nativeComposeAction('stop', { ...settings, baseDir: sourceBaseDir })
-        : await dockerComposeAction('stop', { ...settings, baseDir: sourceBaseDir })
+    const stopResult = await nativeComposeAction('stop', { ...settings, baseDir: sourceBaseDir })
     if (stopResult.output) outputs.push(stopResult.output)
     if (!stopResult.ok) {
       return {
@@ -8899,18 +8879,14 @@ async function walletBurn(input?: WalletBurnInput): Promise<WalletBurnResult> {
 }
 
 async function koinosNodeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNodeLogsResult> {
-  const runtimeMode = normalizeNodeSettings(input).runtimeMode
-  return runtimeMode === 'native' ? nativeComposeLogs(input) : dockerComposeLogs(input)
+  return nativeComposeLogs(input)
 }
 
 async function koinosNodeLogsFollowStart(
   sender: Electron.WebContents,
   input?: KoinosNodeLogsFollowStartInput
 ): Promise<KoinosNodeLogsFollowStartResult> {
-  const runtimeMode = normalizeNodeSettings(input).runtimeMode
-  return runtimeMode === 'native'
-    ? nativeComposeLogsFollowStart(sender, input)
-    : Promise.resolve(dockerComposeLogsFollowStart(sender, input))
+  return nativeComposeLogsFollowStart(sender, input)
 }
 
 function registerIpcHandlers() {
@@ -9007,7 +8983,7 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('knodel:koinos-node:presets', async (_event, input?: KoinosNodeSettingsInput) => {
-    return dockerComposePresets(input)
+    return composePresets(input)
   })
 
   ipcMain.handle('knodel:koinos-node:native-builds', async () => {
