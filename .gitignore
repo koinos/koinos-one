@@ -9,6 +9,3 @@ assets/branding/icon.iconset/
 backend/data/archives/
 backend/data/extracted/
 backend/data/*.db
-Knodel/.build/
-Knodel/.swiftpm/xcode/xcuserdata/
-Knodel/.swiftpm/xcode/package.xcworkspace/xcuserdata/
