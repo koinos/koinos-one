@@ -1,0 +1,6 @@
+console.log('versions.electron', process.versions.electron)
+console.log('type', process.type)
+console.log('defaultApp', process.defaultApp)
+console.log('builtin has electron?', require('module').builtinModules.includes('electron'))
+console.log('global keys sample', Object.keys(globalThis).filter(k => /electron|ipc|Browser|app/i.test(k)).slice(0,50))
+console.log('process keys sample', Object.keys(process).filter(k => /electron|app|browser/i.test(k)).slice(0,50))
