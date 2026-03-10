@@ -4,7 +4,7 @@ const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'knodel:koinos-node:backup-progress:event'
 
 contextBridge.exposeInMainWorld('knodel', {
-  version: '0.2.0',
+  version: '0.9.0',
   appConfig: {
     loadPublicRpcUrls: () => ipcRenderer.invoke('knodel:app-config:public-rpcs:load'),
     savePublicRpcUrls: (params?: unknown) => ipcRenderer.invoke('knodel:app-config:public-rpcs:save', params)
@@ -27,8 +27,14 @@ contextBridge.exposeInMainWorld('knodel', {
     restoreBackup: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:restore-backup', settings),
     restoreBackupVerify: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:restore-backup-verify', settings),
     rpcCall: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:rpc-call', params),
+    dashboardProducers: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:dashboard-producers', params),
+    dashboardPeers: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:dashboard-peers', params),
     producerOverview: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-overview', settings),
+    producerLocalInfo: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-local-info', settings),
     producerRegister: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-register', params),
+    producerProfileGet: () => ipcRenderer.invoke('knodel:koinos-node:producer-profile-get'),
+    producerProfileClear: () => ipcRenderer.invoke('knodel:koinos-node:producer-profile-clear'),
+    producerDelete: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-delete', settings),
     serviceStart: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-start', params),
     serviceStop: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-stop', params),
     serviceRestart: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-restart', params),
@@ -57,9 +63,11 @@ contextBridge.exposeInMainWorld('knodel', {
     generate: () => ipcRenderer.invoke('knodel:wallet:generate'),
     importWallet: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:import', params),
     unlock: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:unlock', params),
+    closeWallet: () => ipcRenderer.invoke('knodel:wallet:close'),
     deleteWallet: () => ipcRenderer.invoke('knodel:wallet:delete'),
     addressFromWif: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:address-from-wif', params),
     deriveFromSeed: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:derive-from-seed', params),
+    showSeed: () => ipcRenderer.invoke('knodel:wallet:show-seed'),
     chainInfo: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:chain-info', params),
     block: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:block', params),
     balance: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:balance', params),
@@ -68,6 +76,8 @@ contextBridge.exposeInMainWorld('knodel', {
     rc: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:rc', params),
     tokenBalance: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:token-balance', params),
     readContract: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:read-contract', params),
-    burn: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:burn', params)
+    transferKoin: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:transfer-koin', params),
+    burn: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:burn', params),
+    transferVhp: (params?: unknown) => ipcRenderer.invoke('knodel:wallet:transfer-vhp', params)
   }
 })

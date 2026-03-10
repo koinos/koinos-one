@@ -1,962 +1,93 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { detectAppLanguage, localeForLanguage, normalizeAppLanguage, translate, type AppLanguage } from './i18n'
-
-const SETTINGS_STORAGE_KEY = 'knodel.explorer.settings.v1'
-const NODE_SETTINGS_STORAGE_KEY = 'knodel.koinos-node.settings.v1'
-const LANGUAGE_STORAGE_KEY = 'knodel.ui.language.v1'
-const LOCAL_RPC_SOURCE = 'local'
-const DEFAULT_PUBLIC_RPC_URLS = ['https://api.koinos.io/', 'https://api.koinosblocks.com/'] as const
-const LOCAL_NODE_RPC_FALLBACK_URL = 'http://127.0.0.1:8080/'
-const DEFAULT_SETTINGS = {
-  rpcSource: LOCAL_RPC_SOURCE as ExplorerRpcSource,
-  publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS],
-  pollMs: 3000,
-  rowLimit: 20,
-  producerAdvancedMode: false
-} as const
-const DEFAULT_NODE_SETTINGS = {
-  repoPath: '/Users/pgarcgo/code/koinos_code/koinos',
-  composeFile: 'docker-compose.yml',
-  envFile: '.env',
-  baseDir: '~/.koinos',
-  profiles: 'block_producer,jsonrpc',
-  blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz',
-  runtimeMode: 'native' as KnodelKoinosNodeServiceRuntime
-} as const
-const SYNC_GAP_BLOCK_THRESHOLD = 50
-const SYNC_GAP_TIME_THRESHOLD_MS = 30_000
-
-type ExplorerSettings = {
-  rpcSource: ExplorerRpcSource
-  publicRpcUrls: string[]
-  pollMs: number
-  rowLimit: number
-  producerAdvancedMode: boolean
-}
-
-type ExplorerRpcSource = typeof LOCAL_RPC_SOURCE | string
-
-type NodeManagerSettings = {
-  repoPath: string
-  composeFile: string
-  envFile: string
-  baseDir: string
-  profiles: string
-  blockchainBackupUrl: string
-  runtimeMode: KnodelKoinosNodeServiceRuntime
-}
-
-type NodeAction = 'start' | 'stop'
-type NodeServiceAction = 'start' | 'stop' | 'restart'
-type AppTab = 'explorer' | 'node' | 'producer' | 'settings'
-type NodeManagedFileKind = 'compose' | 'env' | 'config'
-type NodeServiceContextMenuState = {
-  serviceId: string
-  x: number
-  y: number
-}
-type NodeServiceActionState = {
-  serviceId: string
-  action: NodeServiceAction
-}
-type NodeNativeBuildActionState = 'all' | string
-type NodeServiceCapabilities = {
-  running: boolean
-  dependencyNames: string[]
-  missingDependencyNames: string[]
-  profileDependentNames: string[]
-  conflictReason: string | null
-  conflictPids: number[]
-  startBlockedReason: string | null
-  stopBlockedReason: string | null
-  restartBlockedReason: string | null
-}
-
-type NodeConflictDialogState = {
-  serviceId: string
-  serviceName: string
-  conflictPids: number[]
-  message: string
-}
-
-type NodeBackupProgressState = {
-  action: 'restore-backup' | 'restore-backup-verify'
-  phase: KnodelKoinosNodeBackupProgressEvent['phase']
-  progress: number
-  message: string
-  updatedAt: number
-}
-
-type NodeBaseDirValidationState = {
-  ok: boolean
-  baseDir: string
-  restoreWorkspaceParent: string
-  message: string
-}
-
-type NodeBaseDirChangeDialogState = {
-  previousBaseDir: string
-  nextBaseDir: string
-  nodeWasRunning: boolean
-}
-
-type BlockRow = {
-  height: number
-  blockId: string
-  previousId: string
-  signer: string
-  timestampMs: number
-}
-
-type HeadSnapshot = {
-  id: string
-  height: number
-  timestampMs: number
-}
-
-type NodeProducerActionState = 'register' | null
-
-type JsonRpcError = {
-  code: number
-  message: string
-  data?: unknown
-}
-
-type JsonRpcResponse<T> = {
-  jsonrpc: string
-  id: number | string | null
-  result?: T
-  error?: JsonRpcError
-}
-
-type HeadInfoResult = {
-  head_topology?: {
-    id?: string
-    height?: string
-  }
-  head_block_time?: string
-}
-
-type BlockStoreItem = {
-  block_id?: string
-  block_height?: string
-  block?: {
-    id?: string
-    header?: {
-      previous?: string
-      height?: string
-      timestamp?: string
-      signer?: string
-    }
-  }
-}
-
-type BlocksByHeightResult = {
-  block_items?: BlockStoreItem[]
-}
-
-type AnsiStyleState = {
-  fg?: string
-  bg?: string
-  bold?: boolean
-  dim?: boolean
-  italic?: boolean
-  underline?: boolean
-}
-
-type AnsiTextSegment = {
-  text: string
-  style?: CSSProperties
-}
-
-const ANSI_BASIC_COLORS = ['#20272b', '#ff6b6b', '#3ddc97', '#f4b35d', '#5aa8ff', '#d88cff', '#58d7e7', '#d9e3e8']
-const ANSI_BRIGHT_COLORS = ['#6a7d86', '#ff9b95', '#7cf3be', '#ffd98a', '#90c3ff', '#f0b7ff', '#93effa', '#ffffff']
-
-function safeParseInt(value: string | undefined, fallback = 0): number {
-  if (!value) return fallback
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) ? parsed : fallback
-}
-
-function formatDateTime(timestampMs: number, locale: string, emptyLabel: string): string {
-  if (!Number.isFinite(timestampMs) || timestampMs <= 0) return emptyLabel
-  return new Date(timestampMs).toLocaleString(locale)
-}
-
-function formatTime(timestampMs: number, locale: string, emptyLabel = ''): string {
-  if (!Number.isFinite(timestampMs) || timestampMs <= 0) return emptyLabel
-  return new Date(timestampMs).toLocaleTimeString(locale)
-}
-
-function formatRelativeAge(timestampMs: number, nowMs: number): string {
-  if (!Number.isFinite(timestampMs) || timestampMs <= 0) return 'N/A'
-  const diffSec = Math.max(0, Math.floor((nowMs - timestampMs) / 1000))
-  if (diffSec < 60) return `${diffSec}s`
-  const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m`
-  const diffHours = Math.floor(diffMin / 60)
-  if (diffHours < 24) return `${diffHours}h`
-  const diffDays = Math.floor(diffHours / 24)
-  return `${diffDays}d`
-}
-
-function formatDecimalValue(
-  value: number | string | null | undefined,
-  locale: string,
-  maximumFractionDigits = 4,
-  emptyLabel = 'N/A'
-): string {
-  if (value === null || value === undefined || value === '') return emptyLabel
-  const numeric = typeof value === 'number' ? value : Number.parseFloat(value)
-  if (!Number.isFinite(numeric)) return emptyLabel
-  return new Intl.NumberFormat(locale, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits
-  }).format(numeric)
-}
-
-function formatUsdValue(value: number | null | undefined, locale: string, emptyLabel = 'N/A'): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return emptyLabel
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: value >= 1 ? 2 : 4,
-    maximumFractionDigits: value >= 1 ? 2 : 6
-  }).format(value)
-}
-
-function shortHash(value: string, head = 12, tail = 8): string {
-  if (!value) return 'N/A'
-  if (value.length <= head + tail + 1) return value
-  return `${value.slice(0, head)}...${value.slice(-tail)}`
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
-function joinDisplayPath(basePath: string, childPath: string): string {
-  const base = basePath.replace(/[\\/]+$/, '')
-  const child = childPath.replace(/^\.?[\\/]+/, '')
-  if (!base) return childPath
-  if (!child) return base
-  return `${base}/${child}`
-}
-
-function resolveNodeFileDisplayPath(repoPath: string, filePathValue: string): string {
-  const raw = filePathValue.trim()
-  if (!raw) return ''
-  if (raw.startsWith('/') || raw.startsWith('~') || /^[A-Za-z]:[\\/]/.test(raw)) return raw
-  return joinDisplayPath(repoPath.trim(), raw)
-}
-
-function normalizeRpcUrl(raw: string, language: AppLanguage): string {
-  const value = raw.trim()
-  if (!value) throw new Error(translate(language, 'rpc.validation.empty'))
-  const parsed = new URL(value)
-  if (!/^https?:$/.test(parsed.protocol)) {
-    throw new Error(translate(language, 'rpc.validation.http'))
-  }
-  return parsed.toString()
-}
-
-function normalizeBackupTarGzUrl(raw: string, language: AppLanguage): string {
-  const value = raw.trim()
-  if (!value) throw new Error(translate(language, 'backup.validation.empty'))
-  const parsed = new URL(value)
-  if (!/^https?:$/.test(parsed.protocol)) {
-    throw new Error(translate(language, 'backup.validation.http'))
-  }
-  if (!parsed.pathname.endsWith('.tar.gz')) {
-    throw new Error(translate(language, 'backup.validation.tar'))
-  }
-  return parsed.toString()
-}
-
-function tryNormalizeHttpUrl(raw: string): string | null {
-  const value = raw.trim()
-  if (!value) return null
-
-  try {
-    const parsed = new URL(value)
-    if (!/^https?:$/.test(parsed.protocol)) return null
-    return parsed.toString()
-  } catch {
-    return null
-  }
-}
-
-function sanitizeStoredPublicRpcUrls(value: unknown): string[] {
-  if (!Array.isArray(value)) return [...DEFAULT_PUBLIC_RPC_URLS]
-  const seen = new Set<string>()
-  const urls: string[] = []
-
-  for (const candidate of value) {
-    const normalized = typeof candidate === 'string' ? tryNormalizeHttpUrl(candidate) : null
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    urls.push(normalized)
-  }
-
-  return urls.length > 0 ? urls : [...DEFAULT_PUBLIC_RPC_URLS]
-}
-
-function normalizeExplorerRpcSource(
-  value: unknown,
-  publicRpcUrls: string[],
-  fallback: ExplorerRpcSource = LOCAL_RPC_SOURCE
-): ExplorerRpcSource {
-  if (value === LOCAL_RPC_SOURCE) return LOCAL_RPC_SOURCE
-
-  if (typeof value === 'string') {
-    const normalized = tryNormalizeHttpUrl(value)
-    if (normalized && publicRpcUrls.includes(normalized)) return normalized
-  }
-
-  if (fallback === LOCAL_RPC_SOURCE) return LOCAL_RPC_SOURCE
-  if (typeof fallback === 'string') {
-    const normalizedFallback = tryNormalizeHttpUrl(fallback)
-    if (normalizedFallback && publicRpcUrls.includes(normalizedFallback)) return normalizedFallback
-  }
-
-  return publicRpcUrls[0] ?? LOCAL_RPC_SOURCE
-}
-
-function formatRpcDisplayUrl(url: string): string {
-  return url.replace(/\/$/, '')
-}
-
-function formatExplorerRpcSourceKind(source: ExplorerRpcSource, language: AppLanguage): string {
-  return source === LOCAL_RPC_SOURCE ? translate(language, 'rpc.mode.local') : translate(language, 'rpc.mode.public')
-}
-
-function formatExplorerRpcSourceTarget(source: ExplorerRpcSource, language: AppLanguage): string {
-  return source === LOCAL_RPC_SOURCE ? translate(language, 'rpc.mode.local') : formatRpcDisplayUrl(source)
-}
-
-function parsePublicRpcUrlsInput(raw: string, language: AppLanguage): string[] {
-  const seen = new Set<string>()
-  const urls: string[] = []
-
-  for (const part of raw.split(/[\n,]+/)) {
-    const value = part.trim()
-    if (!value) continue
-    const normalized = normalizeRpcUrl(value, language)
-    if (seen.has(normalized)) continue
-    seen.add(normalized)
-    urls.push(normalized)
-  }
-
-  if (urls.length === 0) {
-    throw new Error(translate(language, 'rpc.validation.publicListEmpty'))
-  }
-
-  return urls
-}
-
-function formatProducerWalletBalanceError(message: string, rpcUrl: string, language: AppLanguage): string {
-  if (/context deadline exceeded|timed out|timeout/i.test(message)) {
-    return translate(language, 'producer.signingWalletRpcTimeout', { rpcUrl: formatRpcDisplayUrl(rpcUrl) })
-  }
-
-  if (/rpc failed|internal server error/i.test(message)) {
-    return translate(language, 'producer.signingWalletRpcError', { rpcUrl: formatRpcDisplayUrl(rpcUrl) })
-  }
-
-  return message
-}
-
-function loadInitialSettings(): ExplorerSettings {
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_SETTINGS }
-    const parsed = JSON.parse(raw) as Partial<ExplorerSettings>
-    const publicRpcUrls = sanitizeStoredPublicRpcUrls((parsed as Partial<ExplorerSettings> & { publicRpcUrls?: unknown }).publicRpcUrls)
-    const legacyRpcUrl = typeof (parsed as { rpcUrl?: unknown }).rpcUrl === 'string'
-      ? tryNormalizeHttpUrl((parsed as { rpcUrl?: string }).rpcUrl ?? '')
-      : null
-
-    if (legacyRpcUrl && (parsed as { rpcMode?: unknown }).rpcMode !== LOCAL_RPC_SOURCE && !publicRpcUrls.includes(legacyRpcUrl)) {
-      publicRpcUrls.push(legacyRpcUrl)
-    }
-
-    const legacyFallback =
-      (parsed as { rpcMode?: unknown }).rpcMode === LOCAL_RPC_SOURCE
-        ? LOCAL_RPC_SOURCE
-        : legacyRpcUrl ?? publicRpcUrls[0] ?? LOCAL_RPC_SOURCE
-
-    return {
-      rpcSource: normalizeExplorerRpcSource((parsed as { rpcSource?: unknown }).rpcSource, publicRpcUrls, legacyFallback),
-      publicRpcUrls,
-      pollMs: clamp(typeof parsed.pollMs === 'number' ? parsed.pollMs : DEFAULT_SETTINGS.pollMs, 1000, 30000),
-      rowLimit: clamp(typeof parsed.rowLimit === 'number' ? parsed.rowLimit : DEFAULT_SETTINGS.rowLimit, 5, 50),
-      producerAdvancedMode: parsed.producerAdvancedMode === true
-    }
-  } catch {
-    return { ...DEFAULT_SETTINGS }
-  }
-}
-
-function loadInitialNodeSettings(): NodeManagerSettings {
-  try {
-    const raw = window.localStorage.getItem(NODE_SETTINGS_STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_NODE_SETTINGS }
-    const parsed = JSON.parse(raw) as Partial<NodeManagerSettings>
-    return {
-      repoPath:
-        typeof parsed.repoPath === 'string' && parsed.repoPath.trim()
-          ? parsed.repoPath
-          : DEFAULT_NODE_SETTINGS.repoPath,
-      composeFile:
-        typeof parsed.composeFile === 'string' && parsed.composeFile.trim()
-          ? parsed.composeFile
-          : DEFAULT_NODE_SETTINGS.composeFile,
-      envFile:
-        typeof parsed.envFile === 'string' && parsed.envFile.trim()
-          ? parsed.envFile.trim() === 'env.example'
-            ? '.env'
-            : parsed.envFile
-          : DEFAULT_NODE_SETTINGS.envFile,
-      baseDir: normalizeNodeBaseDirInput(
-        typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : DEFAULT_NODE_SETTINGS.baseDir
-      ),
-      profiles: typeof parsed.profiles === 'string' ? parsed.profiles : DEFAULT_NODE_SETTINGS.profiles,
-      blockchainBackupUrl:
-        typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
-          ? parsed.blockchainBackupUrl
-          : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
-      runtimeMode: 'native'
-    }
-  } catch {
-    return { ...DEFAULT_NODE_SETTINGS }
-  }
-}
-
-function loadInitialLanguage(): AppLanguage {
-  try {
-    const raw = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
-    if (raw) return normalizeAppLanguage(raw)
-  } catch {
-    // ignore
-  }
-
-  return detectAppLanguage()
-}
-
-function parseProfilesCsv(value: string): string[] {
-  return value
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-}
-
-function normalizeNodeBaseDirInput(value: string): string {
-  const trimmed = value.trim() || DEFAULT_NODE_SETTINGS.baseDir
-  const normalized = trimmed.replace(/[\\/]+$/, '')
-  if (!normalized) return DEFAULT_NODE_SETTINGS.baseDir
-  const segments = normalized.split(/[\\/]+/).filter(Boolean)
-  if (segments.at(-1) === '.koinos') return normalized
-  return `${normalized}/.koinos`
-}
-
-function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNodeSettings {
-  return {
-    repoPath: settings.repoPath.trim(),
-    composeFile: settings.composeFile.trim(),
-    envFile: settings.envFile.trim(),
-    baseDir: normalizeNodeBaseDirInput(settings.baseDir),
-    profiles: parseProfilesCsv(settings.profiles),
-    blockchainBackupUrl: settings.blockchainBackupUrl.trim(),
-    runtimeMode: 'native'
-  }
-}
-
-function getKoinosNodeBridge() {
-  return window.knodel?.koinosNode
-}
-
-function getAppConfigBridge() {
-  return window.knodel?.appConfig
-}
-
-function getWalletBridge() {
-  return window.knodel?.wallet
-}
-
-function looksLikeNodeErrorOutput(output: string): boolean {
-  return /cannot connect to the docker daemon|spawn docker ENOENT|repo path not found|compose file not found|env file not found|missing config dir|no se pudo consultar docker compose|error consultando docker compose/i.test(
-    output
-  )
-}
-
-function nodeServicePortByTarget(
-  service: KnodelKoinosNodeServiceStatus | null | undefined,
-  targetPort: number
-): KnodelKoinosNodeServicePort | null {
-  return service?.ports.find((port) => port.targetPort === targetPort) ?? null
-}
-
-function normalizeNodeRpcHost(host: string | null | undefined, fallback = '127.0.0.1'): string {
-  const value = host?.trim()
-  return value && value !== '0.0.0.0' && value !== '::' ? value : fallback
-}
-
-function resolveLocalNodeRpcUrl(nodeStatus: KnodelKoinosNodeStatus | null): string {
-  const jsonrpcService = nodeStatus?.services.find((service) => service.id === 'jsonrpc') ?? null
-  const jsonrpcPort = nodeServicePortByTarget(jsonrpcService, 8080)
-  const host = normalizeNodeRpcHost(jsonrpcPort?.host)
-  const port = jsonrpcPort?.publishedPort ?? 8080
-  return `http://${host}:${port}/`
-}
-
-function resolveExplorerRpcUrl(settings: ExplorerSettings, nodeStatus: KnodelKoinosNodeStatus | null): string {
-  if (settings.rpcSource !== LOCAL_RPC_SOURCE) return settings.rpcSource
-  return resolveLocalNodeRpcUrl(nodeStatus)
-}
-
-function isNodeServiceRunning(service: KnodelKoinosNodeServiceStatus): boolean {
-  return /running|up/i.test(`${service.state} ${service.status}`) && !service.lastError
-}
-
-function formatNodeServicePorts(service: KnodelKoinosNodeServiceStatus): string {
-  if (!service.ports.length) return '-'
-  return service.ports.map((port) => port.label || `${port.targetPort ?? '?'}${port.protocol ? `/${port.protocol}` : ''}`).join(', ')
-}
-
-function formatNodeServiceType(_service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
-  return translate(language, 'common.runtimeNative')
-}
-
-function formatNodeServiceVersion(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
-  return service.version?.trim() || translate(language, 'common.unknown')
-}
-
-function formatNodeRuntimeMode(_mode: KnodelKoinosNodeServiceRuntime, language: AppLanguage): string {
-  return translate(language, 'common.runtimeNative')
-}
-
-function formatNodeServiceTooltip(
-  service: KnodelKoinosNodeServiceStatus,
-  capabilities: NodeServiceCapabilities,
-  language: AppLanguage
-): string {
-  const lines = [
-    translate(language, 'node.serviceTooltip.service', { value: service.name }),
-    translate(language, 'node.serviceTooltip.runtime', { value: service.runtimeName })
-  ]
-
-  if (service.version) {
-    lines.push(translate(language, 'node.serviceTooltip.version', { value: service.version }))
-  }
-
-  if (service.nativePid) {
-    lines.push(translate(language, 'node.serviceTooltip.managedPid', { value: service.nativePid }))
-  }
-
-  if (service.conflictPids.length > 0) {
-    lines.push(translate(language, 'node.serviceTooltip.conflictingPids', { value: service.conflictPids.join(', ') }))
-  }
-
-  lines.push(
-    translate(language, 'node.serviceTooltip.dependsOn', {
-      value:
-        capabilities.dependencyNames.length > 0
-          ? capabilities.dependencyNames.join(', ')
-          : translate(language, 'common.none')
-    })
-  )
-
-  if (capabilities.profileDependentNames.length > 0) {
-    lines.push(translate(language, 'node.serviceTooltip.usedBy', { value: capabilities.profileDependentNames.join(', ') }))
-  }
-
-  if (capabilities.missingDependencyNames.length > 0) {
-    lines.push(
-      translate(language, 'node.serviceTooltip.missingDependencies', {
-        value: capabilities.missingDependencyNames.join(', ')
-      })
-    )
-  }
-
-  if (service.lastError) {
-    lines.push(translate(language, 'node.serviceTooltip.issue', { value: service.lastError }))
-  }
-
-  return lines.join('\n')
-}
-
-function normalizeStringList(values: string[]): string[] {
-  return [...values].map((value) => value.trim()).filter(Boolean).sort()
-}
-
-function formatNodeServiceRuntimeDetail(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
-  if (service.nativePid) {
-    return translate(language, 'node.serviceRuntimeDetail.pid', {
-      runtime: service.runtimeName,
-      pid: service.nativePid
-    })
-  }
-  if (service.conflictPids.length > 0) {
-    return translate(language, 'node.serviceRuntimeDetail.conflict', {
-      runtime: service.runtimeName,
-      pid: service.conflictPids.join(', ')
-    })
-  }
-  return service.runtimeName
-}
-
-function canKillNodeConflict(service: KnodelKoinosNodeServiceStatus): boolean {
-  return service.runtimeType === 'native' && service.id !== 'amqp' && service.conflictPids.length > 0
-}
-
-function normalizeProfiles(profiles: string[]): string[] {
-  return normalizeStringList(profiles)
-}
-
-function sameStringList(left: string[], right: string[]): boolean {
-  const normalizedLeft = normalizeStringList(left)
-  const normalizedRight = normalizeStringList(right)
-  if (normalizedLeft.length !== normalizedRight.length) return false
-  return normalizedLeft.every((value, index) => value === normalizedRight[index])
-}
-
-function sameProfiles(left: string[], right: string[]): boolean {
-  return sameStringList(left, right)
-}
-
-function formatPresetProfiles(preset: KnodelKoinosNodePreset, language: AppLanguage): string {
-  return preset.profiles.length ? preset.profiles.join(', ') : translate(language, 'common.core')
-}
-
-function basenameFromPath(input: string | null): string {
-  if (!input) return '-'
-  const parts = input.split(/[\\/]/).filter(Boolean)
-  return parts[parts.length - 1] || input
-}
-
-function formatNativeBuildSystem(buildSystem: KnodelKoinosNativeBuildSystem | null): string {
-  if (buildSystem === 'cmake') return 'CMake'
-  if (buildSystem === 'go') return 'Go'
-  if (buildSystem === 'yarn') return 'Yarn'
-  return '-'
-}
-
-function formatNativeBuildStatus(
-  build: KnodelKoinosNodeNativeBuildStatus,
-  language: AppLanguage
-): { label: string; className: string } {
-  if (!build.supported) {
-    return { label: translate(language, 'node.buildStatus.unsupported'), className: 'is-unsupported' }
-  }
-
-  if (!build.repoExists) {
-    return { label: translate(language, 'node.buildStatus.missingRepo'), className: 'is-blocked' }
-  }
-
-  if (!build.buildable) {
-    return { label: translate(language, 'node.buildStatus.blocked'), className: 'is-blocked' }
-  }
-
-  if (build.artifactExists) {
-    return { label: translate(language, 'node.buildStatus.built'), className: 'is-built' }
-  }
-
-  return { label: translate(language, 'node.buildStatus.pending'), className: 'is-pending' }
-}
-
-function formatNativeBuildTooltip(build: KnodelKoinosNodeNativeBuildStatus, language: AppLanguage): string {
-  const lines = [translate(language, 'node.buildTooltip.service', { value: build.serviceName })]
-
-  if (build.repoPath) lines.push(translate(language, 'node.buildTooltip.repo', { value: build.repoPath }))
-  if (build.artifactPath) lines.push(translate(language, 'node.buildTooltip.artifact', { value: build.artifactPath }))
-  if (build.note) lines.push(translate(language, 'node.buildTooltip.note', { value: build.note }))
-  if (build.buildCommands.length > 0) {
-    lines.push(translate(language, 'node.buildTooltip.build', { value: build.buildCommands.join(' && ') }))
-  }
-
-  return lines.join('\n')
-}
-
-function xterm256Color(value: number): string {
-  const code = clamp(Math.trunc(value), 0, 255)
-  if (code < 16) {
-    const palette = [...ANSI_BASIC_COLORS, ...ANSI_BRIGHT_COLORS]
-    return palette[code] ?? '#d9e3e8'
-  }
-
-  if (code >= 232) {
-    const level = 8 + (code - 232) * 10
-    return `rgb(${level}, ${level}, ${level})`
-  }
-
-  const n = code - 16
-  const r = Math.floor(n / 36)
-  const g = Math.floor((n % 36) / 6)
-  const b = n % 6
-  const toChannel = (index: number) => (index === 0 ? 0 : 55 + index * 40)
-  return `rgb(${toChannel(r)}, ${toChannel(g)}, ${toChannel(b)})`
-}
-
-function applyAnsiSgrCodes(current: AnsiStyleState, sgrCodes: number[]): AnsiStyleState {
-  let next: AnsiStyleState = { ...current }
-  const codes = sgrCodes.length ? sgrCodes : [0]
-
-  for (let index = 0; index < codes.length; index += 1) {
-    const code = codes[index] ?? 0
-
-    if (code === 0) {
-      next = {}
-      continue
-    }
-    if (code === 1) {
-      next.bold = true
-      continue
-    }
-    if (code === 2) {
-      next.dim = true
-      continue
-    }
-    if (code === 3) {
-      next.italic = true
-      continue
-    }
-    if (code === 4) {
-      next.underline = true
-      continue
-    }
-    if (code === 22) {
-      next.bold = false
-      next.dim = false
-      continue
-    }
-    if (code === 23) {
-      next.italic = false
-      continue
-    }
-    if (code === 24) {
-      next.underline = false
-      continue
-    }
-    if (code === 39) {
-      delete next.fg
-      continue
-    }
-    if (code === 49) {
-      delete next.bg
-      continue
-    }
-    if (code >= 30 && code <= 37) {
-      next.fg = ANSI_BASIC_COLORS[code - 30]
-      continue
-    }
-    if (code >= 90 && code <= 97) {
-      next.fg = ANSI_BRIGHT_COLORS[code - 90]
-      continue
-    }
-    if (code >= 40 && code <= 47) {
-      next.bg = ANSI_BASIC_COLORS[code - 40]
-      continue
-    }
-    if (code >= 100 && code <= 107) {
-      next.bg = ANSI_BRIGHT_COLORS[code - 100]
-      continue
-    }
-
-    if ((code === 38 || code === 48) && index + 1 < codes.length) {
-      const mode = codes[index + 1]
-      if (mode === 5 && index + 2 < codes.length) {
-        const color = xterm256Color(codes[index + 2] ?? 0)
-        if (code === 38) next.fg = color
-        else next.bg = color
-        index += 2
-        continue
-      }
-      if (mode === 2 && index + 4 < codes.length) {
-        const r = clamp(codes[index + 2] ?? 0, 0, 255)
-        const g = clamp(codes[index + 3] ?? 0, 0, 255)
-        const b = clamp(codes[index + 4] ?? 0, 0, 255)
-        const color = `rgb(${r}, ${g}, ${b})`
-        if (code === 38) next.fg = color
-        else next.bg = color
-        index += 4
-      }
-    }
-  }
-
-  return next
-}
-
-function ansiStyleToCss(styleState: AnsiStyleState): CSSProperties | undefined {
-  const style: CSSProperties = {}
-  if (styleState.fg) style.color = styleState.fg
-  if (styleState.bg) style.backgroundColor = styleState.bg
-  if (styleState.bold) style.fontWeight = 700
-  if (styleState.dim) style.opacity = 0.78
-  if (styleState.italic) style.fontStyle = 'italic'
-  if (styleState.underline) style.textDecoration = 'underline'
-  return Object.keys(style).length ? style : undefined
-}
-
-function parseAnsiTextSegments(input: string): AnsiTextSegment[] {
-  const pattern = /\u001b\[([0-9;]*)m/g
-  const segments: AnsiTextSegment[] = []
-  let cursor = 0
-  let match: RegExpExecArray | null = null
-  let styleState: AnsiStyleState = {}
-
-  while ((match = pattern.exec(input)) !== null) {
-    if (match.index > cursor) {
-      segments.push({
-        text: input.slice(cursor, match.index),
-        style: ansiStyleToCss(styleState)
-      })
-    }
-
-    const sgrCodes = (match[1] ?? '')
-      .split(';')
-      .filter((part) => part.length > 0)
-      .map((part) => Number.parseInt(part, 10))
-      .filter((code) => Number.isFinite(code))
-
-    styleState = applyAnsiSgrCodes(styleState, sgrCodes)
-    cursor = match.index + match[0].length
-  }
-
-  if (cursor < input.length) {
-    segments.push({
-      text: input.slice(cursor),
-      style: ansiStyleToCss(styleState)
-    })
-  }
-
-  return segments
-}
-
-function renderAnsiLog(input: string) {
-  return parseAnsiTextSegments(input).map((segment, index) => (
-    <span key={`${index}-${segment.text.length}`} className="ansi-log-segment" style={segment.style}>
-      {segment.text}
-    </span>
-  ))
-}
-
-async function rpcCall<T>(
-  language: AppLanguage,
-  rpcUrl: string,
-  method: string,
-  params: Record<string, unknown>,
-  signal: AbortSignal
-): Promise<T> {
-  const bridge = getKoinosNodeBridge()
-  if (bridge?.rpcCall) {
-    if (signal.aborted) {
-      throw new DOMException('The operation was aborted.', 'AbortError')
-    }
-
-    const proxied = await bridge.rpcCall({ rpcUrl, method, params })
-    if (signal.aborted) {
-      throw new DOMException('The operation was aborted.', 'AbortError')
-    }
-    if (!proxied.ok) {
-      throw new Error(proxied.output || 'RPC error')
-    }
-    if (proxied.result === undefined) {
-      throw new Error(translate(language, 'rpc.resultEmpty'))
-    }
-    return proxied.result as T
-  }
-
-  const response = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method,
-      params
-    }),
-    signal
-  })
-
-  if (!response.ok) {
-    throw new Error(translate(language, 'rpc.httpStatus', { status: response.status }))
-  }
-
-  const payload = (await response.json()) as JsonRpcResponse<T>
-  if (payload.error) {
-    throw new Error(payload.error.message || 'RPC error')
-  }
-  if (payload.result === undefined) {
-    throw new Error(translate(language, 'rpc.resultEmpty'))
-  }
-  return payload.result
-}
-
-function mapBlockItem(item: BlockStoreItem): BlockRow | null {
-  const header = item.block?.header
-  const height = safeParseInt(header?.height ?? item.block_height, 0)
-  const blockId = item.block?.id ?? item.block_id ?? ''
-  const previousId = header?.previous ?? ''
-  const signer = header?.signer ?? ''
-  const timestampMs = safeParseInt(header?.timestamp, 0)
-
-  if (!height || !blockId) return null
-  return { height, blockId, previousId, signer, timestampMs }
-}
-
-async function fetchLatestBlocks(
-  language: AppLanguage,
-  rpcUrl: string,
-  rowLimit: number,
-  signal: AbortSignal
-): Promise<{ head: HeadSnapshot; rows: BlockRow[] }> {
-  const head = await fetchHeadSnapshot(language, rpcUrl, signal)
-
-  const ancestorStartHeight = Math.max(1, head.height - rowLimit + 1)
-
-  const blockStore = await rpcCall<BlocksByHeightResult>(
-    language,
-    rpcUrl,
-    'block_store.get_blocks_by_height',
-    {
-      head_block_id: head.id,
-      ancestor_start_height: String(ancestorStartHeight),
-      num_blocks: String(rowLimit),
-      return_block: true
-    },
-    signal
-  )
-
-  const rows = (blockStore.block_items ?? [])
-    .map(mapBlockItem)
-    .filter((row): row is BlockRow => row !== null)
-    .sort((a, b) => b.height - a.height)
-
-  return {
-    head,
-    rows
-  }
-}
-
-async function fetchHeadSnapshot(
-  language: AppLanguage,
-  rpcUrl: string,
-  signal: AbortSignal
-): Promise<HeadSnapshot> {
-  const headInfo = await rpcCall<HeadInfoResult>(language, rpcUrl, 'chain.get_head_info', {}, signal)
-  const headId = headInfo.head_topology?.id ?? ''
-  const headHeight = safeParseInt(headInfo.head_topology?.height, 0)
-  const headTimestampMs = safeParseInt(headInfo.head_block_time, 0)
-
-  if (!headId || !headHeight) {
-    throw new Error(translate(language, 'rpc.invalidHeadInfo'))
-  }
-
-  return { id: headId, height: headHeight, timestampMs: headTimestampMs }
-}
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { localeForLanguage, translate, type AppLanguage } from './i18n'
+import {
+  DEFAULT_NODE_SETTINGS,
+  DEFAULT_PUBLIC_RPC_URLS,
+  DEFAULT_SETTINGS,
+  LANGUAGE_STORAGE_KEY,
+  NODE_SETTINGS_STORAGE_KEY,
+  SETTINGS_STORAGE_KEY,
+  SYNC_GAP_BLOCK_THRESHOLD,
+  SYNC_GAP_TIME_THRESHOLD_MS
+} from './app/constants'
+import type {
+  AppTab,
+  BlockRow,
+  DashboardSubtab,
+  ExplorerSettings,
+  HeadSnapshot,
+  NodeAction,
+  NodeBackupProgressState,
+  NodeBaseDirChangeDialogState,
+  NodeBaseDirValidationState,
+  NodeConflictDialogState,
+  NodeManagedFileKind,
+  NodeManagerSettings,
+  NodeNativeBuildActionState,
+  NodeProducerActionState,
+  NodeServiceAction,
+  NodeServiceActionState,
+  NodeServiceCapabilities,
+  NodeServiceContextMenuState
+} from './app/types'
+import {
+  getProducerSetupBlockReason,
+  isProducerActivelyProducingFromLogs,
+  isProducerSetupComplete,
+  resolveProducerTargetAddress
+} from './app/producer'
+import {
+  canKillNodeConflict,
+  clamp,
+  expandNodeProfiles,
+  fetchHeadSnapshot,
+  fetchLatestBlocks,
+  filterBlocksByProducer,
+  formatDateTime,
+  formatExplorerRpcSourceTarget,
+  formatNodeRuntimeMode,
+  formatNodeServicePorts,
+  formatNodeServiceRuntimeDetail,
+  formatNodeServiceTooltip,
+  formatNodeServiceType,
+  formatNodeServiceVersion,
+  formatPresetProfiles,
+  formatProducerWalletBalanceError,
+  formatTime,
+  getAppConfigBridge,
+  getKoinosNodeBridge,
+  getWalletBridge,
+  isNodeServiceRunning,
+  loadInitialLanguage,
+  loadInitialNodeSettings,
+  loadInitialSettings,
+  looksLikeNodeErrorOutput,
+  normalizeDashboardProducerWindowBlocks,
+  normalizeDashboardRefreshSeconds,
+  normalizeBackupTarGzUrl,
+  normalizeExplorerRpcSource,
+  normalizeNodeBaseDirInput,
+  parseProfilesCsv,
+  parsePublicRpcUrlsInput,
+  renderAnsiLog,
+  resolveExplorerRpcUrl,
+  resolveLocalNodeRpcUrl,
+  resolveProducerRpcUrl,
+  resolveNodeFileDisplayPath,
+  sameProfiles,
+  sameStringList,
+  toNodeApiSettings
+} from './app/utils'
+import { AppFooter } from './components/panels/AppFooter'
+import { DashboardPanel } from './components/panels/DashboardPanel'
+import { ExplorerPanel } from './components/panels/ExplorerPanel'
+import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
+import { ProducerPanel } from './components/panels/ProducerPanel'
+import { SettingsPanel } from './components/panels/SettingsPanel'
+import { WalletPanel } from './components/panels/WalletPanel'
 
 export function App() {
-  const appVersion = window.knodel?.version?.trim() || '0.2.0'
+  const appVersion = window.knodel?.version?.trim() || '0.9.0'
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
   const [nodeSettings, setNodeSettings] = useState<NodeManagerSettings>(() => loadInitialNodeSettings())
@@ -974,6 +105,12 @@ export function App() {
   const [publicRpcConfigLoaded, setPublicRpcConfigLoaded] = useState(() => !Boolean(getAppConfigBridge()?.loadPublicRpcUrls))
   const [draftPollMs, setDraftPollMs] = useState(String(settings.pollMs))
   const [draftRowLimit, setDraftRowLimit] = useState(String(settings.rowLimit))
+  const [draftDashboardProducerWindowBlocks, setDraftDashboardProducerWindowBlocks] = useState(
+    String(settings.dashboardProducerWindowBlocks)
+  )
+  const [draftDashboardRefreshSeconds, setDraftDashboardRefreshSeconds] = useState(
+    String(settings.dashboardRefreshSeconds)
+  )
   const [draftNodeRepoPath, setDraftNodeRepoPath] = useState(nodeSettings.repoPath)
   const [draftNodeComposeFile, setDraftNodeComposeFile] = useState(nodeSettings.composeFile)
   const [draftNodeEnvFile, setDraftNodeEnvFile] = useState(nodeSettings.envFile)
@@ -993,6 +130,16 @@ export function App() {
   const [nodeProducerOverview, setNodeProducerOverview] = useState<KnodelKoinosNodeProducerOverviewResult | null>(null)
   const [nodeProducerLoading, setNodeProducerLoading] = useState(false)
   const [nodeProducerError, setNodeProducerError] = useState<string | null>(null)
+  const [producerLocalInfo, setProducerLocalInfo] = useState<KnodelKoinosNodeProducerLocalInfoResult | null>(null)
+  const [producerRecentBlocks, setProducerRecentBlocks] = useState<BlockRow[]>([])
+  const [producerRecentBlocksLoading, setProducerRecentBlocksLoading] = useState(false)
+  const [producerRecentBlocksError, setProducerRecentBlocksError] = useState<string | null>(null)
+  const [dashboardProducers, setDashboardProducers] = useState<KnodelKoinosNodeDashboardProducersResult | null>(null)
+  const [dashboardProducersLoading, setDashboardProducersLoading] = useState(false)
+  const [dashboardProducersError, setDashboardProducersError] = useState<string | null>(null)
+  const [dashboardPeers, setDashboardPeers] = useState<KnodelKoinosNodeDashboardPeersResult | null>(null)
+  const [dashboardPeersLoading, setDashboardPeersLoading] = useState(false)
+  const [dashboardPeersError, setDashboardPeersError] = useState<string | null>(null)
   const [nodeProducerActionLoading, setNodeProducerActionLoading] = useState<NodeProducerActionState>(null)
   const [nodeProducerAddressDraft, setNodeProducerAddressDraft] = useState('')
   const [producerUnlockPassword, setProducerUnlockPassword] = useState('')
@@ -1032,6 +179,7 @@ export function App() {
   const [nodeBaseDirCopyLoading, setNodeBaseDirCopyLoading] = useState(false)
   const [nodeBaseDirRestartLoading, setNodeBaseDirRestartLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
+  const [dashboardSubtab, setDashboardSubtab] = useState<DashboardSubtab>('producers')
   const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
   const [walletOverview, setWalletOverview] = useState<KnodelWalletOverviewResult | null>(null)
   const [producerSigningWalletBalance, setProducerSigningWalletBalance] = useState<KnodelWalletBalanceResult | null>(null)
@@ -1044,9 +192,22 @@ export function App() {
   const [walletResultData, setWalletResultData] = useState<unknown>(null)
   const [walletImportPrivateKey, setWalletImportPrivateKey] = useState('')
   const [walletImportPassword, setWalletImportPassword] = useState('')
+  const [walletImportSeedPhrase, setWalletImportSeedPhrase] = useState('')
+  const [walletImportSeedPassword, setWalletImportSeedPassword] = useState('')
+  const [walletTransferAddressDraft, setWalletTransferAddressDraft] = useState('')
+  const [walletTransferAsset, setWalletTransferAsset] = useState<'koin' | 'vhp'>('koin')
+  const [walletTransferAmountDraft, setWalletTransferAmountDraft] = useState('')
+  const [walletTransferDryRun, setWalletTransferDryRun] = useState(true)
+  const [walletTransferUseFreeMana, setWalletTransferUseFreeMana] = useState(false)
   const [walletBurnPercentDraft, setWalletBurnPercentDraft] = useState('95')
   const [walletBurnAmountDraft, setWalletBurnAmountDraft] = useState('')
+  const [walletBurnTargetAddressDraft, setWalletBurnTargetAddressDraft] = useState('')
   const [walletBurnDryRun, setWalletBurnDryRun] = useState(true)
+  const [walletBurnUseFreeMana, setWalletBurnUseFreeMana] = useState(false)
+  const [producerProfile, setProducerProfile] = useState<KnodelKoinosNodeProducerProfileResult | null>(null)
+  const [producerUseWalletAddress, setProducerUseWalletAddress] = useState(true)
+  const [producerAllowDelegatedSigner, setProducerAllowDelegatedSigner] = useState(false)
+  const [producerFooterState, setProducerFooterState] = useState<'unknown' | 'producing'>('unknown')
   const [nowMs, setNowMs] = useState(() => Date.now())
   const rowsRef = useRef<BlockRow[]>([])
   const nodeOutputRef = useRef(nodeOutput)
@@ -1067,7 +228,15 @@ export function App() {
     setDraftPublicRpcUrls(settings.publicRpcUrls.join('\n'))
     setDraftPollMs(String(settings.pollMs))
     setDraftRowLimit(String(settings.rowLimit))
-  }, [settings.publicRpcUrls, settings.pollMs, settings.rowLimit])
+    setDraftDashboardProducerWindowBlocks(String(settings.dashboardProducerWindowBlocks))
+    setDraftDashboardRefreshSeconds(String(settings.dashboardRefreshSeconds))
+  }, [
+    settings.publicRpcUrls,
+    settings.pollMs,
+    settings.rowLimit,
+    settings.dashboardProducerWindowBlocks,
+    settings.dashboardRefreshSeconds
+  ])
 
   useEffect(() => {
     const bridge = getAppConfigBridge()
@@ -1115,6 +284,36 @@ export function App() {
   }, [settings.producerAdvancedMode, nodeProducerOverview, nodeProducerAddressDraft])
 
   useEffect(() => {
+    const profileAddress = producerProfile?.profile?.producerAddress?.trim() || ''
+    const walletAddress = walletOverview?.walletAddress?.trim() || ''
+    if (!profileAddress || !walletAddress) return
+    setProducerUseWalletAddress(profileAddress.toLowerCase() === walletAddress.toLowerCase())
+  }, [producerProfile?.profile?.producerAddress, walletOverview?.walletAddress])
+
+  useEffect(() => {
+    if (producerUseWalletAddress && producerAllowDelegatedSigner) {
+      setProducerAllowDelegatedSigner(false)
+    }
+  }, [producerUseWalletAddress, producerAllowDelegatedSigner])
+
+  useEffect(() => {
+    const defaultBurnTarget = walletOverview?.walletAddress || ''
+    const defaultTransferTarget = producerProfile?.profile?.producerAddress || walletOverview?.walletAddress || ''
+
+    if (!walletBurnTargetAddressDraft.trim() && defaultBurnTarget) {
+      setWalletBurnTargetAddressDraft(defaultBurnTarget)
+    }
+    if (!walletTransferAddressDraft.trim() && defaultTransferTarget) {
+      setWalletTransferAddressDraft(defaultTransferTarget)
+    }
+  }, [
+    producerProfile?.profile?.producerAddress,
+    walletOverview?.walletAddress,
+    walletBurnTargetAddressDraft,
+    walletTransferAddressDraft
+  ])
+
+  useEffect(() => {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
   }, [settings])
 
@@ -1139,6 +338,11 @@ export function App() {
   )
   const primaryPublicRpcUrl = settings.publicRpcUrls[0] ?? DEFAULT_PUBLIC_RPC_URLS[0]
   const localNodeRpcUrl = useMemo(() => resolveLocalNodeRpcUrl(nodeStatus), [nodeStatus])
+  const producerRpcUrl = useMemo(
+    () => resolveProducerRpcUrl(nodeStatus, primaryPublicRpcUrl),
+    [nodeStatus, primaryPublicRpcUrl]
+  )
+  const footerRpcUrl = activeTab === 'producer' ? producerRpcUrl : effectiveExplorerRpcUrl
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
@@ -1160,28 +364,33 @@ export function App() {
   }, [nodeStatus, nodeLogsService])
 
   useEffect(() => {
-    if (activeTab !== 'producer') return
-    if (!hasNodeControls) return
-    void refreshNodeProducerOverview()
-  }, [
-    activeTab,
-    hasNodeControls,
-    nodeSettings.repoPath,
-    nodeSettings.baseDir,
-    nodeSettings.profiles,
-    nodeStatus?.runningServices,
-    settings.producerAdvancedMode,
-    walletOverview?.walletAddress
-  ])
-
-  useEffect(() => {
-    if (activeTab !== 'producer') return
+    if (activeTab !== 'producer' && activeTab !== 'wallet' && !(activeTab === 'dashboard' && dashboardSubtab === 'forecast')) return
     if (!getWalletBridge()) return
     void refreshWalletOverview()
-  }, [activeTab, effectiveExplorerRpcUrl])
+  }, [activeTab, dashboardSubtab, effectiveExplorerRpcUrl])
 
   useEffect(() => {
-    if (activeTab !== 'producer') return
+    if (activeTab !== 'producer' && activeTab !== 'wallet' && !(activeTab === 'dashboard' && dashboardSubtab === 'forecast')) return
+    if (!getKoinosNodeBridge()) return
+    void refreshProducerProfile()
+  }, [activeTab, dashboardSubtab])
+
+  useEffect(() => {
+    const producerProfileReady = isProducerSetupComplete(producerProfile)
+    const shouldRefreshBalance =
+      activeTab === 'wallet' ||
+      (activeTab === 'producer' && producerProfileReady) ||
+      (activeTab === 'dashboard' && dashboardSubtab === 'forecast')
+
+    if (!shouldRefreshBalance) {
+      if (activeTab === 'producer') {
+        setProducerSigningWalletBalance(null)
+        setProducerSigningWalletBalanceError(null)
+        setProducerSigningWalletBalanceLoading(false)
+      }
+      return
+    }
+
     const signingWalletAddress = walletOverview?.walletAddress?.trim() || ''
     if (!signingWalletAddress) {
       setProducerSigningWalletBalance(null)
@@ -1190,7 +399,80 @@ export function App() {
       return
     }
     void refreshProducerSigningWalletBalance(signingWalletAddress)
-  }, [activeTab, primaryPublicRpcUrl, walletOverview?.walletAddress])
+  }, [activeTab, dashboardSubtab, producerProfile, producerRpcUrl, walletOverview?.walletAddress])
+
+  useEffect(() => {
+    if (activeTab !== 'wallet') return
+    const signingWalletAddress = walletOverview?.walletAddress?.trim() || ''
+    if (!walletOverview?.unlocked || !signingWalletAddress) return
+
+    let disposed = false
+    let inFlight = false
+
+    const tick = async () => {
+      if (disposed || inFlight) return
+      inFlight = true
+      try {
+        await refreshProducerSigningWalletBalance(signingWalletAddress)
+      } finally {
+        inFlight = false
+      }
+    }
+
+    const timer = window.setInterval(() => {
+      void tick()
+    }, settings.dashboardRefreshSeconds * 1000)
+
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [
+    activeTab,
+    settings.dashboardRefreshSeconds,
+    producerRpcUrl,
+    walletOverview?.walletAddress,
+    walletOverview?.unlocked
+  ])
+
+  useEffect(() => {
+    if (activeTab !== 'dashboard') return
+    if (!hasNodeControls) return
+
+    let disposed = false
+    let inFlight = false
+
+    const tick = async () => {
+      if (disposed || inFlight) return
+      inFlight = true
+      try {
+        await refreshDashboardCurrentSubtab()
+      } finally {
+        inFlight = false
+      }
+    }
+
+    void tick()
+    const timer = window.setInterval(() => {
+      void tick()
+    }, settings.dashboardRefreshSeconds * 1000)
+
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [
+    activeTab,
+    dashboardSubtab,
+    hasNodeControls,
+    nodeSettings,
+    producerRpcUrl,
+    settings.dashboardProducerWindowBlocks,
+    settings.dashboardRefreshSeconds,
+    walletOverview?.walletAddress,
+    producerUseWalletAddress,
+    nodeProducerAddressDraft
+  ])
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -1549,6 +831,8 @@ export function App() {
     : nodeNativeBuildsLoading
       ? t('node.nativeBuild.inspecting')
       : t('node.nativeBuild.noState')
+  void nodeNativeBuildsError
+  void nodeNativeBuildSummaryText
   const nodeServices = nodeStatus?.services ?? []
   const nodeServiceById = useMemo(
     () => new Map(nodeServices.map((service) => [service.id, service] as const)),
@@ -1636,6 +920,8 @@ export function App() {
   const nodeContextServiceCapabilities = nodeContextService
     ? nodeServiceCapabilities.get(nodeContextService.id) ?? null
     : null
+  const blockProducerService = nodeServiceById.get('block_producer') ?? null
+  const blockProducerRunning = blockProducerService ? isNodeServiceRunning(blockProducerService) : false
   const nodeServiceCount = nodeServices.length
   const nodeRunningCount = nodeStatus?.runningServices ?? 0
   const nodeStoppedServices = nodeServices.filter((service) => !isNodeServiceRunning(service))
@@ -1697,19 +983,31 @@ export function App() {
   const walletResultText = walletResultData ? JSON.stringify(walletResultData, null, 2) : ''
   const producerVaultExists = Boolean(walletOverview?.walletExists)
   const producerVaultUnlocked = Boolean(walletOverview?.unlocked)
-  const producerUnlockRequired = producerVaultExists && !producerVaultUnlocked
-  const producerWalletReady = producerVaultExists && producerVaultUnlocked
   const producerAdvancedMode = settings.producerAdvancedMode
   const signingWalletAddress = walletOverview?.walletAddress?.trim() || ''
   const draftedProducerAddress = nodeProducerAddressDraft.trim()
   const signingWalletManaValue = producerSigningWalletBalance?.mana
     ? Number.parseFloat(producerSigningWalletBalance.mana)
     : null
-  const effectiveProducerTargetAddress = producerAdvancedMode
-    ? draftedProducerAddress || nodeProducerOverview?.producerAddress?.trim() || ''
-    : signingWalletAddress || nodeProducerOverview?.producerAddress?.trim() || ''
+  const signingWalletVhpValue = producerSigningWalletBalance?.vhp
+    ? Number.parseFloat(producerSigningWalletBalance.vhp)
+    : null
+  const effectiveProducerTargetAddress = resolveProducerTargetAddress({
+    walletAddress: signingWalletAddress,
+    draftedProducerAddress,
+    configProducerAddress: nodeProducerOverview?.producerAddress || '',
+    useWalletAddress: producerUseWalletAddress
+  })
   const signingWalletHasRegistrationMana =
     signingWalletManaValue !== null && Number.isFinite(signingWalletManaValue) ? signingWalletManaValue >= 0.5 : null
+  const signingWalletHasProducerVhp =
+    signingWalletVhpValue !== null && Number.isFinite(signingWalletVhpValue) ? signingWalletVhpValue > 0 : null
+  const producerSetupComplete = isProducerSetupComplete(producerProfile)
+  const producerLocalPublicKey = producerLocalInfo?.localPublicKey || nodeProducerOverview?.localPublicKey || ''
+  const producerConfiguredAddress =
+    producerProfile?.profile?.producerAddress?.trim() ||
+    nodeProducerOverview?.producerAddress?.trim() ||
+    effectiveProducerTargetAddress.trim()
   const producerAndSigningWalletMatch =
     Boolean(effectiveProducerTargetAddress && signingWalletAddress) &&
     effectiveProducerTargetAddress.toLowerCase() === signingWalletAddress.toLowerCase()
@@ -1729,7 +1027,7 @@ export function App() {
     }
   })()
   const producerAddressSourceText = (() => {
-    if (!producerAdvancedMode) {
+    if (producerUseWalletAddress) {
       if (signingWalletAddress) return t('producer.source.vault')
       if (nodeProducerOverview?.producerAddress?.trim()) return t('producer.source.config')
       return t('producer.source.walletMissing')
@@ -1758,27 +1056,53 @@ export function App() {
       ? t('producer.signingWalletSame')
       : t('producer.signingWalletDifferent')
     : t('producer.signingWalletMissing')
+  const producerSetupBlockedReason = getProducerSetupBlockReason({
+    walletExists: producerVaultExists,
+    walletUnlocked: producerVaultUnlocked,
+    hasLocalPublicKey: Boolean(producerLocalPublicKey),
+    hasTargetAddress: Boolean(effectiveProducerTargetAddress),
+    isWalletBalanceLoading: producerSigningWalletBalanceLoading,
+    hasEnoughMana: signingWalletHasRegistrationMana,
+    useWalletAddress: producerUseWalletAddress,
+    producerAdvancedMode
+  })
   const producerRegisterHintText = (() => {
+    if (producerSigningWalletBalanceError) return producerSigningWalletBalanceError
+    switch (producerSetupBlockedReason) {
+      case 'wallet-missing':
+        return t('producer.createNeedsWallet')
+      case 'wallet-locked':
+        return t('producer.createNeedsUnlock')
+      case 'address-missing':
+        return t('producer.registerNeedsAddress')
+      case 'advanced-required':
+        return t('settings.producerAdvancedHelpOff')
+      case 'local-key-missing':
+        return t('producer.registerNeedsLocalKey')
+      case 'wallet-balance-loading':
+        return t('producer.registerCheckingWallet')
+      case 'insufficient-mana':
+        return t('producer.registerNeedsMana')
+      default:
+        break
+    }
+
     if (!producerVaultExists) return t('producer.registerNeedsSigningWallet')
     if (!producerVaultUnlocked) return t('producer.registerNeedsUnlock')
     if (!effectiveProducerTargetAddress) return t('producer.registerNeedsAddress')
-    if (!nodeProducerOverview?.localPublicKey) return t('producer.registerNeedsLocalKey')
-    if (producerSigningWalletBalanceLoading) return t('common.loading')
-    if (producerSigningWalletBalanceError) return producerSigningWalletBalanceError
-    if (signingWalletHasRegistrationMana === false) return t('producer.registerNeedsMana')
+    if (!producerUseWalletAddress && !producerAdvancedMode) return t('settings.producerAdvancedHelpOff')
+    if (!producerLocalPublicKey) return t('producer.registerNeedsLocalKey')
     return t('producer.registerHint')
   })()
   const producerRegisterDisabled =
     !hasNodeControls ||
     nodeProducerActionLoading !== null ||
     nodeProducerLoading ||
-    !producerWalletReady ||
-    !effectiveProducerTargetAddress ||
-    !nodeProducerOverview?.localPublicKey ||
-    signingWalletHasRegistrationMana === false
+    Boolean(producerSigningWalletBalanceError) ||
+    producerSetupBlockedReason !== null
   const producerRegisterHintClass =
-    producerSigningWalletBalanceLoading
-      ? 'is-busy'
+    producerSetupBlockedReason === 'wallet-balance-loading'
+      ? ''
       : producerRegisterDisabled
         ? 'is-error'
         : signingWalletHasRegistrationMana === true
@@ -1801,7 +1125,9 @@ export function App() {
     : showChainSyncProgress
       ? t('status.syncingChain')
       : nodeRunningCount > 0 && !nodeHasPartialOutage
-        ? t('status.live')
+        ? blockProducerRunning && producerSetupComplete && producerFooterState === 'producing'
+          ? t('status.liveProducing')
+          : t('status.liveSynchronized')
         : nodeStateText
   const footerStatusMeta = showChainSyncProgress && publicChainHead && localChainHead
     ? t('status.syncProgress', {
@@ -1873,6 +1199,53 @@ export function App() {
     settings.pollMs
   ])
 
+  useEffect(() => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.logs || !hasNodeControls || !blockProducerRunning || !producerSetupComplete) {
+      setProducerFooterState('unknown')
+      return
+    }
+
+    let disposed = false
+    let pollTimer: number | null = null
+    const pollMs = Math.max(5000, settings.dashboardRefreshSeconds * 1000)
+
+    const tick = async () => {
+      try {
+        const result = await bridge.logs({
+          ...toNodeApiSettings(nodeSettings),
+          service: 'block_producer',
+          tail: 120
+        })
+        if (disposed) return
+
+        setProducerFooterState(
+          result.ok && isProducerActivelyProducingFromLogs(result.output) ? 'producing' : 'unknown'
+        )
+      } catch {
+        if (!disposed) {
+          setProducerFooterState('unknown')
+        }
+      }
+    }
+
+    void tick()
+    pollTimer = window.setInterval(() => {
+      void tick()
+    }, pollMs)
+
+    return () => {
+      disposed = true
+      if (pollTimer !== null) window.clearInterval(pollTimer)
+    }
+  }, [
+    blockProducerRunning,
+    hasNodeControls,
+    nodeSettings,
+    producerSetupComplete,
+    settings.dashboardRefreshSeconds
+  ])
+
   const syncNodeStatusState = (
     status: KnodelKoinosNodeStatus,
     options?: { preserveOutputOnSuccess?: boolean }
@@ -1925,6 +1298,7 @@ export function App() {
       setNodeNativeBuildsLoading(false)
     }
   }
+  void refreshNodeNativeBuilds
 
   const applyNodePreset = (preset: KnodelKoinosNodePreset) => {
     const nextProfiles = preset.profiles.join(',')
@@ -2030,11 +1404,15 @@ export function App() {
       const producerAddress =
         producerAddressOverride !== undefined
           ? producerAddressOverride.trim()
-          : producerAdvancedMode
-            ? nodeProducerAddressDraft.trim()
-            : walletOverview?.walletAddress?.trim() || ''
+          : resolveProducerTargetAddress({
+              walletAddress: walletOverview?.walletAddress,
+              draftedProducerAddress: nodeProducerAddressDraft,
+              configProducerAddress: nodeProducerOverview?.producerAddress,
+              useWalletAddress: producerUseWalletAddress
+            })
       const result = await bridge.producerOverview({
         ...toNodeApiSettings(settingsOverride ?? nodeSettings),
+        rpcUrl: producerRpcUrl,
         producerAddress: producerAddress || undefined
       })
       setNodeProducerOverview(result)
@@ -2048,19 +1426,268 @@ export function App() {
     }
   }
 
-  const registerNodeProducer = async () => {
+  const refreshProducerLocalInfo = async (settingsOverride?: NodeManagerSettings) => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.producerLocalInfo) return
+
+    try {
+      const result = await bridge.producerLocalInfo(toNodeApiSettings(settingsOverride ?? nodeSettings))
+      setProducerLocalInfo(result)
+    } catch {
+      setProducerLocalInfo(null)
+    }
+  }
+
+  const refreshProducerRecentBlocks = async (
+    producerAddressOverride?: string,
+    signal?: AbortSignal
+  ) => {
+    const producerAddress =
+      producerAddressOverride?.trim() ||
+      producerProfile?.profile?.producerAddress?.trim() ||
+      nodeProducerOverview?.producerAddress?.trim() ||
+      resolveProducerTargetAddress({
+        walletAddress: walletOverview?.walletAddress,
+        draftedProducerAddress: nodeProducerAddressDraft,
+        configProducerAddress: nodeProducerOverview?.producerAddress,
+        useWalletAddress: producerUseWalletAddress
+      }).trim()
+
+    if (!producerAddress) {
+      setProducerRecentBlocks([])
+      setProducerRecentBlocksError(null)
+      setProducerRecentBlocksLoading(false)
+      return
+    }
+
+    setProducerRecentBlocksLoading(true)
+    setProducerRecentBlocksError(null)
+    try {
+      const requestSignal = signal ?? new AbortController().signal
+      const snapshot = await fetchLatestBlocks(
+        language,
+        producerRpcUrl,
+        settings.dashboardProducerWindowBlocks,
+        requestSignal
+      )
+      setProducerRecentBlocks(filterBlocksByProducer(snapshot.rows, producerAddress))
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return
+      setProducerRecentBlocksError(error instanceof Error ? error.message : t('producer.unableLoadBlocks'))
+    } finally {
+      setProducerRecentBlocksLoading(false)
+    }
+  }
+
+  const refreshDashboardProducers = async (settingsOverride?: NodeManagerSettings) => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.dashboardProducers) return
+
+    setDashboardProducersLoading(true)
+    setDashboardProducersError(null)
+    try {
+      const result = await bridge.dashboardProducers({
+        ...toNodeApiSettings(settingsOverride ?? nodeSettings),
+        rpcUrl: producerRpcUrl,
+        windowBlocks: settings.dashboardProducerWindowBlocks
+      })
+      setDashboardProducers(result)
+      if (!result.ok) {
+        setDashboardProducersError(result.output || t('dashboard.unableLoadProducers'))
+      }
+    } catch (error) {
+      setDashboardProducersError(error instanceof Error ? error.message : t('dashboard.unableLoadProducers'))
+    } finally {
+      setDashboardProducersLoading(false)
+    }
+  }
+
+  const refreshDashboardPeers = async (settingsOverride?: NodeManagerSettings) => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.dashboardPeers) return
+
+    setDashboardPeersLoading(true)
+    setDashboardPeersError(null)
+    try {
+      const result = await bridge.dashboardPeers({
+        ...toNodeApiSettings(settingsOverride ?? nodeSettings)
+      })
+      setDashboardPeers(result)
+      if (!result.ok) {
+        setDashboardPeersError(result.output || t('dashboard.unableLoadPeers'))
+      }
+    } catch (error) {
+      setDashboardPeersError(error instanceof Error ? error.message : t('dashboard.unableLoadPeers'))
+    } finally {
+      setDashboardPeersLoading(false)
+    }
+  }
+
+  const refreshDashboardCurrentSubtab = async () => {
+    if (dashboardSubtab === 'producers') {
+      await refreshDashboardProducers()
+      return
+    }
+
+    if (dashboardSubtab === 'peers') {
+      await refreshDashboardPeers()
+      return
+    }
+
+    await refreshNodeProducerOverview()
+  }
+
+  useEffect(() => {
+    if (activeTab !== 'producer') {
+      setProducerRecentBlocks([])
+      setProducerRecentBlocksError(null)
+      setProducerRecentBlocksLoading(false)
+      return
+    }
+    if (!hasNodeControls) return
+
+    let disposed = false
+    let controller: AbortController | null = null
+    let inFlight = false
+
+    const tick = async () => {
+      if (disposed || inFlight) return
+      inFlight = true
+      controller?.abort()
+      controller = new AbortController()
+
+      try {
+        if (!producerSetupComplete) {
+          await refreshProducerLocalInfo()
+          const nextSigningWalletAddress = walletOverview?.walletAddress?.trim() || ''
+          if (nextSigningWalletAddress) {
+            await refreshProducerSigningWalletBalance(nextSigningWalletAddress)
+          } else {
+            setProducerSigningWalletBalance(null)
+            setProducerSigningWalletBalanceError(null)
+            setProducerSigningWalletBalanceLoading(false)
+          }
+          setProducerRecentBlocks([])
+          setProducerRecentBlocksError(null)
+          setProducerRecentBlocksLoading(false)
+          return
+        }
+
+        const nextSigningWalletAddress = walletOverview?.walletAddress?.trim() || ''
+        const requests: Promise<unknown>[] = [
+          refreshNodeProducerOverview(undefined, producerConfiguredAddress || undefined),
+          refreshProducerRecentBlocks(producerConfiguredAddress, controller.signal)
+        ]
+
+        if (nextSigningWalletAddress) {
+          requests.push(refreshProducerSigningWalletBalance(nextSigningWalletAddress))
+        } else {
+          setProducerSigningWalletBalance(null)
+          setProducerSigningWalletBalanceError(null)
+          setProducerSigningWalletBalanceLoading(false)
+        }
+
+        await Promise.all(requests)
+      } finally {
+        inFlight = false
+      }
+    }
+
+    void tick()
+    const timer = window.setInterval(() => {
+      void tick()
+    }, settings.dashboardRefreshSeconds * 1000)
+
+    return () => {
+      disposed = true
+      controller?.abort()
+      window.clearInterval(timer)
+    }
+  }, [
+    activeTab,
+    hasNodeControls,
+    nodeSettings.repoPath,
+    nodeSettings.baseDir,
+    nodeSettings.profiles,
+    nodeStatus?.runningServices,
+    producerRpcUrl,
+    settings.dashboardProducerWindowBlocks,
+    settings.dashboardRefreshSeconds,
+    settings.producerAdvancedMode,
+    walletOverview?.walletAddress,
+    producerUseWalletAddress,
+    nodeProducerAddressDraft,
+    producerSetupComplete,
+    producerConfiguredAddress
+  ])
+
+  const registerNodeProducer = async (producerAddressOverride?: string) => {
     const bridge = getKoinosNodeBridge()
     if (!bridge?.producerRegister) return
 
-    setNodeProducerActionLoading('register')
-    setNodeProducerError(null)
-    setNodeError(null)
-
     try {
+      const signerAccountId = signingWalletAddress.trim()
+      const producerAddress = producerAddressOverride?.trim() || effectiveProducerTargetAddress
+
+      if (!producerVaultExists || !signerAccountId) {
+        setNodeProducerError(t('producer.registerNeedsSigningWallet'))
+        return
+      }
+
+      if (!producerVaultUnlocked) {
+        setNodeProducerError(t('producer.registerNeedsUnlock'))
+        return
+      }
+
+      if (!producerAddress) {
+        setNodeProducerError(t('producer.registerNeedsAddress'))
+        return
+      }
+
+      if (!producerLocalPublicKey) {
+        setNodeProducerError(t('producer.registerNeedsLocalKey'))
+        return
+      }
+
+      setNodeProducerActionLoading('register')
+      setNodeProducerError(null)
+      setNodeError(null)
+
+      const balanceResult = await refreshProducerSigningWalletBalance(signerAccountId)
+      const signerManaValue = balanceResult?.mana ? Number.parseFloat(balanceResult.mana) : null
+      const hasRegistrationMana =
+        balanceResult?.ok &&
+        signerManaValue !== null &&
+        Number.isFinite(signerManaValue) &&
+        signerManaValue >= 0.5
+
+      if (!hasRegistrationMana) {
+        if (!balanceResult?.ok) {
+          setNodeProducerError(
+            balanceResult
+              ? formatProducerWalletBalanceError(
+                  balanceResult.output || 'Could not load signing wallet balances',
+                  producerRpcUrl,
+                  language
+                )
+              : t('producer.signingWalletManaUnknown')
+          )
+        } else if (signerManaValue === null || !Number.isFinite(signerManaValue)) {
+          setNodeProducerError(t('producer.signingWalletManaUnknown'))
+        } else {
+          setNodeProducerError(t('producer.registerNeedsMana'))
+        }
+        return
+      }
+
       const result = await bridge.producerRegister({
         ...toNodeApiSettings(nodeSettings),
-        producerAddress: effectiveProducerTargetAddress,
-        persistConfig: true
+        rpcUrl: producerRpcUrl,
+        producerAddress,
+        signerAccountId,
+        allowDelegatedSigner: producerAddressOverride ? false : producerAllowDelegatedSigner,
+        persistConfig: true,
+        persistProfile: true
       })
 
       setNodeProducerOverview(result.overview)
@@ -2072,11 +1699,49 @@ export function App() {
         if (producerAdvancedMode) {
           setNodeProducerAddressDraft(result.overview.producerAddress || nodeProducerAddressDraft.trim())
         }
+        await refreshProducerProfile()
+        await Promise.all([
+          refreshProducerRecentBlocks(result.overview.producerAddress || producerAddress),
+          refreshProducerSigningWalletBalance(signerAccountId)
+        ])
         void refreshNodeStatus()
-        void refreshProducerSigningWalletBalance(signingWalletAddress)
       }
     } catch (error) {
       setNodeProducerError(error instanceof Error ? error.message : t('producer.unableRegister'))
+    } finally {
+      setNodeProducerActionLoading(null)
+    }
+  }
+
+  const deleteNodeProducer = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.producerDelete) return false
+
+    setNodeProducerActionLoading('delete')
+    setNodeProducerError(null)
+    setNodeError(null)
+
+    try {
+      const result = await bridge.producerDelete(toNodeApiSettings(nodeSettings))
+      setNodeProducerOverview(result.overview)
+      setNodeOutput(result.output || '')
+
+      if (!result.ok) {
+        setNodeProducerError(result.output || t('producer.unableDelete'))
+        return false
+      }
+
+      setNodeProducerAddressDraft('')
+      setProducerUseWalletAddress(true)
+      setProducerAllowDelegatedSigner(false)
+      setProducerRecentBlocks([])
+      setProducerRecentBlocksError(null)
+      setProducerRecentBlocksLoading(false)
+      await refreshProducerProfile()
+      return true
+    } catch (error) {
+      setNodeProducerError(error instanceof Error ? error.message : t('producer.unableDelete'))
+      return false
     } finally {
       setNodeProducerActionLoading(null)
     }
@@ -2086,7 +1751,7 @@ export function App() {
     const bridge = getWalletBridge()
     if (!bridge?.unlock) return
 
-    setWalletActionLoading('producer-unlock')
+    setWalletActionLoading('wallet-unlock')
     setWalletError(null)
 
     try {
@@ -2110,17 +1775,29 @@ export function App() {
     }
   }
 
-  const importProducerAccount = async () => {
+  const importProducerAccount = async (
+    privateKeyOverride?: string,
+    passwordOverride?: string,
+    confirmPasswordOverride?: string
+  ) => {
     const bridge = getWalletBridge()
-    if (!bridge?.importWallet) return
+    if (!bridge?.importWallet) return false
 
-    setWalletActionLoading('producer-import')
+    const password = passwordOverride === undefined ? walletImportPassword : passwordOverride
+    const confirmPassword = confirmPasswordOverride === undefined ? password : confirmPasswordOverride
+    if (password !== confirmPassword) {
+      setWalletError(t('wallet.passwordMismatch'))
+      return false
+    }
+
+    setWalletActionLoading('wallet-import')
     setWalletError(null)
 
     try {
+      const privateKey = privateKeyOverride === undefined ? walletImportPrivateKey.trim() : privateKeyOverride.trim()
       const importResult = await bridge.importWallet({
-        privateKey: walletImportPrivateKey.trim(),
-        password: walletImportPassword
+        privateKey,
+        password
       })
 
       if (importResult.ok && importResult.address) {
@@ -2128,19 +1805,296 @@ export function App() {
         setWalletImportPassword('')
       }
 
-      setWalletResultTitle(t('producer.importTitle'))
+      setWalletResultTitle(t('wallet.importKeyTitle'))
       setWalletResultData(importResult)
 
       if (!importResult.ok) {
         setWalletError(importResult.output || t('producer.unableImport'))
-        return
+        return false
       }
 
       await refreshWalletOverview()
-      await refreshNodeProducerOverview(undefined, producerAdvancedMode ? undefined : importResult.address)
-      await refreshProducerSigningWalletBalance(importResult.address)
+      await refreshNodeProducerOverview(undefined, producerAdvancedMode ? undefined : importResult.address || undefined)
+      await refreshProducerSigningWalletBalance(importResult.address || undefined)
+      return true
     } catch (error) {
       setWalletError(error instanceof Error ? error.message : t('producer.unableImport'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const importWalletFromSeed = async (
+    seedPhraseOverride?: string,
+    passwordOverride?: string,
+    confirmPasswordOverride?: string
+  ) => {
+    const bridge = getWalletBridge()
+    if (!bridge?.deriveFromSeed || !bridge?.importWallet) return false
+
+    const password = passwordOverride === undefined ? walletImportSeedPassword : passwordOverride
+    const confirmPassword = confirmPasswordOverride === undefined ? password : confirmPasswordOverride
+    if (password !== confirmPassword) {
+      setWalletError(t('wallet.passwordMismatch'))
+      return false
+    }
+
+    setWalletActionLoading('wallet-import-seed')
+    setWalletError(null)
+
+    try {
+      const seedPhrase =
+        seedPhraseOverride === undefined ? walletImportSeedPhrase.trim() : seedPhraseOverride.trim()
+      const derivedResult = await bridge.deriveFromSeed({
+        seedPhrase,
+        numAccounts: 1
+      })
+
+      if (!derivedResult.ok || !derivedResult.accounts[0]?.privateKeyWif) {
+        setWalletResultTitle(t('wallet.importSeedTitle'))
+        setWalletResultData({
+          ok: false,
+          output: derivedResult.output,
+          address: null,
+          derivationPath: null,
+          walletFilePath: null,
+          unlocked: false
+        })
+        setWalletError(derivedResult.output || t('wallet.unableImportSeed'))
+        return false
+      }
+
+      const derivedAccount = derivedResult.accounts[0]
+      const importResult = await bridge.importWallet({
+        privateKey: derivedAccount.privateKeyWif,
+        password,
+        seedPhrase,
+        derivationPath: derivedAccount.derivationPath
+      })
+      const seedImportResult = {
+        ok: importResult.ok,
+        output: importResult.ok
+          ? t('wallet.importSeedSuccess', { address: importResult.address || derivedAccount.address })
+          : importResult.output,
+        address: importResult.address || derivedAccount.address,
+        derivationPath: derivedAccount.derivationPath,
+        walletFilePath: importResult.walletFilePath,
+        unlocked: importResult.unlocked
+      }
+
+      setWalletResultTitle(t('wallet.importSeedTitle'))
+      setWalletResultData(seedImportResult)
+
+      if (!importResult.ok) {
+        setWalletError(importResult.output || t('wallet.unableImportSeed'))
+        return false
+      }
+
+      setWalletImportSeedPhrase('')
+      setWalletImportSeedPassword('')
+      await refreshWalletOverview()
+      await refreshNodeProducerOverview(undefined, producerAdvancedMode ? undefined : importResult.address || undefined)
+      await refreshProducerSigningWalletBalance(importResult.address || undefined)
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableImportSeed'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const createWalletAccount = async (
+    password: string,
+    confirmPassword: string,
+    generatedWalletOverride?: {
+      ok?: boolean
+      output?: string
+      address?: string | null
+      privateKeyWif?: string | null
+      seedPhrase?: string | null
+      derivationPath?: string | null
+    } | null
+  ) => {
+    const bridge = getWalletBridge()
+    if (!bridge?.generate || !bridge?.importWallet) return false
+
+    if (password.length < 8) {
+      setWalletError(t('wallet.passwordMinLength'))
+      return false
+    }
+
+    if (password !== confirmPassword) {
+      setWalletError(t('wallet.passwordMismatch'))
+      return false
+    }
+
+    setWalletActionLoading('wallet-create')
+    setWalletError(null)
+
+    try {
+      const generatedWallet = generatedWalletOverride ?? await bridge.generate()
+      if (!generatedWallet.ok || !generatedWallet.privateKeyWif || !generatedWallet.seedPhrase) {
+        setWalletResultTitle(t('wallet.createTitle'))
+        setWalletResultData(generatedWallet)
+        setWalletError(generatedWallet.output || t('wallet.unableCreate'))
+        return false
+      }
+
+      const importResult = await bridge.importWallet({
+        privateKey: generatedWallet.privateKeyWif,
+        password,
+        seedPhrase: generatedWallet.seedPhrase,
+        derivationPath: generatedWallet.derivationPath || undefined
+      })
+      const createResult = {
+        ok: importResult.ok,
+        output: importResult.ok
+          ? t('wallet.createSuccess', { address: importResult.address || generatedWallet.address || '' })
+          : importResult.output,
+        address: importResult.address || generatedWallet.address,
+        derivationPath: generatedWallet.derivationPath || null,
+        walletFilePath: importResult.walletFilePath,
+        unlocked: importResult.unlocked
+      }
+
+      setWalletResultTitle(t('wallet.createTitle'))
+      setWalletResultData(createResult)
+
+      if (!importResult.ok) {
+        setWalletError(importResult.output || t('wallet.unableCreate'))
+        return false
+      }
+
+      setWalletImportPrivateKey('')
+      setWalletImportPassword('')
+      await refreshWalletOverview()
+      await refreshNodeProducerOverview(undefined, producerAdvancedMode ? undefined : importResult.address || undefined)
+      await refreshProducerSigningWalletBalance(importResult.address || undefined)
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableCreate'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const generateWalletDraft = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.generate) {
+      return {
+        ok: false,
+        output: t('wallet.unableCreate'),
+        address: null,
+        privateKeyWif: null,
+        seedPhrase: null,
+        derivationPath: null
+      }
+    }
+
+    try {
+      return await bridge.generate()
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : t('wallet.unableCreate'),
+        address: null,
+        privateKeyWif: null,
+        seedPhrase: null,
+        derivationPath: null
+      }
+    }
+  }
+
+  const showWalletSeed = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.showSeed) {
+      return {
+        ok: false,
+        output: t('wallet.unableShowSeed'),
+        walletAddress: walletOverview?.walletAddress || null,
+        firstAccountAddress: null,
+        firstAccountPrivateKeyWif: null,
+        firstAccountDerivationPath: null,
+        seedPhrase: null
+      }
+    }
+
+    try {
+      return await bridge.showSeed()
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : t('wallet.unableShowSeed'),
+        walletAddress: walletOverview?.walletAddress || null,
+        firstAccountAddress: null,
+        firstAccountPrivateKeyWif: null,
+        firstAccountDerivationPath: null,
+        seedPhrase: null
+      }
+    }
+  }
+
+  const deleteWalletAccount = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.deleteWallet) return false
+
+    setWalletActionLoading('wallet-delete')
+    setWalletError(null)
+
+    try {
+      const result = await bridge.deleteWallet()
+      setWalletResultTitle(t('wallet.deleteTitle'))
+      setWalletResultData(result)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableDelete'))
+        return false
+      }
+
+      setWalletImportPrivateKey('')
+      setWalletImportPassword('')
+      setProducerUnlockPassword('')
+      setProducerSigningWalletBalance(null)
+      setProducerSigningWalletBalanceError(null)
+      setProducerSigningWalletBalanceLoading(false)
+      await refreshWalletOverview()
+      await refreshProducerProfile()
+      await refreshNodeProducerOverview()
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableDelete'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const closeWalletAccount = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.closeWallet) return false
+
+    setWalletActionLoading('wallet-close')
+    setWalletError(null)
+
+    try {
+      const result = await bridge.closeWallet()
+      setWalletResultTitle(t('wallet.closeTitle'))
+      setWalletResultData(result)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableClose'))
+        return false
+      }
+
+      setProducerUnlockPassword('')
+      await refreshWalletOverview()
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableClose'))
+      return false
     } finally {
       setWalletActionLoading(null)
     }
@@ -2164,22 +2118,55 @@ export function App() {
     }
   }
 
-  const refreshProducerSigningWalletBalance = async (addressOverride?: string) => {
+  const refreshProducerProfile = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.producerProfileGet) {
+      setProducerProfile(null)
+      return
+    }
+    try {
+      const result = await bridge.producerProfileGet()
+      setProducerProfile(result)
+    } catch (error) {
+      setProducerProfile({
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not load producer profile',
+        profileFilePath: '',
+        profile: null
+      })
+    }
+  }
+
+  const clearProducerSetup = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.producerProfileClear) return
+    try {
+      const result = await bridge.producerProfileClear()
+      setProducerProfile(result)
+      await refreshNodeProducerOverview()
+    } catch (error) {
+      setNodeProducerError(error instanceof Error ? error.message : 'Could not clear producer setup profile')
+    }
+  }
+
+  const refreshProducerSigningWalletBalance = async (
+    addressOverride?: string
+  ): Promise<KnodelWalletBalanceResult | null> => {
     const bridge = getWalletBridge()
-    if (!bridge?.balance) return
+    if (!bridge?.balance) return null
     const address = addressOverride?.trim() || walletOverview?.walletAddress?.trim() || ''
     if (!address) {
       setProducerSigningWalletBalance(null)
       setProducerSigningWalletBalanceError(null)
       setProducerSigningWalletBalanceLoading(false)
-      return
+      return null
     }
 
     setProducerSigningWalletBalanceLoading(true)
     setProducerSigningWalletBalanceError(null)
     try {
       const result = await bridge.balance({
-        rpcUrl: primaryPublicRpcUrl,
+        rpcUrl: producerRpcUrl,
         address
       })
       setProducerSigningWalletBalance(result)
@@ -2187,20 +2174,22 @@ export function App() {
         setProducerSigningWalletBalanceError(
           formatProducerWalletBalanceError(
             result.output || 'Could not load signing wallet balances',
-            primaryPublicRpcUrl,
+            producerRpcUrl,
             language
           )
         )
       }
+      return result
     } catch (error) {
       setProducerSigningWalletBalance(null)
       setProducerSigningWalletBalanceError(
         formatProducerWalletBalanceError(
           error instanceof Error ? error.message : 'Could not load signing wallet balances',
-          primaryPublicRpcUrl,
+          producerRpcUrl,
           language
         )
       )
+      return null
     } finally {
       setProducerSigningWalletBalanceLoading(false)
     }
@@ -2210,7 +2199,7 @@ export function App() {
     actionId: string,
     title: string,
     runner: () => Promise<unknown>,
-    options?: { refreshOverview?: boolean; refreshProducer?: boolean }
+    options?: { refreshOverview?: boolean; refreshProducer?: boolean; refreshBalance?: boolean }
   ) => {
     setWalletActionLoading(actionId)
     setWalletError(null)
@@ -2232,11 +2221,63 @@ export function App() {
       if (options?.refreshProducer) {
         await refreshNodeProducerOverview()
       }
+
+      if (options?.refreshBalance) {
+        await refreshProducerSigningWalletBalance(signingWalletAddress || undefined)
+      }
     } catch (error) {
       setWalletError(error instanceof Error ? error.message : `${title} failed.`)
     } finally {
       setWalletActionLoading(null)
     }
+  }
+
+  const transferWalletToken = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.transferVhp || !bridge?.transferKoin) return
+    const amount = Number.parseFloat(walletTransferAmountDraft)
+    const toAddress = walletTransferAddressDraft.trim() || producerProfile?.profile?.producerAddress || ''
+    const actionId = walletTransferAsset === 'koin' ? 'wallet-transfer-koin' : 'wallet-transfer-vhp'
+    await runWalletAction(actionId, t('wallet.transferTitle'), async () => {
+      if (walletTransferAsset === 'koin') {
+        return bridge.transferKoin({
+          rpcUrl: effectiveExplorerRpcUrl,
+          toAddress,
+          amount,
+          accountId: signingWalletAddress || undefined,
+          useFreeMana: walletTransferUseFreeMana,
+          dryRun: walletTransferDryRun
+        })
+      }
+      return bridge.transferVhp({
+        rpcUrl: effectiveExplorerRpcUrl,
+        toAddress,
+        amount,
+        accountId: signingWalletAddress || undefined,
+        useFreeMana: walletTransferUseFreeMana,
+        dryRun: walletTransferDryRun
+      })
+    }, { refreshProducer: true, refreshBalance: true })
+  }
+
+  const burnKoinToVhp = async () => {
+    const bridge = getWalletBridge()
+    if (!bridge?.burn) return
+    const percent = walletBurnPercentDraft.trim() ? Number.parseFloat(walletBurnPercentDraft) : undefined
+    const amount = walletBurnAmountDraft.trim() ? Number.parseFloat(walletBurnAmountDraft) : undefined
+    const targetAddress = walletBurnTargetAddressDraft.trim() || walletOverview?.walletAddress || undefined
+    await runWalletAction('wallet-burn', t('wallet.burnTitle'), async () => {
+      return bridge.burn({
+        rpcUrl: effectiveExplorerRpcUrl,
+        percent,
+        amount,
+        dryRun: walletBurnDryRun,
+        accountId: signingWalletAddress || undefined,
+        targetAddress,
+        useFreeMana: walletBurnUseFreeMana,
+        useProducerBurnAccount: false
+      })
+    }, { refreshOverview: true, refreshProducer: true, refreshBalance: true })
   }
 
   const currentDraftNodeApiSettings = (
@@ -2247,7 +2288,7 @@ export function App() {
       composeFile: overrides?.composeFile ?? draftNodeComposeFile.trim(),
       envFile: overrides?.envFile ?? draftNodeEnvFile.trim(),
       baseDir: overrides?.baseDir ?? normalizeNodeBaseDirInput(draftNodeBaseDir),
-      profiles: overrides?.profiles ?? parseProfilesCsv(draftNodeProfiles),
+      profiles: overrides?.profiles ?? expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)),
       blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim(),
       runtimeMode: 'native'
     }
@@ -2552,6 +2593,7 @@ export function App() {
       setNodeRestoreBackupLoading(false)
     }
   }
+  void runNodeRestoreBackup
 
   const runNodeRestoreBackupVerify = async () => {
     const bridge = getKoinosNodeBridge()
@@ -2644,10 +2686,13 @@ export function App() {
 
   const runNodeServiceAction = async (serviceId: string, action: NodeServiceAction) => {
     const bridge = getKoinosNodeBridge()
+    const serviceStart = bridge?.serviceStart
+    const serviceStop = bridge?.serviceStop
+    const serviceRestart = bridge?.serviceRestart
     if (!serviceId.trim()) return
-    if (action === 'start' && !bridge?.serviceStart) return
-    if (action === 'stop' && !bridge?.serviceStop) return
-    if (action === 'restart' && !bridge?.serviceRestart) return
+    if (action === 'start' && !serviceStart) return
+    if (action === 'stop' && !serviceStop) return
+    if (action === 'restart' && !serviceRestart) return
 
     setNodeServiceActionLoading({ serviceId, action })
     setNodeServiceContextMenu(null)
@@ -2656,10 +2701,10 @@ export function App() {
     try {
       const result =
         action === 'start'
-          ? await bridge.serviceStart({ ...toNodeApiSettings(nodeSettings), service: serviceId })
+          ? await serviceStart!({ ...toNodeApiSettings(nodeSettings), service: serviceId })
           : action === 'stop'
-            ? await bridge.serviceStop({ ...toNodeApiSettings(nodeSettings), service: serviceId })
-            : await bridge.serviceRestart({ ...toNodeApiSettings(nodeSettings), service: serviceId })
+            ? await serviceStop!({ ...toNodeApiSettings(nodeSettings), service: serviceId })
+            : await serviceRestart!({ ...toNodeApiSettings(nodeSettings), service: serviceId })
 
       setNodeStatus(result.status)
       setNodeOutput(result.output || result.status.output || '')
@@ -2773,6 +2818,7 @@ export function App() {
       setNodeNativeBuildActionLoading(null)
     }
   }
+  void runNodeNativeBuildAll
 
   const runNodeNativeBuildService = async (serviceId: string) => {
     const bridge = getKoinosNodeBridge()
@@ -2799,6 +2845,7 @@ export function App() {
       setNodeNativeBuildActionLoading(null)
     }
   }
+  void runNodeNativeBuildService
 
   const applySettings = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2808,12 +2855,14 @@ export function App() {
       const publicRpcUrls = parsePublicRpcUrlsInput(draftPublicRpcUrls, language)
       const pollMs = clamp(Number.parseInt(draftPollMs, 10) || DEFAULT_SETTINGS.pollMs, 1000, 30000)
       const rowLimit = clamp(Number.parseInt(draftRowLimit, 10) || DEFAULT_SETTINGS.rowLimit, 5, 50)
+      const dashboardProducerWindowBlocks = normalizeDashboardProducerWindowBlocks(draftDashboardProducerWindowBlocks)
+      const dashboardRefreshSeconds = normalizeDashboardRefreshSeconds(draftDashboardRefreshSeconds)
       const previousBaseDir = normalizeNodeBaseDirInput(nodeSettings.baseDir)
       const repoPath = draftNodeRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
       const composeFile = draftNodeComposeFile.trim() || DEFAULT_NODE_SETTINGS.composeFile
       const envFile = draftNodeEnvFile.trim() || DEFAULT_NODE_SETTINGS.envFile
       const baseDir = normalizeNodeBaseDirInput(draftNodeBaseDir)
-      const profiles = parseProfilesCsv(draftNodeProfiles).join(',')
+      const profiles = expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)).join(',')
       const blockchainBackupUrl = normalizeBackupTarGzUrl(
         draftNodeBlockchainBackupUrl.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
         language
@@ -2834,7 +2883,9 @@ export function App() {
         publicRpcUrls,
         rpcSource: normalizeExplorerRpcSource(current.rpcSource, publicRpcUrls, current.rpcSource),
         pollMs,
-        rowLimit
+        rowLimit,
+        dashboardProducerWindowBlocks,
+        dashboardRefreshSeconds
       }))
       setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, blockchainBackupUrl, runtimeMode: 'native' })
       setDraftNodeBaseDir(baseDir)
@@ -2866,6 +2917,8 @@ export function App() {
     setDraftPublicRpcUrls(DEFAULT_SETTINGS.publicRpcUrls.join('\n'))
     setDraftPollMs(String(DEFAULT_SETTINGS.pollMs))
     setDraftRowLimit(String(DEFAULT_SETTINGS.rowLimit))
+    setDraftDashboardProducerWindowBlocks(String(DEFAULT_SETTINGS.dashboardProducerWindowBlocks))
+    setDraftDashboardRefreshSeconds(String(DEFAULT_SETTINGS.dashboardRefreshSeconds))
     setDraftNodeRepoPath(DEFAULT_NODE_SETTINGS.repoPath)
     setDraftNodeComposeFile(DEFAULT_NODE_SETTINGS.composeFile)
     setDraftNodeEnvFile(DEFAULT_NODE_SETTINGS.envFile)
@@ -2895,6 +2948,17 @@ export function App() {
               {t('tab.explorer')}
             </button>
             <button
+              id="tab-dashboard"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'dashboard'}
+              aria-controls="panel-dashboard"
+              className={`tab-button ${activeTab === 'dashboard' ? 'is-active' : ''}`.trim()}
+              onClick={() => setActiveTab('dashboard')}
+            >
+              {t('tab.dashboard')}
+            </button>
+            <button
               id="tab-node"
               type="button"
               role="tab"
@@ -2917,6 +2981,17 @@ export function App() {
               {t('tab.producer')}
             </button>
             <button
+              id="tab-wallet"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'wallet'}
+              aria-controls="panel-wallet"
+              className={`tab-button ${activeTab === 'wallet' ? 'is-active' : ''}`.trim()}
+              onClick={() => setActiveTab('wallet')}
+            >
+              {t('tab.wallet')}
+            </button>
+            <button
               id="tab-settings"
               type="button"
               role="tab"
@@ -2937,414 +3012,103 @@ export function App() {
       <div className={`app-content ${hasAppOverlayOpen ? 'has-overlay' : ''}`.trim()}>
 
       {activeTab === 'settings' && (
-        <section
-          id="panel-settings"
-          className="settings-panel"
-          aria-label={t('settings.panelAria')}
-          role="tabpanel"
-          aria-labelledby="tab-settings"
-        >
-          <form className="settings-form" onSubmit={applySettings}>
-            <div className="settings-header">
-              <h2>{t('settings.title')}</h2>
-              <p>{t('settings.description')}</p>
-            </div>
-
-            <div className="settings-subheader">
-              <h3>{t('settings.interfaceTitle')}</h3>
-              <p>{t('settings.interfaceDescription')}</p>
-            </div>
-            <label>
-              {t('settings.language')}
-              <select value={language} onChange={(event) => setLanguage(normalizeAppLanguage(event.target.value))}>
-                <option value="en">{t('language.english')}</option>
-                <option value="es">{t('language.spanish')}</option>
-              </select>
-            </label>
-
-            <div className="settings-subheader">
-              <h3>{t('settings.producerModeTitle')}</h3>
-              <p>{t('settings.producerModeDescription')}</p>
-            </div>
-            <label className="settings-toggle">
-          <span className="settings-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={settings.producerAdvancedMode}
-                  onChange={(event) => {
-                    setSettings((current) => ({ ...current, producerAdvancedMode: event.target.checked }))
-                  }}
-                />
-                <span>{t('settings.producerAdvancedMode')}</span>
-              </span>
-              <span className="settings-inline-help">
-                {settings.producerAdvancedMode ? t('settings.producerAdvancedHelpOn') : t('settings.producerAdvancedHelpOff')}
-              </span>
-            </label>
-
-            <div className="settings-subheader">
-              <h3>{t('settings.explorerTitle')}</h3>
-              <p>{t('settings.explorerDescription')}</p>
-            </div>
-            <label>
-              {t('settings.publicRpcUrls')}
-              <textarea
-                className="settings-textarea mono"
-                value={draftPublicRpcUrls}
-                onChange={(event) => setDraftPublicRpcUrls(event.target.value)}
-                placeholder={`https://api.koinos.io\nhttps://api.koinosblocks.com`}
-                rows={4}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <span className="settings-inline-help">{t('settings.publicRpcUrlsHelp')}</span>
-            </label>
-
-            <div className="settings-row">
-              <label>
-                {t('settings.refreshMs')}
-                <input
-                  type="number"
-                  min={1000}
-                  max={30000}
-                  step={500}
-                  value={draftPollMs}
-                  onChange={(event) => setDraftPollMs(event.target.value)}
-                />
-              </label>
-
-              <label>
-                {t('settings.rows')}
-                <input
-                  type="number"
-                  min={5}
-                  max={50}
-                  step={1}
-                  value={draftRowLimit}
-                  onChange={(event) => setDraftRowLimit(event.target.value)}
-                />
-              </label>
-            </div>
-
-            <div className="settings-subheader">
-              <h3>{t('settings.nodeTitle')}</h3>
-              <p>{t('settings.nodeDescription')}</p>
-            </div>
-
-            <label>
-              {t('settings.repoPath')}
-              <input
-                type="text"
-                value={draftNodeRepoPath}
-                onChange={(event) => setDraftNodeRepoPath(event.target.value)}
-                placeholder="/Users/pgarcgo/code/koinos_code/koinos"
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-
-            <div className="settings-actions settings-actions-inline">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => {
-                  void cloneKoinosRepo(draftNodeRepoPath)
-                }}
-                disabled={!hasNodeControls || nodeCloneLoading || nodeActionLoading !== null}
-              >
-                {nodeCloneLoading ? t('node.refreshingRepo') : t('node.refreshRepo')}
-              </button>
-              <span className="settings-inline-help mono">
-                {t('settings.refreshRepoHelp')}
-              </span>
-            </div>
-
-            <div className="settings-row settings-row-3">
-              <label>
-                {t('settings.composeFile')}
-                <input
-                  type="text"
-                  value={draftNodeComposeFile}
-                  onChange={(event) => setDraftNodeComposeFile(event.target.value)}
-                  placeholder="docker-compose.yml"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <span className="settings-path-preview mono" title={composeFileDisplayPath || draftNodeComposeFile}>
-                  {composeFileDisplayPath || t('common.emptyPath')}
-                </span>
-                <button
-                  type="button"
-                  className="ghost-button settings-inline-button"
-                  onClick={() => {
-                    void openNodeFileEditor('compose')
-                  }}
-                  disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
-                >
-                  {t('common.viewEdit')}
-                </button>
-              </label>
-
-              <label>
-                {t('settings.envFile')}
-                <input
-                  type="text"
-                  value={draftNodeEnvFile}
-                  onChange={(event) => setDraftNodeEnvFile(event.target.value)}
-                  placeholder=".env"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <span className="settings-path-preview mono" title={envFileDisplayPath || draftNodeEnvFile}>
-                  {envFileDisplayPath || t('common.emptyPath')}
-                </span>
-                <button
-                  type="button"
-                  className="ghost-button settings-inline-button"
-                  onClick={() => {
-                    void openNodeFileEditor('env')
-                  }}
-                  disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
-                >
-                  {t('common.viewEdit')}
-                </button>
-              </label>
-
-              <label>
-                {t('settings.profilesCsv')}
-                <input
-                  type="text"
-                  value={draftNodeProfiles}
-                  onChange={(event) => setDraftNodeProfiles(event.target.value)}
-                  placeholder="block_producer,jsonrpc"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-              </label>
-            </div>
-
-            <div className="settings-subheader">
-              <h3>{t('settings.blockchainBackupTitle')}</h3>
-              <p>{t('settings.blockchainBackupDescription')}</p>
-            </div>
-
-            <label>
-              {t('settings.backupUrl')}
-              <input
-                type="url"
-                value={draftNodeBlockchainBackupUrl}
-                onChange={(event) => setDraftNodeBlockchainBackupUrl(event.target.value)}
-                placeholder="http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz"
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-
-            <div className="settings-actions settings-actions-inline">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => {
-                  void runNodeRestoreBackupVerify()
-                }}
-                disabled={!hasNodeControls || nodeBusy}
-                title={`${nodeSettings.blockchainBackupUrl}\n${t('node.restoreVerifyRequiresJsonrpc')}`}
-              >
-                {nodeRestoreBackupVerifyLoading ? t('node.restoringVerify') : t('node.restoreVerify')}
-              </button>
-              <span className="settings-inline-help">
-                {t('node.restoreVerifyRequiresJsonrpc')}
-              </span>
-            </div>
-
-            <label>
-              {t('settings.configFile')}
-              <span className="settings-path-preview mono" title={configFileDisplayPath || 'config/config.yml'}>
-                {configFileDisplayPath || t('common.emptyPath')}
-              </span>
-              <button
-                type="button"
-                className="ghost-button settings-inline-button"
-                onClick={() => {
-                  void openNodeFileEditor('config')
-                }}
-                disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
-              >
-                {t('common.viewEdit')}
-              </button>
-            </label>
-
-            <label>
-              {t('settings.baseDataDir')}
-              <div className="settings-input-with-button">
-                <input
-                  type="text"
-                  value={draftNodeBaseDir}
-                  onChange={(event) => {
-                    setDraftNodeBaseDir(event.target.value)
-                    setNodeBaseDirValidation(null)
-                  }}
-                  onBlur={(event) => {
-                    const normalized = normalizeNodeBaseDirInput(event.target.value)
-                    setDraftNodeBaseDir(normalized)
-                    void validateDraftNodeBaseDir(normalized).then((result) => {
-                      if (!result.ok) {
-                        setFormError(result.output || t('settings.baseDirNotUsable', { baseDir: normalized }))
-                      } else {
-                        setFormError(null)
-                      }
-                    })
-                  }}
-                  placeholder="~/.koinos"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  className="ghost-button settings-inline-button"
-                  onClick={() => {
-                    void pickNodeBaseDir()
-                  }}
-                  disabled={!hasNodeControls || nodeBusy}
-                >
-                  {nodeBaseDirPickerLoading ? t('common.opening') : t('common.browse')}
-                </button>
-              </div>
-              <span
-                className={`settings-inline-help ${
-                  nodeBaseDirValidationLoading
-                    ? 'is-busy'
-                    : nodeBaseDirValidation
-                      ? nodeBaseDirValidation.ok
-                        ? 'is-ok'
-                        : 'is-error'
-                      : ''
-                }`.trim()}
-              >
-                {nodeBaseDirValidationLoading
-                  ? t('settings.baseDirChecking')
-                  : nodeBaseDirValidation?.message || t('settings.baseDirHelp')}
-              </span>
-            </label>
-
-            {formError && <p className="form-error">{formError}</p>}
-
-            <div className="settings-actions">
-              <button type="button" className="ghost-button" onClick={resetDefaults}>
-                {t('settings.reset')}
-              </button>
-              <button type="submit" className="primary-button">
-                {t('settings.saveReconnect')}
-              </button>
-            </div>
-          </form>
-        </section>
+        <SettingsPanel
+          t={t}
+          applySettings={applySettings}
+          language={language}
+          setLanguage={setLanguage}
+          settings={settings}
+          setSettings={setSettings}
+          draftPublicRpcUrls={draftPublicRpcUrls}
+          setDraftPublicRpcUrls={setDraftPublicRpcUrls}
+          draftPollMs={draftPollMs}
+          setDraftPollMs={setDraftPollMs}
+          draftRowLimit={draftRowLimit}
+          setDraftRowLimit={setDraftRowLimit}
+          draftDashboardProducerWindowBlocks={draftDashboardProducerWindowBlocks}
+          setDraftDashboardProducerWindowBlocks={setDraftDashboardProducerWindowBlocks}
+          draftDashboardRefreshSeconds={draftDashboardRefreshSeconds}
+          setDraftDashboardRefreshSeconds={setDraftDashboardRefreshSeconds}
+          draftNodeRepoPath={draftNodeRepoPath}
+          setDraftNodeRepoPath={setDraftNodeRepoPath}
+          cloneKoinosRepo={cloneKoinosRepo}
+          hasNodeControls={hasNodeControls}
+          nodeCloneLoading={nodeCloneLoading}
+          nodeActionLoading={nodeActionLoading}
+          draftNodeComposeFile={draftNodeComposeFile}
+          setDraftNodeComposeFile={setDraftNodeComposeFile}
+          composeFileDisplayPath={composeFileDisplayPath}
+          openNodeFileEditor={openNodeFileEditor}
+          nodeFileEditorLoading={nodeFileEditorLoading}
+          nodeFileEditorSaving={nodeFileEditorSaving}
+          draftNodeEnvFile={draftNodeEnvFile}
+          setDraftNodeEnvFile={setDraftNodeEnvFile}
+          envFileDisplayPath={envFileDisplayPath}
+          draftNodeProfiles={draftNodeProfiles}
+          setDraftNodeProfiles={setDraftNodeProfiles}
+          draftNodeBlockchainBackupUrl={draftNodeBlockchainBackupUrl}
+          setDraftNodeBlockchainBackupUrl={setDraftNodeBlockchainBackupUrl}
+          runNodeRestoreBackupVerify={runNodeRestoreBackupVerify}
+          nodeBusy={nodeBusy}
+          nodeSettings={nodeSettings}
+          nodeRestoreBackupVerifyLoading={nodeRestoreBackupVerifyLoading}
+          configFileDisplayPath={configFileDisplayPath}
+          draftNodeBaseDir={draftNodeBaseDir}
+          setDraftNodeBaseDir={setDraftNodeBaseDir}
+          setNodeBaseDirValidation={setNodeBaseDirValidation}
+          validateDraftNodeBaseDir={validateDraftNodeBaseDir}
+          setFormError={setFormError}
+          pickNodeBaseDir={pickNodeBaseDir}
+          nodeBaseDirPickerLoading={nodeBaseDirPickerLoading}
+          nodeBaseDirValidationLoading={nodeBaseDirValidationLoading}
+          nodeBaseDirValidation={nodeBaseDirValidation}
+          formError={formError}
+          resetDefaults={resetDefaults}
+        />
       )}
 
-      {nodeFileEditorOpen && (
-        <div
-          className="file-editor-backdrop"
-          role="presentation"
-          onClick={() => setNodeFileEditorOpen(false)}
-        >
-          <section
-            className="file-editor-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="node-file-editor-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="file-editor-header">
-              <div>
-                <p className="eyebrow">{t('fileEditor.eyebrow')}</p>
-                <h3 id="node-file-editor-title" className="file-editor-title">
-                  {nodeFileEditorKind === 'compose'
-                    ? t('fileEditor.compose')
-                    : nodeFileEditorKind === 'env'
-                      ? t('fileEditor.env')
-                      : t('fileEditor.config')}
-                </h3>
-                <p className="file-editor-path mono" title={nodeFileEditorPath}>
-                  {nodeFileEditorPath || t('common.emptyPath')}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setNodeFileEditorOpen(false)}
-              >
-                {t('common.close')}
-              </button>
-            </header>
-
-            <div className="file-editor-toolbar">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => {
-                  void loadNodeManagedFile(nodeFileEditorKind)
-                }}
-                disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
-              >
-                {nodeFileEditorLoading ? t('common.loading') : t('common.reload')}
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => {
-                  void saveNodeManagedFile()
-                }}
-                disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
-              >
-                {nodeFileEditorSaving ? t('common.saving') : t('common.save')}
-              </button>
-              <span className="file-editor-meta">
-                {nodeFileEditorLastSavedAt
-                  ? t('fileEditor.savedAt', { time: formatTime(nodeFileEditorLastSavedAt, locale) })
-                  : nodeFileEditorLoading
-                    ? t('fileEditor.loadingFile')
-                    : ''}
-              </span>
-            </div>
-
-            {nodeFileEditorError && (
-              <div className="node-inline-error file-editor-error" role="alert">
-                {nodeFileEditorError}
-              </div>
-            )}
-
-            <textarea
-              className="file-editor-textarea mono"
-              value={nodeFileEditorContent}
-              onChange={(event) => setNodeFileEditorContent(event.target.value)}
-              spellCheck={false}
-              disabled={nodeFileEditorLoading || nodeFileEditorSaving}
-              aria-label={t('fileEditor.contentAria', { kind: nodeFileEditorKind })}
-            />
-          </section>
-        </div>
+      {activeTab === 'dashboard' && (
+        <DashboardPanel
+          t={t}
+          locale={locale}
+          hasNodeControls={hasNodeControls}
+          dashboardSubtab={dashboardSubtab}
+          setDashboardSubtab={setDashboardSubtab}
+          dashboardProducerWindowBlocks={settings.dashboardProducerWindowBlocks}
+          dashboardProducers={dashboardProducers}
+          dashboardProducersLoading={dashboardProducersLoading}
+          dashboardProducersError={dashboardProducersError}
+          dashboardPeers={dashboardPeers}
+          dashboardPeersLoading={dashboardPeersLoading}
+          dashboardPeersError={dashboardPeersError}
+          nodeProducerOverview={nodeProducerOverview}
+          nodeProducerLoading={nodeProducerLoading}
+          nodeProducerError={nodeProducerError}
+        />
       )}
+
+      <NodeFileEditorModal
+        t={t}
+        nodeFileEditorOpen={nodeFileEditorOpen}
+        setNodeFileEditorOpen={setNodeFileEditorOpen}
+        nodeFileEditorKind={nodeFileEditorKind}
+        nodeFileEditorPath={nodeFileEditorPath}
+        loadNodeManagedFile={loadNodeManagedFile}
+        hasNodeControls={hasNodeControls}
+        nodeFileEditorLoading={nodeFileEditorLoading}
+        nodeFileEditorSaving={nodeFileEditorSaving}
+        saveNodeManagedFile={saveNodeManagedFile}
+        nodeFileEditorLastSavedAt={nodeFileEditorLastSavedAt}
+        locale={locale}
+        nodeFileEditorError={nodeFileEditorError}
+        nodeFileEditorContent={nodeFileEditorContent}
+        setNodeFileEditorContent={setNodeFileEditorContent}
+      />
 
       {activeTab === 'node' && (
       <section id="panel-node" className="node-panel" aria-label={t('node.panelAria')} role="tabpanel" aria-labelledby="tab-node">
         <div className="node-panel-header is-compact">
           <div className="node-panel-actions">
-            <div
-              className={`status-pill ${nodeStatusClass}`.trim()}
-            >
-              <span className="status-dot" aria-hidden="true" />
-              <span>{nodeStateText}</span>
-            </div>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => {
-                void refreshNodeStatus()
-              }}
-              disabled={!hasNodeControls || nodeStatusLoading || nodeBusy}
-            >
-              {t('common.refresh')}
-            </button>
             <button
               type="button"
               className="ghost-button"
@@ -3988,562 +3752,146 @@ export function App() {
       )}
 
       {activeTab === 'producer' && (
-      <section id="panel-producer" className="producer-panel" aria-label={t('producer.panelAria')} role="tabpanel" aria-labelledby="tab-producer">
-        <div className="wallet-header">
-          <div>
-            <h2>{t('producer.title')}</h2>
-            <p>{t('producer.description')}</p>
-          </div>
-          <div className="wallet-header-meta">
-            <span className="status-pill is-idle">
-              <span className="status-dot" aria-hidden="true" />
-              <span>{effectiveExplorerRpcUrl}</span>
-            </span>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => {
-                void Promise.all([
-                  refreshNodeProducerOverview(
-                    undefined,
-                    producerAdvancedMode ? nodeProducerAddressDraft.trim() : signingWalletAddress
-                  ),
-                  refreshWalletOverview(),
-                  refreshProducerSigningWalletBalance(signingWalletAddress)
-                ])
-              }}
-              disabled={!hasNodeControls || nodeProducerLoading || walletLoading || walletActionLoading !== null}
-            >
-              {nodeProducerLoading || walletLoading ? t('common.loading') : t('common.refresh')}
-            </button>
-          </div>
-        </div>
+        <ProducerPanel
+          t={t}
+          deleteNodeProducer={deleteNodeProducer}
+          refreshNodeProducerOverview={refreshNodeProducerOverview}
+          producerAdvancedMode={producerAdvancedMode}
+          nodeProducerAddressDraft={nodeProducerAddressDraft}
+          signingWalletAddress={signingWalletAddress}
+          producerVaultExists={producerVaultExists}
+          producerVaultUnlocked={producerVaultUnlocked}
+          refreshWalletOverview={refreshWalletOverview}
+          refreshProducerSigningWalletBalance={refreshProducerSigningWalletBalance}
+          hasNodeControls={hasNodeControls}
+          walletLoading={walletLoading}
+          walletActionLoading={walletActionLoading}
+          nodeProducerError={nodeProducerError}
+          walletError={walletError}
+          nodeProducerOverview={nodeProducerOverview}
+          effectiveProducerTargetAddress={effectiveProducerTargetAddress}
+          producerConfiguredAddress={producerConfiguredAddress}
+          producerLocalPublicKey={producerLocalPublicKey}
+          producerAddressSourceText={producerAddressSourceText}
+          producerRegistrationStatusText={producerRegistrationStatusText}
+          producerSigningWalletRelationText={producerSigningWalletRelationText}
+          producerSigningWalletBalanceLoading={producerSigningWalletBalanceLoading}
+          producerSigningWalletBalance={producerSigningWalletBalance}
+          producerRecentBlocks={producerRecentBlocks}
+          producerRecentBlocksError={producerRecentBlocksError}
+          producerBlocksWindowBlocks={settings.dashboardProducerWindowBlocks}
+          producerRefreshSeconds={settings.dashboardRefreshSeconds}
+          locale={locale}
+          signingWalletHasRegistrationMana={signingWalletHasRegistrationMana}
+          producerSigningWalletStatusText={producerSigningWalletStatusText}
+          nodeProducerActionLoading={nodeProducerActionLoading}
+          registerNodeProducer={registerNodeProducer}
+          producerRegisterDisabled={producerRegisterDisabled}
+          producerRegisterHintClass={producerRegisterHintClass}
+          producerRegisterHintText={producerRegisterHintText}
+          setNodeProducerAddressDraft={setNodeProducerAddressDraft}
+          producerSigningWalletBalanceError={producerSigningWalletBalanceError}
+          producerSetupComplete={producerSetupComplete}
+          producerSetupBlockedReason={producerSetupBlockedReason}
+          producerUseWalletAddress={producerUseWalletAddress}
+          setProducerUseWalletAddress={setProducerUseWalletAddress}
+          producerAllowDelegatedSigner={producerAllowDelegatedSigner}
+          setProducerAllowDelegatedSigner={setProducerAllowDelegatedSigner}
+          producerProfile={producerProfile}
+          clearProducerSetup={clearProducerSetup}
+          openWalletTab={() => setActiveTab('wallet')}
+        />
+      )}
 
-        {!hasNodeControls && (
-          <div className="node-warning" role="note">
-            {t('node.electronOnlyWarning')}
-          </div>
-        )}
-
-        {nodeProducerError && (
-          <div className="error-banner node-error-banner" role="alert">
-            <span>{nodeProducerError}</span>
-          </div>
-        )}
-
-        {walletError && (
-          <div className="error-banner node-error-banner" role="alert">
-            <span>{walletError}</span>
-          </div>
-        )}
-
-        {nodeProducerOverview && (
-          <div className="producer-grid">
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.address')}</span>
-              <p className="stat-value mono" title={effectiveProducerTargetAddress || t('common.na')}>
-                {effectiveProducerTargetAddress ? shortHash(effectiveProducerTargetAddress, 16, 12) : t('common.na')}
-              </p>
-              <p className="stat-note">{producerAddressSourceText}</p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.registrationStatus')}</span>
-              <p className="stat-value">{producerRegistrationStatusText}</p>
-              <p className="stat-note">
-                {nodeProducerOverview.registeredPublicKey ? shortHash(nodeProducerOverview.registeredPublicKey, 18, 12) : t('common.na')}
-              </p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.signingWallet')}</span>
-              <p className="stat-value mono" title={signingWalletAddress || t('common.na')}>
-                {signingWalletAddress ? shortHash(signingWalletAddress, 16, 12) : t('common.na')}
-              </p>
-              <p className="stat-note">{producerSigningWalletRelationText}</p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.signingWalletMana')}</span>
-              <p className="stat-value">
-                {producerSigningWalletBalanceLoading
-                  ? '...'
-                  : formatDecimalValue(producerSigningWalletBalance?.mana, locale, 4, t('common.na'))}
-              </p>
-              <p
-                className={`stat-note ${
-                  signingWalletHasRegistrationMana === true
-                    ? 'is-ok'
-                    : signingWalletHasRegistrationMana === false
-                      ? 'is-error'
-                      : ''
-                }`}
-              >
-                {producerSigningWalletStatusText}
-              </p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.vhpBalance')}</span>
-              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.vhpBalance, locale, 2, t('common.na'))}</p>
-              <p className="stat-note">{t('producer.estimatedApy')}: {formatDecimalValue(nodeProducerOverview.estimatedApyPercent, locale, 2, t('common.na'))}%</p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.koinBalance')}</span>
-              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.koinBalance, locale, 2, t('common.na'))}</p>
-              <p className="stat-note">{t('producer.koinPrice')}: {formatUsdValue(nodeProducerOverview.koinPriceUsd, locale, t('common.na'))}</p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.manaBalance')}</span>
-              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.mana, locale, 2, t('common.na'))}</p>
-              <p className="stat-note">
-                {t('producer.address')}: {nodeProducerOverview.producerAddress ? shortHash(nodeProducerOverview.producerAddress, 16, 12) : t('common.na')}
-              </p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.producedLast24h')}</span>
-              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.producedLast24h, locale, 0, t('common.na'))}</p>
-              <p className="stat-note">{t('producer.activeProducers')}: {formatDecimalValue(nodeProducerOverview.activeProducerCount, locale, 0, t('common.na'))}</p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.projectedBlocksMonth')}</span>
-              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.projectedBlocksPerMonth, locale, 0, t('common.na'))}</p>
-              <p className="stat-note">{t('producer.shareLast24h')}: {formatDecimalValue(nodeProducerOverview.shareLast24hPercent, locale, 2, t('common.na'))}%</p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.estimatedKoinDay')}</span>
-              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.estimatedKoinPerDay, locale, 4, t('common.na'))}</p>
-              <p className="stat-note">{t('producer.lastProducedAt')}: {formatDateTime(nodeProducerOverview.lastProducedBlockAt ?? 0, locale, t('common.na'))}</p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.estimatedKoinMonth')}</span>
-              <p className="stat-value">{formatDecimalValue(nodeProducerOverview.estimatedKoinPerMonth, locale, 2, t('common.na'))}</p>
-              <p className="stat-note">{t('producer.priceSource')}</p>
-            </article>
-            <article className="stat-card">
-              <span className="stat-label">{t('producer.estimatedUsdMonth')}</span>
-              <p className="stat-value">{formatUsdValue(nodeProducerOverview.estimatedUsdPerMonth, locale, t('common.na'))}</p>
-              <p className="stat-note">{t('producer.rpcSource')}</p>
-            </article>
-          </div>
-        )}
-
-        {!nodeProducerLoading && !nodeProducerOverview && !nodeProducerError && (
-          <p className="node-empty">{t('producer.noOverview')}</p>
-        )}
-
-        <div className="wallet-card-grid">
-          {producerUnlockRequired && (
-            <article className="wallet-card">
-              <h3>{t('producer.unlockTitle')}</h3>
-              <p>{t('producer.unlockDescription')}</p>
-              <label>
-                {t('wallet.password')}
-                <input
-                  type="password"
-                  value={producerUnlockPassword}
-                  onChange={(event) => setProducerUnlockPassword(event.target.value)}
-                  autoComplete="current-password"
-                />
-              </label>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => {
-                  void unlockProducerAccount()
-                }}
-                disabled={!hasWalletControls || walletActionLoading !== null}
-              >
-                {walletActionLoading === 'producer-unlock' ? t('common.loading') : t('producer.unlockAction')}
-              </button>
-            </article>
-          )}
-
-          <article className="wallet-card">
-            <h3>{t('producer.importTitle')}</h3>
-            <p>{t('producer.importDescription')}</p>
-            <label>
-              {t('wallet.privateKey')}
-              <input
-                type="text"
-                value={walletImportPrivateKey}
-                onChange={(event) => setWalletImportPrivateKey(event.target.value)}
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-            <label>
-              {t('wallet.password')}
-              <input
-                type="password"
-                value={walletImportPassword}
-                onChange={(event) => setWalletImportPassword(event.target.value)}
-                autoComplete="new-password"
-              />
-            </label>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => {
-                void importProducerAccount()
-              }}
-              disabled={!hasWalletControls || walletActionLoading !== null}
-            >
-              {walletActionLoading === 'producer-import' ? t('common.loading') : t('producer.importAction')}
-            </button>
-            <p className="stat-note mono" title={walletOverview?.walletAddress || t('common.na')}>
-              {t('producer.walletAddress')}: {walletOverview?.walletAddress || t('common.na')}
-            </p>
-          </article>
-
-          <article className="wallet-card">
-            <h3>{t('producer.burnTitle')}</h3>
-            <p>{t('producer.burnDescription')}</p>
-            <label>
-              {t('wallet.burnPercent')}
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={walletBurnPercentDraft}
-                onChange={(event) => {
-                  setWalletBurnPercentDraft(event.target.value)
-                  if (event.target.value.trim()) setWalletBurnAmountDraft('')
-                }}
-              />
-            </label>
-            <label>
-              {t('wallet.burnAmount')}
-              <input
-                type="number"
-                min={0}
-                step="0.00000001"
-                value={walletBurnAmountDraft}
-                onChange={(event) => {
-                  setWalletBurnAmountDraft(event.target.value)
-                  if (event.target.value.trim()) setWalletBurnPercentDraft('')
-                }}
-              />
-            </label>
-            <label className="wallet-checkbox">
-              <input
-                type="checkbox"
-                checked={walletBurnDryRun}
-                onChange={(event) => setWalletBurnDryRun(event.target.checked)}
-              />
-              <span>{t('wallet.dryRun')}</span>
-            </label>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => {
-                const bridge = getWalletBridge()
-                if (!bridge) return
-                const percent = walletBurnPercentDraft.trim() ? Number.parseFloat(walletBurnPercentDraft) : undefined
-                const amount = walletBurnAmountDraft.trim() ? Number.parseFloat(walletBurnAmountDraft) : undefined
-                void runWalletAction('producer-burn', t('producer.burnTitle'), () =>
-                  bridge.burn({
-                    rpcUrl: effectiveExplorerRpcUrl,
-                    percent,
-                    amount,
-                    dryRun: walletBurnDryRun
-                  }), {
-                  refreshOverview: true,
-                  refreshProducer: true
-                })
-              }}
-              disabled={!hasWalletControls || walletActionLoading !== null || !producerWalletReady}
-            >
-              {walletActionLoading === 'producer-burn' ? t('common.loading') : t('producer.burnAction')}
-            </button>
-          </article>
-        </div>
-
-        <div className="producer-setup">
-          <div className="node-services-header producer-header">
-            <div>
-              <h3>{t('producer.setupTitle')}</h3>
-              <p className="producer-header-copy">{t('producer.setupDescription')}</p>
-            </div>
-          </div>
-
-          <div className="producer-form">
-            {producerAdvancedMode ? (
-              <label>
-                {t('producer.addressInput')}
-                <input
-                  type="text"
-                  value={nodeProducerAddressDraft}
-                  onChange={(event) => setNodeProducerAddressDraft(event.target.value)}
-                  onBlur={() => {
-                    void refreshNodeProducerOverview(undefined, nodeProducerAddressDraft.trim())
-                  }}
-                  placeholder="14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-              </label>
-            ) : (
-              <div className="producer-derived-address">
-                <span>{t('producer.addressInput')}</span>
-                <span className="mono" title={effectiveProducerTargetAddress || t('common.na')}>
-                  {effectiveProducerTargetAddress || t('common.na')}
-                </span>
-                <p className="settings-inline-help">{t('producer.addressDerived')}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="producer-setup-copy">
-            <p className="settings-inline-help">{t('producer.addressHelp')}</p>
-            <p className="settings-inline-help">{t('producer.localKeyHelp')}</p>
-            <p className="settings-inline-help">{t('producer.signingWalletHelp')}</p>
-          </div>
-
-          <div className="producer-actions">
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => {
-                void registerNodeProducer()
-              }}
-              disabled={producerRegisterDisabled}
-            >
-              {nodeProducerActionLoading === 'register' ? t('producer.registering') : t('producer.registerAction')}
-            </button>
-            <span
-              className={`settings-inline-help ${producerRegisterHintClass}`}
-            >
-              {producerRegisterHintText}
-            </span>
-          </div>
-
-          {nodeProducerOverview ? (
-            <div className="producer-details">
-              <div className="producer-detail-row">
-                <span>{t('producer.addressInput')}</span>
-                <span className="mono" title={effectiveProducerTargetAddress || t('common.na')}>
-                  {effectiveProducerTargetAddress || t('common.na')}
-                </span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.signingWallet')}</span>
-                <span className="mono" title={signingWalletAddress || t('common.na')}>
-                  {signingWalletAddress || t('common.na')}
-                </span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.signingWalletRelation')}</span>
-                <span>{producerSigningWalletRelationText}</span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.signingWalletKoin')}</span>
-                <span>{formatDecimalValue(producerSigningWalletBalance?.koin, locale, 4, t('common.na'))}</span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.signingWalletVhp')}</span>
-                <span>{formatDecimalValue(producerSigningWalletBalance?.vhp, locale, 4, t('common.na'))}</span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.signingWalletMana')}</span>
-                <span>{formatDecimalValue(producerSigningWalletBalance?.mana, locale, 4, t('common.na'))}</span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.signingWalletStatus')}</span>
-                <span>{producerSigningWalletStatusText}</span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.localPublicKey')}</span>
-                <span className="mono" title={nodeProducerOverview.localPublicKey || t('common.na')}>
-                  {nodeProducerOverview.localPublicKey ? shortHash(nodeProducerOverview.localPublicKey, 26, 16) : t('common.na')}
-                </span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.registeredPublicKey')}</span>
-                <span className="mono" title={nodeProducerOverview.registeredPublicKey || t('common.na')}>
-                  {nodeProducerOverview.registeredPublicKey ? shortHash(nodeProducerOverview.registeredPublicKey, 26, 16) : t('common.na')}
-                </span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.configPath')}</span>
-                <span className="mono" title={nodeProducerOverview.configFilePath}>
-                  {nodeProducerOverview.configFilePath}
-                </span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.publicKeyPath')}</span>
-                <span className="mono" title={nodeProducerOverview.localPublicKeyPath || t('common.na')}>
-                  {nodeProducerOverview.localPublicKeyPath || t('common.na')}
-                </span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.privateKeyPath')}</span>
-                <span className="mono" title={nodeProducerOverview.localPrivateKeyPath || t('common.na')}>
-                  {nodeProducerOverview.localPrivateKeyPath || t('common.na')}
-                </span>
-              </div>
-              <div className="producer-detail-row">
-                <span>{t('producer.dataSources')}</span>
-                <span className="mono" title={`${nodeProducerOverview.rpcUrl} | ${nodeProducerOverview.priceSourceUrl}`}>
-                  {nodeProducerOverview.rpcUrl} | {nodeProducerOverview.priceSourceUrl}
-                </span>
-              </div>
-              <div className="producer-detail-note">
-                {producerSigningWalletBalanceError || nodeProducerOverview.output || t('producer.setupHint')}
-              </div>
-            </div>
-          ) : (
-            <p className="node-empty">{nodeProducerLoading ? t('producer.loading') : t('producer.noOverview')}</p>
-          )}
-        </div>
-
-        {(walletResultData || walletLoading) && (
-          <div className="wallet-output">
-            <div className="node-services-header">
-              <h3>{walletResultTitle || t('producer.outputTitle')}</h3>
-              <span>{walletLoading ? t('common.loading') : effectiveExplorerRpcUrl}</span>
-            </div>
-            <pre className="mono">{walletResultText || t('common.loading')}</pre>
-          </div>
-        )}
-      </section>
+      {activeTab === 'wallet' && (
+        <WalletPanel
+          t={t}
+          effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
+          hasWalletControls={hasWalletControls}
+          walletOverview={walletOverview}
+          walletLoading={walletLoading}
+          walletActionLoading={walletActionLoading}
+          walletError={walletError}
+          walletBalance={producerSigningWalletBalance}
+          walletBalanceLoading={producerSigningWalletBalanceLoading}
+          walletBalanceError={producerSigningWalletBalanceError}
+          walletImportPrivateKey={walletImportPrivateKey}
+          setWalletImportPrivateKey={setWalletImportPrivateKey}
+          walletImportPassword={walletImportPassword}
+          setWalletImportPassword={setWalletImportPassword}
+          walletImportSeedPhrase={walletImportSeedPhrase}
+          setWalletImportSeedPhrase={setWalletImportSeedPhrase}
+          walletImportSeedPassword={walletImportSeedPassword}
+          setWalletImportSeedPassword={setWalletImportSeedPassword}
+          walletUnlockPassword={producerUnlockPassword}
+          setWalletUnlockPassword={setProducerUnlockPassword}
+          importWalletAccount={importProducerAccount}
+          importWalletFromSeed={importWalletFromSeed}
+          createWalletAccount={createWalletAccount}
+          generateWalletDraft={generateWalletDraft}
+          showWalletSeed={showWalletSeed}
+          closeWalletAccount={closeWalletAccount}
+          deleteWalletAccount={deleteWalletAccount}
+          unlockWalletAccount={unlockProducerAccount}
+          walletTransferAsset={walletTransferAsset}
+          setWalletTransferAsset={setWalletTransferAsset}
+          walletTransferAddressDraft={walletTransferAddressDraft}
+          setWalletTransferAddressDraft={setWalletTransferAddressDraft}
+          walletTransferAmountDraft={walletTransferAmountDraft}
+          setWalletTransferAmountDraft={setWalletTransferAmountDraft}
+          walletTransferDryRun={walletTransferDryRun}
+          setWalletTransferDryRun={setWalletTransferDryRun}
+          walletTransferUseFreeMana={walletTransferUseFreeMana}
+          setWalletTransferUseFreeMana={setWalletTransferUseFreeMana}
+          transferWalletToken={transferWalletToken}
+          walletBurnTargetAddressDraft={walletBurnTargetAddressDraft}
+          setWalletBurnTargetAddressDraft={setWalletBurnTargetAddressDraft}
+          walletBurnPercentDraft={walletBurnPercentDraft}
+          setWalletBurnPercentDraft={setWalletBurnPercentDraft}
+          walletBurnAmountDraft={walletBurnAmountDraft}
+          setWalletBurnAmountDraft={setWalletBurnAmountDraft}
+          walletBurnDryRun={walletBurnDryRun}
+          setWalletBurnDryRun={setWalletBurnDryRun}
+          walletBurnUseFreeMana={walletBurnUseFreeMana}
+          setWalletBurnUseFreeMana={setWalletBurnUseFreeMana}
+          burnKoinToVhp={burnKoinToVhp}
+          walletResultData={walletResultData}
+          walletResultTitle={walletResultTitle}
+          walletResultText={walletResultText}
+        />
       )}
 
       {activeTab === 'explorer' && (
-      <>
-      <section id="panel-explorer" className="overview-grid" aria-label={t('explorer.panelAria')} role="tabpanel" aria-labelledby="tab-explorer">
-        <article className="stat-card">
-          <span className="stat-label">{t('explorer.rpcLabel')}</span>
-          <p className="stat-value mono" title={effectiveExplorerRpcUrl}>
-            {effectiveExplorerRpcUrl}
-          </p>
-          <p className="stat-note">{formatExplorerRpcSourceKind(settings.rpcSource, language)}</p>
-        </article>
-        <article className="stat-card">
-          <span className="stat-label">{t('explorer.headLabel')}</span>
-          <p className="stat-value">{head ? `#${head.height.toLocaleString(locale)}` : '...'}</p>
-        </article>
-        <article className="stat-card">
-          <span className="stat-label">{t('explorer.headTimeLabel')}</span>
-          <p className="stat-value">{headBlockTimeText}</p>
-        </article>
-        <article className="stat-card">
-          <span className="stat-label">{t('explorer.lastSyncLabel')}</span>
-          <p className="stat-value">{lastUpdateText}</p>
-        </article>
-      </section>
-
-      <main className="table-panel" aria-busy={isInitialLoading}>
-        <div className="table-panel-header">
-          <div>
-            <h2>{t('explorer.recentBlocksTitle')}</h2>
-            <p>{t('explorer.recentBlocksDescription')}</p>
-          </div>
-          <div className="table-panel-tools">
-            <label className="table-select">
-              <span>{t('explorer.rpcSource')}</span>
-              <select
-                value={settings.rpcSource}
-                onChange={(event) => {
-                  const nextSource = normalizeExplorerRpcSource(event.target.value, settings.publicRpcUrls, settings.rpcSource)
-                  setSettings((current) => ({ ...current, rpcSource: nextSource }))
-                }}
-              >
-                <option value={LOCAL_RPC_SOURCE}>{t('rpc.mode.local')}</option>
-                {settings.publicRpcUrls.map((rpcUrl) => (
-                  <option key={rpcUrl} value={rpcUrl}>
-                    {formatRpcDisplayUrl(rpcUrl)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="table-meta">
-              <span>{formatExplorerRpcSourceKind(settings.rpcSource, language)}</span>
-              <span className="mono" title={effectiveExplorerRpcUrl}>
-                {formatRpcDisplayUrl(effectiveExplorerRpcUrl)}
-              </span>
-              <span>{t('explorer.refreshMeta', { ms: settings.pollMs })}</span>
-              <span>{t('explorer.rowsMeta', { count: settings.rowLimit })}</span>
-            </div>
-          </div>
-        </div>
-
-        {errorMessage && (
-          <div className="error-banner" role="alert">
-            <strong>{t('explorer.rpcErrorBanner')}</strong> <span>{errorMessage}</span>
-          </div>
-        )}
-
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>{t('explorer.col.height')}</th>
-                <th>{t('explorer.col.blockId')}</th>
-                <th>{t('explorer.col.producer')}</th>
-                <th>{t('explorer.col.age')}</th>
-                <th>{t('explorer.col.timestamp')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.blockId}
-                  className={freshBlockIds.includes(row.blockId) ? 'is-fresh' : undefined}
-                >
-                  <td className="mono">#{row.height.toLocaleString(locale)}</td>
-                  <td className="mono" title={`${row.blockId}\nPrev: ${row.previousId || t('common.na')}`}>
-                    {shortHash(row.blockId, 18, 12)}
-                  </td>
-                  <td className="mono" title={row.signer || t('common.na')}>
-                    {shortHash(row.signer, 14, 10)}
-                  </td>
-                  <td>{formatRelativeAge(row.timestampMs, nowMs)}</td>
-                  <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>
-                </tr>
-              ))}
-
-              {!isInitialLoading && rows.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="empty-cell">
-                    {t('explorer.noBlocks')}
-                  </td>
-                </tr>
-              )}
-
-              {isInitialLoading && rows.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="empty-cell">
-                    {t('explorer.connectingBlocks')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </main>
-      </>
+        <ExplorerPanel
+          t={t}
+          effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
+          settings={settings}
+          language={language}
+          head={head}
+          locale={locale}
+          headBlockTimeText={headBlockTimeText}
+          lastUpdateText={lastUpdateText}
+          isInitialLoading={isInitialLoading}
+          setSettings={setSettings}
+          errorMessage={errorMessage}
+          rows={rows}
+          freshBlockIds={freshBlockIds}
+          nowMs={nowMs}
+        />
       )}
 
       </div>
 
-      <footer className="app-footer">
-        <div className={`status-pill footer-status ${footerStatusClass}`.trim()} role="status" aria-live="polite">
-          <div className="footer-status-main">
-            <span className="status-dot" aria-hidden="true" />
-            <span className="footer-status-text">{footerStatusText}</span>
-          </div>
-          {footerStatusMeta && <span className="footer-status-meta mono">{footerStatusMeta}</span>}
-          {showChainSyncProgress && chainSyncPercent !== null && (
-            <div className="footer-status-progress" aria-hidden="true">
-              <span
-                className="footer-status-progress-fill"
-                style={{ width: `${Math.max(2, chainSyncPercent)}%` }}
-              />
-            </div>
-          )}
-        </div>
-        <div className="app-version-badge" title={t('app.versionTitle', { version: appVersion })}>
-          <span className="app-version-label">{t('common.version')}</span>
-          <span className="mono">v{appVersion}</span>
-        </div>
-      </footer>
+      <AppFooter
+        footerStatusClass={footerStatusClass}
+        footerStatusText={footerStatusText}
+        footerStatusMeta={footerStatusMeta}
+        footerRpcUrl={footerRpcUrl}
+        showChainSyncProgress={showChainSyncProgress}
+        chainSyncPercent={chainSyncPercent}
+        t={t}
+        appVersion={appVersion}
+      />
     </div>
   )
 }

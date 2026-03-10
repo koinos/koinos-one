@@ -98,13 +98,22 @@ declare global {
 
   type KnodelKoinosNodeProducerOverviewParams = KnodelKoinosNodeSettings & {
     producerAddress?: string
+    rpcUrl?: string
+  }
+
+  type KnodelKoinosNodeProducerLocalInfoResult = {
+    ok: boolean
+    output: string
+    localPublicKey: string | null
+    localPublicKeyPath: string | null
+    localPrivateKeyPath: string | null
   }
 
   type KnodelKoinosNodeProducerOverviewResult = {
     ok: boolean
     output: string
     rpcUrl: string
-    rpcSource: 'public'
+    rpcSource: 'public' | 'local'
     priceSourceUrl: string
     producerAddress: string | null
     producerAddressSource: KnodelKoinosNodeProducerAddressSource
@@ -125,7 +134,7 @@ declare global {
     totalVirtualSupply: string | null
     targetBlockIntervalMs: number | null
     analysisWindowBlocks: number
-    activeProducerCount: number
+    activeProducerCount: number | null
     producedLast24h: number | null
     shareLast24hPercent: number | null
     projectedBlocksPerMonth: number | null
@@ -139,8 +148,12 @@ declare global {
 
   type KnodelKoinosNodeProducerRegisterParams = KnodelKoinosNodeSettings & {
     producerAddress?: string
+    rpcUrl?: string
+    signerAccountId?: string
+    allowDelegatedSigner?: boolean
     password?: string
     persistConfig?: boolean
+    persistProfile?: boolean
   }
 
   type KnodelKoinosNodeProducerRegisterResult = {
@@ -148,6 +161,73 @@ declare global {
     producerAddress: string
     output: string
     overview: KnodelKoinosNodeProducerOverviewResult
+  }
+
+  type KnodelKoinosNodeProducerDeleteResult = {
+    ok: boolean
+    output: string
+    overview: KnodelKoinosNodeProducerOverviewResult
+    profile: KnodelProducerProfile | null
+  }
+
+  type KnodelKoinosNodeDashboardProducersParams = KnodelKoinosNodeSettings & {
+    rpcUrl?: string
+    windowBlocks?: number
+  }
+
+  type KnodelKoinosNodeDashboardProducerRow = {
+    signer: string
+    blocks: number
+    sharePercent: number
+    lastBlockHeight: number
+    lastProducedBlockAt: number | null
+  }
+
+  type KnodelKoinosNodeDashboardProducersResult = {
+    ok: boolean
+    output: string
+    rpcUrl: string
+    rpcSource: 'public' | 'local'
+    windowBlocks: number
+    analyzedBlocks: number
+    headHeight: number | null
+    rows: KnodelKoinosNodeDashboardProducerRow[]
+  }
+
+  type KnodelKoinosNodeDashboardPeerRow = {
+    address: string
+    peerId: string | null
+    host: string | null
+    port: number | null
+  }
+
+  type KnodelKoinosNodeDashboardPeersResult = {
+    ok: boolean
+    output: string
+    service: string
+    source: 'p2p-log'
+    snapshotAt: number | null
+    selfAddress: string | null
+    omittedPeerCount: number
+    rows: KnodelKoinosNodeDashboardPeerRow[]
+  }
+
+  type KnodelProducerProfile = {
+    producerAddress: string
+    registrationSignerAccountId: string
+    burnAccountId: string
+    localPublicKey: string
+    localPublicKeyPath: string
+    registeredPublicKey: string | null
+    lastRegistrationTxId: string | null
+    updatedAt: string
+  }
+
+  type KnodelKoinosNodeProducerProfileResult = {
+    ok: boolean
+    output: string
+    profileFilePath: string
+    profile: KnodelProducerProfile | null
   }
 
   type KnodelKoinosNodeServiceCommandParams = KnodelKoinosNodeSettings & {
@@ -343,6 +423,7 @@ declare global {
     walletAddress: string | null
     walletCreatedAt: string | null
     unlocked: boolean
+    hasSeedPhrase: boolean
   }
 
   type KnodelWalletGenerateResult = {
@@ -350,11 +431,15 @@ declare global {
     output: string
     address: string | null
     privateKeyWif: string | null
+    seedPhrase: string | null
+    derivationPath: string | null
   }
 
   type KnodelWalletImportParams = {
     privateKey?: string
     password?: string
+    seedPhrase?: string
+    derivationPath?: string
   }
 
   type KnodelWalletImportResult = {
@@ -369,6 +454,13 @@ declare global {
     ok: boolean
     output: string
     walletFilePath: string
+  }
+
+  type KnodelWalletCloseResult = {
+    ok: boolean
+    output: string
+    walletAddress: string | null
+    unlocked: boolean
   }
 
   type KnodelWalletUnlockParams = {
@@ -408,6 +500,16 @@ declare global {
     ok: boolean
     output: string
     accounts: KnodelWalletDerivedAccount[]
+  }
+
+  type KnodelWalletShowSeedResult = {
+    ok: boolean
+    output: string
+    walletAddress: string | null
+    firstAccountAddress: string | null
+    firstAccountPrivateKeyWif: string | null
+    firstAccountDerivationPath: string | null
+    seedPhrase: string | null
   }
 
   type KnodelWalletAddressQueryParams = KnodelWalletRpcParams & {
@@ -513,6 +615,10 @@ declare global {
   type KnodelWalletBurnParams = KnodelWalletRpcParams & {
     percent?: number
     amount?: number
+    accountId?: string
+    targetAddress?: string
+    useProducerBurnAccount?: boolean
+    useFreeMana?: boolean
     password?: string
     dryRun?: boolean
   }
@@ -523,12 +629,59 @@ declare global {
     rpcUrl: string
     dryRun: boolean
     walletAddress: string | null
+    targetAddress: string | null
     burnAmountKoin: string | null
     remainingKoin: string | null
     previousKoin: string | null
     previousVhp: string | null
     newKoin: string | null
     newVhp: string | null
+    usedFreeMana: boolean
+    payer: string | null
+    txId: string | null
+  }
+
+  type KnodelWalletTransferVhpParams = KnodelWalletRpcParams & {
+    toAddress?: string
+    amount?: number
+    accountId?: string
+    useFreeMana?: boolean
+    password?: string
+    dryRun?: boolean
+  }
+
+  type KnodelWalletTransferVhpResult = {
+    ok: boolean
+    output: string
+    rpcUrl: string
+    dryRun: boolean
+    fromAddress: string | null
+    toAddress: string | null
+    amountVhp: string | null
+    usedFreeMana: boolean
+    payer: string | null
+    txId: string | null
+  }
+
+  type KnodelWalletTransferKoinParams = KnodelWalletRpcParams & {
+    toAddress?: string
+    amount?: number
+    accountId?: string
+    useFreeMana?: boolean
+    password?: string
+    dryRun?: boolean
+  }
+
+  type KnodelWalletTransferKoinResult = {
+    ok: boolean
+    output: string
+    rpcUrl: string
+    dryRun: boolean
+    fromAddress: string | null
+    toAddress: string | null
+    amountKoin: string | null
+    usedFreeMana: boolean
+    payer: string | null
     txId: string | null
   }
 
@@ -568,12 +721,20 @@ declare global {
       restoreBackup: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeBackupRestoreResult>
       restoreBackupVerify: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeBackupRestoreResult>
       rpcCall: (params: KnodelKoinosJsonRpcProxyParams) => Promise<KnodelKoinosJsonRpcProxyResult>
+      dashboardProducers: (
+        params?: KnodelKoinosNodeDashboardProducersParams
+      ) => Promise<KnodelKoinosNodeDashboardProducersResult>
+      dashboardPeers: (params?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeDashboardPeersResult>
+      producerLocalInfo: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeProducerLocalInfoResult>
       producerOverview: (
         settings?: KnodelKoinosNodeProducerOverviewParams
       ) => Promise<KnodelKoinosNodeProducerOverviewResult>
       producerRegister: (
         params: KnodelKoinosNodeProducerRegisterParams
       ) => Promise<KnodelKoinosNodeProducerRegisterResult>
+      producerProfileGet: () => Promise<KnodelKoinosNodeProducerProfileResult>
+      producerProfileClear: () => Promise<KnodelKoinosNodeProducerProfileResult>
+      producerDelete: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeProducerDeleteResult>
       serviceStart: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
       serviceStop: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
       serviceRestart: (params: KnodelKoinosNodeServiceCommandParams) => Promise<KnodelKoinosNodeServiceCommandResult>
@@ -594,9 +755,11 @@ declare global {
       generate: () => Promise<KnodelWalletGenerateResult>
       importWallet: (params?: KnodelWalletImportParams) => Promise<KnodelWalletImportResult>
       unlock: (params?: KnodelWalletUnlockParams) => Promise<KnodelWalletUnlockResult>
+      closeWallet: () => Promise<KnodelWalletCloseResult>
       deleteWallet: () => Promise<KnodelWalletDeleteResult>
       addressFromWif: (params?: KnodelWalletAddressParams) => Promise<KnodelWalletAddressResult>
       deriveFromSeed: (params?: KnodelWalletDeriveFromSeedParams) => Promise<KnodelWalletDeriveFromSeedResult>
+      showSeed: () => Promise<KnodelWalletShowSeedResult>
       chainInfo: (params?: KnodelWalletRpcParams) => Promise<KnodelWalletChainInfoResult>
       block: (params?: KnodelWalletBlockParams) => Promise<KnodelWalletBlockResult>
       balance: (params?: KnodelWalletAddressQueryParams) => Promise<KnodelWalletBalanceResult>
@@ -605,7 +768,9 @@ declare global {
       rc: (params?: KnodelWalletAddressQueryParams) => Promise<KnodelWalletScalarResult>
       tokenBalance: (params?: KnodelWalletTokenBalanceParams) => Promise<KnodelWalletTokenBalanceResult>
       readContract: (params?: KnodelWalletReadContractParams) => Promise<KnodelWalletReadContractResult>
+      transferKoin: (params?: KnodelWalletTransferKoinParams) => Promise<KnodelWalletTransferKoinResult>
       burn: (params?: KnodelWalletBurnParams) => Promise<KnodelWalletBurnResult>
+      transferVhp: (params?: KnodelWalletTransferVhpParams) => Promise<KnodelWalletTransferVhpResult>
     }
   }
 
