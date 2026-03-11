@@ -131,6 +131,7 @@ export function App() {
   const [nodeProducerLoading, setNodeProducerLoading] = useState(false)
   const [nodeProducerError, setNodeProducerError] = useState<string | null>(null)
   const [producerLocalInfo, setProducerLocalInfo] = useState<KnodelKoinosNodeProducerLocalInfoResult | null>(null)
+  const [producerPreviewRegisteredPublicKey, setProducerPreviewRegisteredPublicKey] = useState<string | null>(null)
   const [producerRecentBlocks, setProducerRecentBlocks] = useState<BlockRow[]>([])
   const [producerRecentBlocksLoading, setProducerRecentBlocksLoading] = useState(false)
   const [producerRecentBlocksError, setProducerRecentBlocksError] = useState<string | null>(null)
@@ -1004,6 +1005,11 @@ export function App() {
     signingWalletVhpValue !== null && Number.isFinite(signingWalletVhpValue) ? signingWalletVhpValue > 0 : null
   const producerSetupComplete = isProducerSetupComplete(producerProfile)
   const producerLocalPublicKey = producerLocalInfo?.localPublicKey || nodeProducerOverview?.localPublicKey || ''
+  const producerRegisteredPublicKey =
+    nodeProducerOverview?.registeredPublicKey ||
+    producerProfile?.profile?.registeredPublicKey ||
+    producerPreviewRegisteredPublicKey ||
+    null
   const producerConfiguredAddress =
     producerProfile?.profile?.producerAddress?.trim() ||
     nodeProducerOverview?.producerAddress?.trim() ||
@@ -1438,6 +1444,33 @@ export function App() {
     }
   }
 
+  const refreshProducerRegisteredPublicKeyPreview = async (
+    producerAddressOverride?: string
+  ): Promise<string | null> => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.producerRegisteredKey) return null
+    const producerAddress = producerAddressOverride?.trim() || walletOverview?.walletAddress?.trim() || ''
+
+    if (!producerAddress) {
+      setProducerPreviewRegisteredPublicKey(null)
+      return null
+    }
+
+    try {
+      const result = await bridge.producerRegisteredKey({
+        ...toNodeApiSettings(nodeSettings),
+        rpcUrl: producerRpcUrl,
+        producerAddress
+      })
+      const registeredPublicKey = result.ok ? result.registeredPublicKey || null : null
+      setProducerPreviewRegisteredPublicKey(registeredPublicKey)
+      return registeredPublicKey
+    } catch {
+      setProducerPreviewRegisteredPublicKey(null)
+      return null
+    }
+  }
+
   const refreshProducerRecentBlocks = async (
     producerAddressOverride?: string,
     signal?: AbortSignal
@@ -1539,6 +1572,7 @@ export function App() {
 
   useEffect(() => {
     if (activeTab !== 'producer') {
+      setProducerPreviewRegisteredPublicKey(null)
       setProducerRecentBlocks([])
       setProducerRecentBlocksError(null)
       setProducerRecentBlocksLoading(false)
@@ -1558,15 +1592,20 @@ export function App() {
 
       try {
         if (!producerSetupComplete) {
-          await refreshProducerLocalInfo()
           const nextSigningWalletAddress = walletOverview?.walletAddress?.trim() || ''
+          const requests: Promise<unknown>[] = [refreshProducerLocalInfo()]
           if (nextSigningWalletAddress) {
-            await refreshProducerSigningWalletBalance(nextSigningWalletAddress)
+            requests.push(
+              refreshProducerRegisteredPublicKeyPreview(nextSigningWalletAddress),
+              refreshProducerSigningWalletBalance(nextSigningWalletAddress)
+            )
           } else {
+            setProducerPreviewRegisteredPublicKey(null)
             setProducerSigningWalletBalance(null)
             setProducerSigningWalletBalanceError(null)
             setProducerSigningWalletBalanceLoading(false)
           }
+          await Promise.all(requests)
           setProducerRecentBlocks([])
           setProducerRecentBlocksError(null)
           setProducerRecentBlocksLoading(false)
@@ -3772,6 +3811,7 @@ export function App() {
           effectiveProducerTargetAddress={effectiveProducerTargetAddress}
           producerConfiguredAddress={producerConfiguredAddress}
           producerLocalPublicKey={producerLocalPublicKey}
+          producerRegisteredPublicKey={producerRegisteredPublicKey}
           producerAddressSourceText={producerAddressSourceText}
           producerRegistrationStatusText={producerRegistrationStatusText}
           producerSigningWalletRelationText={producerSigningWalletRelationText}
