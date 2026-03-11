@@ -101,12 +101,26 @@ declare global {
     rpcUrl?: string
   }
 
+  type KnodelKoinosNodeProducerRegisteredKeyParams = KnodelKoinosNodeSettings & {
+    producerAddress?: string
+    rpcUrl?: string
+  }
+
   type KnodelKoinosNodeProducerLocalInfoResult = {
     ok: boolean
     output: string
     localPublicKey: string | null
     localPublicKeyPath: string | null
     localPrivateKeyPath: string | null
+  }
+
+  type KnodelKoinosNodeProducerRegisteredKeyResult = {
+    ok: boolean
+    output: string
+    rpcUrl: string
+    rpcSource: 'public' | 'local'
+    producerAddress: string | null
+    registeredPublicKey: string | null
   }
 
   type KnodelKoinosNodeProducerOverviewResult = {
@@ -726,6 +740,9 @@ declare global {
       ) => Promise<KnodelKoinosNodeDashboardProducersResult>
       dashboardPeers: (params?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeDashboardPeersResult>
       producerLocalInfo: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeProducerLocalInfoResult>
+      producerRegisteredKey: (
+        settings?: KnodelKoinosNodeProducerRegisteredKeyParams
+      ) => Promise<KnodelKoinosNodeProducerRegisteredKeyResult>
       producerOverview: (
         settings?: KnodelKoinosNodeProducerOverviewParams
       ) => Promise<KnodelKoinosNodeProducerOverviewResult>

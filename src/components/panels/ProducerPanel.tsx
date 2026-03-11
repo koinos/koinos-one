@@ -11,6 +11,7 @@ export function ProducerPanel(props: ProducerPanelProps) {
     nodeProducerError,
     nodeProducerOverview,
     producerConfiguredAddress,
+    producerRegisteredPublicKey,
     producerRecentBlocks,
     producerRecentBlocksError,
     producerBlocksWindowBlocks,
@@ -85,6 +86,12 @@ export function ProducerPanel(props: ProducerPanelProps) {
                 {localPublicKey || t('common.na')}
               </span>
             </div>
+            <div className="producer-detail-row">
+              <span>{t('producer.registeredPublicKey')}</span>
+              <span className="mono" title={producerRegisteredPublicKey || t('common.na')}>
+                {producerRegisteredPublicKey || t('common.na')}
+              </span>
+            </div>
           </div>
 
           <div className="producer-actions">
@@ -138,8 +145,8 @@ export function ProducerPanel(props: ProducerPanelProps) {
             </article>
             <article className="stat-card">
               <span className="stat-label">{t('producer.registeredPublicKey')}</span>
-              <p className="stat-value mono producer-identity-value" title={nodeProducerOverview?.registeredPublicKey || t('common.na')}>
-                {nodeProducerOverview?.registeredPublicKey || t('common.na')}
+              <p className="stat-value mono producer-identity-value" title={producerRegisteredPublicKey || t('common.na')}>
+                {producerRegisteredPublicKey || t('common.na')}
               </p>
             </article>
             <article className="stat-card">

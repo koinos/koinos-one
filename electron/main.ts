@@ -85,6 +85,11 @@ type KoinosNodeProducerOverviewInput = KoinosNodeSettingsInput & {
   rpcUrl?: string
 }
 
+type KoinosNodeProducerRegisteredKeyInput = KoinosNodeSettingsInput & {
+  producerAddress?: string
+  rpcUrl?: string
+}
+
 type KoinosNodeDashboardProducersInput = KoinosNodeSettingsInput & {
   rpcUrl?: string
   windowBlocks?: number
@@ -266,6 +271,15 @@ type KoinosNodeProducerLocalInfoResult = {
   localPublicKey: string | null
   localPublicKeyPath: string | null
   localPrivateKeyPath: string | null
+}
+
+type KoinosNodeProducerRegisteredKeyResult = {
+  ok: boolean
+  output: string
+  rpcUrl: string
+  rpcSource: 'public' | 'local'
+  producerAddress: string | null
+  registeredPublicKey: string | null
 }
 
 type KoinosNodeProducerOverviewResult = {
@@ -2631,27 +2645,55 @@ function derivePublicKeyFromPrivateKeyFile(settings: KoinosNodeSettings): string
   }
 }
 
+function producerKeyLookupSettings(settings: KoinosNodeSettings): KoinosNodeSettings[] {
+  const candidateBaseDirs = Array.from(
+    new Set([
+      ensureKoinosBaseDir(settings.baseDir),
+      ensureKoinosBaseDir(DEFAULT_BASEDIR)
+    ])
+  ).filter(Boolean)
+
+  return candidateBaseDirs.map((baseDir) => ({
+    ...settings,
+    baseDir
+  }))
+}
+
 function resolveLocalProducerPublicKey(settings: KoinosNodeSettings): {
   publicKey: string | null
   publicKeyPath: string | null
   privateKeyPath: string | null
 } {
-  const publicKeyPath = blockProducerPublicKeyFilePath(settings)
-  const privateKeyPath = blockProducerPrivateKeyFilePath(settings)
-  const direct = readTrimmedFile(publicKeyPath)
-  if (direct) {
-    return {
-      publicKey: direct,
-      publicKeyPath,
-      privateKeyPath: fs.existsSync(privateKeyPath) ? privateKeyPath : null
+  for (const candidateSettings of producerKeyLookupSettings(settings)) {
+    const publicKeyPath = blockProducerPublicKeyFilePath(candidateSettings)
+    const privateKeyPath = blockProducerPrivateKeyFilePath(candidateSettings)
+    const direct = readTrimmedFile(publicKeyPath)
+    if (direct) {
+      return {
+        publicKey: direct,
+        publicKeyPath,
+        privateKeyPath: fs.existsSync(privateKeyPath) ? privateKeyPath : null
+      }
     }
   }
 
-  const derived = derivePublicKeyFromPrivateKeyFile(settings)
+  for (const candidateSettings of producerKeyLookupSettings(settings)) {
+    const publicKeyPath = blockProducerPublicKeyFilePath(candidateSettings)
+    const privateKeyPath = blockProducerPrivateKeyFilePath(candidateSettings)
+    const derived = derivePublicKeyFromPrivateKeyFile(candidateSettings)
+    if (derived) {
+      return {
+        publicKey: derived,
+        publicKeyPath: fs.existsSync(publicKeyPath) ? publicKeyPath : null,
+        privateKeyPath: fs.existsSync(privateKeyPath) ? privateKeyPath : null
+      }
+    }
+  }
+
   return {
-    publicKey: derived,
-    publicKeyPath: fs.existsSync(publicKeyPath) ? publicKeyPath : null,
-    privateKeyPath: fs.existsSync(privateKeyPath) ? privateKeyPath : null
+    publicKey: null,
+    publicKeyPath: null,
+    privateKeyPath: null
   }
 }
 
@@ -8600,6 +8642,60 @@ async function koinosNodeProducerOverview(input?: KoinosNodeProducerOverviewInpu
   }
 }
 
+async function koinosNodeProducerRegisteredKey(
+  input?: KoinosNodeProducerRegisteredKeyInput
+): Promise<KoinosNodeProducerRegisteredKeyResult> {
+  const settings = normalizeNodeSettings(input)
+  const { rpcUrl, rpcSource } = producerRpcTarget(input)
+  const producerAddress = `${input?.producerAddress || ''}`.trim() || null
+  const respond = (
+    ok: boolean,
+    output: string,
+    registeredPublicKey: string | null = null
+  ): KoinosNodeProducerRegisteredKeyResult => ({
+    ok,
+    output,
+    rpcUrl,
+    rpcSource,
+    producerAddress,
+    registeredPublicKey
+  })
+
+  if (!producerAddress) {
+    return respond(true, 'No producer address configured.', null)
+  }
+
+  try {
+    const provider = new Provider([rpcUrl])
+    const pob = await loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS)
+    const { result } = await pob.functions.get_public_key({ producer: producerAddress })
+    const registeredPublicKey = `${(result as { value?: string } | undefined)?.value ?? ''}`.trim() || null
+    return respond(true, `Registered producer key loaded for ${producerAddress}.`, registeredPublicKey)
+  } catch (error) {
+    if (rpcSource === 'local' && isProducerOverviewTimeoutError(error)) {
+      return koinosNodeProducerRegisteredKey({
+        ...settings,
+        producerAddress: producerAddress || undefined,
+        rpcUrl: PUBLIC_KOINOS_RPC_URL
+      })
+    }
+
+    if (isMissingProducerPublicKeyRecordError(error)) {
+      return respond(true, `No registered producer key found for ${producerAddress}.`, null)
+    }
+
+    return respond(
+      false,
+      isProducerOverviewTimeoutError(error)
+        ? `Timed out while loading registered producer key from ${rpcUrl}.`
+        : error instanceof Error
+          ? error.message
+          : 'Could not load registered producer key',
+      null
+    )
+  }
+}
+
 async function koinosNodeDashboardProducers(
   input?: KoinosNodeDashboardProducersInput
 ): Promise<KoinosNodeDashboardProducersResult> {
@@ -10317,6 +10413,13 @@ function registerIpcHandlers() {
   ipcMain.handle('knodel:koinos-node:producer-overview', async (_event, input?: KoinosNodeProducerOverviewInput) => {
     return koinosNodeProducerOverview(input)
   })
+
+  ipcMain.handle(
+    'knodel:koinos-node:producer-registered-key',
+    async (_event, input?: KoinosNodeProducerRegisteredKeyInput) => {
+      return koinosNodeProducerRegisteredKey(input)
+    }
+  )
 
   ipcMain.handle('knodel:koinos-node:producer-local-info', async (_event, input?: KoinosNodeSettingsInput) => {
     return koinosNodeProducerLocalInfo(input)
