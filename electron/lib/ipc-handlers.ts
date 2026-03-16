@@ -24,12 +24,18 @@ import type {
   PublicRpcConfigInput,
   WalletAddressInput,
   WalletAddressQueryInput,
+  WalletCreateDerivedAccountInput,
   WalletBlockInput,
   WalletBurnInput,
   WalletDeriveFromSeedInput,
+  WalletImportAccountInput,
   WalletImportInput,
+  WalletImportWatchAccountInput,
+  WalletRemoveAccountInput,
+  WalletRenameAccountInput,
   WalletReadContractInput,
   WalletRpcInput,
+  WalletSetActiveAccountInput,
   WalletTokenBalanceInput,
   WalletTransferKoinInput,
   WalletTransferVhpInput,
@@ -70,6 +76,13 @@ type IpcHandlerDeps = {
   walletOverview: (input?: WalletRpcInput) => Awaitable<unknown>
   walletGenerate: () => Awaitable<unknown>
   walletImport: (input?: WalletImportInput) => Awaitable<unknown>
+  walletListAccounts: () => Awaitable<unknown>
+  walletSetActiveAccount: (input?: WalletSetActiveAccountInput) => Awaitable<unknown>
+  walletCreateDerivedAccount: (input?: WalletCreateDerivedAccountInput) => Awaitable<unknown>
+  walletImportAccount: (input?: WalletImportAccountInput) => Awaitable<unknown>
+  walletImportWatchAccount: (input?: WalletImportWatchAccountInput) => Awaitable<unknown>
+  walletRenameAccount: (input?: WalletRenameAccountInput) => Awaitable<unknown>
+  walletRemoveAccount: (input?: WalletRemoveAccountInput) => Awaitable<unknown>
   walletUnlock: (input?: WalletUnlockInput) => Awaitable<unknown>
   walletClose: () => Awaitable<unknown>
   walletDelete: () => Awaitable<unknown>
@@ -140,6 +153,13 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'knodel:wallet:overview',
     'knodel:wallet:generate',
     'knodel:wallet:import',
+    'knodel:wallet:list-accounts',
+    'knodel:wallet:set-active-account',
+    'knodel:wallet:create-derived-account',
+    'knodel:wallet:import-account',
+    'knodel:wallet:import-watch-account',
+    'knodel:wallet:rename-account',
+    'knodel:wallet:remove-account',
     'knodel:wallet:unlock',
     'knodel:wallet:close',
     'knodel:wallet:delete',
@@ -218,6 +238,23 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('knodel:wallet:overview', async (_event, input?: WalletRpcInput) => deps.walletOverview(input))
   ipcMain.handle('knodel:wallet:generate', async () => deps.walletGenerate())
   ipcMain.handle('knodel:wallet:import', async (_event, input?: WalletImportInput) => deps.walletImport(input))
+  ipcMain.handle('knodel:wallet:list-accounts', async () => deps.walletListAccounts())
+  ipcMain.handle('knodel:wallet:set-active-account', async (_event, input?: WalletSetActiveAccountInput) => deps.walletSetActiveAccount(input))
+  ipcMain.handle('knodel:wallet:create-derived-account', async (_event, input?: WalletCreateDerivedAccountInput) =>
+    deps.walletCreateDerivedAccount(input)
+  )
+  ipcMain.handle('knodel:wallet:import-account', async (_event, input?: WalletImportAccountInput) =>
+    deps.walletImportAccount(input)
+  )
+  ipcMain.handle('knodel:wallet:import-watch-account', async (_event, input?: WalletImportWatchAccountInput) =>
+    deps.walletImportWatchAccount(input)
+  )
+  ipcMain.handle('knodel:wallet:rename-account', async (_event, input?: WalletRenameAccountInput) =>
+    deps.walletRenameAccount(input)
+  )
+  ipcMain.handle('knodel:wallet:remove-account', async (_event, input?: WalletRemoveAccountInput) =>
+    deps.walletRemoveAccount(input)
+  )
   ipcMain.handle('knodel:wallet:unlock', async (_event, input?: WalletUnlockInput) => deps.walletUnlock(input))
   ipcMain.handle('knodel:wallet:close', async () => deps.walletClose())
   ipcMain.handle('knodel:wallet:delete', async () => deps.walletDelete())

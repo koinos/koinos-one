@@ -11,8 +11,12 @@ import {
 import type {
   KnodelEncryptedWallet,
   KnodelProducerProfile,
+  KnodelUnlockedWalletAccount,
   KnodelUnlockedWallet,
+  KnodelWalletAccountSummary,
   WalletAddressInput,
+  WalletAccountMutationResult,
+  WalletCreateDerivedAccountInput,
   WalletAddressQueryInput,
   WalletAddressResult,
   WalletBalanceResult,
@@ -29,13 +33,20 @@ import type {
   WalletDeriveFromSeedInput,
   WalletDeriveFromSeedResult,
   WalletGenerateResult,
+  WalletImportAccountInput,
   WalletImportInput,
   WalletImportResult,
+  WalletImportWatchAccountInput,
+  WalletListAccountsResult,
   WalletOverviewResult,
   WalletReadContractInput,
   WalletReadContractResult,
+  WalletRemoveAccountInput,
+  WalletRenameAccountInput,
   WalletRpcInput,
   WalletScalarResult,
+  WalletSetActiveAccountInput,
+  WalletSetActiveAccountResult,
   WalletShowSeedResult,
   WalletTokenBalanceInput,
   WalletTokenBalanceResult,
@@ -46,6 +57,7 @@ import type {
   WalletUnlockInput,
   WalletUnlockResult
 } from './main-types'
+import { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-accounts'
 
 type WalletServiceDeps = {
   loadKnodelWalletFile: () => KnodelEncryptedWallet | null
@@ -60,8 +72,27 @@ type WalletServiceDeps = {
   deleteKnodelWallet: () => boolean
   closeKnodelWalletSession: () => string | null
   unlockKnodelWalletSession: (password: string) => KnodelUnlockedWallet | null
+  listWalletAccounts: () => KnodelWalletAccountSummary[]
+  setActiveWalletAccount: (accountId: string) => KnodelWalletAccountSummary | null
+  createDerivedWalletAccount: (name?: string) => KnodelWalletAccountSummary | null
+  importAdditionalWalletAccount: (privateKey: string, password: string, name?: string) => KnodelWalletAccountSummary | null
+  importWatchWalletAccount: (address: string, name?: string) => KnodelWalletAccountSummary | null
+  renameWalletAccount: (accountId: string, name: string) => KnodelWalletAccountSummary | null
+  removeWalletAccount: (accountId: string) => KnodelWalletAccountSummary[] | null
+  loadWalletAccountSecrets: (
+    accountId?: string
+  ) => {
+    walletAddress: string | null
+    accountId: string | null
+    accountName: string | null
+    accountKind: KnodelWalletAccountSummary['kind'] | null
+    accountAddress: string | null
+    privateKeyWif: string | null
+    derivationPath: string | null
+    seedPhrase: string | null
+  }
   resolveWalletRpcUrl: (input?: WalletRpcInput) => string
-  resolveWalletQueryAddress: (address?: string) => string | null
+  resolveWalletQueryAddress: (address?: string, accountId?: string) => string | null
   parseWalletArgs: (value: WalletReadContractInput['args']) => Record<string, unknown>
   loadContractWithFetchedAbi: (provider: Provider, contractId: string) => Promise<Contract>
   formatWholeUnits: (value: bigint | string | number | null | undefined, decimals?: number) => string | null
@@ -69,28 +100,7 @@ type WalletServiceDeps = {
   loadProducerProfile: () => KnodelProducerProfile | null
 }
 
-export function walletDerivationPath(index: number): string {
-  return `m/44'/659'/${index}'/0/0`
-}
-
-export function deriveWalletAccountsFromSeed(seedPhrase: string, numAccounts: number): WalletDerivedAccount[] {
-  const hdNode = ethers.utils.HDNode.fromMnemonic(seedPhrase)
-  const accounts: WalletDerivedAccount[] = []
-
-  for (let index = 0; index < numAccounts; index += 1) {
-    const derivationPath = walletDerivationPath(index)
-    const derived = hdNode.derivePath(derivationPath)
-    const signer = new Signer({ privateKey: derived.privateKey.slice(2) })
-    accounts.push({
-      index: index + 1,
-      derivationPath,
-      address: signer.getAddress(),
-      privateKeyWif: signer.getPrivateKey('wif')
-    })
-  }
-
-  return accounts
-}
+export { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-accounts'
 
 function setWalletTransactionSponsor(
   transaction: Transaction,
@@ -175,18 +185,47 @@ async function prepareWalletTransactionWithFreeMana(params: {
   throw new Error('Free mana transaction could not be prepared.')
 }
 
+function activeWalletSummary(
+  wallet: KnodelEncryptedWallet | null,
+  accounts: KnodelWalletAccountSummary[]
+): KnodelWalletAccountSummary | null {
+  const activeId = `${wallet?.activeAccountId || ''}`.trim()
+  return accounts.find((account) => account.id === activeId) || accounts[0] || null
+}
+
+function resolveUnlockedWalletAccount(
+  wallet: KnodelUnlockedWallet,
+  requestedAccountId?: string | null
+): KnodelUnlockedWalletAccount | null {
+  const accountId = `${requestedAccountId || ''}`.trim()
+  if (accountId) {
+    const exact = wallet.accounts.find((account) => account.id === accountId)
+    if (exact) return exact
+  }
+
+  const activeAccountId = `${wallet.activeAccountId || ''}`.trim()
+  return wallet.accounts.find((account) => account.id === activeAccountId) || wallet.accounts[0] || null
+}
+
 export function createWalletService(deps: WalletServiceDeps) {
   async function walletOverview(input?: WalletRpcInput): Promise<WalletOverviewResult> {
     const wallet = deps.loadKnodelWalletFile()
+    const accounts = deps.listWalletAccounts()
+    const activeAccount = activeWalletSummary(wallet, accounts)
     return {
       ok: true,
-      output: wallet ? `Producer account stored for ${wallet.address}` : 'No producer account stored in Knodel yet.',
+      output: wallet ? `Wallet vault stored for ${wallet.address}` : 'No wallet stored in Knodel yet.',
       rpcUrl: deps.resolveWalletRpcUrl(input),
       walletFilePath: deps.knodelProducerWalletFilePath(),
       walletExists: Boolean(wallet),
       walletAddress: wallet?.address || null,
       walletCreatedAt: wallet?.createdAt || null,
-      unlocked: Boolean(wallet && deps.currentUnlockedProducerWallet()?.address === wallet.address),
+      activeAccountId: activeAccount?.id || null,
+      activeAccountName: activeAccount?.name || null,
+      activeAccountKind: activeAccount?.kind || null,
+      accountCount: accounts.length,
+      accounts,
+      unlocked: Boolean(wallet && deps.currentUnlockedProducerWallet()?.activeAccountId),
       hasSeedPhrase: Boolean(wallet?.encryptedSeedPhrase)
     }
   }
@@ -250,6 +289,184 @@ export function createWalletService(deps: WalletServiceDeps) {
     }
   }
 
+  async function walletListAccounts(): Promise<WalletListAccountsResult> {
+    const wallet = deps.loadKnodelWalletFile()
+    const accounts = deps.listWalletAccounts()
+    return {
+      ok: true,
+      output: wallet ? `Loaded ${accounts.length} wallet account(s).` : 'No wallet stored in Knodel yet.',
+      walletAddress: wallet?.address || null,
+      activeAccountId: wallet?.activeAccountId || null,
+      accounts
+    }
+  }
+
+  async function walletSetActiveAccount(input?: WalletSetActiveAccountInput): Promise<WalletSetActiveAccountResult> {
+    try {
+      const accountId = `${input?.accountId || ''}`.trim()
+      if (!accountId) throw new Error('Account id is required.')
+      const account = deps.setActiveWalletAccount(accountId)
+      const wallet = deps.loadKnodelWalletFile()
+      if (!account || !wallet) throw new Error('Could not set the active wallet account.')
+      return {
+        ok: true,
+        output: `Active wallet account set to ${account.name}.`,
+        walletAddress: wallet.address,
+        activeAccountId: account.id,
+        activeAccount: account
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not set active wallet account',
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        activeAccount: null
+      }
+    }
+  }
+
+  async function walletCreateDerivedAccount(input?: WalletCreateDerivedAccountInput): Promise<WalletAccountMutationResult> {
+    try {
+      const wallet = deps.loadKnodelWalletFile()
+      if (!wallet) throw new Error('No wallet stored in Knodel yet.')
+      if (!deps.currentUnlockedProducerWallet()?.seedPhrase) {
+        throw new Error('Unlock a seed-backed wallet first to derive another account.')
+      }
+      const account = deps.createDerivedWalletAccount(input?.name)
+      if (!account) throw new Error('Could not create a derived wallet account.')
+      return {
+        ok: true,
+        output: `Created derived wallet account ${account.name}.`,
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: account.id,
+        account,
+        accounts: deps.listWalletAccounts()
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not create a derived wallet account',
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        account: null,
+        accounts: deps.listWalletAccounts()
+      }
+    }
+  }
+
+  async function walletImportAccount(input?: WalletImportAccountInput): Promise<WalletAccountMutationResult> {
+    try {
+      const wallet = deps.loadKnodelWalletFile()
+      if (!wallet) throw new Error('No wallet stored in Knodel yet.')
+      const privateKey = `${input?.privateKey || ''}`.trim()
+      const password = `${input?.password || ''}`
+      if (!privateKey) throw new Error('Private key is required.')
+      if (password.length < 8) throw new Error('Password must be at least 8 characters long.')
+      const account = deps.importAdditionalWalletAccount(privateKey, password, input?.name)
+      if (!account) throw new Error('Could not import the wallet account.')
+      return {
+        ok: true,
+        output: `Imported wallet account ${account.name}.`,
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: account.id,
+        account,
+        accounts: deps.listWalletAccounts()
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not import the wallet account',
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        account: null,
+        accounts: deps.listWalletAccounts()
+      }
+    }
+  }
+
+  async function walletImportWatchAccount(input?: WalletImportWatchAccountInput): Promise<WalletAccountMutationResult> {
+    try {
+      const wallet = deps.loadKnodelWalletFile()
+      if (!wallet) throw new Error('No wallet stored in Knodel yet.')
+      const address = `${input?.address || ''}`.trim()
+      if (!address) throw new Error('Address is required.')
+      const account = deps.importWatchWalletAccount(address, input?.name)
+      if (!account) throw new Error('Could not import the watch-only account.')
+      return {
+        ok: true,
+        output: `Imported watch-only account ${account.name}.`,
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: account.id,
+        account,
+        accounts: deps.listWalletAccounts()
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not import the watch-only account',
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        account: null,
+        accounts: deps.listWalletAccounts()
+      }
+    }
+  }
+
+  async function walletRenameAccount(input?: WalletRenameAccountInput): Promise<WalletAccountMutationResult> {
+    try {
+      const accountId = `${input?.accountId || ''}`.trim()
+      const name = `${input?.name || ''}`.trim()
+      if (!accountId) throw new Error('Account id is required.')
+      if (!name) throw new Error('Account name is required.')
+      const account = deps.renameWalletAccount(accountId, name)
+      if (!account) throw new Error('Could not rename the wallet account.')
+      return {
+        ok: true,
+        output: `Renamed wallet account to ${account.name}.`,
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        account,
+        accounts: deps.listWalletAccounts()
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not rename the wallet account',
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        account: null,
+        accounts: deps.listWalletAccounts()
+      }
+    }
+  }
+
+  async function walletRemoveAccount(input?: WalletRemoveAccountInput): Promise<WalletAccountMutationResult> {
+    try {
+      const accountId = `${input?.accountId || ''}`.trim()
+      if (!accountId) throw new Error('Account id is required.')
+      const accounts = deps.removeWalletAccount(accountId)
+      if (!accounts) throw new Error('Could not remove the wallet account.')
+      return {
+        ok: true,
+        output: 'Wallet account removed.',
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        account: activeWalletSummary(deps.loadKnodelWalletFile(), accounts),
+        accounts
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not remove the wallet account',
+        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        account: null,
+        accounts: deps.listWalletAccounts()
+      }
+    }
+  }
+
   async function walletShowSeed(): Promise<WalletShowSeedResult> {
     try {
       const walletFile = deps.loadKnodelWalletFile()
@@ -258,6 +475,9 @@ export function createWalletService(deps: WalletServiceDeps) {
           ok: false,
           output: 'No producer account stored in Knodel yet.',
           walletAddress: null,
+          accountId: null,
+          accountName: null,
+          accountKind: null,
           firstAccountAddress: null,
           firstAccountPrivateKeyWif: null,
           firstAccountDerivationPath: null,
@@ -271,6 +491,9 @@ export function createWalletService(deps: WalletServiceDeps) {
           ok: false,
           output: 'Unlock the wallet first to show the stored secrets.',
           walletAddress: walletFile.address,
+          accountId: walletFile.activeAccountId || null,
+          accountName: null,
+          accountKind: null,
           firstAccountAddress: null,
           firstAccountPrivateKeyWif: null,
           firstAccountDerivationPath: null,
@@ -278,32 +501,33 @@ export function createWalletService(deps: WalletServiceDeps) {
         }
       }
 
-      const seedPhrase = unlockedWallet.seedPhrase?.trim() || null
+      const secrets = deps.loadWalletAccountSecrets()
+      const seedPhrase = secrets.seedPhrase?.trim() || null
       if (!seedPhrase) {
         return {
           ok: true,
-          output: `Stored WIF loaded for ${walletFile.address}.`,
+          output: `Stored WIF loaded for ${secrets.accountAddress || walletFile.address}.`,
           walletAddress: walletFile.address,
-          firstAccountAddress: unlockedWallet.address,
-          firstAccountPrivateKeyWif: unlockedWallet.privateKey,
-          firstAccountDerivationPath: null,
+          accountId: secrets.accountId,
+          accountName: secrets.accountName,
+          accountKind: secrets.accountKind,
+          firstAccountAddress: secrets.accountAddress,
+          firstAccountPrivateKeyWif: secrets.privateKeyWif,
+          firstAccountDerivationPath: secrets.derivationPath,
           seedPhrase: null
         }
       }
 
-      const firstDerivedAccount = deriveWalletAccountsFromSeed(seedPhrase, 1)[0]
-      const firstAccountAddress = firstDerivedAccount?.address || unlockedWallet.address
-      const firstAccountPrivateKeyWif = firstDerivedAccount?.privateKeyWif || null
-      const firstAccountDerivationPath =
-        firstDerivedAccount?.derivationPath || unlockedWallet.seedDerivationPath || null
-
       return {
         ok: true,
-        output: `Stored seed phrase loaded for ${walletFile.address}.`,
+        output: `Stored secrets loaded for ${secrets.accountAddress || walletFile.address}.`,
         walletAddress: walletFile.address,
-        firstAccountAddress,
-        firstAccountPrivateKeyWif,
-        firstAccountDerivationPath,
+        accountId: secrets.accountId,
+        accountName: secrets.accountName,
+        accountKind: secrets.accountKind,
+        firstAccountAddress: secrets.accountAddress,
+        firstAccountPrivateKeyWif: secrets.privateKeyWif,
+        firstAccountDerivationPath: secrets.derivationPath,
         seedPhrase
       }
     } catch (error) {
@@ -311,6 +535,9 @@ export function createWalletService(deps: WalletServiceDeps) {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not load stored wallet secrets',
         walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        accountId: null,
+        accountName: null,
+        accountKind: null,
         firstAccountAddress: null,
         firstAccountPrivateKeyWif: null,
         firstAccountDerivationPath: null,
@@ -589,7 +816,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletBalance(input?: WalletAddressQueryInput): Promise<WalletBalanceResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
-    const address = deps.resolveWalletQueryAddress(input?.address)
+    const address = deps.resolveWalletQueryAddress(input?.address, input?.accountId)
     const empty = (output: string): WalletBalanceResult => ({
       ok: false,
       output,
@@ -627,7 +854,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletVhp(input?: WalletAddressQueryInput): Promise<WalletScalarResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
-    const address = deps.resolveWalletQueryAddress(input?.address)
+    const address = deps.resolveWalletQueryAddress(input?.address, input?.accountId)
     const empty = (output: string): WalletScalarResult => ({ ok: false, output, rpcUrl, address, value: null, unit: 'VHP' })
     if (!address) return empty('Address is required.')
     try {
@@ -642,7 +869,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletNonce(input?: WalletAddressQueryInput): Promise<WalletScalarResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
-    const address = deps.resolveWalletQueryAddress(input?.address)
+    const address = deps.resolveWalletQueryAddress(input?.address, input?.accountId)
     const empty = (output: string): WalletScalarResult => ({ ok: false, output, rpcUrl, address, value: null, unit: 'nonce' })
     if (!address) return empty('Address is required.')
     try {
@@ -656,7 +883,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletRc(input?: WalletAddressQueryInput): Promise<WalletScalarResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
-    const address = deps.resolveWalletQueryAddress(input?.address)
+    const address = deps.resolveWalletQueryAddress(input?.address, input?.accountId)
     const empty = (output: string): WalletScalarResult => ({ ok: false, output, rpcUrl, address, value: null, unit: 'mana' })
     if (!address) return empty('Address is required.')
     try {
@@ -671,7 +898,7 @@ export function createWalletService(deps: WalletServiceDeps) {
   async function walletTokenBalance(input?: WalletTokenBalanceInput): Promise<WalletTokenBalanceResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
     const contractId = `${input?.contractId || ''}`.trim() || null
-    const address = `${input?.address || ''}`.trim() || null
+    const address = deps.resolveWalletQueryAddress(input?.address, input?.accountId)
     const empty = (output: string): WalletTokenBalanceResult => ({
       ok: false,
       output,
@@ -805,21 +1032,22 @@ export function createWalletService(deps: WalletServiceDeps) {
       const password = `${input?.password || ''}`
       const wallet = deps.currentUnlockedProducerWallet() || (password ? deps.unlockKnodelWalletSession(password) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Producer tab.')
-      if (requestedAccountId && requestedAccountId.toLowerCase() !== wallet.address.toLowerCase()) {
-        return fail('Selected wallet account is not unlocked in this Knodel session.')
-      }
+      const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Knodel session.')
+      if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
       if (useProducerBurnAccount) {
         if (!producerProfile?.burnAccountId) return fail('No producer burn account is configured yet.')
-        if (producerProfile.burnAccountId.toLowerCase() !== wallet.address.toLowerCase()) {
+        const producerBurnRef = producerProfile.burnAccountId.toLowerCase()
+        if (producerBurnRef !== signingAccount.id.toLowerCase() && producerBurnRef !== signingAccount.address.toLowerCase()) {
           return fail('Unlocked wallet does not match the configured producer burn account.')
         }
       }
-      const targetAddress = requestedTargetAddress || wallet.address
+      const targetAddress = requestedTargetAddress || signingAccount.address
       if (!deps.safeIsChecksumAddress(targetAddress)) {
         return fail('Invalid target address for VHP allocation.')
       }
       const provider = new Provider([rpcUrl])
-      const signer = Signer.fromWif(wallet.privateKey)
+      const signer = Signer.fromWif(signingAccount.privateKey)
       signer.provider = provider
 
       const [koin, vhp, pob] = await Promise.all([
@@ -831,9 +1059,9 @@ export function createWalletService(deps: WalletServiceDeps) {
       pob.signer = signer
 
       const [{ result: koinBalanceResult }, { result: oldVhpResult }, manaRaw] = await Promise.all([
-        koin.functions.balance_of({ owner: wallet.address }),
-        vhp.functions.balance_of({ owner: wallet.address }),
-        provider.getAccountRc(wallet.address)
+        koin.functions.balance_of({ owner: signingAccount.address }),
+        vhp.functions.balance_of({ owner: signingAccount.address }),
+        provider.getAccountRc(signingAccount.address)
       ])
 
       const currentBalance = BigInt(koinBalanceResult?.value || '0')
@@ -859,7 +1087,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       let currentAllowance = BigInt(0)
       try {
         const { result: allowanceResult } = await koin.functions.allowance({
-          owner: wallet.address,
+          owner: signingAccount.address,
           spender: POB_CONTRACT_ADDRESS
         })
         currentAllowance = BigInt(allowanceResult?.value || '0')
@@ -871,7 +1099,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       if (currentAllowance < burnAmount) {
         const { operation: approveOp } = await koin.functions.approve(
           {
-            owner: wallet.address,
+            owner: signingAccount.address,
             spender: POB_CONTRACT_ADDRESS,
             value: burnAmount.toString()
           },
@@ -883,7 +1111,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       const { operation: burnOp } = await pob.functions.burn(
         {
           token_amount: burnAmount.toString(),
-          burn_address: wallet.address,
+          burn_address: signingAccount.address,
           vhp_address: targetAddress
         },
         { onlyOperation: true }
@@ -894,7 +1122,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         ? await prepareWalletTransactionWithFreeMana({
             signer,
             provider,
-            walletAddress: wallet.address,
+            walletAddress: signingAccount.address,
             operations
           })
         : null
@@ -907,7 +1135,7 @@ export function createWalletService(deps: WalletServiceDeps) {
             rcLimit: ((manaValue * BigInt(10)) / BigInt(100)).toString()
           }
         })
-      const payerAddress = freeManaPrepared?.payerAddress || wallet.address
+      const payerAddress = freeManaPrepared?.payerAddress || signingAccount.address
 
       if (!freeManaPrepared) {
         for (const operation of operations) {
@@ -924,7 +1152,7 @@ export function createWalletService(deps: WalletServiceDeps) {
             : `Dry run prepared ${operations.length} operation(s) for burn.`,
           rpcUrl,
           dryRun: true,
-          walletAddress: wallet.address,
+          walletAddress: signingAccount.address,
           targetAddress,
           burnAmountKoin: deps.formatWholeUnits(burnAmount),
           remainingKoin: deps.formatWholeUnits(remainingAmount),
@@ -948,18 +1176,18 @@ export function createWalletService(deps: WalletServiceDeps) {
       }
 
       const [{ result: newKoinResult }, { result: newVhpResult }] = await Promise.all([
-        koin.functions.balance_of({ owner: wallet.address }),
-        vhp.functions.balance_of({ owner: wallet.address })
+        koin.functions.balance_of({ owner: signingAccount.address }),
+        vhp.functions.balance_of({ owner: signingAccount.address })
       ])
 
       return {
         ok: true,
         output: useFreeMana
-          ? `Burn transaction submitted from ${wallet.address} into VHP for ${targetAddress} using free mana.`
-          : `Burn transaction submitted from ${wallet.address} into VHP for ${targetAddress}.`,
+          ? `Burn transaction submitted from ${signingAccount.address} into VHP for ${targetAddress} using free mana.`
+          : `Burn transaction submitted from ${signingAccount.address} into VHP for ${targetAddress}.`,
         rpcUrl,
         dryRun: false,
-        walletAddress: wallet.address,
+        walletAddress: signingAccount.address,
         targetAddress,
         burnAmountKoin: deps.formatWholeUnits(burnAmount),
         remainingKoin: deps.formatWholeUnits(remainingAmount),
@@ -1006,12 +1234,12 @@ export function createWalletService(deps: WalletServiceDeps) {
       const password = `${input?.password || ''}`
       const wallet = deps.currentUnlockedProducerWallet() || (password ? deps.unlockKnodelWalletSession(password) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Wallet tab.')
-      if (requestedAccountId && requestedAccountId.toLowerCase() !== wallet.address.toLowerCase()) {
-        return fail('Selected wallet account is not unlocked in this Knodel session.')
-      }
+      const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Knodel session.')
+      if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
 
       const provider = new Provider([rpcUrl])
-      const signer = Signer.fromWif(wallet.privateKey)
+      const signer = Signer.fromWif(signingAccount.privateKey)
       signer.provider = provider
       const vhp = await deps.loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS)
       vhp.signer = signer
@@ -1020,8 +1248,8 @@ export function createWalletService(deps: WalletServiceDeps) {
       if (transferAmount <= BigInt(0)) return fail('Transfer amount is too small.')
 
       const [{ result: vhpBalance }, manaRaw] = await Promise.all([
-        vhp.functions.balance_of({ owner: wallet.address }),
-        provider.getAccountRc(wallet.address)
+        vhp.functions.balance_of({ owner: signingAccount.address }),
+        provider.getAccountRc(signingAccount.address)
       ])
       const currentVhpBalance = BigInt(`${vhpBalance?.value || '0'}`)
       if (transferAmount > currentVhpBalance) return fail('Insufficient VHP balance for transfer.')
@@ -1030,7 +1258,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
       const { operation } = await vhp.functions.transfer(
         {
-          from: wallet.address,
+          from: signingAccount.address,
           to: toAddress,
           value: transferAmount.toString()
         },
@@ -1041,7 +1269,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         ? await prepareWalletTransactionWithFreeMana({
             signer,
             provider,
-            walletAddress: wallet.address,
+            walletAddress: signingAccount.address,
             operations: [operation]
           })
         : null
@@ -1054,7 +1282,7 @@ export function createWalletService(deps: WalletServiceDeps) {
             rcLimit: ((manaValue * BigInt(10)) / BigInt(100)).toString()
           }
         })
-      const payerAddress = freeManaPrepared?.payerAddress || wallet.address
+      const payerAddress = freeManaPrepared?.payerAddress || signingAccount.address
 
       if (!freeManaPrepared) {
         await transaction.pushOperation(operation)
@@ -1069,7 +1297,7 @@ export function createWalletService(deps: WalletServiceDeps) {
             : 'Dry run prepared VHP transfer operation.',
           rpcUrl,
           dryRun: true,
-          fromAddress: wallet.address,
+          fromAddress: signingAccount.address,
           toAddress,
           amountVhp: deps.formatWholeUnits(transferAmount),
           usedFreeMana: useFreeMana,
@@ -1090,11 +1318,11 @@ export function createWalletService(deps: WalletServiceDeps) {
       return {
         ok: true,
         output: useFreeMana
-          ? `VHP transfer submitted from ${wallet.address} to ${toAddress} using free mana.`
-          : `VHP transfer submitted from ${wallet.address} to ${toAddress}.`,
+          ? `VHP transfer submitted from ${signingAccount.address} to ${toAddress} using free mana.`
+          : `VHP transfer submitted from ${signingAccount.address} to ${toAddress}.`,
         rpcUrl,
         dryRun: false,
-        fromAddress: wallet.address,
+        fromAddress: signingAccount.address,
         toAddress,
         amountVhp: deps.formatWholeUnits(transferAmount),
         usedFreeMana: useFreeMana,
@@ -1136,12 +1364,12 @@ export function createWalletService(deps: WalletServiceDeps) {
       const password = `${input?.password || ''}`
       const wallet = deps.currentUnlockedProducerWallet() || (password ? deps.unlockKnodelWalletSession(password) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Wallet tab.')
-      if (requestedAccountId && requestedAccountId.toLowerCase() !== wallet.address.toLowerCase()) {
-        return fail('Selected wallet account is not unlocked in this Knodel session.')
-      }
+      const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Knodel session.')
+      if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
 
       const provider = new Provider([rpcUrl])
-      const signer = Signer.fromWif(wallet.privateKey)
+      const signer = Signer.fromWif(signingAccount.privateKey)
       signer.provider = provider
       const koin = await deps.loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS)
       koin.signer = signer
@@ -1150,8 +1378,8 @@ export function createWalletService(deps: WalletServiceDeps) {
       if (transferAmount <= BigInt(0)) return fail('Transfer amount is too small.')
 
       const [{ result: koinBalance }, manaRaw] = await Promise.all([
-        koin.functions.balance_of({ owner: wallet.address }),
-        provider.getAccountRc(wallet.address)
+        koin.functions.balance_of({ owner: signingAccount.address }),
+        provider.getAccountRc(signingAccount.address)
       ])
       const currentKoinBalance = BigInt(`${koinBalance?.value || '0'}`)
       if (transferAmount > currentKoinBalance) return fail('Insufficient KOIN balance for transfer.')
@@ -1163,7 +1391,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
       const { operation } = await koin.functions.transfer(
         {
-          from: wallet.address,
+          from: signingAccount.address,
           to: toAddress,
           value: transferAmount.toString()
         },
@@ -1174,7 +1402,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         ? await prepareWalletTransactionWithFreeMana({
             signer,
             provider,
-            walletAddress: wallet.address,
+            walletAddress: signingAccount.address,
             operations: [operation]
           })
         : null
@@ -1187,7 +1415,7 @@ export function createWalletService(deps: WalletServiceDeps) {
             rcLimit: ((manaValue * BigInt(10)) / BigInt(100)).toString()
           }
         })
-      const payerAddress = freeManaPrepared?.payerAddress || wallet.address
+      const payerAddress = freeManaPrepared?.payerAddress || signingAccount.address
 
       if (!freeManaPrepared) {
         await transaction.pushOperation(operation)
@@ -1202,7 +1430,7 @@ export function createWalletService(deps: WalletServiceDeps) {
             : 'Dry run prepared KOIN transfer operation.',
           rpcUrl,
           dryRun: true,
-          fromAddress: wallet.address,
+          fromAddress: signingAccount.address,
           toAddress,
           amountKoin: deps.formatWholeUnits(transferAmount),
           usedFreeMana: useFreeMana,
@@ -1223,11 +1451,11 @@ export function createWalletService(deps: WalletServiceDeps) {
       return {
         ok: true,
         output: useFreeMana
-          ? `KOIN transfer submitted from ${wallet.address} to ${toAddress} using free mana.`
-          : `KOIN transfer submitted from ${wallet.address} to ${toAddress}.`,
+          ? `KOIN transfer submitted from ${signingAccount.address} to ${toAddress} using free mana.`
+          : `KOIN transfer submitted from ${signingAccount.address} to ${toAddress}.`,
         rpcUrl,
         dryRun: false,
-        fromAddress: wallet.address,
+        fromAddress: signingAccount.address,
         toAddress,
         amountKoin: deps.formatWholeUnits(transferAmount),
         usedFreeMana: useFreeMana,
@@ -1243,6 +1471,13 @@ export function createWalletService(deps: WalletServiceDeps) {
     walletOverview,
     walletGenerate,
     walletImport,
+    walletListAccounts,
+    walletSetActiveAccount,
+    walletCreateDerivedAccount,
+    walletImportAccount,
+    walletImportWatchAccount,
+    walletRenameAccount,
+    walletRemoveAccount,
     walletShowSeed,
     walletDelete,
     walletClose,

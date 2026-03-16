@@ -468,6 +468,20 @@ declare global {
     rpcUrl?: string
   }
 
+  type KnodelWalletAccountKind = 'derived' | 'imported-wif' | 'watch-only'
+
+  type KnodelWalletAccountSummary = {
+    id: string
+    name: string
+    kind: KnodelWalletAccountKind
+    address: string
+    derivationPath: string | null
+    createdAt: string
+    updatedAt: string | null
+    hasPrivateKey: boolean
+    isActive: boolean
+  }
+
   type KnodelWalletOverviewResult = {
     ok: boolean
     output: string
@@ -476,6 +490,11 @@ declare global {
     walletExists: boolean
     walletAddress: string | null
     walletCreatedAt: string | null
+    activeAccountId: string | null
+    activeAccountName: string | null
+    activeAccountKind: KnodelWalletAccountKind | null
+    accountCount: number
+    accounts: KnodelWalletAccountSummary[]
     unlocked: boolean
     hasSeedPhrase: boolean
   }
@@ -560,6 +579,9 @@ declare global {
     ok: boolean
     output: string
     walletAddress: string | null
+    accountId: string | null
+    accountName: string | null
+    accountKind: KnodelWalletAccountKind | null
     firstAccountAddress: string | null
     firstAccountPrivateKeyWif: string | null
     firstAccountDerivationPath: string | null
@@ -568,6 +590,60 @@ declare global {
 
   type KnodelWalletAddressQueryParams = KnodelWalletRpcParams & {
     address?: string
+    accountId?: string
+  }
+
+  type KnodelWalletListAccountsResult = {
+    ok: boolean
+    output: string
+    walletAddress: string | null
+    activeAccountId: string | null
+    accounts: KnodelWalletAccountSummary[]
+  }
+
+  type KnodelWalletSetActiveAccountParams = {
+    accountId?: string
+  }
+
+  type KnodelWalletSetActiveAccountResult = {
+    ok: boolean
+    output: string
+    walletAddress: string | null
+    activeAccountId: string | null
+    activeAccount: KnodelWalletAccountSummary | null
+  }
+
+  type KnodelWalletCreateDerivedAccountParams = {
+    name?: string
+  }
+
+  type KnodelWalletAccountMutationResult = {
+    ok: boolean
+    output: string
+    walletAddress: string | null
+    activeAccountId: string | null
+    account: KnodelWalletAccountSummary | null
+    accounts: KnodelWalletAccountSummary[]
+  }
+
+  type KnodelWalletImportAccountParams = {
+    name?: string
+    privateKey?: string
+    password?: string
+  }
+
+  type KnodelWalletImportWatchAccountParams = {
+    name?: string
+    address?: string
+  }
+
+  type KnodelWalletRenameAccountParams = {
+    accountId?: string
+    name?: string
+  }
+
+  type KnodelWalletRemoveAccountParams = {
+    accountId?: string
   }
 
   type KnodelWalletBalanceResult = {
@@ -636,6 +712,7 @@ declare global {
   type KnodelWalletTokenBalanceParams = KnodelWalletRpcParams & {
     contractId?: string
     address?: string
+    accountId?: string
   }
 
   type KnodelWalletTokenBalanceResult = {
@@ -814,6 +891,17 @@ declare global {
       overview: (params?: KnodelWalletRpcParams) => Promise<KnodelWalletOverviewResult>
       generate: () => Promise<KnodelWalletGenerateResult>
       importWallet: (params?: KnodelWalletImportParams) => Promise<KnodelWalletImportResult>
+      listAccounts: () => Promise<KnodelWalletListAccountsResult>
+      setActiveAccount: (params?: KnodelWalletSetActiveAccountParams) => Promise<KnodelWalletSetActiveAccountResult>
+      createDerivedAccount: (
+        params?: KnodelWalletCreateDerivedAccountParams
+      ) => Promise<KnodelWalletAccountMutationResult>
+      importAccount: (params?: KnodelWalletImportAccountParams) => Promise<KnodelWalletAccountMutationResult>
+      importWatchAccount: (
+        params?: KnodelWalletImportWatchAccountParams
+      ) => Promise<KnodelWalletAccountMutationResult>
+      renameAccount: (params?: KnodelWalletRenameAccountParams) => Promise<KnodelWalletAccountMutationResult>
+      removeAccount: (params?: KnodelWalletRemoveAccountParams) => Promise<KnodelWalletAccountMutationResult>
       unlock: (params?: KnodelWalletUnlockParams) => Promise<KnodelWalletUnlockResult>
       closeWallet: () => Promise<KnodelWalletCloseResult>
       deleteWallet: () => Promise<KnodelWalletDeleteResult>

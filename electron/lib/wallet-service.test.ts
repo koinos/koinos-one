@@ -1,6 +1,60 @@
-import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
-import { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-service'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { createKnodelStorage } from './knodel-storage'
+import { createWalletService, deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-service'
+
+const tempDirs: string[] = []
+
+function createTempDir(prefix: string): string {
+  const dirPath = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  tempDirs.push(dirPath)
+  return dirPath
+}
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const dirPath = tempDirs.pop()
+    if (dirPath) fs.rmSync(dirPath, { recursive: true, force: true })
+  }
+})
+
+function createWalletTestService() {
+  const storage = createKnodelStorage(createTempDir('wallet-service-'))
+
+  return {
+    storage,
+    service: createWalletService({
+      loadKnodelWalletFile: () => storage.loadWalletFile(),
+      knodelProducerWalletFilePath: () => storage.producerWalletFilePath(),
+      currentUnlockedProducerWallet: () => storage.getUnlockedWallet(),
+      saveKnodelWallet: (privateKey, address, password, options) => storage.saveWallet(privateKey, address, password, options),
+      deleteKnodelWallet: () => storage.deleteWallet(),
+      closeKnodelWalletSession: () => storage.closeWalletSession(),
+      unlockKnodelWalletSession: (password) => storage.unlockWalletSession(password),
+      listWalletAccounts: () => storage.listWalletAccounts(),
+      setActiveWalletAccount: (accountId) => storage.setActiveWalletAccount(accountId),
+      createDerivedWalletAccount: (name) => storage.createDerivedWalletAccount(name),
+      importAdditionalWalletAccount: (privateKey, password, name) => storage.importWalletAccount(privateKey, password, name),
+      importWatchWalletAccount: (address, name) => storage.importWatchWalletAccount(address, name),
+      renameWalletAccount: (accountId, name) => storage.renameWalletAccount(accountId, name),
+      removeWalletAccount: (accountId) => storage.removeWalletAccount(accountId),
+      loadWalletAccountSecrets: (accountId) => storage.loadWalletAccountSecrets(accountId),
+      resolveWalletRpcUrl: () => 'http://127.0.0.1:8080/',
+      resolveWalletQueryAddress: (address, accountId) => storage.resolveWalletQueryAddress(address, accountId),
+      parseWalletArgs: (value) => (typeof value === 'string' ? JSON.parse(value) : value || {}),
+      loadContractWithFetchedAbi: async () => {
+        throw new Error('Not used in this test.')
+      },
+      formatWholeUnits: () => null,
+      safeIsChecksumAddress: () => true,
+      loadProducerProfile: () => null
+    })
+  }
+}
 
 describe('wallet-service helpers', () => {
   it('builds the expected derivation path', () => {
@@ -25,5 +79,62 @@ describe('wallet-service helpers', () => {
         privateKeyWif: 'Kwek5DC4oZeU7f97DM1Y1hDnUaVL49Z43r3RjA5SbYgUQVxqFjaz'
       }
     ])
+  })
+
+  it('manages accounts through the wallet service', async () => {
+    const { service } = createWalletTestService()
+    const seedPhrase = 'test test test test test test test test test test test junk'
+    const [firstAccount, secondAccount] = deriveWalletAccountsFromSeed(seedPhrase, 2)
+
+    const importResult = await service.walletImport({
+      privateKey: firstAccount.privateKeyWif,
+      password: 'secret-password',
+      seedPhrase,
+      derivationPath: firstAccount.derivationPath
+    })
+    expect(importResult.ok).toBe(true)
+
+    const overview = await service.walletOverview()
+    expect(overview.ok).toBe(true)
+    expect(overview.accountCount).toBe(1)
+    expect(overview.activeAccountName).toBe('Account 1')
+
+    const created = await service.walletCreateDerivedAccount({ name: 'Account 2' })
+    expect(created.ok).toBe(true)
+    expect(created.activeAccountId).toBe(created.account?.id || null)
+    expect(created.accounts).toHaveLength(2)
+
+    const importedWatch = await service.walletImportWatchAccount({
+      address: '1WatchOnlyAddress',
+      name: 'Observer'
+    })
+    expect(importedWatch.ok).toBe(true)
+    expect(importedWatch.account?.kind).toBe('watch-only')
+
+    const listResult = await service.walletListAccounts()
+    expect(listResult.accounts).toHaveLength(3)
+    expect(listResult.accounts.find((account) => account.address === secondAccount.address)?.kind).toBe('derived')
+
+    const activeResult = await service.walletSetActiveAccount({ accountId: created.account?.id || '' })
+    expect(activeResult.ok).toBe(true)
+    expect(activeResult.activeAccount?.address).toBe(secondAccount.address)
+
+    const renameResult = await service.walletRenameAccount({
+      accountId: importedWatch.account?.id || '',
+      name: 'Node Watcher'
+    })
+    expect(renameResult.ok).toBe(true)
+    expect(renameResult.account?.name).toBe('Node Watcher')
+
+    const showSecrets = await service.walletShowSeed()
+    expect(showSecrets.ok).toBe(true)
+    expect(showSecrets.accountId).toBe(created.account?.id || null)
+    expect(showSecrets.accountName).toBe('Account 2')
+    expect(showSecrets.firstAccountAddress).toBe(secondAccount.address)
+    expect(showSecrets.seedPhrase).toBe(seedPhrase)
+
+    const removeResult = await service.walletRemoveAccount({ accountId: importedWatch.account?.id || '' })
+    expect(removeResult.ok).toBe(true)
+    expect(removeResult.accounts).toHaveLength(2)
   })
 })
