@@ -9,7 +9,7 @@ import { WalletSecurityTab } from './wallet/WalletSecurityTab'
 import { WalletSendModal } from './wallet/WalletSendModal'
 
 type WalletPanelProps = any
-type WalletSubtab = 'overview' | 'accounts' | 'security'
+type WalletSubtab = 'tokens' | 'accounts' | 'security'
 
 type WalletCreateDraft = {
   ok?: boolean
@@ -93,7 +93,7 @@ export function WalletPanel(props: WalletPanelProps) {
     removeWalletVaultAccount
   } = props
 
-  const [walletSubtab, setWalletSubtab] = useState<WalletSubtab>('overview')
+  const [walletSubtab, setWalletSubtab] = useState<WalletSubtab>('tokens')
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [importSeedModalOpen, setImportSeedModalOpen] = useState(false)
@@ -282,8 +282,8 @@ export function WalletPanel(props: WalletPanelProps) {
     setRemoveAccountModalOpen(true)
   }
 
-  const toggleWalletView = (nextView: Exclude<WalletSubtab, 'overview'>) => {
-    setWalletSubtab((current) => (current === nextView ? 'overview' : nextView))
+  const toggleWalletView = (nextView: WalletSubtab) => {
+    setWalletSubtab(nextView)
   }
 
   return (
@@ -339,21 +339,23 @@ export function WalletPanel(props: WalletPanelProps) {
               walletActionLoading={walletActionLoading}
               accounts={accounts}
               activeAccountId={activeWalletAccountId}
-              activeAccount={activeWalletAccount}
               activeView={walletSubtab}
               onSetActiveAccount={(accountId: string) => {
                 void setWalletActiveAccount(accountId)
               }}
-              onOpenSend={() => openSendModal('send')}
+              onToggleTokens={() => toggleWalletView('tokens')}
               onToggleAccounts={() => toggleWalletView('accounts')}
               onToggleSecurity={() => toggleWalletView('security')}
             />
           </div>
 
-          {walletSubtab === 'overview' && (
+          {walletSubtab === 'tokens' && (
             <WalletPortfolioTab
               t={t}
               walletBalance={walletBalance}
+              activeWalletCanSign={activeWalletCanSign}
+              onOpenSend={() => openSendModal('send')}
+              onOpenBurn={() => openSendModal('burn')}
             />
           )}
 

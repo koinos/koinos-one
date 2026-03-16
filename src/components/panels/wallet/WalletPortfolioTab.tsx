@@ -1,10 +1,13 @@
 type WalletPortfolioTabProps = {
   t: (key: string, values?: Record<string, string | number>) => string
   walletBalance: KnodelWalletBalanceResult | null
+  activeWalletCanSign: boolean
+  onOpenSend: () => void
+  onOpenBurn: () => void
 }
 
 export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
-  const { t, walletBalance } = props
+  const { t, walletBalance, activeWalletCanSign, onOpenSend, onOpenBurn } = props
 
   return (
     <div className="wallet-subpanel">
@@ -12,8 +15,16 @@ export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
         <article className="wallet-card wallet-portfolio-card">
           <div className="wallet-section-header">
             <div>
-              <h3>{t('wallet.overviewTitle')}</h3>
-              <p>{t('wallet.overviewDescription')}</p>
+              <h3>{t('wallet.tokensTitle')}</h3>
+              <p>{t('wallet.tokensDescription')}</p>
+            </div>
+            <div className="wallet-inline-actions">
+              <button type="button" className="ghost-button" onClick={onOpenSend} disabled={!activeWalletCanSign}>
+                {t('wallet.transferAction')}
+              </button>
+              <button type="button" className="primary-button" onClick={onOpenBurn} disabled={!activeWalletCanSign}>
+                {t('wallet.burnAction')}
+              </button>
             </div>
           </div>
 
@@ -31,6 +42,11 @@ export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
               <span>{walletBalance?.vhp || t('common.na')}</span>
             </div>
           </div>
+          {!activeWalletCanSign && (
+            <div className="node-warning" role="note">
+              {t('wallet.watchOnlyCannotSign')}
+            </div>
+          )}
         </article>
       </div>
     </div>

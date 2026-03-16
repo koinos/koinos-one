@@ -97,6 +97,20 @@ type WalletActivityEntry = {
   accountAddress: string | null
 }
 
+type WalletBalanceCacheEntry = {
+  balance: KnodelWalletBalanceResult
+  refreshedAt: number
+}
+
+function walletBalanceCacheKeys(address?: string | null, accountId?: string | null): string[] {
+  const keys: string[] = []
+  const normalizedAccountId = `${accountId || ''}`.trim()
+  const normalizedAddress = `${address || ''}`.trim().toLowerCase()
+  if (normalizedAccountId) keys.push(`id:${normalizedAccountId}`)
+  if (normalizedAddress) keys.push(`address:${normalizedAddress}`)
+  return keys
+}
+
 export function App() {
   const appVersion = window.knodel?.version?.trim() || '0.9.0'
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
@@ -207,6 +221,7 @@ export function App() {
   const [walletResultData, setWalletResultData] = useState<unknown>(null)
   const [walletActivityEntries, setWalletActivityEntries] = useState<WalletActivityEntry[]>([])
   const [walletBalanceRefreshedAt, setWalletBalanceRefreshedAt] = useState<number | null>(null)
+  const [walletBalanceCache, setWalletBalanceCache] = useState<Record<string, WalletBalanceCacheEntry>>({})
   const [walletImportPrivateKey, setWalletImportPrivateKey] = useState('')
   const [walletImportPassword, setWalletImportPassword] = useState('')
   const [walletImportSeedPhrase, setWalletImportSeedPhrase] = useState('')
@@ -254,6 +269,22 @@ export function App() {
     walletAccounts.find((account) => account.id === activeWalletAccountId) || walletAccounts[0] || null
   const activeWalletAddress = activeWalletAccount?.address?.trim() || walletOverview?.walletAddress?.trim() || ''
   const activeWalletCanSign = Boolean(walletOverview?.unlocked && activeWalletAccount?.hasPrivateKey)
+  const activeWalletBalanceCacheEntry = useMemo(() => {
+    const keys = walletBalanceCacheKeys(activeWalletAddress, activeWalletAccountId)
+    for (const key of keys) {
+      const entry = walletBalanceCache[key]
+      if (entry) return entry
+    }
+    return null
+  }, [walletBalanceCache, activeWalletAddress, activeWalletAccountId])
+  const liveWalletBalanceMatchesActive = Boolean(
+    producerSigningWalletBalance?.address &&
+      activeWalletAddress &&
+      producerSigningWalletBalance.address.toLowerCase() === activeWalletAddress.toLowerCase()
+  )
+  const walletDisplayBalance = activeWalletBalanceCacheEntry?.balance || (liveWalletBalanceMatchesActive ? producerSigningWalletBalance : null)
+  const walletDisplayBalanceRefreshedAt =
+    activeWalletBalanceCacheEntry?.refreshedAt || (liveWalletBalanceMatchesActive ? walletBalanceRefreshedAt : null)
   const composeFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, draftNodeComposeFile)
   const envFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, draftNodeEnvFile)
   const configFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, 'config/config.yml')
@@ -414,12 +445,16 @@ export function App() {
     }
 
     if (!activeWalletAddress) {
-      setProducerSigningWalletBalance(null)
-      setProducerSigningWalletBalanceError(null)
-      setProducerSigningWalletBalanceLoading(false)
+      if (activeTab !== 'wallet') {
+        setProducerSigningWalletBalance(null)
+        setProducerSigningWalletBalanceError(null)
+        setProducerSigningWalletBalanceLoading(false)
+      }
       return
     }
-    void refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined)
+    void refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined, {
+      silent: activeTab === 'wallet'
+    })
   }, [activeTab, dashboardSubtab, producerProfile, producerRpcUrl, activeWalletAddress, activeWalletAccountId])
 
   useEffect(() => {
@@ -433,7 +468,9 @@ export function App() {
       if (disposed || inFlight) return
       inFlight = true
       try {
-        await refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined)
+        await refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined, {
+          silent: true
+        })
       } finally {
         inFlight = false
       }
@@ -1001,7 +1038,10 @@ export function App() {
   const chainSyncPercent = showChainSyncProgress && publicChainHead
     ? clamp((localChainHead!.height / publicChainHead.height) * 100, 0, 100)
     : null
-  const walletResultText = walletResultData ? JSON.stringify(walletResultData, null, 2) : ''
+  const walletResultText = useMemo(
+    () => (walletResultData ? JSON.stringify(walletResultData, null, 2) : ''),
+    [walletResultData]
+  )
   const producerVaultExists = Boolean(walletOverview?.walletExists)
   const producerVaultUnlocked = Boolean(walletOverview?.unlocked)
   const producerAdvancedMode = settings.producerAdvancedMode
@@ -2160,29 +2200,81 @@ export function App() {
   const setWalletActiveAccount = async (accountId: string) => {
     const bridge = getWalletBridge()
     if (!bridge?.setActiveAccount) return false
+    const requestedAccountId = accountId.trim()
+    const nextActiveAccount = walletAccounts.find((entry) => entry.id === requestedAccountId) || null
+    if (!requestedAccountId || !nextActiveAccount) {
+      setWalletError(t('wallet.unableSetActiveAccount'))
+      return false
+    }
+    const previousOverview = walletOverview
+    const previousBalance = producerSigningWalletBalance
+    const previousBalanceRefreshedAt = walletBalanceRefreshedAt
+    const previousBalanceError = producerSigningWalletBalanceError
+    const nextCachedBalanceEntry =
+      walletBalanceCacheKeys(nextActiveAccount.address, requestedAccountId)
+        .map((key) => walletBalanceCache[key])
+        .find(Boolean) || null
 
-    setWalletActionLoading('wallet-set-active-account')
     setWalletError(null)
+    setWalletOverview((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        activeAccountId: requestedAccountId,
+        activeAccountName: nextActiveAccount.name,
+        activeAccountKind: nextActiveAccount.kind,
+        walletAddress: nextActiveAccount.address || current.walletAddress
+      }
+    })
+
+    if (nextCachedBalanceEntry) {
+      setProducerSigningWalletBalance(nextCachedBalanceEntry.balance)
+      setWalletBalanceRefreshedAt(nextCachedBalanceEntry.refreshedAt)
+      setProducerSigningWalletBalanceError(null)
+    }
+
     try {
-      const result = await bridge.setActiveAccount({ accountId })
+      const result = await bridge.setActiveAccount({ accountId: requestedAccountId })
       setWalletResultTitle(t('wallet.accountsTitle'))
       setWalletResultData(result)
-      appendWalletActivity(t('wallet.accountsTitle'), result, result.activeAccountId || accountId)
+      appendWalletActivity(t('wallet.accountsTitle'), result, result.activeAccountId || requestedAccountId)
 
       if (!result.ok) {
+        setWalletOverview(previousOverview)
+        setProducerSigningWalletBalance(previousBalance)
+        setWalletBalanceRefreshedAt(previousBalanceRefreshedAt)
+        setProducerSigningWalletBalanceError(previousBalanceError)
         setWalletError(result.output || t('wallet.unableSetActiveAccount'))
         return false
       }
 
-      await refreshWalletOverview()
-      await refreshProducerSigningWalletBalance(undefined, result.activeAccountId || accountId)
-      await refreshNodeProducerOverview()
+      const nextActiveAccountId = result.activeAccountId || requestedAccountId
+      const confirmedActiveAccount =
+        walletAccounts.find((entry) => entry.id === nextActiveAccountId) || nextActiveAccount
+
+      setWalletOverview((current) => {
+        if (!current) return current
+        return {
+          ...current,
+          activeAccountId: nextActiveAccountId,
+          activeAccountName: confirmedActiveAccount?.name || current.activeAccountName,
+          activeAccountKind: confirmedActiveAccount?.kind || current.activeAccountKind,
+          walletAddress: confirmedActiveAccount?.address || current.walletAddress
+        }
+      })
+
+      void refreshWalletOverview()
+      void refreshProducerSigningWalletBalance(confirmedActiveAccount?.address, nextActiveAccountId, { silent: true })
+      void refreshProducerRegisteredPublicKeyPreview(confirmedActiveAccount?.address || undefined)
+      void refreshNodeProducerOverview(undefined, producerConfiguredAddress || confirmedActiveAccount?.address || undefined)
       return true
     } catch (error) {
+      setWalletOverview(previousOverview)
+      setProducerSigningWalletBalance(previousBalance)
+      setWalletBalanceRefreshedAt(previousBalanceRefreshedAt)
+      setProducerSigningWalletBalanceError(previousBalanceError)
       setWalletError(error instanceof Error ? error.message : t('wallet.unableSetActiveAccount'))
       return false
-    } finally {
-      setWalletActionLoading(null)
     }
   }
 
@@ -2464,51 +2556,91 @@ export function App() {
 
   const refreshProducerSigningWalletBalance = async (
     addressOverride?: string,
-    accountIdOverride?: string
+    accountIdOverride?: string,
+    options?: {
+      silent?: boolean
+      rpcUrlOverride?: string
+    }
   ): Promise<KnodelWalletBalanceResult | null> => {
     const bridge = getWalletBridge()
     if (!bridge?.balance) return null
-    const address = addressOverride?.trim() || activeWalletAddress || ''
+    const silent = Boolean(options?.silent)
+    const rpcUrl = options?.rpcUrlOverride?.trim() || producerRpcUrl
     const accountId = accountIdOverride?.trim() || activeWalletAccountId || ''
+    const accountAddress =
+      (accountId ? walletAccounts.find((account) => account.id === accountId)?.address?.trim() : '') || ''
+    const address = addressOverride?.trim() || accountAddress || activeWalletAddress || ''
     if (!address && !accountId) {
-      setProducerSigningWalletBalance(null)
-      setProducerSigningWalletBalanceError(null)
-      setProducerSigningWalletBalanceLoading(false)
+      if (!silent) {
+        setProducerSigningWalletBalance(null)
+        setProducerSigningWalletBalanceError(null)
+        setProducerSigningWalletBalanceLoading(false)
+      }
       return null
     }
 
-    setProducerSigningWalletBalanceLoading(true)
-    setProducerSigningWalletBalanceError(null)
+    if (!silent) {
+      setProducerSigningWalletBalanceLoading(true)
+      setProducerSigningWalletBalanceError(null)
+    }
     try {
       const result = await bridge.balance({
-        rpcUrl: producerRpcUrl,
+        rpcUrl,
         address: address || undefined,
         accountId: accountId || undefined
       })
-      setProducerSigningWalletBalance(result)
-      setWalletBalanceRefreshedAt(Date.now())
-      if (!result.ok) {
-        setProducerSigningWalletBalanceError(
-          formatProducerWalletBalanceError(
-            result.output || 'Could not load signing wallet balances',
-            producerRpcUrl,
-            language
-          )
+
+      if (result.ok) {
+        const refreshedAt = Date.now()
+        setWalletBalanceCache((current) => {
+          const keys = walletBalanceCacheKeys(result.address, accountId)
+          if (keys.length === 0) return current
+          const nextEntry: WalletBalanceCacheEntry = { balance: result, refreshedAt }
+          const next = { ...current }
+          for (const key of keys) {
+            next[key] = nextEntry
+          }
+          return next
+        })
+        setProducerSigningWalletBalance((current) => {
+          if (
+            current?.ok === result.ok &&
+            current?.rpcUrl === result.rpcUrl &&
+            current?.address === result.address &&
+            current?.koin === result.koin &&
+            current?.vhp === result.vhp &&
+            current?.mana === result.mana &&
+            current?.output === result.output
+          ) {
+            return current
+          }
+          return result
+        })
+        if (!silent) {
+          setWalletBalanceRefreshedAt(refreshedAt)
+        }
+        setProducerSigningWalletBalanceError((current) => (current === null ? current : null))
+      } else {
+        const nextError = formatProducerWalletBalanceError(
+          result.output || 'Could not load signing wallet balances',
+          rpcUrl,
+          language
         )
+        setProducerSigningWalletBalanceError((current) => (current === nextError ? current : nextError))
       }
       return result
     } catch (error) {
-      setProducerSigningWalletBalance(null)
-      setProducerSigningWalletBalanceError(
-        formatProducerWalletBalanceError(
-          error instanceof Error ? error.message : 'Could not load signing wallet balances',
-          producerRpcUrl,
-          language
-        )
+      const nextError = formatProducerWalletBalanceError(
+        error instanceof Error ? error.message : 'Could not load signing wallet balances',
+        rpcUrl,
+        language
       )
+      setProducerSigningWalletBalanceError((current) => (current === nextError ? current : nextError))
       return null
     } finally {
-      setProducerSigningWalletBalanceLoading(false)
+      if (!silent) {
+        setProducerSigningWalletBalanceLoading(false)
+      }
     }
   }
 
@@ -4133,10 +4265,10 @@ export function App() {
           walletLoading={walletLoading}
           walletActionLoading={walletActionLoading}
           walletError={walletError}
-          walletBalance={producerSigningWalletBalance}
+          walletBalance={walletDisplayBalance}
           walletBalanceLoading={producerSigningWalletBalanceLoading}
           walletBalanceError={producerSigningWalletBalanceError}
-          walletBalanceRefreshedAt={walletBalanceRefreshedAt}
+          walletBalanceRefreshedAt={walletDisplayBalanceRefreshedAt}
           walletImportPrivateKey={walletImportPrivateKey}
           setWalletImportPrivateKey={setWalletImportPrivateKey}
           walletImportPassword={walletImportPassword}

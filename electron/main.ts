@@ -228,6 +228,7 @@ import type {
 import { createNativeVersionResolver } from './lib/native-versions'
 import { createProducerService } from './lib/producer-service'
 import { producerAddressFromRuntimeConfig, resolveLocalProducerPublicKey } from './lib/producer-keys'
+import { createCachedContractLoader } from './lib/contract-loader'
 import { registerKnodelIpcHandlers } from './lib/ipc-handlers'
 import { createLogsService } from './lib/logs-service'
 import { createNativeBuildService } from './lib/native-build-service'
@@ -277,6 +278,10 @@ const workspaceService = createWorkspaceService({
 
 function currentUnlockedProducerWallet(): KnodelUnlockedWallet | null {
   return knodelStorage.getUnlockedWallet() as KnodelUnlockedWallet | null
+}
+
+async function loadContractWithFetchedAbi(provider: Provider, contractId: string): Promise<Contract> {
+  return cachedContractLoader(provider, contractId)
 }
 
 const producerService = createProducerService({
@@ -1060,16 +1065,9 @@ function fixFetchedAbi(abi: unknown): unknown {
   return typedAbi
 }
 
-async function loadContractWithFetchedAbi(provider: Provider, contractId: string): Promise<Contract> {
-  const contract = new Contract({ id: contractId, provider })
-  const abi = await contract.fetchAbi()
-  if (!abi) {
-    throw new Error(`Could not load ABI for contract ${contractId}`)
-  }
-  contract.abi = fixFetchedAbi(abi) as typeof contract.abi
-  contract.updateFunctionsFromAbi()
-  return contract
-}
+const cachedContractLoader = createCachedContractLoader(
+  (abi) => fixFetchedAbi(abi) as NonNullable<Awaited<ReturnType<Contract['fetchAbi']>>>
+)
 
 function formatWholeUnits(value: bigint | string | number | null | undefined, decimals = 8): string | null {
   if (value === null || value === undefined) return null
