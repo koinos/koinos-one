@@ -34,6 +34,8 @@ export type KoinosNodeDashboardProducersInput = KoinosNodeSettingsInput & {
 
 export type KoinosNodeDashboardPeersInput = KoinosNodeSettingsInput
 
+export type KoinosNodeDashboardPerformanceInput = KoinosNodeSettingsInput
+
 export type KoinosNodeSettings = {
   repoPath: string
   composeFile: string
@@ -210,6 +212,7 @@ export type KoinosNodeProducerOverviewResult = {
   output: string
   rpcUrl: string
   rpcSource: 'public' | 'local'
+  priceSourceName: string
   priceSourceUrl: string
   producerAddress: string | null
   producerAddressSource: KoinosNodeProducerAddressSource
@@ -301,6 +304,45 @@ export type KoinosNodeDashboardPeersResult = {
   selfAddress: string | null
   omittedPeerCount: number
   rows: KoinosNodeDashboardPeerRow[]
+}
+
+export type KoinosNodeDashboardPerformanceRow = {
+  id: string
+  label: string
+  kind: 'knodel' | 'service'
+  serviceId: string | null
+  pid: number | null
+  cpuPercent: number | null
+  rssBytes: number | null
+  virtualBytes: number | null
+  uptimeSeconds: number | null
+  state: string | null
+  command: string | null
+  managedByKnodel: boolean
+}
+
+export type KoinosNodeDashboardPerformanceHost = {
+  cpuCount: number
+  totalMemoryBytes: number
+  freeMemoryBytes: number
+  loadAverage: number[]
+  uptimeSeconds: number
+}
+
+export type KoinosNodeDashboardPerformanceTotals = {
+  knodelCpuPercent: number | null
+  knodelMemoryBytes: number | null
+  servicesCpuPercent: number | null
+  servicesMemoryBytes: number | null
+}
+
+export type KoinosNodeDashboardPerformanceResult = {
+  ok: boolean
+  output: string
+  sampledAt: number
+  host: KoinosNodeDashboardPerformanceHost
+  totals: KoinosNodeDashboardPerformanceTotals
+  rows: KoinosNodeDashboardPerformanceRow[]
 }
 
 export type KoinosNodeProducerProfileResult = {

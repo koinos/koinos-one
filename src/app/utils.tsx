@@ -75,6 +75,49 @@ export function formatDecimalValue(
   }).format(numeric)
 }
 
+export function formatCpuPercent(value: number | null | undefined, locale: string, emptyLabel = 'N/A'): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return emptyLabel
+  return `${formatDecimalValue(value, locale, value >= 10 ? 1 : 2, emptyLabel)}%`
+}
+
+export function formatBytes(value: number | null | undefined, locale: string, emptyLabel = 'N/A'): string {
+  if (value === null || value === undefined || !Number.isFinite(value) || value < 0) return emptyLabel
+  if (value === 0) return '0 B'
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  let size = value
+  let unitIndex = 0
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+
+  const maximumFractionDigits = size >= 100 ? 0 : size >= 10 ? 1 : 2
+  return `${new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits
+  }).format(size)} ${units[unitIndex]}`
+}
+
+export function formatDurationSeconds(value: number | null | undefined, emptyLabel = 'N/A'): string {
+  if (value === null || value === undefined || !Number.isFinite(value) || value < 0) return emptyLabel
+
+  const totalSeconds = Math.floor(value)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const parts: string[] = []
+
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0 || parts.length > 0) parts.push(`${hours}h`)
+  if (minutes > 0 || parts.length > 0) parts.push(`${minutes}m`)
+  if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`)
+
+  return parts.slice(0, 3).join(' ')
+}
+
 export function formatUsdValue(value: number | null | undefined, locale: string, emptyLabel = 'N/A'): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return emptyLabel
   return new Intl.NumberFormat(locale, {

@@ -128,6 +128,7 @@ declare global {
     output: string
     rpcUrl: string
     rpcSource: 'public' | 'local'
+    priceSourceName: string
     priceSourceUrl: string
     producerAddress: string | null
     producerAddressSource: KnodelKoinosNodeProducerAddressSource
@@ -224,6 +225,45 @@ declare global {
     selfAddress: string | null
     omittedPeerCount: number
     rows: KnodelKoinosNodeDashboardPeerRow[]
+  }
+
+  type KnodelKoinosNodeDashboardPerformanceRow = {
+    id: string
+    label: string
+    kind: 'knodel' | 'service'
+    serviceId: string | null
+    pid: number | null
+    cpuPercent: number | null
+    rssBytes: number | null
+    virtualBytes: number | null
+    uptimeSeconds: number | null
+    state: string | null
+    command: string | null
+    managedByKnodel: boolean
+  }
+
+  type KnodelKoinosNodeDashboardPerformanceHost = {
+    cpuCount: number
+    totalMemoryBytes: number
+    freeMemoryBytes: number
+    loadAverage: number[]
+    uptimeSeconds: number
+  }
+
+  type KnodelKoinosNodeDashboardPerformanceTotals = {
+    knodelCpuPercent: number | null
+    knodelMemoryBytes: number | null
+    servicesCpuPercent: number | null
+    servicesMemoryBytes: number | null
+  }
+
+  type KnodelKoinosNodeDashboardPerformanceResult = {
+    ok: boolean
+    output: string
+    sampledAt: number
+    host: KnodelKoinosNodeDashboardPerformanceHost
+    totals: KnodelKoinosNodeDashboardPerformanceTotals
+    rows: KnodelKoinosNodeDashboardPerformanceRow[]
   }
 
   type KnodelProducerProfile = {
@@ -739,6 +779,9 @@ declare global {
         params?: KnodelKoinosNodeDashboardProducersParams
       ) => Promise<KnodelKoinosNodeDashboardProducersResult>
       dashboardPeers: (params?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeDashboardPeersResult>
+      dashboardPerformance: (
+        params?: KnodelKoinosNodeSettings
+      ) => Promise<KnodelKoinosNodeDashboardPerformanceResult>
       producerLocalInfo: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeProducerLocalInfoResult>
       producerRegisteredKey: (
         settings?: KnodelKoinosNodeProducerRegisteredKeyParams

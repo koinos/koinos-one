@@ -39,6 +39,7 @@ function createDeps() {
     koinosJsonRpcProxy: vi.fn(async () => ({ ok: true })),
     koinosNodeDashboardProducers: vi.fn(async () => ({ ok: true })),
     koinosNodeDashboardPeers: vi.fn(async () => ({ ok: true })),
+    koinosNodeDashboardPerformance: vi.fn(async () => ({ ok: true, rows: [] })),
     koinosNodeProducerOverview: vi.fn(async () => ({ ok: true })),
     koinosNodeProducerRegisteredKey: vi.fn(async () => ({ ok: true })),
     koinosNodeProducerLocalInfo: vi.fn(async () => ({ ok: true })),
@@ -101,5 +102,18 @@ describe('ipc-handlers', () => {
       output: 'Parametro kind invalido'
     })
     expect(deps.readKoinosManagedFile).not.toHaveBeenCalled()
+  })
+
+  it('registers the dashboard performance handler', async () => {
+    const ipcMain = createFakeIpcMain()
+    const deps = createDeps()
+
+    registerKnodelIpcHandlers(ipcMain as any, deps as any)
+
+    const payload = { repoPath: '/tmp/koinos' }
+    const result = await ipcMain.handlers.get('knodel:koinos-node:dashboard-performance')?.({ sender: {} }, payload)
+
+    expect(result).toEqual({ ok: true, rows: [] })
+    expect(deps.koinosNodeDashboardPerformance).toHaveBeenCalledWith(payload)
   })
 })
