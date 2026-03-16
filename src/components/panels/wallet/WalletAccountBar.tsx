@@ -4,10 +4,9 @@ type WalletAccountBarProps = {
   walletActionLoading: string | null
   accounts: KnodelWalletAccountSummary[]
   activeAccountId: string
-  activeAccount: KnodelWalletAccountSummary | null
-  activeView: 'overview' | 'accounts' | 'security'
+  activeView: 'tokens' | 'accounts' | 'security'
   onSetActiveAccount: (accountId: string) => void
-  onOpenSend: () => void
+  onToggleTokens: () => void
   onToggleAccounts: () => void
   onToggleSecurity: () => void
 }
@@ -19,10 +18,9 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
     walletActionLoading,
     accounts,
     activeAccountId,
-    activeAccount,
     activeView,
     onSetActiveAccount,
-    onOpenSend,
+    onToggleTokens,
     onToggleAccounts,
     onToggleSecurity
   } = props
@@ -51,11 +49,11 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
       <div className="wallet-account-actions">
         <button
           type="button"
-          className="primary-button"
-          onClick={onOpenSend}
-          disabled={!hasWalletControls || isBusy || activeAccount?.kind === 'watch-only'}
+          className={`wallet-header-toggle ${activeView === 'tokens' ? 'is-active' : ''}`}
+          onClick={onToggleTokens}
+          disabled={!hasWalletControls || isBusy}
         >
-          {t('wallet.operationsAction')}
+          {t('wallet.tokensTitle')}
         </button>
         <button
           type="button"
