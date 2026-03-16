@@ -50,6 +50,13 @@ function createDeps() {
     walletOverview: vi.fn(async () => ({ ok: true })),
     walletGenerate: vi.fn(async () => ({ ok: true })),
     walletImport: vi.fn(async () => ({ ok: true })),
+    walletListAccounts: vi.fn(async () => ({ ok: true, accounts: [] })),
+    walletSetActiveAccount: vi.fn(async () => ({ ok: true })),
+    walletCreateDerivedAccount: vi.fn(async () => ({ ok: true })),
+    walletImportAccount: vi.fn(async () => ({ ok: true })),
+    walletImportWatchAccount: vi.fn(async () => ({ ok: true })),
+    walletRenameAccount: vi.fn(async () => ({ ok: true })),
+    walletRemoveAccount: vi.fn(async () => ({ ok: true })),
     walletUnlock: vi.fn(async () => ({ ok: true })),
     walletClose: vi.fn(async () => ({ ok: true })),
     walletDelete: vi.fn(async () => ({ ok: true })),
@@ -115,5 +122,20 @@ describe('ipc-handlers', () => {
 
     expect(result).toEqual({ ok: true, rows: [] })
     expect(deps.koinosNodeDashboardPerformance).toHaveBeenCalledWith(payload)
+  })
+
+  it('registers the wallet account handlers', async () => {
+    const ipcMain = createFakeIpcMain()
+    const deps = createDeps()
+
+    registerKnodelIpcHandlers(ipcMain as any, deps as any)
+
+    const setActivePayload = { accountId: 'acc_1' }
+    await ipcMain.handlers.get('knodel:wallet:set-active-account')?.({ sender: {} }, setActivePayload)
+    expect(deps.walletSetActiveAccount).toHaveBeenCalledWith(setActivePayload)
+
+    const importWatchPayload = { address: '1WatchOnlyAddress', name: 'Observer' }
+    await ipcMain.handlers.get('knodel:wallet:import-watch-account')?.({ sender: {} }, importWatchPayload)
+    expect(deps.walletImportWatchAccount).toHaveBeenCalledWith(importWatchPayload)
   })
 })

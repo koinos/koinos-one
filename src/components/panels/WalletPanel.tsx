@@ -1,6 +1,16 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+
+import { WalletAccountBar } from './wallet/WalletAccountBar'
+import { WalletAccountsTab } from './wallet/WalletAccountsTab'
+import { WalletEmptyState } from './wallet/WalletEmptyState'
+import { WalletLockedState } from './wallet/WalletLockedState'
+import { WalletPortfolioTab } from './wallet/WalletPortfolioTab'
+import { WalletSecurityTab } from './wallet/WalletSecurityTab'
+import { WalletSendModal } from './wallet/WalletSendModal'
 
 type WalletPanelProps = any
+type WalletSubtab = 'overview' | 'accounts' | 'security'
+
 type WalletCreateDraft = {
   ok?: boolean
   output?: string
@@ -10,17 +20,25 @@ type WalletCreateDraft = {
   derivationPath?: string | null
 }
 
+type WalletSecretsResult = {
+  accountId?: string | null
+  accountName?: string | null
+  accountKind?: KnodelWalletAccountKind | null
+  firstAccountAddress?: string | null
+  firstAccountPrivateKeyWif?: string | null
+  firstAccountDerivationPath?: string | null
+  seedPhrase?: string | null
+}
+
 export function WalletPanel(props: WalletPanelProps) {
   const {
     t,
-    effectiveExplorerRpcUrl,
     hasWalletControls,
     walletOverview,
     walletLoading,
     walletActionLoading,
     walletError,
     walletBalance,
-    walletBalanceError,
     walletImportPrivateKey,
     setWalletImportPrivateKey,
     walletImportPassword,
@@ -63,22 +81,32 @@ export function WalletPanel(props: WalletPanelProps) {
     burnKoinToVhp,
     walletResultData,
     walletResultTitle,
-    walletResultText
+    walletResultText,
+    activeWalletAccount,
+    activeWalletAccountId,
+    activeWalletAddress,
+    activeWalletCanSign,
+    setWalletActiveAccount,
+    createWalletDerivedAccount,
+    importWalletWatchAccount,
+    renameWalletVaultAccount,
+    removeWalletVaultAccount
   } = props
 
+  const [walletSubtab, setWalletSubtab] = useState<WalletSubtab>('overview')
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [importSeedModalOpen, setImportSeedModalOpen] = useState(false)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
-  const [showSeedModalOpen, setShowSeedModalOpen] = useState(false)
-  const [showSeedModalLoading, setShowSeedModalLoading] = useState(false)
-  const [showSeedModalError, setShowSeedModalError] = useState<string | null>(null)
-  const [showSeedModalResult, setShowSeedModalResult] = useState<{
-    firstAccountAddress: string | null
-    firstAccountPrivateKeyWif: string | null
-    firstAccountDerivationPath: string | null
-    seedPhrase: string | null
-  } | null>(null)
+  const [sendModalOpen, setSendModalOpen] = useState(false)
+  const [sendModalMode, setSendModalMode] = useState<'send' | 'burn'>('send')
+  const [createAccountModalOpen, setCreateAccountModalOpen] = useState(false)
+  const [importWatchModalOpen, setImportWatchModalOpen] = useState(false)
+  const [renameAccountModalOpen, setRenameAccountModalOpen] = useState(false)
+  const [removeAccountModalOpen, setRemoveAccountModalOpen] = useState(false)
+  const [showSeedLoading, setShowSeedLoading] = useState(false)
+  const [showSeedError, setShowSeedError] = useState<string | null>(null)
+  const [showSeedResult, setShowSeedResult] = useState<WalletSecretsResult | null>(null)
   const [createWalletDraft, setCreateWalletDraft] = useState<WalletCreateDraft | null>(null)
   const [createSeedPhrase, setCreateSeedPhrase] = useState('')
   const [createSeedAccount, setCreateSeedAccount] = useState('')
@@ -89,13 +117,26 @@ export function WalletPanel(props: WalletPanelProps) {
   const [createPassword, setCreatePassword] = useState('')
   const [createPasswordConfirm, setCreatePasswordConfirm] = useState('')
   const [createAttempted, setCreateAttempted] = useState(false)
-  const showSeedRequestIdRef = useRef(0)
+  const [walletImportAccountName, setWalletImportAccountName] = useState('')
+  const [watchAccountName, setWatchAccountName] = useState('')
+  const [watchAccountAddress, setWatchAccountAddress] = useState('')
+  const [derivedAccountName, setDerivedAccountName] = useState('')
+  const [renameAccountName, setRenameAccountName] = useState('')
+  const [selectedAccountForEdit, setSelectedAccountForEdit] = useState<KnodelWalletAccountSummary | null>(null)
+
   const createDraftRequestIdRef = useRef(0)
+  const showSeedRequestIdRef = useRef(0)
   const hasWallet = Boolean(walletOverview?.walletExists)
   const walletUnlocked = Boolean(walletOverview?.unlocked)
   const isBusy = walletLoading || walletActionLoading !== null
-  const showWalletHeaderMeta = hasWallet && walletUnlocked
+  const accounts = walletOverview?.accounts || []
   const showCreateModalError = createModalOpen && createAttempted && Boolean(walletError)
+  const canCreateDerivedAccount = Boolean(walletOverview?.hasSeedPhrase && walletUnlocked)
+
+  useEffect(() => {
+    setShowSeedResult(null)
+    setShowSeedError(null)
+  }, [activeWalletAccountId])
 
   const closeCreateModal = () => {
     createDraftRequestIdRef.current += 1
@@ -114,6 +155,7 @@ export function WalletPanel(props: WalletPanelProps) {
     setImportModalOpen(false)
     setWalletImportPrivateKey('')
     setWalletImportPassword('')
+    setWalletImportAccountName('')
     setImportPasswordConfirm('')
   }
 
@@ -122,6 +164,28 @@ export function WalletPanel(props: WalletPanelProps) {
     setWalletImportSeedPhrase('')
     setWalletImportSeedPassword('')
     setImportSeedPasswordConfirm('')
+  }
+
+  const closeCreateAccountModal = () => {
+    setCreateAccountModalOpen(false)
+    setDerivedAccountName('')
+  }
+
+  const closeImportWatchModal = () => {
+    setImportWatchModalOpen(false)
+    setWatchAccountName('')
+    setWatchAccountAddress('')
+  }
+
+  const closeRenameAccountModal = () => {
+    setRenameAccountModalOpen(false)
+    setSelectedAccountForEdit(null)
+    setRenameAccountName('')
+  }
+
+  const closeRemoveAccountModal = () => {
+    setRemoveAccountModalOpen(false)
+    setSelectedAccountForEdit(null)
   }
 
   const openCreateModal = () => {
@@ -168,348 +232,165 @@ export function WalletPanel(props: WalletPanelProps) {
       })
   }
 
-  const closeShowSeedModal = () => {
-    showSeedRequestIdRef.current += 1
-    setShowSeedModalOpen(false)
-    setShowSeedModalLoading(false)
-    setShowSeedModalError(null)
-    setShowSeedModalResult(null)
-  }
-
-  const openShowSeedModal = () => {
-    setShowSeedModalOpen(true)
-    setShowSeedModalResult(null)
-    setShowSeedModalError(null)
-
+  const revealWalletSecrets = () => {
     if (!showWalletSeed) {
-      setShowSeedModalLoading(false)
-      setShowSeedModalError(t('wallet.unableShowSeed'))
+      setShowSeedError(t('wallet.unableShowSeed'))
       return
     }
 
     const requestId = showSeedRequestIdRef.current + 1
     showSeedRequestIdRef.current = requestId
-    setShowSeedModalLoading(true)
+    setShowSeedLoading(true)
+    setShowSeedError(null)
 
     void showWalletSeed()
-      .then((result: {
-        ok?: boolean
-        output?: string
-        firstAccountAddress?: string | null
-        firstAccountPrivateKeyWif?: string | null
-        firstAccountDerivationPath?: string | null
-        seedPhrase?: string | null
-      }) => {
+      .then((result: WalletSecretsResult & { ok?: boolean; output?: string }) => {
         if (showSeedRequestIdRef.current !== requestId) return
-
         if (!result?.ok) {
-          setShowSeedModalError(result?.output || t('wallet.unableShowSeed'))
+          setShowSeedError(result?.output || t('wallet.unableShowSeed'))
           return
         }
-
-        setShowSeedModalResult({
-          firstAccountAddress: result.firstAccountAddress || null,
-          firstAccountPrivateKeyWif: result.firstAccountPrivateKeyWif || null,
-          firstAccountDerivationPath: result.firstAccountDerivationPath || null,
-          seedPhrase: result.seedPhrase || null
-        })
+        setShowSeedResult(result)
       })
       .catch((error: unknown) => {
         if (showSeedRequestIdRef.current !== requestId) return
-        setShowSeedModalError(error instanceof Error ? error.message : t('wallet.unableShowSeed'))
+        setShowSeedError(error instanceof Error ? error.message : t('wallet.unableShowSeed'))
       })
       .finally(() => {
         if (showSeedRequestIdRef.current === requestId) {
-          setShowSeedModalLoading(false)
+          setShowSeedLoading(false)
         }
       })
   }
 
+  const openSendModal = (mode: 'send' | 'burn' = 'send') => {
+    if (mode === 'burn' && !walletBurnTargetAddressDraft.trim() && activeWalletAddress) {
+      setWalletBurnTargetAddressDraft(activeWalletAddress)
+    }
+    setSendModalMode(mode)
+    setSendModalOpen(true)
+  }
+
+  const openRenameModalForAccount = (account: KnodelWalletAccountSummary) => {
+    setSelectedAccountForEdit(account)
+    setRenameAccountName(account.name)
+    setRenameAccountModalOpen(true)
+  }
+
+  const openRemoveModalForAccount = (account: KnodelWalletAccountSummary) => {
+    setSelectedAccountForEdit(account)
+    setRemoveAccountModalOpen(true)
+  }
+
+  const toggleWalletView = (nextView: Exclude<WalletSubtab, 'overview'>) => {
+    setWalletSubtab((current) => (current === nextView ? 'overview' : nextView))
+  }
+
   return (
     <section id="panel-wallet" className="wallet-panel" aria-label={t('wallet.panelAria')} role="tabpanel" aria-labelledby="tab-wallet">
-      {showWalletHeaderMeta && (
-        <div className="wallet-header">
-          <div className="wallet-header-meta">
-            {hasWallet && (
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={openShowSeedModal}
-                disabled={!hasWalletControls || walletActionLoading !== null || showSeedModalLoading}
-              >
-                {t('wallet.showSeedAction')}
-              </button>
-            )}
-            {hasWallet && (
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => {
-                  void closeWalletAccount()
-                }}
-                disabled={!hasWalletControls || isBusy || !walletUnlocked}
-              >
-                {walletActionLoading === 'wallet-close' ? t('common.loading') : t('wallet.closeAction')}
-              </button>
-            )}
-            {hasWallet && (
-              <button
-                type="button"
-                className="danger-button"
-                onClick={() => setDeleteModalOpen(true)}
-                disabled={!hasWalletControls || isBusy}
-              >
-                {walletActionLoading === 'wallet-delete' ? t('common.loading') : t('wallet.deleteAction')}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {!hasWalletControls && (
         <div className="node-warning" role="note">
           {t('node.electronOnlyWarning')}
         </div>
       )}
 
-      {walletError && !createModalOpen && (
+      {walletError &&
+        !createModalOpen &&
+        !importModalOpen &&
+        !importSeedModalOpen &&
+        !sendModalOpen &&
+        !createAccountModalOpen &&
+        !importWatchModalOpen &&
+        !renameAccountModalOpen &&
+        !removeAccountModalOpen &&
+        !deleteModalOpen && (
         <div className="error-banner node-error-banner" role="alert">
           <span>{walletError}</span>
         </div>
       )}
 
       {!hasWallet ? (
-        <section className="wallet-empty-state">
-          <div>
-            <h3>{t('wallet.emptyTitle')}</h3>
-            <p>{t('wallet.emptyDescription')}</p>
-          </div>
-          <div className="wallet-empty-actions">
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => setImportModalOpen(true)}
-              disabled={!hasWalletControls || isBusy}
-            >
-              {t('wallet.importKeyAction')}
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => setImportSeedModalOpen(true)}
-              disabled={!hasWalletControls || isBusy}
-            >
-              {t('wallet.importSeedAction')}
-            </button>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={openCreateModal}
-              disabled={!hasWalletControls || isBusy}
-            >
-              {t('wallet.createAction')}
-            </button>
-          </div>
-        </section>
+        <WalletEmptyState
+          t={t}
+          hasWalletControls={hasWalletControls}
+          isBusy={isBusy}
+          onImportWif={() => setImportModalOpen(true)}
+          onImportSeed={() => setImportSeedModalOpen(true)}
+          onCreateWallet={openCreateModal}
+        />
+      ) : !walletUnlocked ? (
+        <WalletLockedState
+          t={t}
+          walletOverview={walletOverview}
+          walletUnlockPassword={walletUnlockPassword}
+          setWalletUnlockPassword={setWalletUnlockPassword}
+          unlockWalletAccount={() => {
+            void unlockWalletAccount()
+          }}
+          hasWalletControls={hasWalletControls}
+          walletActionLoading={walletActionLoading}
+        />
       ) : (
         <>
-          {!walletUnlocked ? (
-            <div className="wallet-card-grid wallet-card-grid-locked">
-              <article className="wallet-card wallet-card-unlock">
-                <h3>{t('wallet.unlockTitle')}</h3>
-                <p>{t('wallet.unlockDescription')}</p>
-                <div className="wallet-unlock-account">
-                  <span className="stat-label">{t('wallet.currentAccount')}</span>
-                  <p className="stat-value mono wallet-unlock-address" title={walletOverview?.walletAddress || t('common.na')}>
-                    {walletOverview?.walletAddress || t('common.na')}
-                  </p>
-                </div>
-                <label className="wallet-unlock-label">
-                  {t('wallet.password')}
-                  <input
-                    className="wallet-unlock-input"
-                    type="password"
-                    value={walletUnlockPassword}
-                    onChange={(event) => setWalletUnlockPassword(event.target.value)}
-                    autoComplete="current-password"
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="primary-button wallet-unlock-button"
-                  onClick={() => {
-                    void unlockWalletAccount()
-                  }}
-                  disabled={!hasWalletControls || walletActionLoading !== null}
-                >
-                  {walletActionLoading === 'wallet-unlock' ? t('common.loading') : t('wallet.unlockAction')}
-                </button>
-              </article>
-            </div>
-          ) : (
-            <>
-              <div className="wallet-overview-grid">
-                <article className="stat-card">
-                  <span className="stat-label">{t('wallet.currentAccount')}</span>
-                  <p className="stat-value mono" title={walletOverview?.walletAddress || t('common.na')}>
-                    {walletOverview?.walletAddress || t('common.na')}
-                  </p>
-                  <p className="stat-note">{t('wallet.accountUnlocked')}</p>
-                </article>
+          <div className="wallet-header wallet-header-shell">
+            <WalletAccountBar
+              t={t}
+              hasWalletControls={hasWalletControls}
+              walletActionLoading={walletActionLoading}
+              accounts={accounts}
+              activeAccountId={activeWalletAccountId}
+              activeAccount={activeWalletAccount}
+              activeView={walletSubtab}
+              onSetActiveAccount={(accountId: string) => {
+                void setWalletActiveAccount(accountId)
+              }}
+              onOpenSend={() => openSendModal('send')}
+              onToggleAccounts={() => toggleWalletView('accounts')}
+              onToggleSecurity={() => toggleWalletView('security')}
+            />
+          </div>
 
-                <article className="stat-card">
-                  <span className="stat-label">{t('wallet.availableKoin')}</span>
-                  <p className="stat-value">{walletBalance?.koin || t('common.na')}</p>
-                  <p className="stat-note">KOIN</p>
-                </article>
+          {walletSubtab === 'overview' && (
+            <WalletPortfolioTab
+              t={t}
+              walletBalance={walletBalance}
+            />
+          )}
 
-                <article className="stat-card">
-                  <span className="stat-label">{t('wallet.availableVhp')}</span>
-                  <p className="stat-value">{walletBalance?.vhp || t('common.na')}</p>
-                  <p className="stat-note">VHP</p>
-                </article>
-              </div>
+          {walletSubtab === 'accounts' && (
+            <WalletAccountsTab
+              t={t}
+              hasWalletControls={hasWalletControls}
+              walletActionLoading={walletActionLoading}
+              accounts={accounts}
+              activeAccountId={activeWalletAccountId}
+              canCreateDerivedAccount={canCreateDerivedAccount}
+              onSetActiveAccount={(accountId: string) => {
+                void setWalletActiveAccount(accountId)
+              }}
+              onOpenCreateAccount={() => setCreateAccountModalOpen(true)}
+              onOpenImportWif={() => setImportModalOpen(true)}
+              onOpenImportWatch={() => setImportWatchModalOpen(true)}
+              onOpenRenameAccount={openRenameModalForAccount}
+              onOpenRemoveAccount={openRemoveModalForAccount}
+            />
+          )}
 
-              {walletBalanceError && (
-                <div className="node-warning" role="note">
-                  {walletBalanceError}
-                </div>
-              )}
-
-              <div className="wallet-card-grid">
-                <article className="wallet-card">
-                  <h3>{t('wallet.transferTitle')}</h3>
-                  <p>{t('wallet.transferDescription')}</p>
-                  <label>
-                    {t('wallet.transferAsset')}
-                    <select
-                      value={walletTransferAsset}
-                      onChange={(event) => setWalletTransferAsset(event.target.value)}
-                    >
-                      <option value="koin">{t('wallet.transferAssetKoin')}</option>
-                      <option value="vhp">{t('wallet.transferAssetVhp')}</option>
-                    </select>
-                  </label>
-                  <label>
-                    {t('wallet.transferTargetAccount')}
-                    <input
-                      type="text"
-                      value={walletTransferAddressDraft}
-                      onChange={(event) => setWalletTransferAddressDraft(event.target.value)}
-                      placeholder="14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb"
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    {t('wallet.transferAmount')}
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.00000001"
-                      value={walletTransferAmountDraft}
-                      onChange={(event) => setWalletTransferAmountDraft(event.target.value)}
-                    />
-                  </label>
-                  <label className="wallet-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={walletTransferDryRun}
-                      onChange={(event) => setWalletTransferDryRun(event.target.checked)}
-                    />
-                    <span>{t('wallet.dryRun')}</span>
-                  </label>
-                  <label className="wallet-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={walletTransferUseFreeMana}
-                      onChange={(event) => setWalletTransferUseFreeMana(event.target.checked)}
-                    />
-                    <span>{t('wallet.useFreeMana')}</span>
-                  </label>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => {
-                      void transferWalletToken()
-                    }}
-                    disabled={!hasWalletControls || walletActionLoading !== null}
-                  >
-                    {walletActionLoading === 'wallet-transfer-koin' || walletActionLoading === 'wallet-transfer-vhp'
-                      ? t('common.loading')
-                      : t('wallet.transferAction')}
-                  </button>
-                </article>
-
-                <article className="wallet-card">
-                  <h3>{t('wallet.burnTitle')}</h3>
-                  <p>{t('wallet.burnProducerDescription')}</p>
-                  <label>
-                    {t('wallet.burnReceiverAccount')}
-                    <input
-                      type="text"
-                      value={walletBurnTargetAddressDraft}
-                      onChange={(event) => setWalletBurnTargetAddressDraft(event.target.value)}
-                      placeholder={walletOverview?.walletAddress || '14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb'}
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    {t('wallet.burnPercent')}
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={walletBurnPercentDraft}
-                      onChange={(event) => {
-                        setWalletBurnPercentDraft(event.target.value)
-                        if (event.target.value.trim()) setWalletBurnAmountDraft('')
-                      }}
-                    />
-                  </label>
-                  <label>
-                    {t('wallet.burnAmount')}
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.00000001"
-                      value={walletBurnAmountDraft}
-                      onChange={(event) => {
-                        setWalletBurnAmountDraft(event.target.value)
-                        if (event.target.value.trim()) setWalletBurnPercentDraft('')
-                      }}
-                    />
-                  </label>
-                  <label className="wallet-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={walletBurnDryRun}
-                      onChange={(event) => setWalletBurnDryRun(event.target.checked)}
-                    />
-                    <span>{t('wallet.dryRun')}</span>
-                  </label>
-                  <label className="wallet-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={walletBurnUseFreeMana}
-                      onChange={(event) => setWalletBurnUseFreeMana(event.target.checked)}
-                    />
-                    <span>{t('wallet.useFreeMana')}</span>
-                  </label>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => {
-                      void burnKoinToVhp()
-                    }}
-                    disabled={!hasWalletControls || walletActionLoading !== null}
-                  >
-                    {walletActionLoading === 'wallet-burn' ? t('common.loading') : t('wallet.burnAction')}
-                  </button>
-                </article>
-              </div>
-            </>
+          {walletSubtab === 'security' && (
+            <WalletSecurityTab
+              t={t}
+              activeAccount={activeWalletAccount}
+              hasWalletControls={hasWalletControls}
+              walletActionLoading={walletActionLoading}
+              loading={showSeedLoading}
+              error={showSeedError}
+              revealed={showSeedResult}
+              onReveal={revealWalletSecrets}
+              onCloseWallet={() => {
+                void closeWalletAccount()
+              }}
+              onDeleteWallet={() => setDeleteModalOpen(true)}
+            />
           )}
         </>
       )}
@@ -525,8 +406,12 @@ export function WalletPanel(props: WalletPanelProps) {
           >
             <div className="log-modal-header">
               <div>
-                <h3 id="wallet-import-key-title" className="log-modal-title">{t('wallet.importKeyTitle')}</h3>
-                <p className="log-modal-meta">{t('wallet.importKeyDescription')}</p>
+                <h3 id="wallet-import-key-title" className="log-modal-title">
+                  {hasWallet ? t('wallet.importAccountAction') : t('wallet.importKeyTitle')}
+                </h3>
+                <p className="log-modal-meta">
+                  {hasWallet ? t('wallet.importAccountDescription') : t('wallet.importKeyDescription')}
+                </p>
               </div>
               <button type="button" className="ghost-button" onClick={closeImportModal}>
                 {t('common.close')}
@@ -538,6 +423,17 @@ export function WalletPanel(props: WalletPanelProps) {
                 <div className="wallet-modal-alert" role="alert">
                   {walletError}
                 </div>
+              )}
+              {hasWallet && (
+                <label>
+                  {t('wallet.accountName')}
+                  <input
+                    type="text"
+                    value={walletImportAccountName}
+                    onChange={(event) => setWalletImportAccountName(event.target.value)}
+                    autoComplete="off"
+                  />
+                </label>
               )}
               <label>
                 {t('wallet.privateKey')}
@@ -575,13 +471,22 @@ export function WalletPanel(props: WalletPanelProps) {
                   type="button"
                   className="primary-button"
                   onClick={() => {
-                    void importWalletAccount(walletImportPrivateKey, walletImportPassword, importPasswordConfirm).then((ok: boolean) => {
+                    void importWalletAccount(
+                      walletImportPrivateKey,
+                      walletImportPassword,
+                      importPasswordConfirm,
+                      walletImportAccountName
+                    ).then((ok: boolean) => {
                       if (ok) closeImportModal()
                     })
                   }}
                   disabled={!hasWalletControls || walletActionLoading !== null}
                 >
-                  {walletActionLoading === 'wallet-import' ? t('common.loading') : t('wallet.importKeyAction')}
+                  {walletActionLoading === 'wallet-import' || walletActionLoading === 'wallet-import-account'
+                    ? t('common.loading')
+                    : hasWallet
+                      ? t('wallet.importAccountAction')
+                      : t('wallet.importKeyAction')}
                 </button>
               </div>
             </div>
@@ -705,12 +610,7 @@ export function WalletPanel(props: WalletPanelProps) {
                   </label>
                   <label className="wallet-create-password-field">
                     {t('wallet.firstAccount')}
-                    <input
-                      className="wallet-create-password-input"
-                      type="text"
-                      value={createSeedAccount}
-                      readOnly
-                    />
+                    <input className="wallet-create-password-input" type="text" value={createSeedAccount} readOnly />
                   </label>
                 </>
               )}
@@ -757,15 +657,184 @@ export function WalletPanel(props: WalletPanelProps) {
         </div>
       )}
 
+      {createAccountModalOpen && (
+        <div className="log-modal-backdrop" role="presentation" onClick={closeCreateAccountModal}>
+          <section className="log-modal wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-create-account-title" onClick={(event) => event.stopPropagation()}>
+            <div className="log-modal-header">
+              <div>
+                <h3 id="wallet-create-account-title" className="log-modal-title">{t('wallet.createDerivedAccountAction')}</h3>
+                <p className="log-modal-meta">{t('wallet.createDerivedAccountDescription')}</p>
+              </div>
+              <button type="button" className="ghost-button" onClick={closeCreateAccountModal}>
+                {t('common.close')}
+              </button>
+            </div>
+            <div className="wallet-modal-body">
+              {walletError && <div className="wallet-modal-alert" role="alert">{walletError}</div>}
+              <label>
+                {t('wallet.accountName')}
+                <input
+                  type="text"
+                  value={derivedAccountName}
+                  onChange={(event) => setDerivedAccountName(event.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <div className="wallet-modal-actions">
+                <button type="button" className="ghost-button" onClick={closeCreateAccountModal}>
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    void createWalletDerivedAccount(derivedAccountName).then((ok: boolean) => {
+                      if (ok) closeCreateAccountModal()
+                    })
+                  }}
+                  disabled={!hasWalletControls || walletActionLoading !== null || !canCreateDerivedAccount}
+                >
+                  {walletActionLoading === 'wallet-create-derived-account' ? t('common.loading') : t('wallet.createDerivedAccountAction')}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {importWatchModalOpen && (
+        <div className="log-modal-backdrop" role="presentation" onClick={closeImportWatchModal}>
+          <section className="log-modal wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-import-watch-title" onClick={(event) => event.stopPropagation()}>
+            <div className="log-modal-header">
+              <div>
+                <h3 id="wallet-import-watch-title" className="log-modal-title">{t('wallet.importWatchAction')}</h3>
+                <p className="log-modal-meta">{t('wallet.importWatchDescription')}</p>
+              </div>
+              <button type="button" className="ghost-button" onClick={closeImportWatchModal}>
+                {t('common.close')}
+              </button>
+            </div>
+            <div className="wallet-modal-body">
+              {walletError && <div className="wallet-modal-alert" role="alert">{walletError}</div>}
+              <label>
+                {t('wallet.accountName')}
+                <input
+                  type="text"
+                  value={watchAccountName}
+                  onChange={(event) => setWatchAccountName(event.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                {t('wallet.accountAddress')}
+                <input
+                  type="text"
+                  value={watchAccountAddress}
+                  onChange={(event) => setWatchAccountAddress(event.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <div className="wallet-modal-actions">
+                <button type="button" className="ghost-button" onClick={closeImportWatchModal}>
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    void importWalletWatchAccount(watchAccountAddress, watchAccountName).then((ok: boolean) => {
+                      if (ok) closeImportWatchModal()
+                    })
+                  }}
+                  disabled={!hasWalletControls || walletActionLoading !== null}
+                >
+                  {walletActionLoading === 'wallet-import-watch-account' ? t('common.loading') : t('wallet.importWatchAction')}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {renameAccountModalOpen && selectedAccountForEdit && (
+        <div className="log-modal-backdrop" role="presentation" onClick={closeRenameAccountModal}>
+          <section className="log-modal wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-rename-account-title" onClick={(event) => event.stopPropagation()}>
+            <div className="log-modal-header">
+              <div>
+                <h3 id="wallet-rename-account-title" className="log-modal-title">{t('wallet.renameAccountAction')}</h3>
+                <p className="log-modal-meta">{t('wallet.renameAccountDescription')}</p>
+              </div>
+              <button type="button" className="ghost-button" onClick={closeRenameAccountModal}>
+                {t('common.close')}
+              </button>
+            </div>
+            <div className="wallet-modal-body">
+              {walletError && <div className="wallet-modal-alert" role="alert">{walletError}</div>}
+              <label>
+                {t('wallet.accountName')}
+                <input type="text" value={renameAccountName} onChange={(event) => setRenameAccountName(event.target.value)} autoComplete="off" />
+              </label>
+              <div className="wallet-modal-actions">
+                <button type="button" className="ghost-button" onClick={closeRenameAccountModal}>
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    void renameWalletVaultAccount(selectedAccountForEdit.id, renameAccountName).then((ok: boolean) => {
+                      if (ok) closeRenameAccountModal()
+                    })
+                  }}
+                  disabled={!hasWalletControls || walletActionLoading !== null}
+                >
+                  {walletActionLoading === 'wallet-rename-account' ? t('common.loading') : t('wallet.renameAccountAction')}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {removeAccountModalOpen && selectedAccountForEdit && (
+        <div className="log-modal-backdrop" role="presentation" onClick={closeRemoveAccountModal}>
+          <section className="log-modal wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-remove-account-title" onClick={(event) => event.stopPropagation()}>
+            <div className="log-modal-header">
+              <div>
+                <h3 id="wallet-remove-account-title" className="log-modal-title">{t('wallet.removeAccountAction')}</h3>
+                <p className="log-modal-meta">{t('wallet.removeAccountDescription', { name: selectedAccountForEdit.name })}</p>
+              </div>
+              <button type="button" className="ghost-button" onClick={closeRemoveAccountModal}>
+                {t('common.close')}
+              </button>
+            </div>
+            <div className="wallet-modal-body">
+              <div className="wallet-modal-actions">
+                <button type="button" className="ghost-button" onClick={closeRemoveAccountModal}>
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => {
+                    void removeWalletVaultAccount(selectedAccountForEdit.id).then((ok: boolean) => {
+                      if (ok) closeRemoveAccountModal()
+                    })
+                  }}
+                  disabled={!hasWalletControls || walletActionLoading !== null}
+                >
+                  {walletActionLoading === 'wallet-remove-account' ? t('common.loading') : t('wallet.removeAccountAction')}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       {deleteModalOpen && (
         <div className="log-modal-backdrop" role="presentation" onClick={() => setDeleteModalOpen(false)}>
-          <section
-            className="log-modal wallet-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="wallet-delete-title"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <section className="log-modal wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-delete-title" onClick={(event) => event.stopPropagation()}>
             <div className="log-modal-header">
               <div>
                 <h3 id="wallet-delete-title" className="log-modal-title">{t('wallet.deleteConfirmTitle')}</h3>
@@ -799,66 +868,49 @@ export function WalletPanel(props: WalletPanelProps) {
         </div>
       )}
 
-      {showSeedModalOpen && (
-        <div className="log-modal-backdrop" role="presentation" onClick={closeShowSeedModal}>
-          <section
-            className="log-modal wallet-modal wallet-modal-seed"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="wallet-show-seed-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="log-modal-header">
-              <div>
-                <h3 id="wallet-show-seed-title" className="log-modal-title">{t('wallet.showSeedTitle')}</h3>
-                <p className="log-modal-meta">{t('wallet.showSeedDescription')}</p>
-              </div>
-              <button type="button" className="ghost-button" onClick={closeShowSeedModal}>
-                {t('common.close')}
-              </button>
-            </div>
-
-            <div className="wallet-modal-body">
-              {showSeedModalLoading && <p className="wallet-modal-note">{t('common.loading')}</p>}
-              {!showSeedModalLoading && showSeedModalError && (
-                <div className="wallet-modal-alert" role="alert">
-                  {showSeedModalError}
-                </div>
-              )}
-              {!showSeedModalLoading && !showSeedModalError && showSeedModalResult && (
-                <>
-                  <label>
-                    {t('wallet.accountAddress')}
-                    <input type="text" value={showSeedModalResult.firstAccountAddress || t('common.na')} readOnly />
-                  </label>
-                  <label>
-                    {t('wallet.privateKey')}
-                    <input type="text" value={showSeedModalResult.firstAccountPrivateKeyWif || t('common.na')} readOnly />
-                  </label>
-                  {showSeedModalResult.seedPhrase && (
-                    <label>
-                      {t('wallet.keyPath')}
-                      <input type="text" value={showSeedModalResult.firstAccountDerivationPath || t('common.na')} readOnly />
-                    </label>
-                  )}
-                  {showSeedModalResult.seedPhrase && (
-                    <label>
-                      {t('wallet.seedPhrase')}
-                      <textarea value={showSeedModalResult.seedPhrase || ''} readOnly rows={4} />
-                    </label>
-                  )}
-                </>
-              )}
-            </div>
-          </section>
-        </div>
-      )}
+      <WalletSendModal
+        t={t}
+        open={sendModalOpen}
+        mode={sendModalMode}
+        onClose={() => setSendModalOpen(false)}
+        onSetMode={setSendModalMode}
+        hasWalletControls={hasWalletControls}
+        walletActionLoading={walletActionLoading}
+        walletError={walletError}
+        activeWalletCanSign={activeWalletCanSign}
+        activeWalletAddress={activeWalletAddress}
+        walletTransferAsset={walletTransferAsset}
+        setWalletTransferAsset={setWalletTransferAsset}
+        walletTransferAddressDraft={walletTransferAddressDraft}
+        setWalletTransferAddressDraft={setWalletTransferAddressDraft}
+        walletTransferAmountDraft={walletTransferAmountDraft}
+        setWalletTransferAmountDraft={setWalletTransferAmountDraft}
+        walletTransferDryRun={walletTransferDryRun}
+        setWalletTransferDryRun={setWalletTransferDryRun}
+        walletTransferUseFreeMana={walletTransferUseFreeMana}
+        setWalletTransferUseFreeMana={setWalletTransferUseFreeMana}
+        transferWalletToken={() => {
+          void transferWalletToken()
+        }}
+        walletBurnTargetAddressDraft={walletBurnTargetAddressDraft}
+        setWalletBurnTargetAddressDraft={setWalletBurnTargetAddressDraft}
+        walletBurnPercentDraft={walletBurnPercentDraft}
+        setWalletBurnPercentDraft={setWalletBurnPercentDraft}
+        walletBurnAmountDraft={walletBurnAmountDraft}
+        setWalletBurnAmountDraft={setWalletBurnAmountDraft}
+        walletBurnDryRun={walletBurnDryRun}
+        setWalletBurnDryRun={setWalletBurnDryRun}
+        walletBurnUseFreeMana={walletBurnUseFreeMana}
+        setWalletBurnUseFreeMana={setWalletBurnUseFreeMana}
+        burnKoinToVhp={() => {
+          void burnKoinToVhp()
+        }}
+      />
 
       {(walletResultData || walletLoading) && (!hasWallet || walletUnlocked) && (
         <div className="wallet-output">
           <div className="node-services-header">
             <h3>{walletResultTitle || t('wallet.outputTitle')}</h3>
-            <span>{walletLoading ? t('common.loading') : effectiveExplorerRpcUrl}</span>
           </div>
           <pre className="mono">{walletResultText || t('common.loading')}</pre>
         </div>

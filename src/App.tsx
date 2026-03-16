@@ -86,6 +86,17 @@ import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
 
+type WalletActivityEntry = {
+  id: string
+  title: string
+  output: string
+  at: number
+  ok: boolean
+  accountId: string | null
+  accountName: string | null
+  accountAddress: string | null
+}
+
 export function App() {
   const appVersion = window.knodel?.version?.trim() || '0.9.0'
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
@@ -194,6 +205,8 @@ export function App() {
   const [walletActionLoading, setWalletActionLoading] = useState<string | null>(null)
   const [walletResultTitle, setWalletResultTitle] = useState('')
   const [walletResultData, setWalletResultData] = useState<unknown>(null)
+  const [walletActivityEntries, setWalletActivityEntries] = useState<WalletActivityEntry[]>([])
+  const [walletBalanceRefreshedAt, setWalletBalanceRefreshedAt] = useState<number | null>(null)
   const [walletImportPrivateKey, setWalletImportPrivateKey] = useState('')
   const [walletImportPassword, setWalletImportPassword] = useState('')
   const [walletImportSeedPhrase, setWalletImportSeedPhrase] = useState('')
@@ -224,6 +237,23 @@ export function App() {
   }, [language])
   const hasNodeControls = Boolean(getKoinosNodeBridge())
   const hasWalletControls = Boolean(getWalletBridge())
+  const effectiveExplorerRpcUrl = useMemo(
+    () => resolveExplorerRpcUrl(settings, nodeStatus),
+    [settings, nodeStatus]
+  )
+  const primaryPublicRpcUrl = settings.publicRpcUrls[0] ?? DEFAULT_PUBLIC_RPC_URLS[0]
+  const localNodeRpcUrl = useMemo(() => resolveLocalNodeRpcUrl(nodeStatus), [nodeStatus])
+  const producerRpcUrl = useMemo(
+    () => resolveProducerRpcUrl(nodeStatus, primaryPublicRpcUrl),
+    [nodeStatus, primaryPublicRpcUrl]
+  )
+  const footerRpcUrl = activeTab === 'producer' ? producerRpcUrl : effectiveExplorerRpcUrl
+  const walletAccounts = walletOverview?.accounts || []
+  const activeWalletAccountId = `${walletOverview?.activeAccountId || ''}`.trim()
+  const activeWalletAccount =
+    walletAccounts.find((account) => account.id === activeWalletAccountId) || walletAccounts[0] || null
+  const activeWalletAddress = activeWalletAccount?.address?.trim() || walletOverview?.walletAddress?.trim() || ''
+  const activeWalletCanSign = Boolean(walletOverview?.unlocked && activeWalletAccount?.hasPrivateKey)
   const composeFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, draftNodeComposeFile)
   const envFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, draftNodeEnvFile)
   const configFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, 'config/config.yml')
@@ -289,10 +319,10 @@ export function App() {
 
   useEffect(() => {
     const profileAddress = producerProfile?.profile?.producerAddress?.trim() || ''
-    const walletAddress = walletOverview?.walletAddress?.trim() || ''
+    const walletAddress = activeWalletAddress
     if (!profileAddress || !walletAddress) return
     setProducerUseWalletAddress(profileAddress.toLowerCase() === walletAddress.toLowerCase())
-  }, [producerProfile?.profile?.producerAddress, walletOverview?.walletAddress])
+  }, [producerProfile?.profile?.producerAddress, activeWalletAddress])
 
   useEffect(() => {
     if (producerUseWalletAddress && producerAllowDelegatedSigner) {
@@ -301,8 +331,8 @@ export function App() {
   }, [producerUseWalletAddress, producerAllowDelegatedSigner])
 
   useEffect(() => {
-    const defaultBurnTarget = walletOverview?.walletAddress || ''
-    const defaultTransferTarget = producerProfile?.profile?.producerAddress || walletOverview?.walletAddress || ''
+    const defaultBurnTarget = activeWalletAddress || ''
+    const defaultTransferTarget = producerProfile?.profile?.producerAddress || activeWalletAddress || ''
 
     if (!walletBurnTargetAddressDraft.trim() && defaultBurnTarget) {
       setWalletBurnTargetAddressDraft(defaultBurnTarget)
@@ -312,7 +342,7 @@ export function App() {
     }
   }, [
     producerProfile?.profile?.producerAddress,
-    walletOverview?.walletAddress,
+    activeWalletAddress,
     walletBurnTargetAddressDraft,
     walletTransferAddressDraft
   ])
@@ -335,18 +365,6 @@ export function App() {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
     document.documentElement.lang = language
   }, [language])
-
-  const effectiveExplorerRpcUrl = useMemo(
-    () => resolveExplorerRpcUrl(settings, nodeStatus),
-    [settings, nodeStatus]
-  )
-  const primaryPublicRpcUrl = settings.publicRpcUrls[0] ?? DEFAULT_PUBLIC_RPC_URLS[0]
-  const localNodeRpcUrl = useMemo(() => resolveLocalNodeRpcUrl(nodeStatus), [nodeStatus])
-  const producerRpcUrl = useMemo(
-    () => resolveProducerRpcUrl(nodeStatus, primaryPublicRpcUrl),
-    [nodeStatus, primaryPublicRpcUrl]
-  )
-  const footerRpcUrl = activeTab === 'producer' ? producerRpcUrl : effectiveExplorerRpcUrl
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
@@ -395,20 +413,18 @@ export function App() {
       return
     }
 
-    const signingWalletAddress = walletOverview?.walletAddress?.trim() || ''
-    if (!signingWalletAddress) {
+    if (!activeWalletAddress) {
       setProducerSigningWalletBalance(null)
       setProducerSigningWalletBalanceError(null)
       setProducerSigningWalletBalanceLoading(false)
       return
     }
-    void refreshProducerSigningWalletBalance(signingWalletAddress)
-  }, [activeTab, dashboardSubtab, producerProfile, producerRpcUrl, walletOverview?.walletAddress])
+    void refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined)
+  }, [activeTab, dashboardSubtab, producerProfile, producerRpcUrl, activeWalletAddress, activeWalletAccountId])
 
   useEffect(() => {
     if (activeTab !== 'wallet') return
-    const signingWalletAddress = walletOverview?.walletAddress?.trim() || ''
-    if (!walletOverview?.unlocked || !signingWalletAddress) return
+    if (!walletOverview?.unlocked || !activeWalletAddress) return
 
     let disposed = false
     let inFlight = false
@@ -417,7 +433,7 @@ export function App() {
       if (disposed || inFlight) return
       inFlight = true
       try {
-        await refreshProducerSigningWalletBalance(signingWalletAddress)
+        await refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined)
       } finally {
         inFlight = false
       }
@@ -435,7 +451,8 @@ export function App() {
     activeTab,
     settings.dashboardRefreshSeconds,
     producerRpcUrl,
-    walletOverview?.walletAddress,
+    activeWalletAddress,
+    activeWalletAccountId,
     walletOverview?.unlocked
   ])
 
@@ -473,7 +490,7 @@ export function App() {
     producerRpcUrl,
     settings.dashboardProducerWindowBlocks,
     settings.dashboardRefreshSeconds,
-    walletOverview?.walletAddress,
+    activeWalletAddress,
     producerUseWalletAddress,
     nodeProducerAddressDraft
   ])
@@ -988,7 +1005,7 @@ export function App() {
   const producerVaultExists = Boolean(walletOverview?.walletExists)
   const producerVaultUnlocked = Boolean(walletOverview?.unlocked)
   const producerAdvancedMode = settings.producerAdvancedMode
-  const signingWalletAddress = walletOverview?.walletAddress?.trim() || ''
+  const signingWalletAddress = activeWalletAddress
   const draftedProducerAddress = nodeProducerAddressDraft.trim()
   const signingWalletManaValue = producerSigningWalletBalance?.mana
     ? Number.parseFloat(producerSigningWalletBalance.mana)
@@ -1414,7 +1431,7 @@ export function App() {
         producerAddressOverride !== undefined
           ? producerAddressOverride.trim()
           : resolveProducerTargetAddress({
-              walletAddress: walletOverview?.walletAddress,
+              walletAddress: activeWalletAddress,
               draftedProducerAddress: nodeProducerAddressDraft,
               configProducerAddress: nodeProducerOverview?.producerAddress,
               useWalletAddress: producerUseWalletAddress
@@ -1452,7 +1469,7 @@ export function App() {
   ): Promise<string | null> => {
     const bridge = getKoinosNodeBridge()
     if (!bridge?.producerRegisteredKey) return null
-    const producerAddress = producerAddressOverride?.trim() || walletOverview?.walletAddress?.trim() || ''
+    const producerAddress = producerAddressOverride?.trim() || activeWalletAddress || ''
 
     if (!producerAddress) {
       setProducerPreviewRegisteredPublicKey(null)
@@ -1483,7 +1500,7 @@ export function App() {
       producerProfile?.profile?.producerAddress?.trim() ||
       nodeProducerOverview?.producerAddress?.trim() ||
       resolveProducerTargetAddress({
-        walletAddress: walletOverview?.walletAddress,
+        walletAddress: activeWalletAddress,
         draftedProducerAddress: nodeProducerAddressDraft,
         configProducerAddress: nodeProducerOverview?.producerAddress,
         useWalletAddress: producerUseWalletAddress
@@ -1621,12 +1638,12 @@ export function App() {
 
       try {
         if (!producerSetupComplete) {
-          const nextSigningWalletAddress = walletOverview?.walletAddress?.trim() || ''
+          const nextSigningWalletAddress = activeWalletAddress
           const requests: Promise<unknown>[] = [refreshProducerLocalInfo()]
           if (nextSigningWalletAddress) {
             requests.push(
               refreshProducerRegisteredPublicKeyPreview(nextSigningWalletAddress),
-              refreshProducerSigningWalletBalance(nextSigningWalletAddress)
+              refreshProducerSigningWalletBalance(nextSigningWalletAddress, activeWalletAccountId || undefined)
             )
           } else {
             setProducerPreviewRegisteredPublicKey(null)
@@ -1641,14 +1658,14 @@ export function App() {
           return
         }
 
-        const nextSigningWalletAddress = walletOverview?.walletAddress?.trim() || ''
+        const nextSigningWalletAddress = activeWalletAddress
         const requests: Promise<unknown>[] = [
           refreshNodeProducerOverview(undefined, producerConfiguredAddress || undefined),
           refreshProducerRecentBlocks(producerConfiguredAddress, controller.signal)
         ]
 
         if (nextSigningWalletAddress) {
-          requests.push(refreshProducerSigningWalletBalance(nextSigningWalletAddress))
+          requests.push(refreshProducerSigningWalletBalance(nextSigningWalletAddress, activeWalletAccountId || undefined))
         } else {
           setProducerSigningWalletBalance(null)
           setProducerSigningWalletBalanceError(null)
@@ -1682,7 +1699,8 @@ export function App() {
     settings.dashboardProducerWindowBlocks,
     settings.dashboardRefreshSeconds,
     settings.producerAdvancedMode,
-    walletOverview?.walletAddress,
+    activeWalletAddress,
+    activeWalletAccountId,
     producerUseWalletAddress,
     nodeProducerAddressDraft,
     producerSetupComplete,
@@ -1694,7 +1712,7 @@ export function App() {
     if (!bridge?.producerRegister) return
 
     try {
-      const signerAccountId = signingWalletAddress.trim()
+      const signerAccountId = activeWalletAccountId || signingWalletAddress.trim()
       const producerAddress = producerAddressOverride?.trim() || effectiveProducerTargetAddress
 
       if (!producerVaultExists || !signerAccountId) {
@@ -1721,7 +1739,10 @@ export function App() {
       setNodeProducerError(null)
       setNodeError(null)
 
-      const balanceResult = await refreshProducerSigningWalletBalance(signerAccountId)
+      const balanceResult = await refreshProducerSigningWalletBalance(
+        signingWalletAddress || undefined,
+        activeWalletAccountId || undefined
+      )
       const signerManaValue = balanceResult?.mana ? Number.parseFloat(balanceResult.mana) : null
       const hasRegistrationMana =
         balanceResult?.ok &&
@@ -1770,7 +1791,7 @@ export function App() {
         await refreshProducerProfile()
         await Promise.all([
           refreshProducerRecentBlocks(result.overview.producerAddress || producerAddress),
-          refreshProducerSigningWalletBalance(signerAccountId)
+          refreshProducerSigningWalletBalance(signingWalletAddress || undefined, activeWalletAccountId || undefined)
         ])
         void refreshNodeStatus()
       }
@@ -1833,6 +1854,7 @@ export function App() {
       }
 
       setProducerUnlockPassword('')
+      appendWalletActivity(t('producer.unlockTitle'), result)
       await refreshWalletOverview()
       await refreshNodeProducerOverview(undefined, producerAdvancedMode ? undefined : result.walletAddress || undefined)
       await refreshProducerSigningWalletBalance(result.walletAddress || undefined)
@@ -1875,6 +1897,7 @@ export function App() {
 
       setWalletResultTitle(t('wallet.importKeyTitle'))
       setWalletResultData(importResult)
+      appendWalletActivity(t('wallet.importKeyTitle'), importResult)
 
       if (!importResult.ok) {
         setWalletError(importResult.output || t('producer.unableImport'))
@@ -1953,6 +1976,7 @@ export function App() {
 
       setWalletResultTitle(t('wallet.importSeedTitle'))
       setWalletResultData(seedImportResult)
+      appendWalletActivity(t('wallet.importSeedTitle'), seedImportResult)
 
       if (!importResult.ok) {
         setWalletError(importResult.output || t('wallet.unableImportSeed'))
@@ -2029,6 +2053,7 @@ export function App() {
 
       setWalletResultTitle(t('wallet.createTitle'))
       setWalletResultData(createResult)
+      appendWalletActivity(t('wallet.createTitle'), createResult)
 
       if (!importResult.ok) {
         setWalletError(importResult.output || t('wallet.unableCreate'))
@@ -2082,7 +2107,7 @@ export function App() {
       return {
         ok: false,
         output: t('wallet.unableShowSeed'),
-        walletAddress: walletOverview?.walletAddress || null,
+        walletAddress: activeWalletAddress || null,
         firstAccountAddress: null,
         firstAccountPrivateKeyWif: null,
         firstAccountDerivationPath: null,
@@ -2096,12 +2121,230 @@ export function App() {
       return {
         ok: false,
         output: error instanceof Error ? error.message : t('wallet.unableShowSeed'),
-        walletAddress: walletOverview?.walletAddress || null,
+        walletAddress: activeWalletAddress || null,
         firstAccountAddress: null,
         firstAccountPrivateKeyWif: null,
         firstAccountDerivationPath: null,
         seedPhrase: null
       }
+    }
+  }
+
+  const appendWalletActivity = (title: string, result: unknown, accountIdOverride?: string | null) => {
+    const ok = !(result && typeof result === 'object' && 'ok' in result && !result.ok)
+    const output =
+      result && typeof result === 'object' && 'output' in result && typeof result.output === 'string'
+        ? result.output
+        : title
+    const accountId = `${accountIdOverride || activeWalletAccountId || ''}`.trim() || null
+    const account =
+      (accountId ? walletAccounts.find((entry) => entry.id === accountId) : null) ||
+      activeWalletAccount ||
+      null
+
+    setWalletActivityEntries((current) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title,
+        output,
+        at: Date.now(),
+        ok,
+        accountId: account?.id || accountId,
+        accountName: account?.name || null,
+        accountAddress: account?.address || activeWalletAddress || null
+      },
+      ...current
+    ].slice(0, 40))
+  }
+
+  const setWalletActiveAccount = async (accountId: string) => {
+    const bridge = getWalletBridge()
+    if (!bridge?.setActiveAccount) return false
+
+    setWalletActionLoading('wallet-set-active-account')
+    setWalletError(null)
+    try {
+      const result = await bridge.setActiveAccount({ accountId })
+      setWalletResultTitle(t('wallet.accountsTitle'))
+      setWalletResultData(result)
+      appendWalletActivity(t('wallet.accountsTitle'), result, result.activeAccountId || accountId)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableSetActiveAccount'))
+        return false
+      }
+
+      await refreshWalletOverview()
+      await refreshProducerSigningWalletBalance(undefined, result.activeAccountId || accountId)
+      await refreshNodeProducerOverview()
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableSetActiveAccount'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const createWalletDerivedAccount = async (name: string) => {
+    const bridge = getWalletBridge()
+    if (!bridge?.createDerivedAccount) return false
+
+    setWalletActionLoading('wallet-create-derived-account')
+    setWalletError(null)
+    try {
+      const result = await bridge.createDerivedAccount({ name: name.trim() || undefined })
+      setWalletResultTitle(t('wallet.createDerivedAccountAction'))
+      setWalletResultData(result)
+      appendWalletActivity(t('wallet.createDerivedAccountAction'), result, result.activeAccountId)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableCreateDerivedAccount'))
+        return false
+      }
+
+      await refreshWalletOverview()
+      await refreshProducerSigningWalletBalance(undefined, result.activeAccountId || undefined)
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableCreateDerivedAccount'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const importWalletVaultAccount = async (
+    privateKey: string,
+    password: string,
+    confirmPassword: string,
+    name = ''
+  ) => {
+    if (!walletOverview?.walletExists) {
+      return importProducerAccount(privateKey, password, confirmPassword)
+    }
+
+    const bridge = getWalletBridge()
+    if (!bridge?.importAccount) return false
+
+    if (password !== confirmPassword) {
+      setWalletError(t('wallet.passwordMismatch'))
+      return false
+    }
+
+    setWalletActionLoading('wallet-import-account')
+    setWalletError(null)
+    try {
+      const result = await bridge.importAccount({
+        privateKey: privateKey.trim(),
+        password,
+        name: name.trim() || undefined
+      })
+      setWalletResultTitle(t('wallet.importAccountAction'))
+      setWalletResultData(result)
+      appendWalletActivity(t('wallet.importAccountAction'), result, result.activeAccountId)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableImportAccount'))
+        return false
+      }
+
+      setWalletImportPrivateKey('')
+      setWalletImportPassword('')
+      await refreshWalletOverview()
+      await refreshProducerSigningWalletBalance(undefined, result.activeAccountId || undefined)
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableImportAccount'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const importWalletWatchAccount = async (address: string, name = '') => {
+    const bridge = getWalletBridge()
+    if (!bridge?.importWatchAccount) return false
+
+    setWalletActionLoading('wallet-import-watch-account')
+    setWalletError(null)
+    try {
+      const result = await bridge.importWatchAccount({
+        address: address.trim(),
+        name: name.trim() || undefined
+      })
+      setWalletResultTitle(t('wallet.importWatchAction'))
+      setWalletResultData(result)
+      appendWalletActivity(t('wallet.importWatchAction'), result, result.activeAccountId)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableImportWatchAccount'))
+        return false
+      }
+
+      await refreshWalletOverview()
+      await refreshProducerSigningWalletBalance(undefined, result.activeAccountId || undefined)
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableImportWatchAccount'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const renameWalletVaultAccount = async (accountId: string, name: string) => {
+    const bridge = getWalletBridge()
+    if (!bridge?.renameAccount) return false
+
+    setWalletActionLoading('wallet-rename-account')
+    setWalletError(null)
+    try {
+      const result = await bridge.renameAccount({ accountId, name: name.trim() })
+      setWalletResultTitle(t('wallet.renameAccountAction'))
+      setWalletResultData(result)
+      appendWalletActivity(t('wallet.renameAccountAction'), result, accountId)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableRenameAccount'))
+        return false
+      }
+
+      await refreshWalletOverview()
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableRenameAccount'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
+  const removeWalletVaultAccount = async (accountId: string) => {
+    const bridge = getWalletBridge()
+    if (!bridge?.removeAccount) return false
+
+    setWalletActionLoading('wallet-remove-account')
+    setWalletError(null)
+    try {
+      const result = await bridge.removeAccount({ accountId })
+      setWalletResultTitle(t('wallet.removeAccountAction'))
+      setWalletResultData(result)
+      appendWalletActivity(t('wallet.removeAccountAction'), result, accountId)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableRemoveAccount'))
+        return false
+      }
+
+      await refreshWalletOverview()
+      await refreshProducerSigningWalletBalance(undefined, result.activeAccountId || undefined)
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableRemoveAccount'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
     }
   }
 
@@ -2116,6 +2359,7 @@ export function App() {
       const result = await bridge.deleteWallet()
       setWalletResultTitle(t('wallet.deleteTitle'))
       setWalletResultData(result)
+      appendWalletActivity(t('wallet.deleteTitle'), result)
 
       if (!result.ok) {
         setWalletError(result.output || t('wallet.unableDelete'))
@@ -2151,6 +2395,7 @@ export function App() {
       const result = await bridge.closeWallet()
       setWalletResultTitle(t('wallet.closeTitle'))
       setWalletResultData(result)
+      appendWalletActivity(t('wallet.closeTitle'), result)
 
       if (!result.ok) {
         setWalletError(result.output || t('wallet.unableClose'))
@@ -2218,12 +2463,14 @@ export function App() {
   }
 
   const refreshProducerSigningWalletBalance = async (
-    addressOverride?: string
+    addressOverride?: string,
+    accountIdOverride?: string
   ): Promise<KnodelWalletBalanceResult | null> => {
     const bridge = getWalletBridge()
     if (!bridge?.balance) return null
-    const address = addressOverride?.trim() || walletOverview?.walletAddress?.trim() || ''
-    if (!address) {
+    const address = addressOverride?.trim() || activeWalletAddress || ''
+    const accountId = accountIdOverride?.trim() || activeWalletAccountId || ''
+    if (!address && !accountId) {
       setProducerSigningWalletBalance(null)
       setProducerSigningWalletBalanceError(null)
       setProducerSigningWalletBalanceLoading(false)
@@ -2235,9 +2482,11 @@ export function App() {
     try {
       const result = await bridge.balance({
         rpcUrl: producerRpcUrl,
-        address
+        address: address || undefined,
+        accountId: accountId || undefined
       })
       setProducerSigningWalletBalance(result)
+      setWalletBalanceRefreshedAt(Date.now())
       if (!result.ok) {
         setProducerSigningWalletBalanceError(
           formatProducerWalletBalanceError(
@@ -2275,6 +2524,7 @@ export function App() {
       const result = await runner()
       setWalletResultTitle(title)
       setWalletResultData(result)
+      appendWalletActivity(title, result)
 
       if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
         setWalletError(
@@ -2291,7 +2541,7 @@ export function App() {
       }
 
       if (options?.refreshBalance) {
-        await refreshProducerSigningWalletBalance(signingWalletAddress || undefined)
+        await refreshProducerSigningWalletBalance(signingWalletAddress || undefined, activeWalletAccountId || undefined)
       }
     } catch (error) {
       setWalletError(error instanceof Error ? error.message : `${title} failed.`)
@@ -2312,7 +2562,7 @@ export function App() {
           rpcUrl: effectiveExplorerRpcUrl,
           toAddress,
           amount,
-          accountId: signingWalletAddress || undefined,
+          accountId: activeWalletAccountId || undefined,
           useFreeMana: walletTransferUseFreeMana,
           dryRun: walletTransferDryRun
         })
@@ -2321,7 +2571,7 @@ export function App() {
         rpcUrl: effectiveExplorerRpcUrl,
         toAddress,
         amount,
-        accountId: signingWalletAddress || undefined,
+        accountId: activeWalletAccountId || undefined,
         useFreeMana: walletTransferUseFreeMana,
         dryRun: walletTransferDryRun
       })
@@ -2333,14 +2583,14 @@ export function App() {
     if (!bridge?.burn) return
     const percent = walletBurnPercentDraft.trim() ? Number.parseFloat(walletBurnPercentDraft) : undefined
     const amount = walletBurnAmountDraft.trim() ? Number.parseFloat(walletBurnAmountDraft) : undefined
-    const targetAddress = walletBurnTargetAddressDraft.trim() || walletOverview?.walletAddress || undefined
+    const targetAddress = walletBurnTargetAddressDraft.trim() || activeWalletAddress || undefined
     await runWalletAction('wallet-burn', t('wallet.burnTitle'), async () => {
       return bridge.burn({
         rpcUrl: effectiveExplorerRpcUrl,
         percent,
         amount,
         dryRun: walletBurnDryRun,
-        accountId: signingWalletAddress || undefined,
+        accountId: activeWalletAccountId || undefined,
         targetAddress,
         useFreeMana: walletBurnUseFreeMana,
         useProducerBurnAccount: false
@@ -3878,7 +4128,6 @@ export function App() {
       {activeTab === 'wallet' && (
         <WalletPanel
           t={t}
-          effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
           hasWalletControls={hasWalletControls}
           walletOverview={walletOverview}
           walletLoading={walletLoading}
@@ -3887,6 +4136,7 @@ export function App() {
           walletBalance={producerSigningWalletBalance}
           walletBalanceLoading={producerSigningWalletBalanceLoading}
           walletBalanceError={producerSigningWalletBalanceError}
+          walletBalanceRefreshedAt={walletBalanceRefreshedAt}
           walletImportPrivateKey={walletImportPrivateKey}
           setWalletImportPrivateKey={setWalletImportPrivateKey}
           walletImportPassword={walletImportPassword}
@@ -3897,7 +4147,7 @@ export function App() {
           setWalletImportSeedPassword={setWalletImportSeedPassword}
           walletUnlockPassword={producerUnlockPassword}
           setWalletUnlockPassword={setProducerUnlockPassword}
-          importWalletAccount={importProducerAccount}
+          importWalletAccount={importWalletVaultAccount}
           importWalletFromSeed={importWalletFromSeed}
           createWalletAccount={createWalletAccount}
           generateWalletDraft={generateWalletDraft}
@@ -3930,6 +4180,16 @@ export function App() {
           walletResultData={walletResultData}
           walletResultTitle={walletResultTitle}
           walletResultText={walletResultText}
+          walletActivityEntries={walletActivityEntries}
+          activeWalletAccount={activeWalletAccount}
+          activeWalletAccountId={activeWalletAccountId}
+          activeWalletAddress={activeWalletAddress}
+          activeWalletCanSign={activeWalletCanSign}
+          setWalletActiveAccount={setWalletActiveAccount}
+          createWalletDerivedAccount={createWalletDerivedAccount}
+          importWalletWatchAccount={importWalletWatchAccount}
+          renameWalletVaultAccount={renameWalletVaultAccount}
+          removeWalletVaultAccount={removeWalletVaultAccount}
         />
       )}
 

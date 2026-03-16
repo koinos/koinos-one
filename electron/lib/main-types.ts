@@ -613,19 +613,63 @@ export type KnodelEncryptedSecret = {
   authTag: string
 }
 
-export type KnodelEncryptedWallet = {
+export type KnodelWalletAccountKind = 'derived' | 'imported-wif' | 'watch-only'
+
+export type KnodelEncryptedWalletAccount = {
+  id: string
+  name: string
+  kind: KnodelWalletAccountKind
   address: string
-  encryptedKey: KnodelEncryptedSecret
+  createdAt: string
+  updatedAt?: string
+  derivationPath?: string | null
+  encryptedKey?: KnodelEncryptedSecret | null
+}
+
+export type KnodelWalletAccountSummary = {
+  id: string
+  name: string
+  kind: KnodelWalletAccountKind
+  address: string
+  derivationPath: string | null
+  createdAt: string
+  updatedAt: string | null
+  hasPrivateKey: boolean
+  isActive: boolean
+}
+
+export type KnodelEncryptedWallet = {
+  version?: number
+  address: string
+  encryptedKey?: KnodelEncryptedSecret | null
   encryptedSeedPhrase?: KnodelEncryptedSecret | null
   seedDerivationPath?: string | null
+  activeAccountId?: string | null
+  accounts?: KnodelEncryptedWalletAccount[]
   createdAt?: string
+  updatedAt?: string
+}
+
+export type KnodelUnlockedWalletAccount = {
+  id: string
+  name: string
+  kind: KnodelWalletAccountKind
+  address: string
+  derivationPath: string | null
+  privateKey: string | null
+  createdAt: string
+  updatedAt: string | null
 }
 
 export type KnodelUnlockedWallet = {
   address: string
-  privateKey: string
+  privateKey: string | null
   seedPhrase: string | null
   seedDerivationPath: string | null
+  activeAccountId: string | null
+  accountName: string | null
+  accountKind: KnodelWalletAccountKind | null
+  accounts: KnodelUnlockedWalletAccount[]
 }
 
 export type KnodelProducerProfile = {
@@ -651,6 +695,11 @@ export type WalletOverviewResult = {
   walletExists: boolean
   walletAddress: string | null
   walletCreatedAt: string | null
+  activeAccountId: string | null
+  activeAccountName: string | null
+  activeAccountKind: KnodelWalletAccountKind | null
+  accountCount: number
+  accounts: KnodelWalletAccountSummary[]
   unlocked: boolean
   hasSeedPhrase: boolean
 }
@@ -735,6 +784,9 @@ export type WalletShowSeedResult = {
   ok: boolean
   output: string
   walletAddress: string | null
+  accountId: string | null
+  accountName: string | null
+  accountKind: KnodelWalletAccountKind | null
   firstAccountAddress: string | null
   firstAccountPrivateKeyWif: string | null
   firstAccountDerivationPath: string | null
@@ -743,6 +795,64 @@ export type WalletShowSeedResult = {
 
 export type WalletAddressQueryInput = WalletRpcInput & {
   address?: string
+  accountId?: string
+}
+
+export type WalletAccountRefInput = {
+  accountId?: string
+}
+
+export type WalletListAccountsResult = {
+  ok: boolean
+  output: string
+  walletAddress: string | null
+  activeAccountId: string | null
+  accounts: KnodelWalletAccountSummary[]
+}
+
+export type WalletSetActiveAccountInput = {
+  accountId?: string
+}
+
+export type WalletSetActiveAccountResult = {
+  ok: boolean
+  output: string
+  walletAddress: string | null
+  activeAccountId: string | null
+  activeAccount: KnodelWalletAccountSummary | null
+}
+
+export type WalletCreateDerivedAccountInput = {
+  name?: string
+}
+
+export type WalletAccountMutationResult = {
+  ok: boolean
+  output: string
+  walletAddress: string | null
+  activeAccountId: string | null
+  account: KnodelWalletAccountSummary | null
+  accounts: KnodelWalletAccountSummary[]
+}
+
+export type WalletImportAccountInput = {
+  name?: string
+  privateKey?: string
+  password?: string
+}
+
+export type WalletImportWatchAccountInput = {
+  name?: string
+  address?: string
+}
+
+export type WalletRenameAccountInput = {
+  accountId?: string
+  name?: string
+}
+
+export type WalletRemoveAccountInput = {
+  accountId?: string
 }
 
 export type WalletBalanceResult = {
@@ -811,6 +921,7 @@ export type WalletBlockResult = {
 export type WalletTokenBalanceInput = WalletRpcInput & {
   contractId?: string
   address?: string
+  accountId?: string
 }
 
 export type WalletTokenBalanceResult = {

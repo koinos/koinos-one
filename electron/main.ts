@@ -183,6 +183,7 @@ import type {
   ServiceVersionCacheEntry,
   TcpListenerOwner,
   WalletAddressInput,
+  WalletAccountMutationResult,
   WalletAddressQueryInput,
   WalletAddressResult,
   WalletBalanceResult,
@@ -199,13 +200,20 @@ import type {
   WalletDeriveFromSeedInput,
   WalletDeriveFromSeedResult,
   WalletGenerateResult,
+  WalletImportAccountInput,
   WalletImportInput,
   WalletImportResult,
+  WalletImportWatchAccountInput,
+  WalletListAccountsResult,
   WalletOverviewResult,
   WalletReadContractInput,
   WalletReadContractResult,
+  WalletRemoveAccountInput,
+  WalletRenameAccountInput,
   WalletRpcInput,
   WalletScalarResult,
+  WalletSetActiveAccountInput,
+  WalletSetActiveAccountResult,
   WalletShowSeedResult,
   WalletTokenBalanceInput,
   WalletTokenBalanceResult,
@@ -213,6 +221,7 @@ import type {
   WalletTransferKoinResult,
   WalletTransferVhpInput,
   WalletTransferVhpResult,
+  WalletCreateDerivedAccountInput,
   WalletUnlockInput,
   WalletUnlockResult
 } from './lib/main-types'
@@ -313,6 +322,15 @@ const walletService = createWalletService({
   deleteKnodelWallet,
   closeKnodelWalletSession,
   unlockKnodelWalletSession,
+  listWalletAccounts: () => knodelStorage.listWalletAccounts(),
+  setActiveWalletAccount: (accountId: string) => knodelStorage.setActiveWalletAccount(accountId),
+  createDerivedWalletAccount: (name?: string) => knodelStorage.createDerivedWalletAccount(name),
+  importAdditionalWalletAccount: (privateKey: string, password: string, name?: string) =>
+    knodelStorage.importWalletAccount(privateKey, password, name),
+  importWatchWalletAccount: (address: string, name?: string) => knodelStorage.importWatchWalletAccount(address, name),
+  renameWalletAccount: (accountId: string, name: string) => knodelStorage.renameWalletAccount(accountId, name),
+  removeWalletAccount: (accountId: string) => knodelStorage.removeWalletAccount(accountId),
+  loadWalletAccountSecrets: (accountId?: string) => knodelStorage.loadWalletAccountSecrets(accountId),
   resolveWalletRpcUrl,
   resolveWalletQueryAddress,
   parseWalletArgs,
@@ -1019,8 +1037,8 @@ function parseWalletArgs(value: WalletReadContractInput['args']): Record<string,
   return value
 }
 
-function resolveWalletQueryAddress(address?: string): string | null {
-  return knodelStorage.resolveWalletQueryAddress(address)
+function resolveWalletQueryAddress(address?: string, accountId?: string): string | null {
+  return knodelStorage.resolveWalletQueryAddress(address, accountId)
 }
 
 function fixFetchedAbi(abi: unknown): unknown {
@@ -3745,6 +3763,34 @@ async function walletImport(input?: WalletImportInput): Promise<WalletImportResu
   return walletService.walletImport(input)
 }
 
+async function walletListAccounts(): Promise<WalletListAccountsResult> {
+  return walletService.walletListAccounts()
+}
+
+async function walletSetActiveAccount(input?: WalletSetActiveAccountInput): Promise<WalletSetActiveAccountResult> {
+  return walletService.walletSetActiveAccount(input)
+}
+
+async function walletCreateDerivedAccount(input?: WalletCreateDerivedAccountInput): Promise<WalletAccountMutationResult> {
+  return walletService.walletCreateDerivedAccount(input)
+}
+
+async function walletImportAccount(input?: WalletImportAccountInput): Promise<WalletAccountMutationResult> {
+  return walletService.walletImportAccount(input)
+}
+
+async function walletImportWatchAccount(input?: WalletImportWatchAccountInput): Promise<WalletAccountMutationResult> {
+  return walletService.walletImportWatchAccount(input)
+}
+
+async function walletRenameAccount(input?: WalletRenameAccountInput): Promise<WalletAccountMutationResult> {
+  return walletService.walletRenameAccount(input)
+}
+
+async function walletRemoveAccount(input?: WalletRemoveAccountInput): Promise<WalletAccountMutationResult> {
+  return walletService.walletRemoveAccount(input)
+}
+
 async function walletShowSeed(): Promise<WalletShowSeedResult> {
   return walletService.walletShowSeed()
 }
@@ -3864,6 +3910,13 @@ function registerIpcHandlers() {
     walletOverview,
     walletGenerate,
     walletImport,
+    walletListAccounts,
+    walletSetActiveAccount,
+    walletCreateDerivedAccount,
+    walletImportAccount,
+    walletImportWatchAccount,
+    walletRenameAccount,
+    walletRemoveAccount,
     walletUnlock,
     walletClose,
     walletDelete,

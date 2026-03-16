@@ -41,7 +41,8 @@ import type {
   KoinosNodeStatus,
   KnodelEncryptedWallet,
   KnodelProducerProfile,
-  KnodelUnlockedWallet
+  KnodelUnlockedWallet,
+  KnodelUnlockedWalletAccount
 } from './main-types'
 
 type ProducerServiceDeps = {
@@ -313,6 +314,27 @@ export function aggregateDashboardPerformanceTotals(
     servicesCpuPercent: sumNullableValues(serviceRows.map((row) => row.cpuPercent)),
     servicesMemoryBytes: sumNullableValues(serviceRows.map((row) => row.rssBytes))
   }
+}
+
+function resolveUnlockedProducerSigner(
+  wallet: KnodelUnlockedWallet,
+  signerRef?: string | null
+): KnodelUnlockedWalletAccount | null {
+  const requested = `${signerRef || ''}`.trim().toLowerCase()
+  if (requested) {
+    const exact =
+      wallet.accounts.find((account) => account.id.toLowerCase() === requested) ||
+      wallet.accounts.find((account) => account.address.toLowerCase() === requested)
+    if (exact) return exact
+  }
+
+  const activeAccountId = `${wallet.activeAccountId || ''}`.trim().toLowerCase()
+  return (
+    wallet.accounts.find((account) => account.id.toLowerCase() === activeAccountId) ||
+    wallet.accounts.find((account) => account.address.toLowerCase() === wallet.address.toLowerCase()) ||
+    wallet.accounts[0] ||
+    null
+  )
 }
 
 export function sortDashboardPerformanceRows(
@@ -1168,11 +1190,15 @@ export function createProducerService(deps: ProducerServiceDeps) {
       return fail('Producer account is locked. Unlock it in the Producer tab.')
     }
 
-    if (signerAccountId && signerAccountId.toLowerCase() !== wallet.address.toLowerCase()) {
+    const signerAccount = resolveUnlockedProducerSigner(wallet, signerAccountId)
+    if (!signerAccount) {
       return fail('The selected signer account is not unlocked in this Knodel session.')
     }
+    if (!signerAccount.privateKey) {
+      return fail('The selected signer account is watch-only and cannot register the producer key.')
+    }
 
-    if (!allowDelegatedSigner && wallet.address.toLowerCase() !== producerAddress.toLowerCase()) {
+    if (!allowDelegatedSigner && signerAccount.address.toLowerCase() !== producerAddress.toLowerCase()) {
       return fail('Signer account must match producer address unless delegated signer is explicitly enabled.')
     }
 
@@ -1193,9 +1219,9 @@ export function createProducerService(deps: ProducerServiceDeps) {
       if (registeredPublicKey && registeredPublicKey === localProducerKey.publicKey) {
         notes.push('The producer public key is already registered on-chain.')
       } else {
-        const signer = Signer.fromWif(wallet.privateKey)
+        const signer = Signer.fromWif(signerAccount.privateKey)
         signer.provider = provider
-        const manaRaw = await provider.getAccountRc(wallet.address)
+        const manaRaw = await provider.getAccountRc(signerAccount.address)
         const manaValue = manaRaw ? BigInt(manaRaw) : BigInt(0)
         if (manaValue < BigInt(50_000_000)) {
           return fail('Insufficient mana to execute producer registration.')
@@ -1247,15 +1273,15 @@ export function createProducerService(deps: ProducerServiceDeps) {
         }
       }
 
-      if (wallet.address !== producerAddress) {
-        notes.push(`Wallet address used for signing: ${wallet.address}`)
+      if (signerAccount.address !== producerAddress) {
+        notes.push(`Wallet address used for signing: ${signerAccount.address}`)
       }
 
       if (persistProfile) {
         const profilePath = deps.saveProducerProfile({
           producerAddress,
-          registrationSignerAccountId: wallet.address,
-          burnAccountId: wallet.address,
+          registrationSignerAccountId: signerAccount.id,
+          burnAccountId: signerAccount.id,
           localPublicKey: localProducerKey.publicKey,
           localPublicKeyPath: localProducerKey.publicKeyPath || 'BASEDIR/block_producer/public.key',
           registeredPublicKey: localProducerKey.publicKey,
