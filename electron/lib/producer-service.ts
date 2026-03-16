@@ -15,6 +15,10 @@ import {
 } from './constants'
 import type {
   ComposeServiceStatus,
+  KoinosNodeDashboardPerformanceHost,
+  KoinosNodeDashboardPerformanceInput,
+  KoinosNodeDashboardPerformanceResult,
+  KoinosNodeDashboardPerformanceRow,
   KoinosNodeDashboardPeerRow,
   KoinosNodeDashboardPeersInput,
   KoinosNodeDashboardPeersResult,
@@ -72,6 +76,55 @@ type ProducerServiceDeps = {
   nativeComposeLogs: (input?: KoinosNodeLogsInput) => Promise<KoinosNodeLogsResult>
   isComposeServiceRunning: (service: ComposeServiceStatus) => boolean
   blockProducerPrivateKeyFilePath: (settings: KoinosNodeSettings) => string
+  getAppMetrics: () => ProducerServiceAppMetric[]
+  hostSnapshot: () => KoinosNodeDashboardPerformanceHost
+  now: () => number
+  runCommand: (
+    command: string,
+    args: string[],
+    options: { cwd: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }
+  ) => Promise<{ ok: boolean; code: number | null; output: string }>
+}
+
+type ProducerServiceAppMetric = {
+  cpu: {
+    percentCPUUsage: number
+  }
+  creationTime: number
+  memory: {
+    workingSetSize: number
+  }
+  name?: string
+  pid: number
+  serviceName?: string
+  type: string
+}
+
+type DashboardPerformancePsSample = {
+  pid: number
+  cpuPercent: number | null
+  rssBytes: number | null
+  virtualBytes: number | null
+  uptimeSeconds: number | null
+  state: string | null
+  command: string | null
+}
+
+type DashboardPerformancePsResult = {
+  rowsByPid: Map<number, DashboardPerformancePsSample>
+  warning: string | null
+}
+
+const KOIN_DEXSCREENER_PAIR_URL =
+  'https://dexscreener.com/ethereum/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
+const KOIN_DEXSCREENER_PAIR_API_URL =
+  'https://api.dexscreener.com/latest/dex/pairs/ethereum/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
+const KOIN_COINMARKETCAP_PRICE_URL = 'https://coinmarketcap.com/currencies/koinos/'
+
+type ProducerKoinPriceSource = {
+  priceUsd: number | null
+  sourceName: string
+  sourceUrl: string
 }
 
 export function isProducerOverviewTimeoutError(error: unknown): boolean {
@@ -188,20 +241,227 @@ export function parseLatestP2pPeersSnapshot(logOutput: string): {
   }
 }
 
+function parseOptionalFloat(value: string): number | null {
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseOptionalInteger(value: string): number | null {
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parsePsElapsedTimeSeconds(value: string): number | null {
+  const match = value.trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/)
+  if (!match) return null
+
+  const days = Number.parseInt(match[1] ?? '0', 10)
+  const hours = Number.parseInt(match[2] ?? '0', 10)
+  const minutes = Number.parseInt(match[3] ?? '0', 10)
+  const seconds = Number.parseInt(match[4] ?? '0', 10)
+
+  if (![days, hours, minutes, seconds].every(Number.isFinite)) return null
+  return (((days * 24) + hours) * 60 + minutes) * 60 + seconds
+}
+
+export function parseDashboardPerformancePsRow(line: string): DashboardPerformancePsSample | null {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+
+  const match = trimmed.match(/^(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*(.*)$/)
+  if (!match) return null
+
+  const pid = Number.parseInt(match[1], 10)
+  if (!Number.isFinite(pid) || pid <= 0) return null
+
+  const rssKb = parseOptionalInteger(match[3])
+  const virtualKb = parseOptionalInteger(match[4])
+
+  return {
+    pid,
+    cpuPercent: parseOptionalFloat(match[2]),
+    rssBytes: rssKb === null ? null : rssKb * 1024,
+    virtualBytes: virtualKb === null ? null : virtualKb * 1024,
+    uptimeSeconds: parsePsElapsedTimeSeconds(match[5]),
+    state: match[6] || null,
+    command: match[7]?.trim() || null
+  }
+}
+
+function sumNullableValues(values: Array<number | null | undefined>): number | null {
+  let total = 0
+  let found = false
+
+  for (const value of values) {
+    if (!Number.isFinite(value)) continue
+    total += Number(value)
+    found = true
+  }
+
+  return found ? Number.parseFloat(total.toFixed(2)) : null
+}
+
+export function aggregateDashboardPerformanceTotals(
+  rows: KoinosNodeDashboardPerformanceRow[]
+): KoinosNodeDashboardPerformanceResult['totals'] {
+  const knodelRows = rows.filter((row) => row.kind === 'knodel')
+  const serviceRows = rows.filter((row) => row.kind === 'service')
+
+  return {
+    knodelCpuPercent: sumNullableValues(knodelRows.map((row) => row.cpuPercent)),
+    knodelMemoryBytes: sumNullableValues(knodelRows.map((row) => row.rssBytes)),
+    servicesCpuPercent: sumNullableValues(serviceRows.map((row) => row.cpuPercent)),
+    servicesMemoryBytes: sumNullableValues(serviceRows.map((row) => row.rssBytes))
+  }
+}
+
+export function sortDashboardPerformanceRows(
+  rows: KoinosNodeDashboardPerformanceRow[]
+): KoinosNodeDashboardPerformanceRow[] {
+  return [...rows].sort((left, right) => {
+    const cpuLeft = left.cpuPercent ?? Number.NEGATIVE_INFINITY
+    const cpuRight = right.cpuPercent ?? Number.NEGATIVE_INFINITY
+    if (cpuRight !== cpuLeft) return cpuRight - cpuLeft
+
+    const rssLeft = left.rssBytes ?? Number.NEGATIVE_INFINITY
+    const rssRight = right.rssBytes ?? Number.NEGATIVE_INFINITY
+    if (rssRight !== rssLeft) return rssRight - rssLeft
+
+    return left.label.localeCompare(right.label)
+  })
+}
+
+function labelKnodelMetric(metric: ProducerServiceAppMetric): string {
+  if (metric.type === 'Browser') return 'Knodel Main'
+  if (metric.type === 'Tab') return 'Knodel Renderer'
+  if (metric.type === 'GPU') return 'Knodel GPU'
+
+  const suffix = metric.name?.trim() || metric.serviceName?.trim() || metric.type.trim()
+  return suffix ? `Knodel ${suffix}` : 'Knodel Process'
+}
+
+async function sampleDashboardPerformancePs(
+  deps: ProducerServiceDeps,
+  pids: number[]
+): Promise<DashboardPerformancePsResult> {
+  const uniquePids = Array.from(new Set(
+    pids.filter((pid) => Number.isInteger(pid) && pid > 0)
+  )).sort((left, right) => left - right)
+
+  if (uniquePids.length === 0) {
+    return {
+      rowsByPid: new Map(),
+      warning: null
+    }
+  }
+
+  const result = await deps.runCommand('ps', [
+    '-o',
+    'pid=,%cpu=,rss=,vsz=,etime=,state=,command=',
+    '-p',
+    uniquePids.join(',')
+  ], {
+    cwd: process.cwd(),
+    timeoutMs: 5000
+  })
+
+  const rowsByPid = new Map<number, DashboardPerformancePsSample>()
+  for (const line of result.output.split(/\r?\n/)) {
+    const parsed = parseDashboardPerformancePsRow(line)
+    if (!parsed) continue
+    rowsByPid.set(parsed.pid, parsed)
+  }
+
+  return {
+    rowsByPid,
+    warning: result.ok || rowsByPid.size > 0 ? null : result.output.trim() || 'Could not sample process metrics.'
+  }
+}
+
+export function parseDexScreenerPairPriceUsd(payload: unknown): number | null {
+  const data = payload as {
+    pair?: { priceUsd?: string | number | null } | null
+    pairs?: Array<{ priceUsd?: string | number | null } | null> | null
+  } | null
+
+  const priceValue = data?.pair?.priceUsd ?? data?.pairs?.[0]?.priceUsd
+  const parsed = Number.parseFloat(`${priceValue ?? ''}`)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+export function parseCoinMarketCapKoinPriceUsd(html: string): number | null {
+  const match =
+    html.match(/Koinos price today is \$([0-9]+(?:\.[0-9]+)?)/i) ??
+    html.match(/"price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/i)
+
+  if (!match?.[1]) return null
+  const parsed = Number.parseFloat(match[1])
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+export function resolveProducerKoinPriceSource(
+  dexPriceUsd: number | null,
+  coinMarketCapPriceUsd: number | null
+): ProducerKoinPriceSource {
+  if (dexPriceUsd !== null) {
+    return {
+      priceUsd: dexPriceUsd,
+      sourceName: 'DexScreener vKOIN/USDT',
+      sourceUrl: KOIN_DEXSCREENER_PAIR_URL
+    }
+  }
+
+  if (coinMarketCapPriceUsd !== null) {
+    return {
+      priceUsd: coinMarketCapPriceUsd,
+      sourceName: 'CoinMarketCap',
+      sourceUrl: KOIN_COINMARKETCAP_PRICE_URL
+    }
+  }
+
+  return {
+    priceUsd: null,
+    sourceName: 'DexScreener vKOIN/USDT',
+    sourceUrl: KOIN_DEXSCREENER_PAIR_URL
+  }
+}
+
+async function fetchDexScreenerKoinPriceUsd(): Promise<number | null> {
+  try {
+    const response = await fetch(KOIN_DEXSCREENER_PAIR_API_URL, {
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'Mozilla/5.0'
+      }
+    })
+    if (!response.ok) return null
+    return parseDexScreenerPairPriceUsd(await response.json())
+  } catch {
+    return null
+  }
+}
+
 async function fetchCoinMarketCapKoinPriceUsd(): Promise<number | null> {
   try {
-    const response = await fetch('https://coinmarketcap.com/currencies/koinos/', {
+    const response = await fetch(KOIN_COINMARKETCAP_PRICE_URL, {
       headers: {
         'user-agent': 'Mozilla/5.0'
       }
     })
     if (!response.ok) return null
-    const html = await response.text()
-    const match = html.match(/"price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/)
-    return match?.[1] ? Number.parseFloat(match[1]) : null
+    return parseCoinMarketCapKoinPriceUsd(await response.text())
   } catch {
     return null
   }
+}
+
+async function fetchProducerKoinPriceUsd(): Promise<ProducerKoinPriceSource> {
+  const [dexPriceUsd, coinMarketCapPriceUsd] = await Promise.all([
+    fetchDexScreenerKoinPriceUsd(),
+    fetchCoinMarketCapKoinPriceUsd()
+  ])
+
+  return resolveProducerKoinPriceSource(dexPriceUsd, coinMarketCapPriceUsd)
 }
 
 function isMissingProducerPublicKeyRecordError(error: unknown): boolean {
@@ -233,7 +493,8 @@ export function createProducerService(deps: ProducerServiceDeps) {
       output: '',
       rpcUrl,
       rpcSource,
-      priceSourceUrl: 'https://coinmarketcap.com/currencies/koinos/',
+      priceSourceName: 'DexScreener vKOIN/USDT',
+      priceSourceUrl: KOIN_DEXSCREENER_PAIR_URL,
       producerAddress,
       producerAddressSource,
       configFilePath: configProducer.configFilePath,
@@ -271,14 +532,17 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
     try {
       const provider = new Provider([rpcUrl])
-      const [koin, vhp, pob, priceUsd] = await Promise.all([
+      const [koin, vhp, pob, koinPrice] = await Promise.all([
         deps.loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS),
         deps.loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS),
         deps.loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS),
-        fetchCoinMarketCapKoinPriceUsd()
+        fetchProducerKoinPriceUsd()
       ])
 
+      const priceUsd = koinPrice.priceUsd
       baseResult.koinPriceUsd = priceUsd
+      baseResult.priceSourceName = koinPrice.sourceName
+      baseResult.priceSourceUrl = koinPrice.sourceUrl
 
       const [headInfo, consensusParams] = await Promise.all([
         provider.getHeadInfo(),
@@ -435,7 +699,9 @@ export function createProducerService(deps: ProducerServiceDeps) {
         producerAddress ? `Producer address: ${producerAddress}` : 'No producer address configured',
         baseResult.localPublicKey ? 'Local producer key detected' : 'Local producer public key not found',
         producerActivityAvailable ? `Active producers (24h): ${baseResult.activeProducerCount}` : 'Active producers (24h): unavailable',
-        baseResult.koinPriceUsd !== null ? `KOIN price: $${baseResult.koinPriceUsd}` : 'KOIN price unavailable'
+        baseResult.koinPriceUsd !== null
+          ? `KOIN price: $${baseResult.koinPriceUsd} (${baseResult.priceSourceName})`
+          : `KOIN price unavailable (${baseResult.priceSourceName})`
       ]
       if (producerActivityWarning) outputNotes.push(producerActivityWarning)
       baseResult.output = outputNotes.join('\n')
@@ -658,6 +924,115 @@ export function createProducerService(deps: ProducerServiceDeps) {
       }
     } catch (error) {
       return empty(error instanceof Error ? error.message : 'Could not load dashboard peers')
+    }
+  }
+
+  async function koinosNodeDashboardPerformance(
+    input?: KoinosNodeDashboardPerformanceInput
+  ): Promise<KoinosNodeDashboardPerformanceResult> {
+    const sampledAt = deps.now()
+    const host = deps.hostSnapshot()
+    const empty = (ok: boolean, output: string): KoinosNodeDashboardPerformanceResult => ({
+      ok,
+      output,
+      sampledAt,
+      host,
+      totals: {
+        knodelCpuPercent: null,
+        knodelMemoryBytes: null,
+        servicesCpuPercent: null,
+        servicesMemoryBytes: null
+      },
+      rows: []
+    })
+
+    try {
+      const settings = deps.normalizeNodeSettings(input)
+      const status = await deps.nativeComposeStatus(settings)
+      const appMetrics = deps.getAppMetrics()
+      const knodelRows: KoinosNodeDashboardPerformanceRow[] = appMetrics.map((metric) => ({
+        id: `knodel:${metric.pid}:${metric.creationTime}`,
+        label: labelKnodelMetric(metric),
+        kind: 'knodel',
+        serviceId: null,
+        pid: Number.isFinite(metric.pid) ? metric.pid : null,
+        cpuPercent: Number.isFinite(metric.cpu.percentCPUUsage)
+          ? Number.parseFloat(metric.cpu.percentCPUUsage.toFixed(2))
+          : null,
+        rssBytes: Number.isFinite(metric.memory.workingSetSize)
+          ? metric.memory.workingSetSize * 1024
+          : null,
+        virtualBytes: null,
+        uptimeSeconds: Number.isFinite(metric.creationTime) && metric.creationTime > 0
+          ? Math.max(0, Math.floor((sampledAt - metric.creationTime) / 1000))
+          : null,
+        state: metric.type || null,
+        command: metric.serviceName?.trim() || metric.name?.trim() || null,
+        managedByKnodel: true
+      }))
+
+      const managedServices = status.services.filter((service) => (
+        service.runtimeType === 'native' &&
+        service.managedByKnodel &&
+        typeof service.nativePid === 'number' &&
+        service.nativePid > 0
+      ))
+      const psResult = await sampleDashboardPerformancePs(
+        deps,
+        managedServices.map((service) => service.nativePid as number)
+      )
+      const unavailableSamples: string[] = []
+      const serviceRows: KoinosNodeDashboardPerformanceRow[] = managedServices.map((service) => {
+        const sample = service.nativePid ? psResult.rowsByPid.get(service.nativePid) ?? null : null
+        if (!sample) unavailableSamples.push(service.name)
+
+        return {
+          id: `service:${service.id}:${service.nativePid ?? 'none'}`,
+          label: service.name,
+          kind: 'service',
+          serviceId: service.id,
+          pid: service.nativePid,
+          cpuPercent: sample?.cpuPercent ?? null,
+          rssBytes: sample?.rssBytes ?? null,
+          virtualBytes: sample?.virtualBytes ?? null,
+          uptimeSeconds: sample?.uptimeSeconds ?? null,
+          state: sample?.state ?? service.state ?? null,
+          command: sample?.command ?? null,
+          managedByKnodel: service.managedByKnodel
+        }
+      })
+
+      const rows = sortDashboardPerformanceRows([...knodelRows, ...serviceRows])
+      const totals = aggregateDashboardPerformanceTotals(rows)
+      const notes = [
+        `Sampled ${knodelRows.length} Knodel process(es).`,
+        managedServices.length > 0
+          ? `Tracked ${managedServices.length} managed native service process(es).`
+          : 'No managed native service PIDs were active.'
+      ]
+
+      if (unavailableSamples.length > 0) {
+        notes.push(`Process sample unavailable for: ${unavailableSamples.join(', ')}.`)
+      }
+
+      if (!status.ok) {
+        notes.push('Node status is currently degraded.')
+      }
+
+      if (psResult.warning) {
+        notes.push(psResult.warning)
+      }
+
+      return {
+        ok: true,
+        output: notes.join(' '),
+        sampledAt,
+        host,
+        totals,
+        rows
+      }
+    } catch (error) {
+      return empty(false, error instanceof Error ? error.message : 'Could not load dashboard performance')
     }
   }
 
@@ -902,6 +1277,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
   }
 
   return {
+    koinosNodeDashboardPerformance,
     koinosNodeDashboardPeers,
     koinosNodeDashboardProducers,
     koinosNodeProducerDelete,

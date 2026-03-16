@@ -3,6 +3,7 @@ import type { IpcMain, WebContents } from 'electron'
 import type {
   KoinosJsonRpcProxyInput,
   KoinosNodeBaseDirCopyInput,
+  KoinosNodeDashboardPerformanceInput,
   KoinosNodeFileReadInput,
   KoinosNodeFileReadResult,
   KoinosNodeFileWriteInput,
@@ -58,6 +59,7 @@ type IpcHandlerDeps = {
   koinosJsonRpcProxy: (input?: KoinosJsonRpcProxyInput) => Awaitable<unknown>
   koinosNodeDashboardProducers: (input?: KoinosNodeSettingsInput & { rpcUrl?: string; windowBlocks?: number }) => Awaitable<unknown>
   koinosNodeDashboardPeers: (input?: KoinosNodeSettingsInput) => Awaitable<unknown>
+  koinosNodeDashboardPerformance: (input?: KoinosNodeDashboardPerformanceInput) => Awaitable<unknown>
   koinosNodeProducerOverview: (input?: KoinosNodeProducerOverviewInput) => Awaitable<unknown>
   koinosNodeProducerRegisteredKey: (input?: KoinosNodeProducerRegisteredKeyInput) => Awaitable<unknown>
   koinosNodeProducerLocalInfo: (input?: KoinosNodeSettingsInput) => Awaitable<unknown>
@@ -119,6 +121,7 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'knodel:koinos-node:rpc-call',
     'knodel:koinos-node:dashboard-producers',
     'knodel:koinos-node:dashboard-peers',
+    'knodel:koinos-node:dashboard-performance',
     'knodel:koinos-node:producer-overview',
     'knodel:koinos-node:producer-registered-key',
     'knodel:koinos-node:producer-local-info',
@@ -203,6 +206,7 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('knodel:koinos-node:rpc-call', async (_event, input?: KoinosJsonRpcProxyInput) => deps.koinosJsonRpcProxy(input))
   ipcMain.handle('knodel:koinos-node:dashboard-producers', async (_event, input?: KoinosNodeSettingsInput & { rpcUrl?: string; windowBlocks?: number }) => deps.koinosNodeDashboardProducers(input))
   ipcMain.handle('knodel:koinos-node:dashboard-peers', async (_event, input?: KoinosNodeSettingsInput) => deps.koinosNodeDashboardPeers(input))
+  ipcMain.handle('knodel:koinos-node:dashboard-performance', async (_event, input?: KoinosNodeDashboardPerformanceInput) => deps.koinosNodeDashboardPerformance(input))
   ipcMain.handle('knodel:koinos-node:producer-overview', async (_event, input?: KoinosNodeProducerOverviewInput) => deps.koinosNodeProducerOverview(input))
   ipcMain.handle('knodel:koinos-node:producer-registered-key', async (_event, input?: KoinosNodeProducerRegisteredKeyInput) => deps.koinosNodeProducerRegisteredKey(input))
   ipcMain.handle('knodel:koinos-node:producer-local-info', async (_event, input?: KoinosNodeSettingsInput) => deps.koinosNodeProducerLocalInfo(input))

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   expandNodeProfiles,
   filterBlocksByProducer,
+  formatBytes,
+  formatCpuPercent,
+  formatDurationSeconds,
   mapBlockItem,
   normalizeBackupTarGzUrl,
   normalizeDashboardProducerWindowBlocks,
@@ -69,6 +72,12 @@ describe('URL normalization', () => {
     expect(normalizeDashboardRefreshSeconds(1)).toBe(2)
     expect(normalizeDashboardRefreshSeconds(300)).toBe(60)
     expect(normalizeDashboardRefreshSeconds('5')).toBe(5)
+  })
+
+  it('formats bytes, cpu percentages, and durations for dashboard performance', () => {
+    expect(formatBytes(1536, 'en-US')).toBe('1.5 KB')
+    expect(formatCpuPercent(12.34, 'en-US')).toBe('12.3%')
+    expect(formatDurationSeconds(3661)).toBe('1h 1m 1s')
   })
 })
 

@@ -1,4 +1,12 @@
-import { formatDateTime, formatDecimalValue, formatUsdValue, shortHash } from '../../app/utils'
+import {
+  formatBytes,
+  formatCpuPercent,
+  formatDateTime,
+  formatDecimalValue,
+  formatDurationSeconds,
+  formatUsdValue,
+  shortHash
+} from '../../app/utils'
 
 type DashboardPanelProps = any
 
@@ -16,6 +24,9 @@ export function DashboardPanel(props: DashboardPanelProps) {
     dashboardPeers,
     dashboardPeersLoading,
     dashboardPeersError,
+    dashboardPerformance,
+    dashboardPerformanceLoading,
+    dashboardPerformanceError,
     nodeProducerOverview,
     nodeProducerLoading,
     nodeProducerError
@@ -23,6 +34,8 @@ export function DashboardPanel(props: DashboardPanelProps) {
 
   const producersRows = dashboardProducers?.rows ?? []
   const peersRows = dashboardPeers?.rows ?? []
+  const performanceRows = dashboardPerformance?.rows ?? []
+  const hostLoadAverage = dashboardPerformance?.host.loadAverage ?? []
 
   return (
     <section id="panel-dashboard" className="dashboard-panel" aria-label={t('dashboard.panelAria')} role="tabpanel" aria-labelledby="tab-dashboard">
@@ -53,6 +66,13 @@ export function DashboardPanel(props: DashboardPanelProps) {
           onClick={() => setDashboardSubtab('forecast')}
         >
           {t('dashboard.subtab.forecast')}
+        </button>
+        <button
+          type="button"
+          className={`wallet-subtab-button ${dashboardSubtab === 'performance' ? 'is-active' : ''}`.trim()}
+          onClick={() => setDashboardSubtab('performance')}
+        >
+          {t('dashboard.subtab.performance')}
         </button>
       </div>
 
@@ -226,7 +246,9 @@ export function DashboardPanel(props: DashboardPanelProps) {
             <article className="stat-card">
               <span className="stat-label">{t('producer.estimatedKoinMonth')}</span>
               <p className="stat-value">{formatDecimalValue(nodeProducerOverview?.estimatedKoinPerMonth, locale, 2, t('common.na'))}</p>
-              <p className="stat-note">{t('producer.priceSource')}</p>
+              <p className="stat-note">
+                {t('producer.priceSource', { source: nodeProducerOverview?.priceSourceName || t('common.na') })}
+              </p>
             </article>
             <article className="stat-card">
               <span className="stat-label">{t('producer.estimatedUsdMonth')}</span>
@@ -262,6 +284,114 @@ export function DashboardPanel(props: DashboardPanelProps) {
               </div>
             </div>
             <p className="dashboard-note">{nodeProducerOverview?.output || t('dashboard.noForecast')}</p>
+          </section>
+        </div>
+      )}
+
+      {dashboardSubtab === 'performance' && (
+        <div className="dashboard-subpanel">
+          {dashboardPerformanceError && (
+            <div className="error-banner node-error-banner" role="alert">
+              <span>{dashboardPerformanceError}</span>
+            </div>
+          )}
+
+          <div className="overview-grid">
+            <article className="stat-card">
+              <span className="stat-label">{t('dashboard.performance.knodelCpu')}</span>
+              <p className="stat-value">{formatCpuPercent(dashboardPerformance?.totals.knodelCpuPercent, locale, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('dashboard.performance.knodelRam')}</span>
+              <p className="stat-value">{formatBytes(dashboardPerformance?.totals.knodelMemoryBytes, locale, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('dashboard.performance.servicesCpu')}</span>
+              <p className="stat-value">{formatCpuPercent(dashboardPerformance?.totals.servicesCpuPercent, locale, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('dashboard.performance.servicesRam')}</span>
+              <p className="stat-value">{formatBytes(dashboardPerformance?.totals.servicesMemoryBytes, locale, t('common.na'))}</p>
+            </article>
+          </div>
+
+          <div className="overview-grid">
+            <article className="stat-card">
+              <span className="stat-label">{t('dashboard.performance.freeSystemRam')}</span>
+              <p className="stat-value">{formatBytes(dashboardPerformance?.host.freeMemoryBytes, locale, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('dashboard.performance.lastSample')}</span>
+              <p className="stat-value">{formatDateTime(dashboardPerformance?.sampledAt ?? 0, locale, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('dashboard.performance.hostUptime')}</span>
+              <p className="stat-value">{formatDurationSeconds(dashboardPerformance?.host.uptimeSeconds, t('common.na'))}</p>
+            </article>
+            <article className="stat-card">
+              <span className="stat-label">{t('dashboard.performance.hostCpus')}</span>
+              <p className="stat-value">{formatDecimalValue(dashboardPerformance?.host.cpuCount, locale, 0, t('common.na'))}</p>
+            </article>
+          </div>
+
+          <section className="dashboard-card">
+            <div className="node-services-header producer-header">
+              <div>
+                <h3>{t('dashboard.performanceTitle')}</h3>
+                <p className="producer-header-copy">{t('dashboard.performanceDescription')}</p>
+              </div>
+            </div>
+
+            <p className="dashboard-note">
+              {t('dashboard.performanceHostSummary', {
+                cpuCount: dashboardPerformance?.host.cpuCount ?? t('common.na'),
+                load1: formatDecimalValue(hostLoadAverage[0], locale, 2, t('common.na')),
+                load5: formatDecimalValue(hostLoadAverage[1], locale, 2, t('common.na')),
+                load15: formatDecimalValue(hostLoadAverage[2], locale, 2, t('common.na')),
+                uptime: formatDurationSeconds(dashboardPerformance?.host.uptimeSeconds, t('common.na'))
+              })}
+            </p>
+
+            <div className="table-wrap">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>{t('dashboard.col.name')}</th>
+                    <th>{t('dashboard.col.kind')}</th>
+                    <th>{t('dashboard.col.pid')}</th>
+                    <th>{t('dashboard.col.cpuPercent')}</th>
+                    <th>{t('dashboard.col.ram')}</th>
+                    <th>{t('dashboard.col.virtual')}</th>
+                    <th>{t('dashboard.col.uptime')}</th>
+                    <th>{t('dashboard.col.state')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {performanceRows.length === 0 ? (
+                    <tr>
+                      <td className="empty-cell" colSpan={8}>
+                        {dashboardPerformanceLoading ? t('common.loading') : t('dashboard.noPerformance')}
+                      </td>
+                    </tr>
+                  ) : (
+                    performanceRows.map((row: KnodelKoinosNodeDashboardPerformanceRow) => (
+                      <tr key={row.id}>
+                        <td className="mono" title={row.command || row.label}>{row.label}</td>
+                        <td>{row.kind === 'knodel' ? t('dashboard.kind.knodel') : t('dashboard.kind.service')}</td>
+                        <td>{formatDecimalValue(row.pid, locale, 0, t('common.na'))}</td>
+                        <td>{formatCpuPercent(row.cpuPercent, locale, t('common.na'))}</td>
+                        <td>{formatBytes(row.rssBytes, locale, t('common.na'))}</td>
+                        <td>{formatBytes(row.virtualBytes, locale, t('common.na'))}</td>
+                        <td>{formatDurationSeconds(row.uptimeSeconds, t('common.na'))}</td>
+                        <td>{row.state || t('common.na')}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="dashboard-note">{dashboardPerformance?.output || t('dashboard.noPerformance')}</p>
           </section>
         </div>
       )}

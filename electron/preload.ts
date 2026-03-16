@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('knodel', {
     rpcCall: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:rpc-call', params),
     dashboardProducers: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:dashboard-producers', params),
     dashboardPeers: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:dashboard-peers', params),
+    dashboardPerformance: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:dashboard-performance', params),
     producerOverview: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-overview', settings),
     producerRegisteredKey: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-registered-key', settings),
     producerLocalInfo: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:producer-local-info', settings),

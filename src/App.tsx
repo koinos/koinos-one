@@ -141,6 +141,9 @@ export function App() {
   const [dashboardPeers, setDashboardPeers] = useState<KnodelKoinosNodeDashboardPeersResult | null>(null)
   const [dashboardPeersLoading, setDashboardPeersLoading] = useState(false)
   const [dashboardPeersError, setDashboardPeersError] = useState<string | null>(null)
+  const [dashboardPerformance, setDashboardPerformance] = useState<KnodelKoinosNodeDashboardPerformanceResult | null>(null)
+  const [dashboardPerformanceLoading, setDashboardPerformanceLoading] = useState(false)
+  const [dashboardPerformanceError, setDashboardPerformanceError] = useState<string | null>(null)
   const [nodeProducerActionLoading, setNodeProducerActionLoading] = useState<NodeProducerActionState>(null)
   const [nodeProducerAddressDraft, setNodeProducerAddressDraft] = useState('')
   const [producerUnlockPassword, setProducerUnlockPassword] = useState('')
@@ -1556,6 +1559,27 @@ export function App() {
     }
   }
 
+  const refreshDashboardPerformance = async (settingsOverride?: NodeManagerSettings) => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.dashboardPerformance) return
+
+    setDashboardPerformanceLoading(true)
+    setDashboardPerformanceError(null)
+    try {
+      const result = await bridge.dashboardPerformance({
+        ...toNodeApiSettings(settingsOverride ?? nodeSettings)
+      })
+      setDashboardPerformance(result)
+      if (!result.ok) {
+        setDashboardPerformanceError(result.output || t('dashboard.unableLoadPerformance'))
+      }
+    } catch (error) {
+      setDashboardPerformanceError(error instanceof Error ? error.message : t('dashboard.unableLoadPerformance'))
+    } finally {
+      setDashboardPerformanceLoading(false)
+    }
+  }
+
   const refreshDashboardCurrentSubtab = async () => {
     if (dashboardSubtab === 'producers') {
       await refreshDashboardProducers()
@@ -1564,6 +1588,11 @@ export function App() {
 
     if (dashboardSubtab === 'peers') {
       await refreshDashboardPeers()
+      return
+    }
+
+    if (dashboardSubtab === 'performance') {
+      await refreshDashboardPerformance()
       return
     }
 
@@ -3120,6 +3149,9 @@ export function App() {
           dashboardPeers={dashboardPeers}
           dashboardPeersLoading={dashboardPeersLoading}
           dashboardPeersError={dashboardPeersError}
+          dashboardPerformance={dashboardPerformance}
+          dashboardPerformanceLoading={dashboardPerformanceLoading}
+          dashboardPerformanceError={dashboardPerformanceError}
           nodeProducerOverview={nodeProducerOverview}
           nodeProducerLoading={nodeProducerLoading}
           nodeProducerError={nodeProducerError}

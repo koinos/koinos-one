@@ -119,6 +119,8 @@ import type {
   KoinosNodeBaseDirCopyResult,
   KoinosNodeCloneRepoResult,
   KoinosNodeCommandResult,
+  KoinosNodeDashboardPerformanceInput,
+  KoinosNodeDashboardPerformanceResult,
   KoinosNodeDashboardPeersInput,
   KoinosNodeDashboardPeerRow,
   KoinosNodeDashboardPeersResult,
@@ -290,7 +292,17 @@ const producerService = createProducerService({
   nativeComposeStatus,
   nativeComposeLogs,
   isComposeServiceRunning,
-  blockProducerPrivateKeyFilePath
+  blockProducerPrivateKeyFilePath,
+  getAppMetrics: () => app.getAppMetrics(),
+  hostSnapshot: () => ({
+    cpuCount: os.cpus().length,
+    totalMemoryBytes: os.totalmem(),
+    freeMemoryBytes: os.freemem(),
+    loadAverage: os.loadavg(),
+    uptimeSeconds: os.uptime()
+  }),
+  now: () => Date.now(),
+  runCommand
 })
 
 const walletService = createWalletService({
@@ -3689,6 +3701,12 @@ async function koinosNodeDashboardPeers(input?: KoinosNodeDashboardPeersInput): 
   return producerService.koinosNodeDashboardPeers(input)
 }
 
+async function koinosNodeDashboardPerformance(
+  input?: KoinosNodeDashboardPerformanceInput
+): Promise<KoinosNodeDashboardPerformanceResult> {
+  return producerService.koinosNodeDashboardPerformance(input)
+}
+
 async function koinosNodeProducerProfileGet(): Promise<KoinosNodeProducerProfileResult> {
   return producerService.koinosNodeProducerProfileGet()
 }
@@ -3835,6 +3853,7 @@ function registerIpcHandlers() {
     koinosJsonRpcProxy,
     koinosNodeDashboardProducers,
     koinosNodeDashboardPeers,
+    koinosNodeDashboardPerformance,
     koinosNodeProducerOverview,
     koinosNodeProducerRegisteredKey,
     koinosNodeProducerLocalInfo,
