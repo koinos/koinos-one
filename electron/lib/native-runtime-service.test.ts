@@ -2,34 +2,25 @@ import { describe, expect, it } from 'vitest'
 
 import { createNativeRuntimeService } from './native-runtime-service'
 import type {
-  ComposeServiceDefinition,
-  ComposeServiceStatus,
   KoinosNodeSettings,
   KoinosNodeStatus,
+  ServiceStatus,
   NativeServiceProcessState
 } from './main-types'
 
 function createSettings(): KoinosNodeSettings {
   return {
     repoPath: '/tmp/koinos',
-    composeFile: '/tmp/koinos/docker-compose.yml',
-    envFile: '/tmp/koinos/.env',
     baseDir: '/tmp/koinos/basedir',
     profiles: ['block_producer'],
-    blockchainBackupUrl: 'https://example.com/backup.tar.gz',
-    runtimeMode: 'native'
+    blockchainBackupUrl: 'https://example.com/backup.tar.gz'
   }
 }
 
-function createStatus(serviceOverrides?: Partial<ComposeServiceStatus>): KoinosNodeStatus {
+function createStatus(serviceOverrides?: Partial<ServiceStatus>): KoinosNodeStatus {
   return {
     ok: true,
-    dockerAvailable: true,
-    runtimeMode: 'native',
-    availableRuntimeModes: ['native'],
     repoPath: '/tmp/koinos',
-    composeFile: '/tmp/koinos/docker-compose.yml',
-    envFile: '/tmp/koinos/.env',
     baseDir: '/tmp/koinos/basedir',
     profiles: ['block_producer'],
     configReady: true,
@@ -40,7 +31,6 @@ function createStatus(serviceOverrides?: Partial<ComposeServiceStatus>): KoinosN
         name: 'chain',
         service: 'chain',
         runtimeName: 'chain',
-        runtimeType: 'native',
         version: null,
         state: 'running',
         status: 'running',
@@ -61,16 +51,13 @@ function createStatus(serviceOverrides?: Partial<ComposeServiceStatus>): KoinosN
 function createService(overrides?: Partial<Parameters<typeof createNativeRuntimeService>[0]>) {
   const settings = createSettings()
   const nativeStatus = createStatus()
-  const dockerStatus = createStatus({ runtimeType: 'docker' })
 
   return createNativeRuntimeService({
     nativeAmqpStartupTimeoutMs: 1000,
     normalizeNodeSettings: () => settings,
-    ensureKoinosRepoRenamedFiles: () => '',
     assertRepoReady: () => {},
-    readComposeServiceDefinitions: () => new Map<string, ComposeServiceDefinition>(),
-    prepareNativeStartNotes: (_settings, notes) => notes,
-    prepareComposeStartNotes: (_settings, notes) => notes,
+    readServiceDefinitions: () => new Map<string, Record<string, unknown>>(),
+    prepareNativeStartNotes: (_settings: KoinosNodeSettings, notes: string[]) => notes,
     nativeRuntimeDockerConflictCheck: async () => ({ ok: true, output: '' }),
     selectedManagedComposeServiceIds: () => ['chain'],
     sortManagedServiceIds: (ids) => [...ids],
@@ -88,23 +75,15 @@ function createService(overrides?: Partial<Parameters<typeof createNativeRuntime
     nativeServiceConnectHost: () => '127.0.0.1',
     listTcpListenerOwners: async () => [],
     tcpListenerOwnedByRabbitmq: () => false,
-    tcpListenerOwnedByDocker: () => false,
     describeTcpListenerOwners: () => 'none',
     nativeComposeStatus: async () => nativeStatus,
-    dockerComposeStatus: async () => dockerStatus,
-    toManagedServiceId: (service) => service,
-    serviceDisplayName: (serviceId) => serviceId,
+    toManagedServiceId: (service: string) => service,
+    serviceDisplayName: (serviceId: string) => serviceId,
     findProfileDependents: () => [],
     isComposeServiceRunning: (service) => service.state === 'running',
     nativeManagedProcessRegistryOutput: () => '',
     killConflictingNativeServiceProcesses: async () => ({ ok: true, output: 'killed' }),
-    ensureNativeComposeImages: async () => ({ ok: true, output: '' }),
-    composeBaseArgs: () => ['compose'],
-    composeCommandEnv: () => ({}),
-    runDockerCommandWithAutoStart: async () => ({ result: { ok: true, code: 0, output: 'ok' }, notes: [] }),
-    resolvePresetOrThrow: async () => ({ preset: { id: 'p', label: 'Preset', source: 'compose-core', profiles: [], services: ['chain'], description: '' }, settings }),
-    nativeDockerPlatform: () => null,
-    toDockerServiceName: (serviceId) => serviceId,
+    resolvePresetOrThrow: async () => ({ preset: { id: 'p', label: 'Preset', source: 'profile' as const, profiles: [], services: ['chain'], description: '' }, settings }),
     listsEqual: (left, right) => left.join(',') === right.join(','),
     nativeServiceProcesses: new Map<string, NativeServiceProcessState>(),
     ...overrides
@@ -122,11 +101,10 @@ describe('native-runtime-service', () => {
     expect(result.output).toContain('docker conflict')
   })
 
-  it('rejects kill-conflict in docker service mode', async () => {
+  it('calls nativeComposeServiceAction correctly', async () => {
     const service = createService()
 
-    const result = await service.dockerComposeServiceAction('kill-conflict', { service: 'chain' })
-    expect(result.ok).toBe(false)
-    expect(result.output).toContain('Kill conflicting process solo esta disponible en runtime native')
+    const result = await service.nativeComposeServiceAction('start', { service: 'chain' })
+    expect(result).toBeDefined()
   })
 })

@@ -5,16 +5,11 @@ import type { WebContents } from 'electron'
 
 import type { NativeBuildSystem } from './native-tooling'
 
-export type KoinosNodeServiceRuntime = 'docker' | 'native'
-
 export type KoinosNodeSettingsInput = {
   repoPath?: string
-  composeFile?: string
-  envFile?: string
   baseDir?: string
   profiles?: string[]
   blockchainBackupUrl?: string
-  runtimeMode?: KoinosNodeServiceRuntime
 }
 
 export type KoinosNodeProducerOverviewInput = KoinosNodeSettingsInput & {
@@ -38,12 +33,9 @@ export type KoinosNodeDashboardPerformanceInput = KoinosNodeSettingsInput
 
 export type KoinosNodeSettings = {
   repoPath: string
-  composeFile: string
-  envFile: string
   baseDir: string
   profiles: string[]
   blockchainBackupUrl: string
-  runtimeMode: KoinosNodeServiceRuntime
 }
 
 export type PublicRpcConfigInput = {
@@ -67,27 +59,13 @@ export type KoinosNodeServicePort = {
 export type ManagedKoinosServiceDefinition = {
   id: string
   displayName: string
-  dockerService: string
-  plannedRuntimeModes: KoinosNodeServiceRuntime[]
 }
 
-export type ComposeServiceDefinition = {
-  profiles: string[]
-  dependsOn: string[]
-  ports: KoinosNodeServicePort[]
-  image: string | null
-}
-
-export type ComposeResolvedServiceDefinition = {
-  image: string | null
-}
-
-export type ComposeServiceStatus = {
+export type ServiceStatus = {
   id: string
   name: string
   service: string
   runtimeName: string
-  runtimeType: KoinosNodeServiceRuntime
   version: string | null
   state: string
   status: string
@@ -101,22 +79,17 @@ export type ComposeServiceStatus = {
 
 export type KoinosNodeStatus = {
   ok: boolean
-  dockerAvailable: boolean
-  runtimeMode: KoinosNodeServiceRuntime
-  availableRuntimeModes: KoinosNodeServiceRuntime[]
   repoPath: string
-  composeFile: string
-  envFile: string
   baseDir: string
   profiles: string[]
   configReady: boolean
   configDir: string
-  services: ComposeServiceStatus[]
+  services: ServiceStatus[]
   runningServices: number
   output: string
 }
 
-export type KoinosNodePresetSource = 'compose-core' | 'compose-profile'
+export type KoinosNodePresetSource = 'profile'
 
 export type KoinosNodePreset = {
   id: string
@@ -416,7 +389,7 @@ export type KoinosNodeCloneRepoResult = {
   output: string
 }
 
-export type KoinosNodeManagedFileKind = 'compose' | 'env' | 'config'
+export type KoinosNodeManagedFileKind = 'config'
 
 export type KoinosNodeFileReadInput = KoinosNodeSettingsInput & {
   kind: KoinosNodeManagedFileKind
@@ -462,7 +435,6 @@ export type KoinosNodeValidateBaseDirResult = {
 export type KoinosNodeBaseDirCopyInput = KoinosNodeSettingsInput & {
   sourceBaseDir?: string
   targetBaseDir?: string
-  stopSourceRuntime?: boolean
 }
 
 export type KoinosNodeBaseDirCopyResult = {
@@ -575,12 +547,6 @@ export type NativeServiceStopResult = {
 export type NativeConflictKillResult = {
   ok: boolean
   output: string
-}
-
-export type PlatformDescriptor = {
-  architecture?: string
-  os?: string
-  variant?: string
 }
 
 export type NativeBuildToolStatus = {

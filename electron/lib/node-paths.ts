@@ -4,12 +4,9 @@ import path from 'node:path'
 import {
   DEFAULT_BASEDIR,
   DEFAULT_BLOCKCHAIN_BACKUP_URL,
-  DEFAULT_COMPOSE_FILE,
-  DEFAULT_ENV_FILE,
-  DEFAULT_KOINOS_REPO_PATH,
   DEFAULT_PROFILES,
   DEFAULT_PUBLIC_RPC_URLS,
-  LEGACY_DEFAULT_ENV_FILE
+  resolveDefaultKoinosRepoPath
 } from './constants'
 
 export function expandUserPath(inputPath: string): string {
@@ -38,18 +35,6 @@ export function verifyWritableDirectory(dirPath: string): void {
   fs.accessSync(dirPath, fs.constants.R_OK | fs.constants.W_OK)
 }
 
-export function composeFilePath(settings: { repoPath: string; composeFile: string }): string {
-  return path.isAbsolute(settings.composeFile)
-    ? settings.composeFile
-    : path.join(settings.repoPath, settings.composeFile)
-}
-
-export function envFilePath(settings: { repoPath: string; envFile: string }): string {
-  return path.isAbsolute(settings.envFile)
-    ? settings.envFile
-    : path.join(settings.repoPath, settings.envFile)
-}
-
 export function configDirPath(settings: { repoPath: string }): string {
   return path.join(settings.repoPath, 'config')
 }
@@ -59,11 +44,9 @@ export function configExampleDirPath(settings: { repoPath: string }): string {
 }
 
 export function managedFilePath(
-  settings: { repoPath: string; composeFile: string; envFile: string },
-  kind: 'compose' | 'env' | 'config'
+  settings: { repoPath: string },
+  kind: 'config'
 ): string {
-  if (kind === 'compose') return composeFilePath(settings)
-  if (kind === 'env') return envFilePath(settings)
   return path.join(configDirPath(settings), 'config.yml')
 }
 
@@ -128,27 +111,18 @@ export function sanitizePublicRpcUrls(value: unknown): string[] {
 export function normalizeNodeSettings(
   input?: {
     repoPath?: string
-    composeFile?: string
-    envFile?: string
     baseDir?: string
     profiles?: string[]
     blockchainBackupUrl?: string
-    runtimeMode?: 'docker' | 'native'
   },
   expandProfiles?: (profiles: string[]) => string[]
 ): {
   repoPath: string
-  composeFile: string
-  envFile: string
   baseDir: string
   profiles: string[]
   blockchainBackupUrl: string
-  runtimeMode: 'docker' | 'native'
 } {
-  const repoPath = expandUserPath(input?.repoPath || DEFAULT_KOINOS_REPO_PATH)
-  const composeFile = (input?.composeFile || DEFAULT_COMPOSE_FILE).trim() || DEFAULT_COMPOSE_FILE
-  const requestedEnvFile = (input?.envFile || DEFAULT_ENV_FILE).trim() || DEFAULT_ENV_FILE
-  const envFile = requestedEnvFile === LEGACY_DEFAULT_ENV_FILE ? DEFAULT_ENV_FILE : requestedEnvFile
+  const repoPath = expandUserPath(input?.repoPath || resolveDefaultKoinosRepoPath())
   const baseDir = ensureKoinosBaseDir(input?.baseDir || DEFAULT_BASEDIR)
   const requestedProfiles = Array.isArray(input?.profiles) ? input.profiles : DEFAULT_PROFILES
   const profiles = expandProfiles ? expandProfiles(requestedProfiles) : requestedProfiles
@@ -156,23 +130,17 @@ export function normalizeNodeSettings(
 
   return {
     repoPath,
-    composeFile,
-    envFile,
     baseDir,
     profiles,
-    blockchainBackupUrl,
-    runtimeMode: 'native'
+    blockchainBackupUrl
   }
 }
 
 export function parsePersistedNodeSettings(input: unknown): {
   repoPath?: string
-  composeFile?: string
-  envFile?: string
   baseDir?: string
   profiles?: string[]
   blockchainBackupUrl?: string
-  runtimeMode?: 'native'
 } | undefined {
   if (!input || typeof input !== 'object') return undefined
   const value = input as Record<string, unknown>
@@ -187,11 +155,8 @@ export function parsePersistedNodeSettings(input: unknown): {
 
   return {
     repoPath: typeof value.repoPath === 'string' ? value.repoPath : undefined,
-    composeFile: typeof value.composeFile === 'string' ? value.composeFile : undefined,
-    envFile: typeof value.envFile === 'string' ? value.envFile : undefined,
     baseDir: typeof value.baseDir === 'string' ? value.baseDir : undefined,
     profiles,
-    blockchainBackupUrl: typeof value.blockchainBackupUrl === 'string' ? value.blockchainBackupUrl : undefined,
-    runtimeMode: value.runtimeMode === 'native' ? value.runtimeMode : undefined
+    blockchainBackupUrl: typeof value.blockchainBackupUrl === 'string' ? value.blockchainBackupUrl : undefined
   }
 }

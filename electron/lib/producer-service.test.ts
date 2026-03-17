@@ -166,12 +166,7 @@ describe('producer-service helpers', () => {
 function createPerformanceService(overrides: Record<string, unknown> = {}) {
   const baseStatus: KoinosNodeStatus = {
     ok: true,
-    dockerAvailable: true,
-    runtimeMode: 'native',
-    availableRuntimeModes: ['native'],
     repoPath: '/tmp/koinos',
-    composeFile: '/tmp/koinos/docker-compose.yml',
-    envFile: '/tmp/koinos/.env',
     baseDir: '/tmp/.koinos',
     profiles: [],
     configReady: true,

@@ -14,19 +14,16 @@ export type ExplorerRpcSource = 'local' | string
 
 export type NodeManagerSettings = {
   repoPath: string
-  composeFile: string
-  envFile: string
   baseDir: string
   profiles: string
   blockchainBackupUrl: string
-  runtimeMode: KnodelKoinosNodeServiceRuntime
 }
 
 export type NodeAction = 'start' | 'stop'
 export type NodeServiceAction = 'start' | 'stop' | 'restart'
 export type AppTab = 'explorer' | 'dashboard' | 'node' | 'producer' | 'wallet' | 'settings'
 export type DashboardSubtab = 'producers' | 'peers' | 'forecast' | 'performance'
-export type NodeManagedFileKind = 'compose' | 'env' | 'config'
+export type NodeManagedFileKind = 'config'
 
 export type NodeServiceContextMenuState = {
   serviceId: string

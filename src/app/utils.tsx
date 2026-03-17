@@ -349,16 +349,6 @@ export function loadInitialNodeSettings(): NodeManagerSettings {
         typeof parsed.repoPath === 'string' && parsed.repoPath.trim()
           ? parsed.repoPath
           : DEFAULT_NODE_SETTINGS.repoPath,
-      composeFile:
-        typeof parsed.composeFile === 'string' && parsed.composeFile.trim()
-          ? parsed.composeFile
-          : DEFAULT_NODE_SETTINGS.composeFile,
-      envFile:
-        typeof parsed.envFile === 'string' && parsed.envFile.trim()
-          ? parsed.envFile.trim() === 'env.example'
-            ? '.env'
-            : parsed.envFile
-          : DEFAULT_NODE_SETTINGS.envFile,
       baseDir: normalizeNodeBaseDirInput(
         typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : DEFAULT_NODE_SETTINGS.baseDir
       ),
@@ -366,8 +356,7 @@ export function loadInitialNodeSettings(): NodeManagerSettings {
       blockchainBackupUrl:
         typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
           ? parsed.blockchainBackupUrl
-          : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
-      runtimeMode: 'native'
+          : DEFAULT_NODE_SETTINGS.blockchainBackupUrl
     }
   } catch {
     return { ...DEFAULT_NODE_SETTINGS }
@@ -404,12 +393,9 @@ export function normalizeNodeBaseDirInput(value: string): string {
 export function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNodeSettings {
   return {
     repoPath: settings.repoPath.trim(),
-    composeFile: settings.composeFile.trim(),
-    envFile: settings.envFile.trim(),
     baseDir: normalizeNodeBaseDirInput(settings.baseDir),
     profiles: expandNodeProfiles(parseProfilesCsv(settings.profiles)),
-    blockchainBackupUrl: settings.blockchainBackupUrl.trim(),
-    runtimeMode: 'native'
+    blockchainBackupUrl: settings.blockchainBackupUrl.trim()
   }
 }
 
@@ -426,9 +412,7 @@ export function getWalletBridge() {
 }
 
 export function looksLikeNodeErrorOutput(output: string): boolean {
-  return /cannot connect to the docker daemon|spawn docker ENOENT|repo path not found|compose file not found|env file not found|missing config dir|no se pudo consultar docker compose|error consultando docker compose/i.test(
-    output
-  )
+  return /repo path not found|missing config dir/i.test(output)
 }
 
 export function nodeServicePortByTarget(
@@ -484,10 +468,6 @@ export function formatNodeServiceType(_service: KnodelKoinosNodeServiceStatus, l
 
 export function formatNodeServiceVersion(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
   return service.version?.trim() || translate(language, 'common.unknown')
-}
-
-export function formatNodeRuntimeMode(_mode: KnodelKoinosNodeServiceRuntime, language: AppLanguage): string {
-  return translate(language, 'common.runtimeNative')
 }
 
 export function formatNodeServiceTooltip(

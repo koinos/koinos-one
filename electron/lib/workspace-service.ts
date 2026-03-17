@@ -1,14 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { KOINOS_GIT_CLONE_URL, LEGACY_DEFAULT_ENV_FILE } from './constants'
+import { KOINOS_GIT_CLONE_URL } from './constants'
 import type {
   KoinosNodeCloneRepoResult,
   KoinosNodeFileReadInput,
   KoinosNodeFileReadResult,
   KoinosNodeFileWriteInput,
   KoinosNodeFileWriteResult,
-  KoinosNodeManagedFileKind,
   KoinosNodeSettings,
   KoinosNodeSettingsInput,
   KoinosNodeValidateBaseDirResult
@@ -16,11 +15,9 @@ import type {
 
 type WorkspaceServiceDeps = {
   normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
-  composeFilePath: (settings: KoinosNodeSettings) => string
-  envFilePath: (settings: KoinosNodeSettings) => string
   configDirPath: (settings: KoinosNodeSettings) => string
   configExampleDirPath: (settings: KoinosNodeSettings) => string
-  managedFilePath: (settings: KoinosNodeSettings, kind: KoinosNodeManagedFileKind) => string
+  managedFilePath: (settings: KoinosNodeSettings, kind: 'config') => string
   restoreWorkspaceParentPath: (baseDir: string) => string
   verifyWritableDirectory: (dirPath: string) => void
   runCommand: (
@@ -38,14 +35,6 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
   function assertRepoReady(settings: KoinosNodeSettings): void {
     if (!fs.existsSync(settings.repoPath)) {
       throw new Error(`Koinos repo path not found: ${settings.repoPath}`)
-    }
-    const composePath = deps.composeFilePath(settings)
-    if (!fs.existsSync(composePath)) {
-      throw new Error(`Compose file not found: ${composePath}`)
-    }
-    const envPath = deps.envFilePath(settings)
-    if (!fs.existsSync(envPath)) {
-      throw new Error(`Env file not found: ${envPath}`)
     }
   }
 
@@ -76,55 +65,6 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
       copied.length > 0 ? `Completed config/ with missing files from config-example: ${copied.join(', ')}` : 'config/ ready'
 
     return { configReady: true, output }
-  }
-
-  function ensureKoinosRepoRenamedFiles(settings: KoinosNodeSettings): string {
-    if (!fs.existsSync(settings.repoPath)) return ''
-
-    const notes: string[] = []
-
-    const configExampleDir = deps.configExampleDirPath(settings)
-    const configDir = deps.configDirPath(settings)
-    if (!fs.existsSync(configDir) && fs.existsSync(configExampleDir)) {
-      fs.renameSync(configExampleDir, configDir)
-      notes.push('Renamed config-example/ -> config/')
-    }
-
-    const envExamplePath = path.join(settings.repoPath, LEGACY_DEFAULT_ENV_FILE)
-    const dotEnvPath = path.join(settings.repoPath, '.env')
-    if (!fs.existsSync(dotEnvPath) && fs.existsSync(envExamplePath)) {
-      fs.renameSync(envExamplePath, dotEnvPath)
-      notes.push('Renamed env.example -> .env')
-    }
-
-    return notes.join('\n')
-  }
-
-  async function restoreKoinosRepoTemplatesForRefresh(settings: KoinosNodeSettings): Promise<string> {
-    const repoPath = settings.repoPath
-    if (!fs.existsSync(path.join(repoPath, '.git'))) return ''
-
-    const pathsToRestore: string[] = []
-    const configDir = deps.configDirPath(settings)
-    const configExampleDir = deps.configExampleDirPath(settings)
-    const dotEnvPath = path.join(repoPath, '.env')
-    const envExamplePath = path.join(repoPath, LEGACY_DEFAULT_ENV_FILE)
-
-    if (fs.existsSync(configDir) && !fs.existsSync(configExampleDir)) {
-      pathsToRestore.push('config-example')
-    }
-    if (fs.existsSync(dotEnvPath) && !fs.existsSync(envExamplePath)) {
-      pathsToRestore.push(LEGACY_DEFAULT_ENV_FILE)
-    }
-
-    if (!pathsToRestore.length) return ''
-
-    const result = await deps.runCommand('git', ['-C', repoPath, 'checkout', '--', ...pathsToRestore], {
-      cwd: repoPath
-    })
-
-    const restoredLabel = `Restored tracked templates before refresh: ${pathsToRestore.join(', ')}`
-    return [restoredLabel, result.output].filter(Boolean).join('\n')
   }
 
   function ensureBaseDirKoinosRuntimeFiles(settings: KoinosNodeSettings): string {
@@ -237,8 +177,6 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
 
       if (fs.existsSync(path.join(repoPath, '.git'))) {
         const refreshSteps: string[] = []
-        const restoreTemplatesResult = await restoreKoinosRepoTemplatesForRefresh(settings)
-        if (restoreTemplatesResult) refreshSteps.push(restoreTemplatesResult)
         const fetchResult = await deps.runCommand('git', ['-C', repoPath, 'fetch', '--all', '--prune'], {
           cwd: repoPath
         })
@@ -255,8 +193,6 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
           cwd: repoPath
         })
         if (pullResult.output) refreshSteps.push(pullResult.output)
-        const renameNotes = ensureKoinosRepoRenamedFiles(settings)
-        if (renameNotes) refreshSteps.push(renameNotes)
         return {
           ok: pullResult.ok,
           repoPath,
@@ -284,11 +220,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
       cwd: path.dirname(repoPath)
     })
 
-    const renameNotes = result.ok ? ensureKoinosRepoRenamedFiles(settings) : ''
-    const output = [result.output, renameNotes]
-      .filter(Boolean)
-      .join('\n')
-      .trim() || (result.ok ? `Cloned ${KOINOS_GIT_CLONE_URL} into ${repoPath}` : 'git clone failed')
+    const output = result.output.trim() || (result.ok ? `Cloned ${KOINOS_GIT_CLONE_URL} into ${repoPath}` : 'git clone failed')
     return {
       ok: result.ok,
       repoPath,
@@ -298,7 +230,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
 
   async function readKoinosManagedFile(input: KoinosNodeFileReadInput): Promise<KoinosNodeFileReadResult> {
     const settings = deps.normalizeNodeSettings(input)
-    const kind = input.kind
+    const kind: 'config' = 'config'
     const filePath = deps.managedFilePath(settings, kind)
 
     try {
@@ -324,7 +256,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
 
   async function writeKoinosManagedFile(input: KoinosNodeFileWriteInput): Promise<KoinosNodeFileWriteResult> {
     const settings = deps.normalizeNodeSettings(input)
-    const kind = input.kind
+    const kind: 'config' = 'config'
     const filePath = deps.managedFilePath(settings, kind)
     const content = input.content ?? ''
 
@@ -350,8 +282,6 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
   return {
     assertRepoReady,
     ensureKoinosConfigFiles,
-    ensureKoinosRepoRenamedFiles,
-    restoreKoinosRepoTemplatesForRefresh,
     ensureBaseDirKoinosRuntimeFiles,
     validateNodeBaseDirAccess,
     cloneKoinosRepo,

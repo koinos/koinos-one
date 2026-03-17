@@ -1,0 +1,36 @@
+[submodule "vendor/koinos/koinos"]
+	path = vendor/koinos/koinos
+	url = https://github.com/koinos/koinos.git
+[submodule "vendor/koinos/koinos-chain"]
+	path = vendor/koinos/koinos-chain
+	url = https://github.com/koinos/koinos-chain.git
+[submodule "vendor/koinos/koinos-mempool"]
+	path = vendor/koinos/koinos-mempool
+	url = https://github.com/koinos/koinos-mempool.git
+[submodule "vendor/koinos/koinos-block-store"]
+	path = vendor/koinos/koinos-block-store
+	url = https://github.com/koinos/koinos-block-store.git
+[submodule "vendor/koinos/koinos-p2p"]
+	path = vendor/koinos/koinos-p2p
+	url = https://github.com/koinos/koinos-p2p.git
+[submodule "vendor/koinos/koinos-block-producer"]
+	path = vendor/koinos/koinos-block-producer
+	url = https://github.com/koinos/koinos-block-producer.git
+[submodule "vendor/koinos/koinos-jsonrpc"]
+	path = vendor/koinos/koinos-jsonrpc
+	url = https://github.com/koinos/koinos-jsonrpc.git
+[submodule "vendor/koinos/koinos-grpc"]
+	path = vendor/koinos/koinos-grpc
+	url = https://github.com/koinos/koinos-grpc.git
+[submodule "vendor/koinos/koinos-transaction-store"]
+	path = vendor/koinos/koinos-transaction-store
+	url = https://github.com/koinos/koinos-transaction-store.git
+[submodule "vendor/koinos/koinos-contract-meta-store"]
+	path = vendor/koinos/koinos-contract-meta-store
+	url = https://github.com/koinos/koinos-contract-meta-store.git
+[submodule "vendor/koinos/koinos-account-history"]
+	path = vendor/koinos/koinos-account-history
+	url = https://github.com/koinos/koinos-account-history.git
+[submodule "vendor/koinos/koinos-rest"]
+	path = vendor/koinos/koinos-rest
+	url = https://github.com/koinos/koinos-rest.git

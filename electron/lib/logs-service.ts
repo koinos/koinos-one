@@ -5,7 +5,6 @@ import { spawn } from 'node:child_process'
 import type { WebContents } from 'electron'
 
 import type {
-  ComposeServiceStatus,
   KoinosNodeLogsFollowEvent,
   KoinosNodeLogsFollowStartInput,
   KoinosNodeLogsFollowStartResult,
@@ -24,16 +23,6 @@ type LogsServiceDeps = {
   maxNativeServiceLogBytes: number
   normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
   assertRepoReady: (settings: KoinosNodeSettings) => void
-  composeBaseArgs: (settings: KoinosNodeSettings) => string[]
-  runDockerCommandWithAutoStart: (
-    args: string[],
-    options: {
-      cwd: string
-      env: NodeJS.ProcessEnv
-      allowAutoStart: boolean
-    }
-  ) => Promise<{ result: { ok: boolean; output: string }; notes: string[] }>
-  composeLogsCommandEnv: (settings: KoinosNodeSettings) => NodeJS.ProcessEnv
   nativeAmqpHomebrewLogFiles: () => string[]
   nativeComposeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
   toManagedServiceId: (service: string) => string
@@ -144,116 +133,6 @@ export function createLogsService(deps: LogsServiceDeps) {
         type: 'end',
         code: code ?? 0
       })
-    }
-  }
-
-  async function dockerComposeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNodeLogsResult> {
-    const settings = deps.normalizeNodeSettings(input)
-    deps.assertRepoReady(settings)
-
-    const service = input?.service?.trim() || ''
-    const tail = normalizeLogsTail(input?.tail)
-
-    const composeArgs = [...deps.composeBaseArgs(settings), 'logs', '--tail', String(tail)]
-    if (service) composeArgs.push(service)
-
-    const dockerRun = await deps.runDockerCommandWithAutoStart(composeArgs, {
-      cwd: settings.repoPath,
-      env: deps.composeLogsCommandEnv(settings),
-      allowAutoStart: true
-    })
-    const result = dockerRun.result
-
-    return {
-      ok: result.ok,
-      service: service || null,
-      tail,
-      output: [dockerRun.notes.join('\n'), result.output].filter(Boolean).join('\n')
-    }
-  }
-
-  function dockerComposeLogsFollowStart(
-    sender: WebContents,
-    input?: KoinosNodeLogsFollowStartInput
-  ): KoinosNodeLogsFollowStartResult {
-    const settings = deps.normalizeNodeSettings(input)
-    deps.assertRepoReady(settings)
-
-    const service = input?.service?.trim() || ''
-    const tail = normalizeLogsTail(input?.tail)
-
-    const composeArgs = [...deps.composeBaseArgs(settings), 'logs', '--tail', String(tail), '--follow']
-    if (service) composeArgs.push(service)
-
-    const child = spawn('docker', composeArgs, {
-      cwd: settings.repoPath,
-      env: { ...process.env, ...deps.composeLogsCommandEnv(settings) },
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    const streamId = deps.nextStreamId()
-    const session: LogsFollowSession = {
-      sender,
-      service: service || null,
-      tail,
-      ended: false,
-      stop: () => {
-        if (!child.killed) {
-          try {
-            child.kill('SIGTERM')
-          } catch {
-            // ignore kill errors; process may already be gone
-          }
-        }
-      }
-    }
-    deps.logsFollowSessions.set(streamId, session)
-
-    const onChunk = (chunk: Buffer | string) => {
-      sendLogsFollowEvent(sender, deps.logsFollowEventChannel, {
-        streamId,
-        type: 'chunk',
-        chunk: String(chunk)
-      })
-    }
-
-    child.stdout.on('data', onChunk)
-    child.stderr.on('data', onChunk)
-
-    child.on('error', (error) => {
-      if (session.ended) return
-      session.ended = true
-      deps.logsFollowSessions.delete(streamId)
-      sendLogsFollowEvent(sender, deps.logsFollowEventChannel, {
-        streamId,
-        type: 'error',
-        message: error.message
-      })
-    })
-
-    child.on('close', (code) => {
-      if (session.ended) return
-      session.ended = true
-      deps.logsFollowSessions.delete(streamId)
-      sendLogsFollowEvent(sender, deps.logsFollowEventChannel, {
-        streamId,
-        type: 'end',
-        code
-      })
-    })
-
-    sendLogsFollowEvent(sender, deps.logsFollowEventChannel, {
-      streamId,
-      type: 'start',
-      service: service || null,
-      tail
-    })
-
-    return {
-      ok: true,
-      streamId,
-      service: service || null,
-      tail
     }
   }
 
@@ -495,8 +374,6 @@ export function createLogsService(deps: LogsServiceDeps) {
   return {
     appendNativeServiceOutput,
     closeNativeLogStreamsForService,
-    dockerComposeLogs,
-    dockerComposeLogsFollowStart,
     nativeComposeLogs,
     nativeComposeLogsFollowStart,
     normalizeLogsTail,

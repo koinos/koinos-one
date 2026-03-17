@@ -25,12 +25,9 @@ export const DEFAULT_SETTINGS = {
 
 export const DEFAULT_NODE_SETTINGS = {
   repoPath: '/Users/pgarcgo/code/koinos_code/koinos',
-  composeFile: 'docker-compose.yml',
-  envFile: '.env',
   baseDir: '~/.koinos',
   profiles: 'block_producer,jsonrpc,contract_meta_store',
-  blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz',
-  runtimeMode: 'native'
+  blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
 } as const satisfies NodeManagerSettings
 
 export const SYNC_GAP_BLOCK_THRESHOLD = 50

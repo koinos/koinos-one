@@ -40,11 +40,7 @@ export function NodeFileEditorModal(props: NodeFileEditorModalProps) {
               <div>
                 <p className="eyebrow">{t('fileEditor.eyebrow')}</p>
                 <h3 id="node-file-editor-title" className="file-editor-title">
-                  {nodeFileEditorKind === 'compose'
-                    ? t('fileEditor.compose')
-                    : nodeFileEditorKind === 'env'
-                      ? t('fileEditor.env')
-                      : t('fileEditor.config')}
+                  {t('fileEditor.config')}
                 </h3>
                 <p className="file-editor-path mono" title={nodeFileEditorPath}>
                   {nodeFileEditorPath || t('common.emptyPath')}

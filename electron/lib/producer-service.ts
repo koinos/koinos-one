@@ -14,7 +14,7 @@ import {
   VHP_CONTRACT_ADDRESS
 } from './constants'
 import type {
-  ComposeServiceStatus,
+  ServiceStatus,
   KoinosNodeDashboardPerformanceHost,
   KoinosNodeDashboardPerformanceInput,
   KoinosNodeDashboardPerformanceResult,
@@ -75,7 +75,7 @@ type ProducerServiceDeps = {
   knodelProducerProfileFilePath: () => string
   nativeComposeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
   nativeComposeLogs: (input?: KoinosNodeLogsInput) => Promise<KoinosNodeLogsResult>
-  isComposeServiceRunning: (service: ComposeServiceStatus) => boolean
+  isComposeServiceRunning: (service: ServiceStatus) => boolean
   blockProducerPrivateKeyFilePath: (settings: KoinosNodeSettings) => string
   getAppMetrics: () => ProducerServiceAppMetric[]
   hostSnapshot: () => KoinosNodeDashboardPerformanceHost
@@ -994,7 +994,6 @@ export function createProducerService(deps: ProducerServiceDeps) {
       }))
 
       const managedServices = status.services.filter((service) => (
-        service.runtimeType === 'native' &&
         service.managedByKnodel &&
         typeof service.nativePid === 'number' &&
         service.nativePid > 0

@@ -6,9 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import {
   blockProducerPublicKeyFilePath,
-  composeFilePath,
   ensureKoinosBaseDir,
-  envFilePath,
   managedFilePath,
   normalizeNodeSettings,
   parsePersistedNodeSettings,
@@ -40,21 +38,15 @@ describe('electron node paths', () => {
     expect(
       parsePersistedNodeSettings({
         repoPath: '/repo',
-        composeFile: 'docker-compose.yml',
-        envFile: 'env.example',
         baseDir: '~/node',
         profiles: 'block_producer,jsonrpc',
-        blockchainBackupUrl: 'http://example.test/backup.tar.gz',
-        runtimeMode: 'native'
+        blockchainBackupUrl: 'http://example.test/backup.tar.gz'
       })
     ).toEqual({
       repoPath: '/repo',
-      composeFile: 'docker-compose.yml',
-      envFile: 'env.example',
       baseDir: '~/node',
       profiles: ['block_producer', 'jsonrpc'],
-      blockchainBackupUrl: 'http://example.test/backup.tar.gz',
-      runtimeMode: 'native'
+      blockchainBackupUrl: 'http://example.test/backup.tar.gz'
     })
   })
 
@@ -62,7 +54,6 @@ describe('electron node paths', () => {
     const normalized = normalizeNodeSettings(
       {
         repoPath: '~/repo',
-        envFile: 'env.example',
         baseDir: '~/node',
         profiles: ['block_producer']
       },
@@ -70,10 +61,8 @@ describe('electron node paths', () => {
     )
 
     expect(normalized.repoPath).toMatch(/repo$/)
-    expect(normalized.envFile).toBe('.env')
     expect(normalized.baseDir).toMatch(/node\/\.koinos$/)
     expect(normalized.profiles).toEqual(['block_producer', 'jsonrpc'])
-    expect(normalized.runtimeMode).toBe('native')
   })
 
   it('deduplicates and sanitizes public rpc urls', () => {
@@ -98,13 +87,9 @@ describe('electron node paths', () => {
     const repoPath = createTempDir('knodel-node-paths-')
     const settings = {
       repoPath,
-      composeFile: 'docker-compose.yml',
-      envFile: '.env',
       baseDir: path.join(repoPath, '.koinos')
     }
 
-    expect(composeFilePath(settings)).toBe(path.join(repoPath, 'docker-compose.yml'))
-    expect(envFilePath(settings)).toBe(path.join(repoPath, '.env'))
     expect(managedFilePath(settings, 'config')).toBe(path.join(repoPath, 'config', 'config.yml'))
     expect(blockProducerPublicKeyFilePath(settings)).toBe(path.join(repoPath, '.koinos', 'block_producer', 'public.key'))
   })

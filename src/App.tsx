@@ -21,7 +21,6 @@ import type {
   NodeBaseDirChangeDialogState,
   NodeBaseDirValidationState,
   NodeConflictDialogState,
-  NodeManagedFileKind,
   NodeManagerSettings,
   NodeNativeBuildActionState,
   NodeProducerActionState,
@@ -45,7 +44,6 @@ import {
   filterBlocksByProducer,
   formatDateTime,
   formatExplorerRpcSourceTarget,
-  formatNodeRuntimeMode,
   formatNodeServicePorts,
   formatNodeServiceRuntimeDetail,
   formatNodeServiceTooltip,
@@ -137,8 +135,6 @@ export function App() {
     String(settings.dashboardRefreshSeconds)
   )
   const [draftNodeRepoPath, setDraftNodeRepoPath] = useState(nodeSettings.repoPath)
-  const [draftNodeComposeFile, setDraftNodeComposeFile] = useState(nodeSettings.composeFile)
-  const [draftNodeEnvFile, setDraftNodeEnvFile] = useState(nodeSettings.envFile)
   const [draftNodeBaseDir, setDraftNodeBaseDir] = useState(nodeSettings.baseDir)
   const [draftNodeProfiles, setDraftNodeProfiles] = useState(nodeSettings.profiles)
   const [draftNodeBlockchainBackupUrl, setDraftNodeBlockchainBackupUrl] = useState(nodeSettings.blockchainBackupUrl)
@@ -185,7 +181,7 @@ export function App() {
   const [nodeOutput, setNodeOutput] = useState<string>('')
   const [nodeError, setNodeError] = useState<string | null>(null)
   const [nodeFileEditorOpen, setNodeFileEditorOpen] = useState(false)
-  const [nodeFileEditorKind, setNodeFileEditorKind] = useState<NodeManagedFileKind>('compose')
+  const [nodeFileEditorKind, setNodeFileEditorKind] = useState<'config'>('config')
   const [nodeFileEditorPath, setNodeFileEditorPath] = useState('')
   const [nodeFileEditorContent, setNodeFileEditorContent] = useState('')
   const [nodeFileEditorLoading, setNodeFileEditorLoading] = useState(false)
@@ -285,8 +281,6 @@ export function App() {
   const walletDisplayBalance = activeWalletBalanceCacheEntry?.balance || (liveWalletBalanceMatchesActive ? producerSigningWalletBalance : null)
   const walletDisplayBalanceRefreshedAt =
     activeWalletBalanceCacheEntry?.refreshedAt || (liveWalletBalanceMatchesActive ? walletBalanceRefreshedAt : null)
-  const composeFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, draftNodeComposeFile)
-  const envFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, draftNodeEnvFile)
   const configFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, 'config/config.yml')
 
   useEffect(() => {
@@ -331,8 +325,6 @@ export function App() {
 
   useEffect(() => {
     setDraftNodeRepoPath(nodeSettings.repoPath)
-    setDraftNodeComposeFile(nodeSettings.composeFile)
-    setDraftNodeEnvFile(nodeSettings.envFile)
     setDraftNodeBaseDir(nodeSettings.baseDir)
     setDraftNodeProfiles(nodeSettings.profiles)
     setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
@@ -862,7 +854,6 @@ export function App() {
     nodeConflictKillLoading !== null ||
     nodePresetActionLoading !== null ||
     nodeNativeBuildActionLoading !== null
-  const nodeRuntimeMode = nodeStatus?.runtimeMode ?? nodeSettings.runtimeMode
   const nodeCurrentProfiles = parseProfilesCsv(nodeSettings.profiles)
   const selectedNodePreset =
     nodePresets.find((preset) => sameProfiles(preset.profiles, nodeCurrentProfiles)) ?? null
@@ -2735,12 +2726,9 @@ export function App() {
   ): KnodelKoinosNodeSettings => {
     return {
       repoPath: overrides?.repoPath ?? draftNodeRepoPath.trim(),
-      composeFile: overrides?.composeFile ?? draftNodeComposeFile.trim(),
-      envFile: overrides?.envFile ?? draftNodeEnvFile.trim(),
       baseDir: overrides?.baseDir ?? normalizeNodeBaseDirInput(draftNodeBaseDir),
       profiles: overrides?.profiles ?? expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)),
-      blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim(),
-      runtimeMode: 'native'
+      blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim()
     }
   }
 
@@ -2810,7 +2798,7 @@ export function App() {
     }
   }
 
-  const loadNodeManagedFile = async (kind: NodeManagedFileKind) => {
+  const loadNodeManagedFile = async (kind: 'config') => {
     const bridge = getKoinosNodeBridge()
     if (!bridge?.fileRead) return
 
@@ -2834,19 +2822,17 @@ export function App() {
       }
     } catch (error) {
       setNodeFileEditorError(error instanceof Error ? error.message : t('node.errorReadingFile', { kind }))
-      setNodeFileEditorPath(kind === 'compose' ? composeFileDisplayPath : envFileDisplayPath)
+      setNodeFileEditorPath(configFileDisplayPath)
       setNodeFileEditorContent('')
     } finally {
       setNodeFileEditorLoading(false)
     }
   }
 
-  const openNodeFileEditor = async (kind: NodeManagedFileKind) => {
+  const openNodeFileEditor = async (kind: 'config') => {
     setNodeFileEditorOpen(true)
     setNodeFileEditorKind(kind)
-    setNodeFileEditorPath(
-      kind === 'compose' ? composeFileDisplayPath : kind === 'env' ? envFileDisplayPath : configFileDisplayPath
-    )
+    setNodeFileEditorPath(configFileDisplayPath)
     setNodeFileEditorContent('')
     setNodeFileEditorError(null)
     setNodeFileEditorLastSavedAt(null)
@@ -3309,8 +3295,6 @@ export function App() {
       const dashboardRefreshSeconds = normalizeDashboardRefreshSeconds(draftDashboardRefreshSeconds)
       const previousBaseDir = normalizeNodeBaseDirInput(nodeSettings.baseDir)
       const repoPath = draftNodeRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
-      const composeFile = draftNodeComposeFile.trim() || DEFAULT_NODE_SETTINGS.composeFile
-      const envFile = draftNodeEnvFile.trim() || DEFAULT_NODE_SETTINGS.envFile
       const baseDir = normalizeNodeBaseDirInput(draftNodeBaseDir)
       const profiles = expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)).join(',')
       const blockchainBackupUrl = normalizeBackupTarGzUrl(
@@ -3319,8 +3303,6 @@ export function App() {
       )
 
       if (!repoPath) throw new Error(t('settings.repoRequired'))
-      if (!composeFile) throw new Error(t('settings.composeRequired'))
-      if (!envFile) throw new Error(t('settings.envRequired'))
       if (!baseDir) throw new Error(t('settings.baseDirRequired'))
 
       const baseDirValidation = await validateDraftNodeBaseDir(baseDir)
@@ -3337,7 +3319,7 @@ export function App() {
         dashboardProducerWindowBlocks,
         dashboardRefreshSeconds
       }))
-      setNodeSettings({ repoPath, composeFile, envFile, baseDir, profiles, blockchainBackupUrl, runtimeMode: 'native' })
+      setNodeSettings({ repoPath, baseDir, profiles, blockchainBackupUrl })
       setDraftNodeBaseDir(baseDir)
       const baseDirChanged = previousBaseDir !== baseDir
       const settingsSummary = baseDirChanged
@@ -3370,8 +3352,6 @@ export function App() {
     setDraftDashboardProducerWindowBlocks(String(DEFAULT_SETTINGS.dashboardProducerWindowBlocks))
     setDraftDashboardRefreshSeconds(String(DEFAULT_SETTINGS.dashboardRefreshSeconds))
     setDraftNodeRepoPath(DEFAULT_NODE_SETTINGS.repoPath)
-    setDraftNodeComposeFile(DEFAULT_NODE_SETTINGS.composeFile)
-    setDraftNodeEnvFile(DEFAULT_NODE_SETTINGS.envFile)
     setDraftNodeBaseDir(DEFAULT_NODE_SETTINGS.baseDir)
     setDraftNodeProfiles(DEFAULT_NODE_SETTINGS.profiles)
     setDraftNodeBlockchainBackupUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
@@ -3485,15 +3465,9 @@ export function App() {
           hasNodeControls={hasNodeControls}
           nodeCloneLoading={nodeCloneLoading}
           nodeActionLoading={nodeActionLoading}
-          draftNodeComposeFile={draftNodeComposeFile}
-          setDraftNodeComposeFile={setDraftNodeComposeFile}
-          composeFileDisplayPath={composeFileDisplayPath}
           openNodeFileEditor={openNodeFileEditor}
           nodeFileEditorLoading={nodeFileEditorLoading}
           nodeFileEditorSaving={nodeFileEditorSaving}
-          draftNodeEnvFile={draftNodeEnvFile}
-          setDraftNodeEnvFile={setDraftNodeEnvFile}
-          envFileDisplayPath={envFileDisplayPath}
           draftNodeProfiles={draftNodeProfiles}
           setDraftNodeProfiles={setDraftNodeProfiles}
           draftNodeBlockchainBackupUrl={draftNodeBlockchainBackupUrl}
@@ -3614,7 +3588,7 @@ export function App() {
 
         {nodeError && (
           <div className="error-banner node-error-banner" role="alert">
-            <strong>{formatNodeRuntimeMode(nodeRuntimeMode, language)}:</strong> <span>{nodeError}</span>
+            <span>{nodeError}</span>
           </div>
         )}
 

@@ -17,3 +17,11 @@ mac:
     - dmg
 dmg:
   artifactName: ${productName}-${version}-${arch}.${ext}
+win:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  icon: icon.ico
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

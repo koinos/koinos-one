@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { DEFAULT_KOINOS_SOURCE_ROOT } from './constants'
+import { isWindows, isDarwin, isAppleSilicon, executableExtension, findExecutableInPath as findInPath, homebrewPrefix } from './platform'
+import { resolveDefaultKoinosSourceRoot } from './constants'
 
 export type NativeBuildSystem = 'cmake' | 'go' | 'yarn'
 
@@ -16,64 +17,90 @@ export type NativeServiceBuildDefinition = {
   goPackage?: string
 }
 
-export function isAppleSiliconHost(): boolean {
-  return process.platform === 'darwin' && os.arch() === 'arm64'
-}
+/** Re-export for backwards compatibility */
+export const findExecutableInPath = findInPath
 
 export function nativeCmakeExecutable(): string {
-  const pythonUniversalCmake = path.join(
-    os.homedir(),
-    'Library',
-    'Python',
-    '3.9',
-    'lib',
-    'python',
-    'site-packages',
-    'cmake',
-    'data',
-    'bin',
-    'cmake'
-  )
-  const homebrewCmake = '/opt/homebrew/bin/cmake'
-  if (isAppleSiliconHost()) {
-    if (fs.existsSync(pythonUniversalCmake)) return pythonUniversalCmake
-    if (fs.existsSync(homebrewCmake)) return homebrewCmake
+  if (isDarwin()) {
+    const pythonUniversalCmake = path.join(
+      os.homedir(),
+      'Library',
+      'Python',
+      '3.9',
+      'lib',
+      'python',
+      'site-packages',
+      'cmake',
+      'data',
+      'bin',
+      'cmake'
+    )
+    const prefix = homebrewPrefix()
+    const homebrewCmake = prefix ? path.join(prefix, 'bin', 'cmake') : null
+    if (isAppleSilicon()) {
+      if (fs.existsSync(pythonUniversalCmake)) return pythonUniversalCmake
+      if (homebrewCmake && fs.existsSync(homebrewCmake)) return homebrewCmake
+    }
   }
   return 'cmake'
 }
 
 export function nativeGitExecutable(): string {
-  const systemGit = '/usr/bin/git'
-  return fs.existsSync(systemGit) ? systemGit : 'git'
-}
-
-export function findExecutableInPath(command: string): string | null {
-  const candidates = new Set<string>()
-  const pathEntries = (process.env.PATH ?? '')
-    .split(path.delimiter)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-
-  const homebrewPrefix = nativeHomebrewPrefix()
-  if (homebrewPrefix) {
-    pathEntries.unshift(path.join(homebrewPrefix, 'bin'), path.join(homebrewPrefix, 'sbin'))
+  if (isDarwin()) {
+    const systemGit = '/usr/bin/git'
+    if (fs.existsSync(systemGit)) return systemGit
   }
-
-  for (const entry of pathEntries) {
-    const candidate = path.join(entry, command)
-    if (!fs.existsSync(candidate)) continue
-    candidates.add(candidate)
-  }
-
-  return [...candidates][0] ?? null
+  return 'git'
 }
 
 export function nativeRabbitmqServerExecutable(): string | null {
-  return findExecutableInPath('rabbitmq-server')
+  if (isWindows()) {
+    const commonPaths = [
+      path.join(process.env.PROGRAMFILES ?? 'C:\\Program Files', 'RabbitMQ Server', 'rabbitmq_server-*', 'sbin', 'rabbitmq-server.bat'),
+      path.join(process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)', 'RabbitMQ Server', 'rabbitmq_server-*', 'sbin', 'rabbitmq-server.bat')
+    ]
+    for (const pattern of commonPaths) {
+      const dir = path.dirname(pattern)
+      const parentDir = path.dirname(dir)
+      if (fs.existsSync(parentDir)) {
+        try {
+          const entries = fs.readdirSync(path.dirname(parentDir))
+          for (const entry of entries) {
+            const candidate = path.join(path.dirname(parentDir), entry, 'sbin', 'rabbitmq-server.bat')
+            if (fs.existsSync(candidate)) return candidate
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return findInPath('rabbitmq-server.bat') ?? findInPath('rabbitmq-server')
+  }
+  return findInPath('rabbitmq-server')
 }
 
 export function nativeRabbitmqCtlExecutable(): string | null {
-  return findExecutableInPath('rabbitmqctl')
+  if (isWindows()) {
+    const commonPaths = [
+      path.join(process.env.PROGRAMFILES ?? 'C:\\Program Files', 'RabbitMQ Server'),
+      path.join(process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)', 'RabbitMQ Server')
+    ]
+    for (const baseDir of commonPaths) {
+      if (fs.existsSync(baseDir)) {
+        try {
+          const entries = fs.readdirSync(baseDir)
+          for (const entry of entries) {
+            const candidate = path.join(baseDir, entry, 'sbin', 'rabbitmqctl.bat')
+            if (fs.existsSync(candidate)) return candidate
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return findInPath('rabbitmqctl.bat') ?? findInPath('rabbitmqctl')
+  }
+  return findInPath('rabbitmqctl')
 }
 
 export function nativeRabbitmqHomebrewPrefix(): string | null {
@@ -83,14 +110,14 @@ export function nativeRabbitmqHomebrewPrefix(): string | null {
     if (fs.existsSync(prefix)) return prefix
   }
 
-  return nativeHomebrewPrefix()
+  return homebrewPrefix()
 }
 
 export function nativeRabbitmqOptPrefix(): string | null {
-  const homebrewPrefix = nativeRabbitmqHomebrewPrefix()
-  if (!homebrewPrefix) return null
+  const hbPrefix = nativeRabbitmqHomebrewPrefix()
+  if (!hbPrefix) return null
 
-  const optPrefix = path.join(homebrewPrefix, 'opt', 'rabbitmq')
+  const optPrefix = path.join(hbPrefix, 'opt', 'rabbitmq')
   return fs.existsSync(optPrefix) ? optPrefix : null
 }
 
@@ -111,25 +138,29 @@ export function uniquePathValue(entries: Array<string | null | undefined>): stri
   return normalized.join(path.delimiter)
 }
 
-export function nativeHomebrewPrefix(): string | null {
-  const prefix = '/opt/homebrew'
-  return fs.existsSync(prefix) ? prefix : null
-}
-
 export function nativeCmakeConfigureArgs(buildDir = 'build'): string[] {
   const args = ['-S', '.', '-B', buildDir, '-D', 'CMAKE_BUILD_TYPE=Release', '-D', 'CMAKE_POLICY_VERSION_MINIMUM=3.5']
-  const homebrewPrefix = nativeHomebrewPrefix()
 
-  if (isAppleSiliconHost()) {
+  if (isWindows()) {
+    args.push('-G', 'MinGW Makefiles')
+    const vcpkgRoot = process.env.VCPKG_ROOT
+    if (vcpkgRoot) {
+      const toolchainFile = path.join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake')
+      args.push('-D', `CMAKE_TOOLCHAIN_FILE=${toolchainFile}`)
+    }
+  }
+
+  if (isAppleSilicon()) {
     args.push('-D', 'CMAKE_OSX_ARCHITECTURES=arm64')
     args.push('-D', 'CMAKE_APPLE_SILICON_PROCESSOR=arm64')
   }
 
-  if (homebrewPrefix) {
-    args.push('-D', `CMAKE_PREFIX_PATH=${homebrewPrefix}`)
-    const gmpInclude = path.join(homebrewPrefix, 'include')
-    const gmpLibrary = path.join(homebrewPrefix, 'lib', 'libgmp.dylib')
-    const gmpxxLibrary = path.join(homebrewPrefix, 'lib', 'libgmpxx.dylib')
+  const hbPrefix = homebrewPrefix()
+  if (isDarwin() && hbPrefix) {
+    args.push('-D', `CMAKE_PREFIX_PATH=${hbPrefix}`)
+    const gmpInclude = path.join(hbPrefix, 'include')
+    const gmpLibrary = path.join(hbPrefix, 'lib', 'libgmp.dylib')
+    const gmpxxLibrary = path.join(hbPrefix, 'lib', 'libgmpxx.dylib')
     if (fs.existsSync(gmpInclude)) args.push('-D', `GMP_INCLUDE_DIR=${gmpInclude}`)
     if (fs.existsSync(gmpLibrary)) args.push('-D', `GMP_LIBRARY=${gmpLibrary}`)
     if (fs.existsSync(gmpxxLibrary)) args.push('-D', `GMPXX_LIBRARY=${gmpxxLibrary}`)
@@ -147,81 +178,82 @@ export function nativeCmakeBuildCommand(buildDir = 'build'): string {
   return [nativeCmakeExecutable(), '--build', buildDir, '--config', 'Release', '--parallel'].join(' ')
 }
 
-export function nativeServiceBuildDefinitions(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT): NativeServiceBuildDefinition[] {
+export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosSourceRoot()): NativeServiceBuildDefinition[] {
+  const ext = executableExtension()
   return [
     {
       serviceId: 'chain',
       repoPath: path.join(sourceRoot, 'koinos-chain'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-chain', 'build', 'src', 'koinos_chain'),
+      artifactPath: path.join(sourceRoot, 'koinos-chain', 'build', 'src', 'koinos_chain' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'mempool',
       repoPath: path.join(sourceRoot, 'koinos-mempool'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-mempool', 'build', 'src', 'koinos_mempool'),
+      artifactPath: path.join(sourceRoot, 'koinos-mempool', 'build', 'src', 'koinos_mempool' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'block_store',
       repoPath: path.join(sourceRoot, 'koinos-block-store'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-block-store', 'build', 'bin', 'koinos-block-store'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-block-store ./cmd/koinos-block-store'],
+      artifactPath: path.join(sourceRoot, 'koinos-block-store', 'build', 'bin', 'koinos-block-store' + ext),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-block-store' + ext + ' ./cmd/koinos-block-store'],
       goPackage: './cmd/koinos-block-store'
     },
     {
       serviceId: 'p2p',
       repoPath: path.join(sourceRoot, 'koinos-p2p'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-p2p', 'build', 'bin', 'koinos-p2p'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-p2p ./cmd/koinos-p2p'],
+      artifactPath: path.join(sourceRoot, 'koinos-p2p', 'build', 'bin', 'koinos-p2p' + ext),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-p2p' + ext + ' ./cmd/koinos-p2p'],
       goPackage: './cmd/koinos-p2p'
     },
     {
       serviceId: 'block_producer',
       repoPath: path.join(sourceRoot, 'koinos-block-producer'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-block-producer', 'build', 'src', 'koinos_block_producer'),
+      artifactPath: path.join(sourceRoot, 'koinos-block-producer', 'build', 'src', 'koinos_block_producer' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'jsonrpc',
       repoPath: path.join(sourceRoot, 'koinos-jsonrpc'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-jsonrpc', 'build', 'bin', 'koinos-jsonrpc'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-jsonrpc ./cmd/koinos-jsonrpc'],
+      artifactPath: path.join(sourceRoot, 'koinos-jsonrpc', 'build', 'bin', 'koinos-jsonrpc' + ext),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-jsonrpc' + ext + ' ./cmd/koinos-jsonrpc'],
       goPackage: './cmd/koinos-jsonrpc'
     },
     {
       serviceId: 'grpc',
       repoPath: path.join(sourceRoot, 'koinos-grpc'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-grpc', 'build', 'src', 'koinos_grpc'),
+      artifactPath: path.join(sourceRoot, 'koinos-grpc', 'build', 'src', 'koinos_grpc' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'transaction_store',
       repoPath: path.join(sourceRoot, 'koinos-transaction-store'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-transaction-store', 'build', 'bin', 'koinos-transaction-store'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-transaction-store ./cmd/koinos-transaction-store'],
+      artifactPath: path.join(sourceRoot, 'koinos-transaction-store', 'build', 'bin', 'koinos-transaction-store' + ext),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-transaction-store' + ext + ' ./cmd/koinos-transaction-store'],
       goPackage: './cmd/koinos-transaction-store'
     },
     {
       serviceId: 'contract_meta_store',
       repoPath: path.join(sourceRoot, 'koinos-contract-meta-store'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-contract-meta-store', 'build', 'bin', 'koinos-contract-meta-store'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-contract-meta-store ./cmd/koinos-contract-meta-store'],
+      artifactPath: path.join(sourceRoot, 'koinos-contract-meta-store', 'build', 'bin', 'koinos-contract-meta-store' + ext),
+      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-contract-meta-store' + ext + ' ./cmd/koinos-contract-meta-store'],
       goPackage: './cmd/koinos-contract-meta-store'
     },
     {
       serviceId: 'account_history',
       repoPath: path.join(sourceRoot, 'koinos-account-history'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-account-history', 'build', 'src', 'koinos_account_history'),
+      artifactPath: path.join(sourceRoot, 'koinos-account-history', 'build', 'src', 'koinos_account_history' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
@@ -234,6 +266,6 @@ export function nativeServiceBuildDefinitions(sourceRoot = DEFAULT_KOINOS_SOURCE
   ]
 }
 
-export function nativeServiceBuildDefinitionMap(sourceRoot = DEFAULT_KOINOS_SOURCE_ROOT): Map<string, NativeServiceBuildDefinition> {
+export function nativeServiceBuildDefinitionMap(sourceRoot = resolveDefaultKoinosSourceRoot()): Map<string, NativeServiceBuildDefinition> {
   return new Map(nativeServiceBuildDefinitions(sourceRoot).map((definition) => [definition.serviceId, definition] as const))
 }

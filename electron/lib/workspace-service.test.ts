@@ -18,30 +18,21 @@ function makeTempDir(): string {
 function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSettings {
   return {
     repoPath: input?.repoPath || '',
-    composeFile: input?.composeFile || path.join(input?.repoPath || '', 'docker-compose.yml'),
-    envFile: input?.envFile || path.join(input?.repoPath || '', '.env'),
     baseDir: input?.baseDir || path.join(input?.repoPath || '', 'basedir'),
     profiles: input?.profiles || [],
-    blockchainBackupUrl: input?.blockchainBackupUrl || 'https://example.com/backup.tar.gz',
-    runtimeMode: input?.runtimeMode || 'native'
+    blockchainBackupUrl: input?.blockchainBackupUrl || 'https://example.com/backup.tar.gz'
   }
 }
 
 function createService() {
   return createWorkspaceService({
     normalizeNodeSettings,
-    composeFilePath: (settings) => settings.composeFile,
-    envFilePath: (settings) => settings.envFile,
-    configDirPath: (settings) => path.join(settings.repoPath, 'config'),
-    configExampleDirPath: (settings) => path.join(settings.repoPath, 'config-example'),
-    managedFilePath: (settings, kind) =>
-      kind === 'compose'
-        ? settings.composeFile
-        : kind === 'env'
-          ? settings.envFile
-          : path.join(settings.repoPath, 'config', 'config.yml'),
-    restoreWorkspaceParentPath: (baseDir) => path.join(path.dirname(baseDir), '.restore'),
-    verifyWritableDirectory: (dirPath) => {
+    configDirPath: (settings: KoinosNodeSettings) => path.join(settings.repoPath, 'config'),
+    configExampleDirPath: (settings: KoinosNodeSettings) => path.join(settings.repoPath, 'config-example'),
+    managedFilePath: (settings: { repoPath: string }, _kind: string) =>
+      path.join(settings.repoPath, 'config', 'config.yml'),
+    restoreWorkspaceParentPath: (baseDir: string) => path.join(path.dirname(baseDir), '.restore'),
+    verifyWritableDirectory: (dirPath: string) => {
       fs.mkdirSync(dirPath, { recursive: true })
       const probePath = path.join(dirPath, '.probe')
       fs.writeFileSync(probePath, 'ok')
@@ -58,25 +49,6 @@ afterEach(() => {
 })
 
 describe('workspace-service', () => {
-  it('renames legacy repo templates into Knodel expected paths', () => {
-    const repoPath = makeTempDir()
-    fs.mkdirSync(path.join(repoPath, 'config-example'), { recursive: true })
-    fs.writeFileSync(path.join(repoPath, 'env.example'), 'FOO=1\n')
-
-    const service = createService()
-    const output = service.ensureKoinosRepoRenamedFiles(
-      normalizeNodeSettings({
-        repoPath,
-        baseDir: path.join(repoPath, 'basedir')
-      })
-    )
-
-    expect(output).toContain('Renamed config-example/ -> config/')
-    expect(output).toContain('Renamed env.example -> .env')
-    expect(fs.existsSync(path.join(repoPath, 'config'))).toBe(true)
-    expect(fs.existsSync(path.join(repoPath, '.env'))).toBe(true)
-  })
-
   it('copies runtime files into BASEDIR while preserving config.yml', () => {
     const repoPath = makeTempDir()
     const baseDir = path.join(repoPath, 'basedir')

@@ -27,15 +27,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
     hasNodeControls,
     nodeCloneLoading,
     nodeActionLoading,
-    draftNodeComposeFile,
-    setDraftNodeComposeFile,
-    composeFileDisplayPath,
     openNodeFileEditor,
     nodeFileEditorLoading,
     nodeFileEditorSaving,
-    draftNodeEnvFile,
-    setDraftNodeEnvFile,
-    envFileDisplayPath,
     draftNodeProfiles,
     setDraftNodeProfiles,
     draftNodeBlockchainBackupUrl,
@@ -214,69 +208,17 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </span>
             </div>
 
-            <div className="settings-row settings-row-3">
-              <label>
-                {t('settings.composeFile')}
-                <input
-                  type="text"
-                  value={draftNodeComposeFile}
-                  onChange={(event) => setDraftNodeComposeFile(event.target.value)}
-                  placeholder="docker-compose.yml"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <span className="settings-path-preview mono" title={composeFileDisplayPath || draftNodeComposeFile}>
-                  {composeFileDisplayPath || t('common.emptyPath')}
-                </span>
-                <button
-                  type="button"
-                  className="ghost-button settings-inline-button"
-                  onClick={() => {
-                    void openNodeFileEditor('compose')
-                  }}
-                  disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
-                >
-                  {t('common.viewEdit')}
-                </button>
-              </label>
-
-              <label>
-                {t('settings.envFile')}
-                <input
-                  type="text"
-                  value={draftNodeEnvFile}
-                  onChange={(event) => setDraftNodeEnvFile(event.target.value)}
-                  placeholder=".env"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <span className="settings-path-preview mono" title={envFileDisplayPath || draftNodeEnvFile}>
-                  {envFileDisplayPath || t('common.emptyPath')}
-                </span>
-                <button
-                  type="button"
-                  className="ghost-button settings-inline-button"
-                  onClick={() => {
-                    void openNodeFileEditor('env')
-                  }}
-                  disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
-                >
-                  {t('common.viewEdit')}
-                </button>
-              </label>
-
-              <label>
-                {t('settings.profilesCsv')}
-                <input
-                  type="text"
-                  value={draftNodeProfiles}
-                  onChange={(event) => setDraftNodeProfiles(event.target.value)}
-                  placeholder="block_producer,jsonrpc,contract_meta_store"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-              </label>
-            </div>
+            <label>
+              {t('settings.profilesCsv')}
+              <input
+                type="text"
+                value={draftNodeProfiles}
+                onChange={(event) => setDraftNodeProfiles(event.target.value)}
+                placeholder="block_producer,jsonrpc,contract_meta_store"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </label>
 
             <div className="settings-subheader">
               <h3>{t('settings.blockchainBackupTitle')}</h3>

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { pipeline } = require('stream/promises');
 const { BACKUP_BASE_URL, DATA_DIR } = require('./config');
 const { ensureDb, upsertBlocks } = require('./db');
 
@@ -14,8 +15,10 @@ function pickLatest(urls) {
   return urls.sort((a, b) => b.localeCompare(a))[0];
 }
 
-function discoverBackup() {
-  const html = execSync(`curl -fsSL '${BACKUP_BASE_URL}'`, { encoding: 'utf-8' });
+async function discoverBackup() {
+  const res = await fetch(BACKUP_BASE_URL);
+  if (!res.ok) throw new Error(`Failed to fetch backup index: ${res.status} ${res.statusText}`);
+  const html = await res.text();
   const urls = parseBackupLinks(html);
   const latest = pickLatest(urls);
   if (!latest) throw new Error(`No backup archives found in ${BACKUP_BASE_URL}`);
@@ -31,20 +34,28 @@ function extractLocalArchive(localArchive) {
 
   const filename = path.basename(localArchive);
   if (filename.endsWith('.zip')) {
-    execSync(`unzip -o '${localArchive}' -d '${extracted}'`, { stdio: 'inherit' });
+    if (process.platform === 'win32') {
+      execSync(`tar -xf "${localArchive}" -C "${extracted}"`, { stdio: 'inherit' });
+    } else {
+      execSync(`unzip -o "${localArchive}" -d "${extracted}"`, { stdio: 'inherit' });
+    }
   } else {
-    execSync(`tar -xzf '${localArchive}' -C '${extracted}'`, { stdio: 'inherit' });
+    execSync(`tar -xzf "${localArchive}" -C "${extracted}"`, { stdio: 'inherit' });
   }
   return extracted;
 }
 
-function downloadAndExtract(backupUrl) {
+async function downloadAndExtract(backupUrl) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const archives = path.join(DATA_DIR, 'archives');
   fs.mkdirSync(archives, { recursive: true });
   const filename = path.basename(new URL(backupUrl).pathname) || 'backup.tar.gz';
   const localArchive = path.join(archives, filename);
-  execSync(`curl -fL '${backupUrl}' -o '${localArchive}'`, { stdio: 'inherit' });
+
+  const res = await fetch(backupUrl);
+  if (!res.ok) throw new Error(`Failed to download backup: ${res.status} ${res.statusText}`);
+  await pipeline(res.body, fs.createWriteStream(localArchive));
+
   return extractLocalArchive(localArchive);
 }
 
@@ -93,9 +104,9 @@ async function bootstrap() {
     console.log('[bootstrap] using local backup:', localPath);
     extracted = useLocalAndExtract(localPath);
   } else {
-    const backupUrl = process.env.KNODEL_BACKUP_URL || discoverBackup();
+    const backupUrl = process.env.KNODEL_BACKUP_URL || await discoverBackup();
     console.log('[bootstrap] using backup URL:', backupUrl);
-    extracted = downloadAndExtract(backupUrl);
+    extracted = await downloadAndExtract(backupUrl);
   }
   const count = indexFromExtracted(extracted);
   console.log(`[bootstrap] indexed rows: ${count}`);

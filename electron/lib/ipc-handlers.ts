@@ -190,7 +190,7 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     if (!isManagedFileKind(input?.kind)) {
       return {
         ok: false,
-        kind: 'compose',
+        kind: 'config',
         filePath: '',
         content: '',
         output: 'Parametro kind invalido'
@@ -203,7 +203,7 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     if (!isManagedFileKind(input?.kind)) {
       return {
         ok: false,
-        kind: 'compose',
+        kind: 'config',
         filePath: '',
         output: 'Parametro kind invalido'
       } satisfies KoinosNodeFileWriteResult

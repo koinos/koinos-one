@@ -12,7 +12,6 @@ import type {
   BlockchainBackupArchiveState,
   BlockchainBackupExtractState,
   BlockchainBackupWorkspacePaths,
-  ComposeServiceDefinition,
   KoinosJsonRpcProxyInput,
   KoinosJsonRpcProxyResult,
   KoinosNodeBackupProgressAction,
@@ -35,22 +34,24 @@ const BLOCKCHAIN_BACKUP_REQUIRED_DIRS = ['chain', 'block_store'] as const
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.knodel-blockchain-backup-cache'
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type ServiceDefinition = Record<string, unknown>
+
 type BackupServiceDeps = {
   normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
   assertRepoReady: (settings: KoinosNodeSettings) => void
-  ensureKoinosRepoRenamedFiles: (settings: KoinosNodeSettings) => string
   ensureKoinosConfigFiles: (settings: KoinosNodeSettings) => { configReady: boolean; output: string }
   ensureBaseDirKoinosRuntimeFiles: (settings: KoinosNodeSettings) => string
   validateNodeBaseDirAccess: (input?: KoinosNodeSettingsInput) => KoinosNodeValidateBaseDirResult
   restoreWorkspaceParentPath: (baseDir: string) => string
   ensureKoinosBaseDir: (baseDir: string) => string
-  readComposeServiceDefinitions: (settings: KoinosNodeSettings) => Map<string, ComposeServiceDefinition>
+  readServiceDefinitions: (settings: KoinosNodeSettings) => Map<string, ServiceDefinition>
   selectedManagedComposeServiceIds: (
     settings: KoinosNodeSettings,
-    serviceDefinitions: Map<string, ComposeServiceDefinition>
+    serviceDefinitions: Map<string, ServiceDefinition>
   ) => string[]
   composeServicePortByTarget: (
-    definition: ComposeServiceDefinition | undefined,
+    definition: ServiceDefinition | undefined,
     targetPort: number
   ) => KoinosNodeServicePort | null
   koinosNodeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
@@ -804,7 +805,7 @@ function createBackupProgressReporter(
 
 function localNodeJsonRpcUrl(
   settings: KoinosNodeSettings,
-  serviceDefinitions: Map<string, ComposeServiceDefinition>,
+  serviceDefinitions: Map<string, ServiceDefinition>,
   composeServicePortByTarget: BackupServiceDeps['composeServicePortByTarget']
 ): string {
   const jsonrpcPort = composeServicePortByTarget(serviceDefinitions.get('jsonrpc'), 8080)
@@ -933,7 +934,7 @@ export function createBackupService(deps: BackupServiceDeps) {
 
   async function waitForLocalNodeJsonRpcVerification(
     settings: KoinosNodeSettings,
-    serviceDefinitions: Map<string, ComposeServiceDefinition>,
+    serviceDefinitions: Map<string, ServiceDefinition>,
     timeoutMs = 120000
   ): Promise<{ ok: boolean; output: string }> {
     const rpcUrl = localNodeJsonRpcUrl(settings, serviceDefinitions, deps.composeServicePortByTarget)
@@ -978,8 +979,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     completeOnSuccess = true
   ): Promise<KoinosNodeBackupRestoreResult> {
     const settings = deps.normalizeNodeSettings(input)
-    const repoRenameNotes = deps.ensureKoinosRepoRenamedFiles(settings)
-    const notes = repoRenameNotes ? [repoRenameNotes] : []
+    const notes: string[] = []
     const reportProgress = createBackupProgressReporter(sender, progressAction)
 
     try {
@@ -1199,13 +1199,12 @@ export function createBackupService(deps: BackupServiceDeps) {
     sender?: WebContents
   ): Promise<KoinosNodeBackupRestoreResult> {
     const settings = deps.normalizeNodeSettings(input)
-    const repoRenameNotes = deps.ensureKoinosRepoRenamedFiles(settings)
-    const notes = repoRenameNotes ? [repoRenameNotes] : []
+    const notes: string[] = []
     const reportProgress = createBackupProgressReporter(sender, 'restore-backup-verify')
 
     try {
       deps.assertRepoReady(settings)
-      const serviceDefinitions = deps.readComposeServiceDefinitions(settings)
+      const serviceDefinitions = deps.readServiceDefinitions(settings)
       const selectedServiceIds = deps.selectedManagedComposeServiceIds(settings, serviceDefinitions)
 
       if (!selectedServiceIds.includes('jsonrpc')) {
@@ -1326,20 +1325,6 @@ export function createBackupService(deps: BackupServiceDeps) {
         targetBaseDir,
         output: `El BASEDIR destino ya contiene datos: ${targetBaseDir}. Usa Restore Backup o vacia la carpeta antes de copiar.`,
         status: await deps.koinosNodeStatus(settings)
-      }
-    }
-
-    if (input?.stopSourceRuntime) {
-      const stopResult = await deps.koinosNodeAction('stop', { ...settings, baseDir: sourceBaseDir })
-      if (stopResult.output) outputs.push(stopResult.output)
-      if (!stopResult.ok) {
-        return {
-          ok: false,
-          sourceBaseDir,
-          targetBaseDir,
-          output: outputs.filter(Boolean).join('\n'),
-          status: stopResult.status
-        }
       }
     }
 
