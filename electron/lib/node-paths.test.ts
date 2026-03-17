@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe('electron node paths', () => {
   it('normalizes the base dir to end with .koinos', () => {
-    expect(ensureKoinosBaseDir('~/node-data')).toMatch(/node-data\/\.koinos$/)
+    expect(ensureKoinosBaseDir('~/node-data')).toMatch(/node-data[/\\]\.koinos$/)
     expect(ensureKoinosBaseDir('/tmp/example/.koinos')).toBe('/tmp/example/.koinos')
   })
 
@@ -61,7 +61,7 @@ describe('electron node paths', () => {
     )
 
     expect(normalized.repoPath).toMatch(/repo$/)
-    expect(normalized.baseDir).toMatch(/node\/\.koinos$/)
+    expect(normalized.baseDir).toMatch(/node[/\\]\.koinos$/)
     expect(normalized.profiles).toEqual(['block_producer', 'jsonrpc'])
   })
 

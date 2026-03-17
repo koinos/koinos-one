@@ -103,7 +103,7 @@ describe('ipc-handlers', () => {
     const result = await ipcMain.handlers.get('knodel:koinos-node:file-read')?.({ sender: {} }, { kind: 'bogus' })
     expect(result).toEqual({
       ok: false,
-      kind: 'compose',
+      kind: 'config',
       filePath: '',
       content: '',
       output: 'Parametro kind invalido'
