@@ -9,3 +9,10 @@ assets/branding/icon.iconset/
 backend/data/archives/
 backend/data/extracted/
 backend/data/*.db
+
+# Native build artifacts (C++ / Go)
+vendor/koinos/*/build-win/
+vendor/koinos/*/build/
+vendor/koinos/*/*.exe
+vendor/koinos/koinos-rest/.next/
+vendor/koinos/koinos-rest/node_modules/

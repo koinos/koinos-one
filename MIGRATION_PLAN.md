@@ -681,4 +681,173 @@ Document in README:
 
 ---
 
-> **Next action:** Review this plan, then begin implementation starting with Phase A.
+## 8. Execution Status (Updated 2026-03-18)
+
+### Overall Progress
+
+| Phase | Status | Notes |
+|---|---|---|
+| **Phase A — Docker Removal** | **DONE** | All Docker code, types, UI, scripts, and config removed |
+| **Phase B — Git Submodules** | **DONE** | 12 submodules added under `vendor/koinos/` |
+| **Phase C — Windows Compilation** | **DONE** | All 11 services built natively on Windows 10 |
+
+### Branch & Commits
+
+- **Branch:** `feat/native-windows-submodules`
+- **Commit `ecbcfc4`:** feat: remove Docker, add git submodules, add Windows support
+- **Commit `eec8233`:** fix: update tests for Docker removal and Windows path compatibility
+- **Tests:** 72/72 passing across 15 test files
+
+### Phase A — Docker Removal: COMPLETE
+
+All items from Section 3 implemented:
+- Deleted: `compose-helpers.ts`, `scripts/koinos-compose-all.sh`, `infra/` directory, 9 stale `.md` plan docs
+- Removed Docker code from: `main.ts`, `native-runtime-service.ts`, `workspace-service.ts`, `ipc-handlers.ts`, `constants.ts`, `main-types.ts`, `node-paths.ts`
+- Removed `yaml` dependency from `package.json`
+- Cleaned frontend: `App.tsx`, `SettingsPanel.tsx`, `types.ts`
+- `runtimeMode` removed from all types — everything is always native now
+- `NativeServiceDefinition` type replaces `ComposeServiceDefinition` with hardcoded ports/deps/profiles
+
+### Phase B — Git Submodules: COMPLETE
+
+All 12 submodules added and initialized:
+```
+vendor/koinos/koinos                    (v1.1.0-93-g686f99f)
+vendor/koinos/koinos-chain              (v1.0.2-153-gf7b7ab91)
+vendor/koinos/koinos-mempool            (v1.0.1-117-g2aa415f)
+vendor/koinos/koinos-block-store        (v1.1.0-4-gf195441)
+vendor/koinos/koinos-p2p               (v1.3.0)
+vendor/koinos/koinos-block-producer     (v1.0.1-57-g81383f9)
+vendor/koinos/koinos-jsonrpc            (v1.1.0-4-g781b63b)
+vendor/koinos/koinos-grpc              (v1.1.1-6-ga1df93b)
+vendor/koinos/koinos-transaction-store  (v1.1.0-4-ge246b0c)
+vendor/koinos/koinos-contract-meta-store (v1.1.0-4-g75b7a0d)
+vendor/koinos/koinos-account-history    (v1.0.0-35-g636423e)
+vendor/koinos/koinos-rest              (v1.0.0-34-gec4984d)
+```
+
+### Phase C — Native Windows Compilation: COMPLETE
+
+#### Go Services (5/5): DONE
+
+All 5 Go services compiled natively on Windows 10 using Go 1.22.12 + MinGW GCC 15.2.0:
+
+| Service | Binary | Size |
+|---|---|---|
+| `koinos-block-store` | `koinos-block-store.exe` | 31 MB |
+| `koinos-p2p` | `koinos-p2p.exe` | 64 MB |
+| `koinos-jsonrpc` | `koinos-jsonrpc.exe` | 26 MB |
+| `koinos-transaction-store` | `koinos-transaction-store.exe` | 31 MB |
+| `koinos-contract-meta-store` | `koinos-contract-meta-store.exe` | 31 MB |
+
+Build command: `go build -o <service>.exe ./cmd/<service>/` with `CGO_ENABLED=1`, `CC=gcc`
+
+#### REST Service (1/1): DONE
+
+`koinos-rest` built with `yarn install` + `yarn build`. Next.js static + dynamic routes built successfully.
+
+#### C++ Services (5/5): DONE
+
+All 5 C++ services compiled natively on Windows 10 using MSVC 19.44 (VS Build Tools 2022) + Hunter v0.25.5 + clang-cl 22.1.1:
+
+| Service | Binary | Size |
+|---|---|---|
+| `koinos-chain` | `koinos_chain.exe` | 10.4 MB |
+| `koinos-chain` | `koinos_vm_driver.exe` | 6.9 MB |
+| `koinos-mempool` | `koinos_mempool.exe` | 8.8 MB |
+| `koinos-grpc` | `koinos_grpc.exe` | 7.2 MB |
+| `koinos-block-producer` | `koinos_block_producer.exe` | 5.1 MB |
+| `koinos-account-history` | `koinos_account_history.exe` | 8.8 MB |
+
+**Toolchain:**
+- Visual Studio Build Tools 2022 (MSVC 19.44 / v14.44.35207) — top-level compilation
+- LLVM/Clang 22.1.1 (clang-cl) — Hunter-built koinos packages (GCC builtins + MSVC ABI)
+- CMake 3.28.6 with Ninja generator
+- Hunter v0.25.5 package manager (all 20+ packages cached under toolchain `4ca0be2` / config `d63702f`)
+- Strawberry Perl (for OpenSSL build in Hunter)
+
+**Build approach:**
+
+The C++ build uses a dual-compiler strategy:
+1. **Hunter-built packages** (Boost, OpenSSL, protobuf, gRPC, fizzy, libsecp256k1-vrf, etc.) are compiled with **clang-cl** — necessary because fizzy and libsecp256k1-vrf use GCC builtins (`__builtin_ctz`, `__int128`, `__attribute__`) that MSVC doesn't support, while clang-cl produces MSVC-ABI-compatible binaries.
+2. **Top-level service code** is compiled with **MSVC cl.exe** — the standard Windows compiler, using patched `KoinosCompilerOptions.cmake` to handle MSVC quirks.
+
+**Hunter patches applied (in `~/.hunter/_Base/Download/Hunter/0.25.5/.../Unpacked/`):**
+
+| Patch File | Purpose |
+|---|---|
+| `cmake/modules/hunter_setup_msvc.cmake` | MSVC version regex widened to accept 194x |
+| `cmake/projects/Boost/scripts/patched_boostrap.bat.in` | vswhere PATH, CWD to PATH for b2 discovery |
+| `cmake/projects/Boost/schemes/url_sha1_boost.cmake.in` | `.\bootstrap.bat`, `.\b2` path fixes |
+| `cmake/projects/Boost/schemes/url_sha1_boost_library.cmake.in` | `.\b2` path, `<rewrite-setup-scripts>off`, toolset_version fix |
+| `cmake/schemes/patch_secp256k1.cmake` | fizzy + libsecp256k1-vrf MSVC compat (see below) |
+
+**fizzy MSVC compatibility patches** (via `patch_secp256k1.cmake`):
+- `__builtin_memcpy` → `std::memcpy` in execute.cpp, parser.hpp, parser_expr.cpp
+- Removed `__attribute__((no_sanitize(...)))` (GCC-only)
+- Removed GCC flags: `-Wcast-qual`, `-Wcast-align`, `-msse2`, `-mfpmath=sse`
+- parser.cpp: `string_view::begin()`/`end()` → `.data()`/`.data()+.size()` (MSVC STL checked iterators)
+- cxx20/bit.hpp: Full rewrite with MSVC intrinsics (`_BitScanForward64`, `_BitScanReverse64`, `__popcnt`, `__popcnt64`)
+
+**libsecp256k1-vrf patch:** 32-bit scalar/field fallback (`USE_SCALAR_8X32`, `USE_FIELD_10X26`) since MSVC lacks `__int128`
+
+**Hunter cache.cmake additions** (in `~/.hunter/_Base/<id>/<toolchain>/<config>/cache.cmake`):
+```cmake
+set(MSVC ON CACHE INTERNAL "Force MSVC detection for packages included before project()")
+set(MSVC_VERSION 1944 CACHE INTERNAL "")
+set(CMAKE_CXX_COMPILER "C:/Program Files/LLVM/bin/clang-cl.exe" CACHE FILEPATH "")
+set(CMAKE_C_COMPILER "C:/Program Files/LLVM/bin/clang-cl.exe" CACHE FILEPATH "")
+set(FETCHCONTENT_SOURCE_DIR_KOINOS_CMAKE "<path>/koinos_cmake_patched" CACHE PATH "")
+```
+
+**Top-level KoinosCompilerOptions.cmake patches** (applied per-service in `build-win/_deps/koinos_cmake-src/`):
+- `if (MSVC)` → `if (MSVC OR CMAKE_HOST_WIN32)` — MSVC not set before `project()` with Ninja
+- `/W4 /WX` → `/W3` — disable warnings-as-errors
+- Added `-DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0601 -DBOOST_ALL_NO_LIB`
+- Force-include `msvc_compat.h` (winsock2.h + `#undef GetMessage`/`SendMessage`/etc.)
+
+**Source code fixes for MSVC:**
+
+| File | Issue | Fix |
+|---|---|---|
+| `koinos-chain/src/koinos/chain/thunk_dispatcher.hpp` | MSVC C2912: explicit variadic template specialization | `if constexpr(sizeof...(Ts)==0)` |
+| `koinos-chain/src/koinos/chain/rectify.cpp` | MSVC C2026: 110KB base64 string literal | Split into 15KB chunks |
+| `koinos-chain/tests/{controller,stack,thunk}_test.cpp` | MSVC C2026: 22KB hex string literals | Split into 15KB chunks |
+| All 5 services' main .cpp | MSVC: no implicit `filesystem::path` → `string` | Added `.string()` to `YAML::LoadFile()` |
+
+### Build Automation
+
+Build scripts created in `scripts/`:
+
+| File | Purpose |
+|---|---|
+| `scripts/build-native-win.bat` | Master build script — builds all Go, REST, and C++ services |
+| `scripts/win-patches/KoinosCompilerOptions.cmake` | MSVC-patched cmake options (copied per C++ service) |
+| `scripts/win-patches/msvc_compat.h` | Windows macro conflict resolver |
+| `scripts/win-patches/patch_secp256k1.cmake` | Hunter fizzy/secp256k1 MSVC patches |
+| `scripts/win-patches/setup-hunter-patches.bat` | One-time Hunter patch installer |
+| `scripts/win-patches/README.md` | Detailed documentation of all patches |
+
+### Windows Development Prerequisites
+
+```
+Required tools:
+1. Visual Studio Build Tools 2022 (MSVC 19.44+, includes Ninja)
+2. CMake 3.28.x (NOT 4.x — Hunter 0.25.5 incompatible)
+3. LLVM/Clang 22+ (clang-cl.exe for Hunter package builds)
+4. Go 1.22+ (for Go services)
+5. MinGW GCC 15+ (for Go CGO — badger/RocksDB native deps)
+6. Node.js 20+ and Yarn (for koinos-rest)
+7. Strawberry Perl (for OpenSSL build in Hunter)
+8. Git for Windows
+
+First-time setup:
+1. Install all prerequisites above
+2. Run: scripts\win-patches\setup-hunter-patches.bat
+3. Configure Hunter cache.cmake with clang-cl (see setup script output)
+4. Run: scripts\build-native-win.bat
+```
+
+---
+
+> **All three phases complete.** Knodel is now a fully native, Docker-free Electron application with all 12 Koinos services internalized as git submodules and compilable on Windows 10.
