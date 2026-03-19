@@ -34,3 +34,7 @@
 [submodule "vendor/koinos/koinos-rest"]
 	path = vendor/koinos/koinos-rest
 	url = https://github.com/koinos/koinos-rest.git
+[submodule "vendor/amqp-broker"]
+	path = vendor/amqp-broker
+	url = https://github.com/pgarciagon/garagemq.git
+	branch = knodel-patches
