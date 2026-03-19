@@ -122,3 +122,24 @@ vendor/amqp-broker/
 3. Install on a clean Windows machine (no dev tools)
 4. Launch Knodel → verify GarageMQ starts, all services come up, blockchain syncs
 5. Check Task Manager: all 12 processes (GarageMQ + 11 services) running under Knodel
+
+## Integration Test Results (2026-03-19)
+GarageMQ required a patch: auto-generate queue name when client sends empty name
+(AMQP 0.9.1 spec for temporary/exclusive queues). Patch in `server/queueMethods.go`.
+
+| Service | Type | AMQP | Status |
+|---|---|---|---|
+| garagemq | broker | - | RUNNING (port 5672) |
+| koinos-chain | C++ | Connected | RUNNING |
+| koinos-block-store | Go | Connected | RUNNING |
+| koinos-mempool | C++ | Connected | RUNNING |
+| koinos-p2p | Go | Connected | RUNNING |
+| koinos-jsonrpc | Go | Connected | RUNNING (port 8080) |
+| koinos-transaction-store | Go | Connected | RUNNING |
+| koinos-contract-meta-store | Go | Connected | RUNNING |
+| koinos-grpc | C++ | Connected | RUNNING (port 50051) |
+| koinos-account-history | C++ | Connected | RUNNING |
+| koinos-block-producer | C++ | Connected | Expected exit (no producer wallet configured) |
+
+**10/11 services running** — all connected via GarageMQ AMQP broker.
+Staging: 15/15 artifacts, 266 MB total.
