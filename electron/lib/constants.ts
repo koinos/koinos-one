@@ -1,5 +1,6 @@
 import os from 'node:os'
 import path from 'node:path'
+import { executableExtension } from './platform'
 
 export const DEFAULT_PROFILES = ['block_producer', 'jsonrpc', 'contract_meta_store']
 export const IMPLIED_NODE_PROFILES: Record<string, string[]> = {
@@ -72,10 +73,11 @@ export function resolveKoinosConfigRoot(): string {
 
 /** Path to bundled GarageMQ broker binary. */
 export function resolveAmqpBrokerPath(): string {
+  const ext = executableExtension()
   if (isPackagedBuild()) {
-    return path.join(process.resourcesPath!, 'koinos', 'bin', 'garagemq.exe')
+    return path.join(process.resourcesPath!, 'koinos', 'bin', 'garagemq' + ext)
   }
-  return path.resolve(__dirname, '..', '..', 'vendor', 'amqp-broker', 'garagemq.exe')
+  return path.resolve(__dirname, '..', '..', 'vendor', 'amqp-broker', 'garagemq' + ext)
 }
 
 /** Path to GarageMQ config template. */

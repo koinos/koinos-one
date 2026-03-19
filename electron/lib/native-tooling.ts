@@ -200,26 +200,33 @@ export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosS
     ]
   }
 
+  // On Windows, C++ builds are in build-win/src/ and Go builds are at repo root
+  const cmakeBuildDir = isWindows() ? 'build-win' : 'build'
+  const goBinPath = (svcDir: string, svcName: string) =>
+    isWindows()
+      ? path.join(sourceRoot, svcDir, svcName + ext)
+      : path.join(sourceRoot, svcDir, 'build', 'bin', svcName + ext)
+
   return [
     {
       serviceId: 'chain',
       repoPath: path.join(sourceRoot, 'koinos-chain'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-chain', 'build', 'src', 'koinos_chain' + ext),
+      artifactPath: path.join(sourceRoot, 'koinos-chain', cmakeBuildDir, 'src', 'koinos_chain' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'mempool',
       repoPath: path.join(sourceRoot, 'koinos-mempool'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-mempool', 'build', 'src', 'koinos_mempool' + ext),
+      artifactPath: path.join(sourceRoot, 'koinos-mempool', cmakeBuildDir, 'src', 'koinos_mempool' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'block_store',
       repoPath: path.join(sourceRoot, 'koinos-block-store'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-block-store', 'build', 'bin', 'koinos-block-store' + ext),
+      artifactPath: goBinPath('koinos-block-store', 'koinos-block-store'),
       buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-block-store' + ext + ' ./cmd/koinos-block-store'],
       goPackage: './cmd/koinos-block-store'
     },
@@ -227,7 +234,7 @@ export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosS
       serviceId: 'p2p',
       repoPath: path.join(sourceRoot, 'koinos-p2p'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-p2p', 'build', 'bin', 'koinos-p2p' + ext),
+      artifactPath: goBinPath('koinos-p2p', 'koinos-p2p'),
       buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-p2p' + ext + ' ./cmd/koinos-p2p'],
       goPackage: './cmd/koinos-p2p'
     },
@@ -235,14 +242,14 @@ export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosS
       serviceId: 'block_producer',
       repoPath: path.join(sourceRoot, 'koinos-block-producer'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-block-producer', 'build', 'src', 'koinos_block_producer' + ext),
+      artifactPath: path.join(sourceRoot, 'koinos-block-producer', cmakeBuildDir, 'src', 'koinos_block_producer' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'jsonrpc',
       repoPath: path.join(sourceRoot, 'koinos-jsonrpc'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-jsonrpc', 'build', 'bin', 'koinos-jsonrpc' + ext),
+      artifactPath: goBinPath('koinos-jsonrpc', 'koinos-jsonrpc'),
       buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-jsonrpc' + ext + ' ./cmd/koinos-jsonrpc'],
       goPackage: './cmd/koinos-jsonrpc'
     },
@@ -250,14 +257,14 @@ export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosS
       serviceId: 'grpc',
       repoPath: path.join(sourceRoot, 'koinos-grpc'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-grpc', 'build', 'src', 'koinos_grpc' + ext),
+      artifactPath: path.join(sourceRoot, 'koinos-grpc', cmakeBuildDir, 'src', 'koinos_grpc' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
       serviceId: 'transaction_store',
       repoPath: path.join(sourceRoot, 'koinos-transaction-store'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-transaction-store', 'build', 'bin', 'koinos-transaction-store' + ext),
+      artifactPath: goBinPath('koinos-transaction-store', 'koinos-transaction-store'),
       buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-transaction-store' + ext + ' ./cmd/koinos-transaction-store'],
       goPackage: './cmd/koinos-transaction-store'
     },
@@ -265,7 +272,7 @@ export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosS
       serviceId: 'contract_meta_store',
       repoPath: path.join(sourceRoot, 'koinos-contract-meta-store'),
       buildSystem: 'go',
-      artifactPath: path.join(sourceRoot, 'koinos-contract-meta-store', 'build', 'bin', 'koinos-contract-meta-store' + ext),
+      artifactPath: goBinPath('koinos-contract-meta-store', 'koinos-contract-meta-store'),
       buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-contract-meta-store' + ext + ' ./cmd/koinos-contract-meta-store'],
       goPackage: './cmd/koinos-contract-meta-store'
     },
@@ -273,7 +280,7 @@ export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosS
       serviceId: 'account_history',
       repoPath: path.join(sourceRoot, 'koinos-account-history'),
       buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-account-history', 'build', 'src', 'koinos_account_history' + ext),
+      artifactPath: path.join(sourceRoot, 'koinos-account-history', cmakeBuildDir, 'src', 'koinos_account_history' + ext),
       buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
     },
     {
