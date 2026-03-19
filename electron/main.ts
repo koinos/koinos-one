@@ -39,6 +39,10 @@ import {
   PUBLIC_KOINOS_RPC_URL,
   resolveDefaultKoinosRepoPath,
   resolveDefaultKoinosSourceRoot,
+  resolveAmqpBrokerPath,
+  resolveAmqpBrokerConfigPath,
+  resolveKoinosRestRoot,
+  isPackagedBuild,
   VHP_CONTRACT_ADDRESS
 } from './lib/constants'
 import { createAppLifecycleService } from './lib/app-lifecycle-service'
@@ -1947,7 +1951,11 @@ function nativeJsonrpcUrl(serviceDefinitions: Map<string, NativeServiceDefinitio
 }
 
 function nativeServiceDefaultRuntimeName(serviceId: string, definition?: NativeServiceBuildDefinition): string {
-  if (serviceId === 'amqp') return nativeAmqpUsesBrewService() ? 'brew services rabbitmq' : 'rabbitmq-server'
+  if (serviceId === 'amqp') {
+    const gmq = resolveAmqpBrokerPath()
+    if (gmq && fs.existsSync(gmq)) return 'garagemq'
+    return nativeAmqpUsesBrewService() ? 'brew services rabbitmq' : 'rabbitmq-server'
+  }
   if (serviceId === 'rest' && definition) {
     return fs.existsSync(path.join(definition.repoPath, '.next', 'standalone', 'server.js'))
       ? 'node .next/standalone/server.js'
@@ -2157,18 +2165,45 @@ function nativeServiceLaunchSpec(
   serviceDefinitions: Map<string, NativeServiceDefinition>
 ): NativeServiceLaunchSpec {
   if (serviceId === 'amqp') {
-    const rabbitmqServer = nativeRabbitmqServerExecutable()
-    if (!rabbitmqServer) {
-      throw new Error('No se encontro rabbitmq-server en el sistema. Instala RabbitMQ nativo antes de usar este runtime.')
+    const garagemqBinary = resolveAmqpBrokerPath()
+    if (!fs.existsSync(garagemqBinary)) {
+      // Fallback to system RabbitMQ if GarageMQ not bundled
+      const rabbitmqServer = nativeRabbitmqServerExecutable()
+      if (!rabbitmqServer) {
+        throw new Error('No se encontro garagemq ni rabbitmq-server. Compila GarageMQ o instala RabbitMQ.')
+      }
+      return {
+        serviceId,
+        command: rabbitmqServer,
+        args: [],
+        cwd: nativeAmqpRuntimeDir(settings),
+        env: nativeAmqpEnv(settings, serviceDefinitions),
+        runtimeName: 'rabbitmq-server'
+      }
     }
 
+    // Use bundled GarageMQ
+    const runtimeDir = nativeAmqpRuntimeDir(settings)
+    fs.mkdirSync(runtimeDir, { recursive: true })
+    const runtimeConfig = path.join(runtimeDir, 'garagemq.yaml')
+    if (!fs.existsSync(runtimeConfig)) {
+      const templateConfig = resolveAmqpBrokerConfigPath()
+      if (fs.existsSync(templateConfig)) {
+        fs.copyFileSync(templateConfig, runtimeConfig)
+      }
+    }
+
+    const amqpPort = composeServicePortByTarget(serviceDefinitions.get('amqp'), 5672)
+    const adminPort = composeServicePortByTarget(serviceDefinitions.get('amqp'), 15672)
     return {
       serviceId,
-      command: rabbitmqServer,
-      args: [],
-      cwd: nativeAmqpRuntimeDir(settings),
-      env: nativeAmqpEnv(settings, serviceDefinitions),
-      runtimeName: 'rabbitmq-server'
+      command: garagemqBinary,
+      args: [
+        '--config', runtimeConfig,
+        ...(amqpPort ? [] : []),
+      ],
+      cwd: runtimeDir,
+      runtimeName: 'garagemq'
     }
   }
 
@@ -2180,18 +2215,34 @@ function nativeServiceLaunchSpec(
   const amqpUrl = nativeAmqpUrl(serviceDefinitions)
   if (serviceId === 'rest') {
     const restPort = composeServicePortByTarget(serviceDefinitions.get('rest'), 3000)
+    const restEnv: Record<string, string> = {
+      JSONRPC_URL: nativeJsonrpcUrl(serviceDefinitions),
+      HOSTNAME: nativeServiceBindHost(restPort),
+      PORT: String(restPort?.publishedPort ?? 3000),
+      NODE_ENV: 'production'
+    }
+
+    if (isPackagedBuild()) {
+      // In packaged mode, use Electron's own Node.js via ELECTRON_RUN_AS_NODE
+      const restRoot = resolveKoinosRestRoot()
+      const serverJs = path.join(restRoot, 'server.js')
+      return {
+        serviceId,
+        command: process.execPath,
+        args: [serverJs],
+        cwd: restRoot,
+        env: { ...restEnv, ELECTRON_RUN_AS_NODE: '1' },
+        runtimeName: 'electron-node server.js'
+      }
+    }
+
     const standaloneServerPath = path.join(buildDefinition.repoPath, '.next', 'standalone', 'server.js')
     return {
       serviceId,
       command: fs.existsSync(standaloneServerPath) ? 'node' : 'yarn',
       args: fs.existsSync(standaloneServerPath) ? [standaloneServerPath] : ['start'],
       cwd: buildDefinition.repoPath,
-      env: {
-        JSONRPC_URL: nativeJsonrpcUrl(serviceDefinitions),
-        HOSTNAME: nativeServiceBindHost(restPort),
-        PORT: String(restPort?.publishedPort ?? 3000),
-        NODE_ENV: 'production'
-      },
+      env: restEnv,
       runtimeName: fs.existsSync(standaloneServerPath) ? 'node .next/standalone/server.js' : 'yarn start'
     }
   }
@@ -2254,7 +2305,7 @@ async function startNativeServiceProcess(
     }
   }
 
-  if (serviceId !== 'amqp' && buildDefinition && !fs.existsSync(buildDefinition.artifactPath)) {
+  if (serviceId !== 'amqp' && serviceId !== 'rest' && buildDefinition && !fs.existsSync(buildDefinition.artifactPath)) {
     return {
       ok: false,
       output: `Falta el artefacto nativo para ${serviceId}: ${buildDefinition.artifactPath}`
@@ -2432,9 +2483,10 @@ async function nativeServiceStatusFromProcessState(
   const fallbackRuntimeName = nativeServiceDefaultRuntimeName(serviceId, buildDefinition)
   const runtimeName = state?.runtimeName ?? fallbackRuntimeName
   const version = await resolveNativeServiceVersion(serviceId, buildDefinition)
-  const rabbitmqExecutable = serviceId === 'amqp' ? nativeRabbitmqServerExecutable() : null
+  const garagemqBinary = serviceId === 'amqp' ? resolveAmqpBrokerPath() : null
+  const rabbitmqExecutable = serviceId === 'amqp' && (!garagemqBinary || !fs.existsSync(garagemqBinary)) ? nativeRabbitmqServerExecutable() : null
   const amqpRuntimeMissing =
-    serviceId === 'amqp' && !rabbitmqExecutable ? 'No se encontro rabbitmq-server para el runtime native' : null
+    serviceId === 'amqp' && (!garagemqBinary || !fs.existsSync(garagemqBinary)) && !rabbitmqExecutable ? 'No se encontro garagemq ni rabbitmq-server' : null
   const artifactMissing =
     serviceId !== 'amqp' && buildDefinition ? !fs.existsSync(buildDefinition.artifactPath) : false
   const conflictingProcesses = detectExternalNativeServiceProcesses(

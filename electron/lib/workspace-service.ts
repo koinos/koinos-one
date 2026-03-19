@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { KOINOS_GIT_CLONE_URL } from './constants'
+import { KOINOS_GIT_CLONE_URL, isPackagedBuild, resolveKoinosConfigRoot } from './constants'
 import type {
   KoinosNodeCloneRepoResult,
   KoinosNodeFileReadInput,
@@ -43,11 +43,13 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
     const exampleDir = deps.configExampleDirPath(settings)
 
     if (!fs.existsSync(configDir)) {
-      if (!fs.existsSync(exampleDir)) {
+      // In packaged mode, fall back to bundled config templates
+      const sourceDir = fs.existsSync(exampleDir) ? exampleDir : (isPackagedBuild() ? resolveKoinosConfigRoot() : null)
+      if (!sourceDir || !fs.existsSync(sourceDir)) {
         throw new Error(`Missing config dir and config-example dir in ${settings.repoPath}`)
       }
-      fs.cpSync(exampleDir, configDir, { recursive: true })
-      return { configReady: true, output: `Created config/ from config-example (${exampleDir})` }
+      fs.cpSync(sourceDir, configDir, { recursive: true })
+      return { configReady: true, output: `Created config/ from ${sourceDir === exampleDir ? 'config-example' : 'bundled config'} (${sourceDir})` }
     }
 
     const required = ['config.yml', 'genesis_data.json', 'koinos_descriptors.pb', 'rabbitmq.conf']

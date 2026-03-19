@@ -16,3 +16,9 @@ vendor/koinos/*/build/
 vendor/koinos/*/*.exe
 vendor/koinos/koinos-rest/.next/
 vendor/koinos/koinos-rest/node_modules/
+
+# AMQP broker (GarageMQ)
+vendor/amqp-broker/
+
+# Bundle staging
+build/

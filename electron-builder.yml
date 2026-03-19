@@ -25,3 +25,8 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+extraResources:
+  - from: build/bundle-staging/koinos
+    to: koinos
+    filter:
+      - "**/*"

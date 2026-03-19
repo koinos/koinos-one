@@ -40,3 +40,48 @@ export function resolveDefaultKoinosSourceRoot(): string {
 export function resolveDefaultKoinosRepoPath(): string {
   return path.join(resolveDefaultKoinosSourceRoot(), 'koinos')
 }
+
+/** True when running from a packaged electron-builder .exe (not dev mode). */
+export function isPackagedBuild(): boolean {
+  return !(process as NodeJS.Process & { defaultApp?: boolean }).defaultApp
+}
+
+/** Root directory for bundled Koinos binaries (packaged) or vendor source (dev). */
+export function resolveKoinosBinRoot(): string {
+  if (isPackagedBuild()) {
+    return path.join(process.resourcesPath!, 'koinos', 'bin')
+  }
+  return resolveDefaultKoinosSourceRoot()
+}
+
+/** Root directory for bundled koinos-rest standalone app (packaged only). */
+export function resolveKoinosRestRoot(): string {
+  if (isPackagedBuild()) {
+    return path.join(process.resourcesPath!, 'koinos', 'rest')
+  }
+  return path.join(resolveDefaultKoinosSourceRoot(), 'koinos-rest')
+}
+
+/** Root directory for bundled config templates (packaged only). */
+export function resolveKoinosConfigRoot(): string {
+  if (isPackagedBuild()) {
+    return path.join(process.resourcesPath!, 'koinos', 'config')
+  }
+  return path.join(resolveDefaultKoinosSourceRoot(), 'koinos', 'config-example')
+}
+
+/** Path to bundled GarageMQ broker binary. */
+export function resolveAmqpBrokerPath(): string {
+  if (isPackagedBuild()) {
+    return path.join(process.resourcesPath!, 'koinos', 'bin', 'garagemq.exe')
+  }
+  return path.resolve(__dirname, '..', '..', 'vendor', 'amqp-broker', 'garagemq.exe')
+}
+
+/** Path to GarageMQ config template. */
+export function resolveAmqpBrokerConfigPath(): string {
+  if (isPackagedBuild()) {
+    return path.join(process.resourcesPath!, 'koinos', 'config', 'amqp', 'garagemq.yaml')
+  }
+  return path.resolve(__dirname, '..', '..', 'vendor', 'amqp-broker', 'etc', 'config.yaml')
+}

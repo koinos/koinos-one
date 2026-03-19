@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { isWindows, isDarwin, isAppleSilicon, executableExtension, findExecutableInPath as findInPath, homebrewPrefix } from './platform'
-import { resolveDefaultKoinosSourceRoot } from './constants'
+import { resolveDefaultKoinosSourceRoot, isPackagedBuild, resolveKoinosBinRoot, resolveKoinosRestRoot } from './constants'
 
 export type NativeBuildSystem = 'cmake' | 'go' | 'yarn'
 
@@ -180,6 +180,26 @@ export function nativeCmakeBuildCommand(buildDir = 'build'): string {
 
 export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosSourceRoot()): NativeServiceBuildDefinition[] {
   const ext = executableExtension()
+
+  // In packaged mode, all binaries live in a flat bin/ directory
+  if (isPackagedBuild()) {
+    const binRoot = resolveKoinosBinRoot()
+    const restRoot = resolveKoinosRestRoot()
+    return [
+      { serviceId: 'chain', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_chain' + ext), buildCommands: [] },
+      { serviceId: 'mempool', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_mempool' + ext), buildCommands: [] },
+      { serviceId: 'block_store', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-block-store' + ext), buildCommands: [] },
+      { serviceId: 'p2p', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-p2p' + ext), buildCommands: [] },
+      { serviceId: 'block_producer', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_block_producer' + ext), buildCommands: [] },
+      { serviceId: 'jsonrpc', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-jsonrpc' + ext), buildCommands: [] },
+      { serviceId: 'grpc', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_grpc' + ext), buildCommands: [] },
+      { serviceId: 'transaction_store', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-transaction-store' + ext), buildCommands: [] },
+      { serviceId: 'contract_meta_store', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-contract-meta-store' + ext), buildCommands: [] },
+      { serviceId: 'account_history', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_account_history' + ext), buildCommands: [] },
+      { serviceId: 'rest', repoPath: restRoot, buildSystem: 'yarn', artifactPath: path.join(restRoot, 'server.js'), buildCommands: [] }
+    ]
+  }
+
   return [
     {
       serviceId: 'chain',
