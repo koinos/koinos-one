@@ -203,10 +203,19 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     for (const state of deps.nativeServiceProcesses.values()) {
       if (state.closed) continue
       state.stopRequested = true
+      const pid = state.child.pid ?? null
       try {
         state.child.kill('SIGTERM')
       } catch {
         // ignore shutdown errors
+      }
+      // On Windows, SIGTERM may not kill child processes. Use taskkill /T for tree kill.
+      if (process.platform === 'win32' && pid) {
+        try {
+          require('node:child_process').execSync(`taskkill /T /F /PID ${pid}`, { stdio: 'ignore' })
+        } catch {
+          // ignore - process may already be dead
+        }
       }
     }
   }

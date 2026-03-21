@@ -312,9 +312,11 @@ function scanBlockchainBackupArchive(
   onEntry: (entry: string) => boolean | void
 ): Promise<{ ok: boolean; output: string }> {
   return new Promise((resolve) => {
-    const child = spawn('tar', ['-tzf', archivePath], {
+    // On Windows, use the built-in bsdtar (System32\tar.exe) which handles
+    // Windows paths natively, avoiding MSYS/Git Bash path mangling issues
+    const tarCmd = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
+    const child = spawn(tarCmd, ['-tzf', archivePath], {
       cwd: process.cwd(),
-      env: process.env,
       stdio: ['ignore', 'pipe', 'pipe']
     })
 
@@ -720,7 +722,10 @@ async function extractBlockchainBackupDirectories(
     const targetPath = path.join(payloadRoot, dirName)
     fs.rmSync(targetPath, { recursive: true, force: true })
 
-    const extractResult = await runCommand('tar', ['-xzf', archivePath, '-C', extractDir, archiveMemberPath], {
+    // On Windows, use the built-in bsdtar (System32\tar.exe) which handles
+    // Windows paths natively, avoiding MSYS/Git Bash path mangling issues
+    const tarExtractCmd = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
+    const extractResult = await runCommand(tarExtractCmd, ['-xzf', archivePath, '-C', extractDir, archiveMemberPath], {
       cwd: process.cwd()
     })
     if (!extractResult.ok) {

@@ -2119,6 +2119,16 @@ function waitForChildClose(
   })
 }
 
+function killProcessTree(pid: number): void {
+  if (process.platform === 'win32') {
+    try {
+      require('node:child_process').execSync(`taskkill /T /F /PID ${pid}`, { stdio: 'ignore' })
+    } catch {
+      // ignore - process may already be dead
+    }
+  }
+}
+
 async function stopNativeServiceProcess(serviceId: string): Promise<NativeServiceStopResult> {
   const state = nativeServiceProcesses.get(serviceId)
   if (!state || state.closed) {
@@ -2129,6 +2139,7 @@ async function stopNativeServiceProcess(serviceId: string): Promise<NativeServic
   }
 
   state.stopRequested = true
+  const pid = state.child.pid ?? null
 
   try {
     state.child.kill('SIGTERM')
@@ -2143,19 +2154,24 @@ async function stopNativeServiceProcess(serviceId: string): Promise<NativeServic
   if (closeCode !== null || state.closed) {
     return {
       ok: true,
-      output: `Stopped ${serviceId} (pid ${state.child.pid ?? 'n/a'})`
+      output: `Stopped ${serviceId} (pid ${pid ?? 'n/a'})`
     }
   }
 
-  try {
-    state.child.kill('SIGKILL')
-  } catch {
-    // ignore final kill errors
+  // On Windows, use taskkill /T to kill the entire process tree
+  if (process.platform === 'win32' && pid) {
+    killProcessTree(pid)
+  } else {
+    try {
+      state.child.kill('SIGKILL')
+    } catch {
+      // ignore final kill errors
+    }
   }
 
   return {
     ok: true,
-    output: `Force-stopped ${serviceId} (pid ${state.child.pid ?? 'n/a'})`
+    output: `Force-stopped ${serviceId} (pid ${pid ?? 'n/a'})`
   }
 }
 
