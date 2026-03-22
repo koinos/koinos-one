@@ -2437,7 +2437,7 @@ function readNativeServiceDefinitions(_settings: KoinosNodeSettings): Map<string
   defs.set('p2p', { ports: [{ host: '0.0.0.0', publishedPort: 8888, targetPort: 8888, protocol: 'tcp', label: '8888/tcp' }], dependsOn: ['amqp', 'chain'], profiles: [] })
 
   // Profile services
-  defs.set('block_producer', { ports: [], dependsOn: ['amqp', 'chain', 'mempool'], profiles: ['block_producer'] })
+  defs.set('block_producer', { ports: [], dependsOn: ['amqp', 'chain', 'mempool', 'jsonrpc'], profiles: ['block_producer'] })
   defs.set('jsonrpc', { ports: [{ host: '127.0.0.1', publishedPort: 8080, targetPort: 8080, protocol: 'tcp', label: '8080/tcp' }], dependsOn: ['amqp', 'chain'], profiles: ['jsonrpc'] })
   defs.set('grpc', { ports: [{ host: '127.0.0.1', publishedPort: 50051, targetPort: 50051, protocol: 'tcp', label: '50051/tcp' }], dependsOn: ['amqp', 'chain'], profiles: ['grpc'] })
   defs.set('transaction_store', { ports: [], dependsOn: ['amqp'], profiles: ['transaction_store'] })
