@@ -1289,11 +1289,14 @@ function buildProfilePresets(_settings: KoinosNodeSettings): KoinosNodePreset[] 
   const presets: KoinosNodePreset[] = []
 
   for (const profile of Object.keys(profileServiceMap)) {
-    const profiles = [profile]
     const services = new Set(coreServiceIds)
     for (const serviceId of profileServiceMap[profile] ?? []) {
       services.add(serviceId)
     }
+    // Collect all profile names needed so each included service passes the profile filter
+    const profiles = Object.entries(profileServiceMap)
+      .filter(([, svcIds]) => svcIds.some((svcId) => services.has(svcId)))
+      .map(([profileName]) => profileName)
     const serviceIds = sortServiceIds(services)
     const label = profile.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
