@@ -1267,7 +1267,7 @@ function buildProfilePresets(_settings: KoinosNodeSettings): KoinosNodePreset[] 
   const coreServiceIds = ['amqp', 'chain', 'mempool', 'block_store', 'p2p']
   // Profile-specific services
   const profileServiceMap: Record<string, string[]> = {
-    block_producer: ['block_producer'],
+    block_producer: ['block_producer', 'jsonrpc', 'contract_meta_store'],
     jsonrpc: ['jsonrpc'],
     grpc: ['grpc'],
     transaction_store: ['transaction_store'],
