@@ -17,11 +17,9 @@ import {
   DASHBOARD_PRODUCER_WINDOW_BLOCKS_MIN,
   DEFAULT_BASEDIR,
   DEFAULT_BLOCKCHAIN_BACKUP_URL,
-  DEFAULT_PROFILES,
   DEFAULT_PUBLIC_RPC_URLS,
   FREE_MANA_METER_ADDRESS,
   FREE_MANA_SHARER_ADDRESS,
-  IMPLIED_NODE_PROFILES,
   KOIN_CONTRACT_ADDRESS,
   KOINOS_GIT_CLONE_URL,
   KNODEL_CONFIG_DIR,
@@ -851,7 +849,7 @@ function validateNodeBaseDirAccess(input?: KoinosNodeSettingsInput): KoinosNodeV
 }
 
 function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSettings {
-  return buildNormalizedNodeSettings(input, expandNodeProfiles) as KoinosNodeSettings
+  return buildNormalizedNodeSettings(input) as KoinosNodeSettings
 }
 
 function parsePersistedNodeSettings(input: unknown): KoinosNodeSettingsInput | undefined {
@@ -1291,12 +1289,10 @@ function buildProfilePresets(_settings: KoinosNodeSettings): KoinosNodePreset[] 
   const presets: KoinosNodePreset[] = []
 
   for (const profile of Object.keys(profileServiceMap)) {
-    const profiles = expandNodeProfiles([profile])
+    const profiles = [profile]
     const services = new Set(coreServiceIds)
-    for (const impliedProfile of profiles) {
-      for (const serviceId of profileServiceMap[impliedProfile] ?? []) {
-        services.add(serviceId)
-      }
+    for (const serviceId of profileServiceMap[profile] ?? []) {
+      services.add(serviceId)
     }
     const serviceIds = sortServiceIds(services)
     const label = profile.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -1396,25 +1392,6 @@ function uniqueStringList(values: string[]): string[] {
     result.push(trimmed)
   }
   return result
-}
-
-function expandNodeProfiles(profiles: string[]): string[] {
-  const pending = uniqueStringList(profiles)
-  const expanded: string[] = []
-  const seen = new Set<string>()
-
-  while (pending.length > 0) {
-    const profile = pending.shift()
-    if (!profile || seen.has(profile)) continue
-    seen.add(profile)
-    expanded.push(profile)
-
-    for (const impliedProfile of IMPLIED_NODE_PROFILES[profile] ?? []) {
-      if (!seen.has(impliedProfile)) pending.push(impliedProfile)
-    }
-  }
-
-  return expanded
 }
 
 function runCommand(
@@ -1655,13 +1632,6 @@ async function killConflictingNativeServiceProcesses(
   }
 }
 
-function composeCommandEnv(settings: KoinosNodeSettings): NodeJS.ProcessEnv {
-  return {
-    BASEDIR: settings.baseDir,
-    COMPOSE_PROFILES: settings.profiles.join(',')
-  }
-}
-
 function parseLsofTcpListeners(raw: string): TcpListenerOwner[] {
   const listeners: TcpListenerOwner[] = []
   let currentPid: number | null = null
@@ -1789,7 +1759,7 @@ function sortManagedServiceIdsByDependencies(
     if (active.has(serviceId)) return
     active.add(serviceId)
 
-    const dependencies = serviceDefinitions.get(toDockerServiceName(serviceId))?.dependsOn ?? []
+    const dependencies = serviceDefinitions.get(serviceId)?.dependsOn ?? []
     for (const dependency of dependencies.map(toManagedServiceId)) {
       visit(dependency)
     }
@@ -2444,10 +2414,6 @@ function toManagedServiceId(service: string): string {
   return KOINOS_MANAGED_SERVICE_BY_ID.get(service)?.id ?? service
 }
 
-function toDockerServiceName(serviceId: string): string {
-  return serviceId
-}
-
 function serviceDisplayName(serviceId: string): string {
   return KOINOS_MANAGED_SERVICE_BY_ID.get(serviceId)?.displayName ?? serviceId
 }
@@ -2458,7 +2424,7 @@ function isComposeServiceRunning(service: ServiceStatus): boolean {
 
 /**
  * Build native service definitions from known Koinos service metadata.
- * This replaces the old docker-compose.yml parser with hardcoded definitions.
+ * Hardcoded native service definitions with ports, dependencies, and profiles.
  */
 function readNativeServiceDefinitions(_settings: KoinosNodeSettings): Map<string, NativeServiceDefinition> {
   const defs = new Map<string, NativeServiceDefinition>()
@@ -2523,7 +2489,7 @@ async function nativeServiceStatusFromProcessState(
     return {
       id: serviceId,
       name: serviceDisplayName(serviceId),
-      service: toDockerServiceName(serviceId),
+      service: serviceId,
       runtimeName,
       version,
       state: 'restart required',
@@ -2541,7 +2507,7 @@ async function nativeServiceStatusFromProcessState(
     return {
       id: serviceId,
       name: serviceDisplayName(serviceId),
-      service: toDockerServiceName(serviceId),
+      service: serviceId,
       runtimeName,
       version,
       state: 'running',
@@ -2559,7 +2525,7 @@ async function nativeServiceStatusFromProcessState(
     return {
       id: serviceId,
       name: serviceDisplayName(serviceId),
-      service: toDockerServiceName(serviceId),
+      service: serviceId,
       runtimeName,
       version,
       state: 'conflict',
@@ -2577,7 +2543,7 @@ async function nativeServiceStatusFromProcessState(
     return {
       id: serviceId,
       name: serviceDisplayName(serviceId),
-      service: toDockerServiceName(serviceId),
+      service: serviceId,
       runtimeName,
       version,
       state: 'unavailable',
@@ -2595,7 +2561,7 @@ async function nativeServiceStatusFromProcessState(
     return {
       id: serviceId,
       name: serviceDisplayName(serviceId),
-      service: toDockerServiceName(serviceId),
+      service: serviceId,
       runtimeName,
       version,
       state: 'not built',
@@ -2613,7 +2579,7 @@ async function nativeServiceStatusFromProcessState(
     return {
       id: serviceId,
       name: serviceDisplayName(serviceId),
-      service: toDockerServiceName(serviceId),
+      service: serviceId,
       runtimeName,
       version,
       state: 'exited',
@@ -2630,7 +2596,7 @@ async function nativeServiceStatusFromProcessState(
   return {
     id: serviceId,
     name: serviceDisplayName(serviceId),
-    service: toDockerServiceName(serviceId),
+    service: serviceId,
     runtimeName,
     version,
     state: 'stopped',
@@ -2776,8 +2742,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
   const services = (
     await Promise.all(
       selectedServiceIds.map(async (serviceId): Promise<ServiceStatus | null> => {
-        const dockerServiceName = toDockerServiceName(serviceId)
-        const serviceDefinition = serviceDefinitions.get(dockerServiceName)
+        const serviceDefinition = serviceDefinitions.get(serviceId)
         if (!serviceDefinition) return null
 
         if (serviceId === 'amqp' && nativeAmqpUsesBrewService()) {

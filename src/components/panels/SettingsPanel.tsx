@@ -22,17 +22,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setDraftDashboardProducerWindowBlocks,
     draftDashboardRefreshSeconds,
     setDraftDashboardRefreshSeconds,
-    draftNodeRepoPath,
-    setDraftNodeRepoPath,
-    cloneKoinosRepo,
     hasNodeControls,
-    nodeCloneLoading,
-    nodeActionLoading,
     openNodeFileEditor,
     nodeFileEditorLoading,
     nodeFileEditorSaving,
-    draftNodeProfiles,
-    setDraftNodeProfiles,
     draftNodeBlockchainBackupUrl,
     setDraftNodeBlockchainBackupUrl,
     runNodeRestoreBackupVerify,
@@ -180,46 +173,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <h3>{t('settings.nodeTitle')}</h3>
               <p>{t('settings.nodeDescription')}</p>
             </div>
-
-            <label>
-              {t('settings.repoPath')}
-              <input
-                type="text"
-                value={draftNodeRepoPath}
-                onChange={(event) => setDraftNodeRepoPath(event.target.value)}
-                placeholder="/Users/pgarcgo/code/koinos_code/koinos"
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-
-            <div className="settings-actions settings-actions-inline">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => {
-                  void cloneKoinosRepo(draftNodeRepoPath)
-                }}
-                disabled={!hasNodeControls || nodeCloneLoading || nodeActionLoading !== null}
-              >
-                {nodeCloneLoading ? t('node.refreshingRepo') : t('node.refreshRepo')}
-              </button>
-              <span className="settings-inline-help mono">
-                {t('settings.refreshRepoHelp')}
-              </span>
-            </div>
-
-            <label>
-              {t('settings.profilesCsv')}
-              <input
-                type="text"
-                value={draftNodeProfiles}
-                onChange={(event) => setDraftNodeProfiles(event.target.value)}
-                placeholder="block_producer,jsonrpc,contract_meta_store"
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
 
             <div className="settings-subheader">
               <h3>{t('settings.blockchainBackupTitle')}</h3>

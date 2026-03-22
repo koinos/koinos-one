@@ -50,19 +50,16 @@ describe('electron node paths', () => {
     })
   })
 
-  it('normalizes node settings and delegates profile expansion', () => {
-    const normalized = normalizeNodeSettings(
-      {
-        repoPath: '~/repo',
-        baseDir: '~/node',
-        profiles: ['block_producer']
-      },
-      (profiles) => [...profiles, 'jsonrpc']
-    )
+  it('normalizes node settings with profiles', () => {
+    const normalized = normalizeNodeSettings({
+      repoPath: '~/repo',
+      baseDir: '~/node',
+      profiles: ['block_producer']
+    })
 
     expect(normalized.repoPath).toMatch(/repo$/)
     expect(normalized.baseDir).toMatch(/node[/\\]\.koinos$/)
-    expect(normalized.profiles).toEqual(['block_producer', 'jsonrpc'])
+    expect(normalized.profiles).toEqual(['block_producer'])
   })
 
   it('deduplicates and sanitizes public rpc urls', () => {

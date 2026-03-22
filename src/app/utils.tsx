@@ -524,27 +524,8 @@ export function normalizeStringList(values: string[]): string[] {
   return [...values].map((value) => value.trim()).filter(Boolean).sort()
 }
 
-const IMPLIED_NODE_PROFILES: Record<string, string[]> = {
-  block_producer: ['jsonrpc', 'contract_meta_store']
-}
-
 export function expandNodeProfiles(profiles: string[]): string[] {
-  const pending = normalizeStringList(profiles)
-  const expanded: string[] = []
-  const seen = new Set<string>()
-
-  while (pending.length > 0) {
-    const profile = pending.shift()
-    if (!profile || seen.has(profile)) continue
-    seen.add(profile)
-    expanded.push(profile)
-
-    for (const impliedProfile of IMPLIED_NODE_PROFILES[profile] ?? []) {
-      if (!seen.has(impliedProfile)) pending.push(impliedProfile)
-    }
-  }
-
-  return expanded.sort()
+  return normalizeStringList(profiles)
 }
 
 export function formatNodeServiceRuntimeDetail(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {

@@ -4,7 +4,6 @@ import path from 'node:path'
 import {
   DEFAULT_BASEDIR,
   DEFAULT_BLOCKCHAIN_BACKUP_URL,
-  DEFAULT_PROFILES,
   DEFAULT_PUBLIC_RPC_URLS,
   resolveDefaultKoinosRepoPath
 } from './constants'
@@ -108,14 +107,15 @@ export function sanitizePublicRpcUrls(value: unknown): string[] {
   return urls.length > 0 ? urls : [...DEFAULT_PUBLIC_RPC_URLS]
 }
 
+const NATIVE_DEFAULT_PROFILES = ['block_producer', 'jsonrpc', 'contract_meta_store']
+
 export function normalizeNodeSettings(
   input?: {
     repoPath?: string
     baseDir?: string
     profiles?: string[]
     blockchainBackupUrl?: string
-  },
-  expandProfiles?: (profiles: string[]) => string[]
+  }
 ): {
   repoPath: string
   baseDir: string
@@ -124,8 +124,7 @@ export function normalizeNodeSettings(
 } {
   const repoPath = expandUserPath(input?.repoPath || resolveDefaultKoinosRepoPath())
   const baseDir = ensureKoinosBaseDir(input?.baseDir || DEFAULT_BASEDIR)
-  const requestedProfiles = Array.isArray(input?.profiles) ? input.profiles : DEFAULT_PROFILES
-  const profiles = expandProfiles ? expandProfiles(requestedProfiles) : requestedProfiles
+  const profiles = Array.isArray(input?.profiles) ? input.profiles : NATIVE_DEFAULT_PROFILES
   const blockchainBackupUrl = (input?.blockchainBackupUrl || DEFAULT_BLOCKCHAIN_BACKUP_URL).trim() || DEFAULT_BLOCKCHAIN_BACKUP_URL
 
   return {

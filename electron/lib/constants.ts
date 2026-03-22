@@ -2,10 +2,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { executableExtension } from './platform'
 
-export const DEFAULT_PROFILES = ['block_producer', 'jsonrpc', 'contract_meta_store']
-export const IMPLIED_NODE_PROFILES: Record<string, string[]> = {
-  block_producer: ['jsonrpc', 'contract_meta_store']
-}
 export const DEFAULT_BASEDIR = path.join(os.homedir(), '.koinos')
 export const DEFAULT_BLOCKCHAIN_BACKUP_URL = 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
 export const PUBLIC_KOINOS_RPC_URL = 'https://api.koinos.io/'
