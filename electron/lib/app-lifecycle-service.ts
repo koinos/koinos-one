@@ -255,6 +255,8 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     const win = new BrowserWindow({
       width: 1280,
       height: 800,
+      icon: path.join(__dirname, '../../assets/branding/icon.ico'),
+      autoHideMenuBar: true,
       webPreferences: {
         preload: deps.preloadPath
       }

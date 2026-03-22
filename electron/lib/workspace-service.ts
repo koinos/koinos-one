@@ -18,6 +18,7 @@ type WorkspaceServiceDeps = {
   configDirPath: (settings: KoinosNodeSettings) => string
   configExampleDirPath: (settings: KoinosNodeSettings) => string
   managedFilePath: (settings: KoinosNodeSettings, kind: 'config') => string
+  baseDirConfigFilePath: (settings: { baseDir: string }) => string
   restoreWorkspaceParentPath: (baseDir: string) => string
   verifyWritableDirectory: (dirPath: string) => void
   runCommand: (
@@ -233,7 +234,9 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
   async function readKoinosManagedFile(input: KoinosNodeFileReadInput): Promise<KoinosNodeFileReadResult> {
     const settings = deps.normalizeNodeSettings(input)
     const kind: 'config' = 'config'
-    const filePath = deps.managedFilePath(settings, kind)
+    // Prefer BASEDIR config (the active running config) over the repo template
+    const baseDirPath = settings.baseDir ? deps.baseDirConfigFilePath(settings as { baseDir: string }) : null
+    const filePath = (baseDirPath && fs.existsSync(baseDirPath)) ? baseDirPath : deps.managedFilePath(settings, kind)
 
     try {
       const content = fs.readFileSync(filePath, 'utf8')
@@ -259,7 +262,9 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
   async function writeKoinosManagedFile(input: KoinosNodeFileWriteInput): Promise<KoinosNodeFileWriteResult> {
     const settings = deps.normalizeNodeSettings(input)
     const kind: 'config' = 'config'
-    const filePath = deps.managedFilePath(settings, kind)
+    // Write to BASEDIR config (the active running config) when available
+    const baseDirPath = settings.baseDir ? deps.baseDirConfigFilePath(settings as { baseDir: string }) : null
+    const filePath = baseDirPath || deps.managedFilePath(settings, kind)
     const content = input.content ?? ''
 
     try {

@@ -242,6 +242,7 @@ const workspaceService = createWorkspaceService({
   configDirPath,
   configExampleDirPath,
   managedFilePath,
+  baseDirConfigFilePath,
   restoreWorkspaceParentPath,
   verifyWritableDirectory,
   runCommand

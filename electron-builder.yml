@@ -1,4 +1,4 @@
-forceCodeSigning: true
+forceCodeSigning: false
 appId: io.knodel.desktop
 productName: Knodel
 directories:

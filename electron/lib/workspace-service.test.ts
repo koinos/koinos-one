@@ -31,6 +31,8 @@ function createService() {
     configExampleDirPath: (settings: KoinosNodeSettings) => path.join(settings.repoPath, 'config-example'),
     managedFilePath: (settings: { repoPath: string }, _kind: string) =>
       path.join(settings.repoPath, 'config', 'config.yml'),
+    baseDirConfigFilePath: (settings: { baseDir: string }) =>
+      path.join(settings.baseDir, 'config.yml'),
     restoreWorkspaceParentPath: (baseDir: string) => path.join(path.dirname(baseDir), '.restore'),
     verifyWritableDirectory: (dirPath: string) => {
       fs.mkdirSync(dirPath, { recursive: true })

@@ -1,5 +1,6 @@
 import { normalizeAppLanguage } from '../../i18n'
 import { normalizeNodeBaseDirInput } from '../../app/utils'
+import { MicroservicesConfigPanel } from './MicroservicesConfigPanel'
 
 type SettingsPanelProps = any
 
@@ -72,7 +73,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             </div>
             <label>
               {t('settings.language')}
-              <select value={language} onChange={(event) => setLanguage(normalizeAppLanguage(event.target.value))}>
+              <select style={{ maxWidth: '200px' }} value={language} onChange={(event) => setLanguage(normalizeAppLanguage(event.target.value))}>
                 <option value="en">{t('language.english')}</option>
                 <option value="es">{t('language.spanish')}</option>
               </select>
@@ -82,8 +83,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <h3>{t('settings.producerModeTitle')}</h3>
               <p>{t('settings.producerModeDescription')}</p>
             </div>
-            <label className="settings-toggle">
-          <span className="settings-toggle-row">
+            <div>
+              <label className="settings-toggle-row">
                 <input
                   type="checkbox"
                   checked={settings.producerAdvancedMode}
@@ -92,11 +93,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   }}
                 />
                 <span>{t('settings.producerAdvancedMode')}</span>
-              </span>
+              </label>
               <span className="settings-inline-help">
                 {settings.producerAdvancedMode ? t('settings.producerAdvancedHelpOn') : t('settings.producerAdvancedHelpOff')}
               </span>
-            </label>
+            </div>
 
             <div className="settings-subheader">
               <h3>{t('settings.explorerTitle')}</h3>
@@ -335,6 +336,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </button>
             </div>
           </form>
+
+          {hasNodeControls && (
+            <MicroservicesConfigPanel
+              t={t}
+              hasNodeControls={hasNodeControls}
+              nodeSettings={nodeSettings}
+            />
+          )}
         </section>
   )
 }
