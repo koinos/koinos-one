@@ -33,10 +33,8 @@ export function directoryHasEntries(dirPath: string): boolean {
 }
 
 export function createWorkspaceService(deps: WorkspaceServiceDeps) {
-  function assertRepoReady(settings: KoinosNodeSettings): void {
-    if (!fs.existsSync(settings.repoPath)) {
-      throw new Error(`Koinos repo path not found: ${settings.repoPath}`)
-    }
+  function assertRepoReady(_settings: KoinosNodeSettings): void {
+    // In native mode, services are bundled — no external repo checkout needed
   }
 
   function ensureKoinosConfigFiles(settings: KoinosNodeSettings): { configReady: boolean; output: string } {
