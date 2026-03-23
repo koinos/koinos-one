@@ -4321,6 +4321,8 @@ export function App() {
             <BlockDetailDialog
               t={t}
               locale={locale}
+              language={language}
+              rpcUrl={effectiveExplorerRpcUrl}
               block={selectedBlock}
               onClose={() => setSelectedBlock(null)}
             />

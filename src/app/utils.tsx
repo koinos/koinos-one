@@ -20,16 +20,21 @@ import {
 import type {
   AnsiStyleState,
   AnsiTextSegment,
+  BlockDetail,
   BlockRow,
   BlockStoreItem,
   BlocksByHeightResult,
+  BlocksByIdResult,
   ExplorerRpcSource,
   ExplorerSettings,
   HeadInfoResult,
   HeadSnapshot,
   JsonRpcResponse,
   NodeManagerSettings,
-  NodeServiceCapabilities
+  NodeServiceCapabilities,
+  OperationDetail,
+  RawTransactionReceipt,
+  TransactionDetail
 } from './types'
 
 export function safeParseInt(value: string | undefined, fallback = 0): number {
@@ -899,4 +904,92 @@ export async function fetchHeadSnapshot(
   }
 
   return { id: headId, height: headHeight, timestampMs: headTimestampMs }
+}
+
+export async function fetchBlockDetail(
+  language: AppLanguage,
+  rpcUrl: string,
+  blockId: string,
+  signal: AbortSignal
+): Promise<BlockDetail> {
+  const result = await rpcCall<BlocksByIdResult>(
+    language,
+    rpcUrl,
+    'block_store.get_blocks_by_id',
+    {
+      block_ids: [blockId],
+      return_block: true,
+      return_receipt: true
+    },
+    signal
+  )
+
+  const item = result.block_items?.[0]
+  if (!item?.block) throw new Error('Block not found')
+
+  const header = item.block.header ?? {}
+  const txns = item.block.transactions ?? []
+  const receipts = item.receipt?.transaction_receipts ?? []
+  const receiptMap = new Map<string, RawTransactionReceipt>()
+  for (const r of receipts) {
+    if (r.id) receiptMap.set(r.id, r)
+  }
+
+  const transactions: TransactionDetail[] = txns.map((tx) => {
+    const txReceipt = tx.id ? receiptMap.get(tx.id) ?? null : null
+    const ops: OperationDetail[] = (tx.operations ?? []).map((op) => {
+      if (op.call_contract) {
+        return { type: 'call_contract', contractId: op.call_contract.contract_id ?? '', entryPoint: op.call_contract.entry_point ?? 0, args: op.call_contract.args ?? '' }
+      }
+      if (op.upload_contract) {
+        return { type: 'upload_contract', contractId: op.upload_contract.contract_id ?? '', entryPoint: 0, args: '' }
+      }
+      if (op.set_system_call) {
+        return { type: 'set_system_call', contractId: op.set_system_call.target?.system_call_bundle?.contract_id ?? '', entryPoint: op.set_system_call.target?.system_call_bundle?.entry_point ?? 0, args: '' }
+      }
+      if (op.set_system_contract) {
+        return { type: 'set_system_contract', contractId: op.set_system_contract.contract_id ?? '', entryPoint: 0, args: '' }
+      }
+      return { type: 'unknown', contractId: '', entryPoint: 0, args: '' }
+    })
+
+    return {
+      id: tx.id ?? '',
+      payer: tx.header?.payer ?? '',
+      payee: tx.header?.payee ?? '',
+      rcLimit: safeParseInt(tx.header?.rc_limit, 0),
+      nonce: tx.header?.nonce ?? '',
+      operations: ops,
+      signatures: tx.signatures ?? [],
+      receipt: txReceipt ? {
+        rcUsed: safeParseInt(txReceipt.rc_used, 0),
+        rcLimit: safeParseInt(txReceipt.rc_limit, 0),
+        diskStorageUsed: safeParseInt(txReceipt.disk_storage_used, 0),
+        networkBandwidthUsed: safeParseInt(txReceipt.network_bandwidth_used, 0),
+        computeBandwidthUsed: safeParseInt(txReceipt.compute_bandwidth_used, 0),
+        reverted: txReceipt.reverted ?? false,
+        events: (txReceipt.events ?? []).map((e) => ({
+          source: e.source ?? '',
+          name: e.name ?? '',
+          data: e.data ?? '',
+          impacted: e.impacted ?? []
+        })),
+        logs: txReceipt.logs ?? []
+      } : null
+    }
+  })
+
+  return {
+    height: safeParseInt(header.height, 0),
+    blockId: item.block_id ?? item.block.id ?? '',
+    previousId: header.previous ?? '',
+    signer: header.signer ?? '',
+    timestampMs: safeParseInt(header.timestamp, 0),
+    signature: item.block.signature ?? '',
+    transactionMerkleRoot: header.transaction_merkle_root ?? '',
+    previousStateMerkleRoot: header.previous_state_merkle_root ?? '',
+    approvedProposals: header.approved_proposals ?? [],
+    transactions,
+    raw: item
+  }
 }

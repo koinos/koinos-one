@@ -133,6 +133,129 @@ export type BlocksByHeightResult = {
   block_items?: BlockStoreItem[]
 }
 
+// --- Rich block detail types ---
+
+export type BlockDetailStoreItem = {
+  block_id?: string
+  block_height?: string
+  block?: {
+    id?: string
+    header?: {
+      previous?: string
+      height?: string
+      timestamp?: string
+      signer?: string
+      transaction_merkle_root?: string
+      previous_state_merkle_root?: string
+      approved_proposals?: string[]
+    }
+    transactions?: RawTransaction[]
+    signature?: string
+  }
+  receipt?: {
+    id?: string
+    transaction_receipts?: RawTransactionReceipt[]
+    state_delta_entries?: unknown[]
+  }
+}
+
+export type RawTransaction = {
+  id?: string
+  header?: {
+    chain_id?: string
+    rc_limit?: string
+    nonce?: string
+    operation_merkle_root?: string
+    payer?: string
+    payee?: string
+  }
+  operations?: RawOperation[]
+  signatures?: string[]
+}
+
+export type RawOperation = {
+  call_contract?: { contract_id?: string; entry_point?: number; args?: string }
+  upload_contract?: { contract_id?: string; bytecode?: string; abi?: string; authorizes_call_contract?: boolean; authorizes_transaction_application?: boolean; authorizes_upload_contract?: boolean }
+  set_system_call?: { call_id?: number; target?: { system_call_bundle?: { contract_id?: string; entry_point?: number } } }
+  set_system_contract?: { contract_id?: string; system_contract?: boolean }
+}
+
+export type RawTransactionReceipt = {
+  id?: string
+  payer?: string
+  max_payer_rc?: string
+  rc_limit?: string
+  rc_used?: string
+  disk_storage_used?: string
+  network_bandwidth_used?: string
+  compute_bandwidth_used?: string
+  reverted?: boolean
+  events?: RawEvent[]
+  logs?: string[]
+  state_delta_entries?: unknown[]
+}
+
+export type RawEvent = {
+  source?: string
+  name?: string
+  data?: string
+  impacted?: string[]
+}
+
+export type BlockDetail = {
+  height: number
+  blockId: string
+  previousId: string
+  signer: string
+  timestampMs: number
+  signature: string
+  transactionMerkleRoot: string
+  previousStateMerkleRoot: string
+  approvedProposals: string[]
+  transactions: TransactionDetail[]
+  raw: object
+}
+
+export type TransactionDetail = {
+  id: string
+  payer: string
+  payee: string
+  rcLimit: number
+  nonce: string
+  operations: OperationDetail[]
+  signatures: string[]
+  receipt: TransactionReceiptDetail | null
+}
+
+export type TransactionReceiptDetail = {
+  rcUsed: number
+  rcLimit: number
+  diskStorageUsed: number
+  networkBandwidthUsed: number
+  computeBandwidthUsed: number
+  reverted: boolean
+  events: EventDetail[]
+  logs: string[]
+}
+
+export type OperationDetail = {
+  type: string
+  contractId: string
+  entryPoint: number
+  args: string
+}
+
+export type EventDetail = {
+  source: string
+  name: string
+  data: string
+  impacted: string[]
+}
+
+export type BlocksByIdResult = {
+  block_items?: BlockDetailStoreItem[]
+}
+
 export type AnsiStyleState = {
   fg?: string
   bg?: string
