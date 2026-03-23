@@ -121,6 +121,7 @@ export function App() {
   const [localChainHead, setLocalChainHead] = useState<HeadSnapshot | null>(null)
   const [blocksPerSecond, setBlocksPerSecond] = useState<number | null>(null)
   const [selectedBlock, setSelectedBlock] = useState<any>(null)
+  const selectedBlockRef = useRef<any>(null)
   const prevChainHeadRef = useRef<{ height: number; time: number } | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -789,6 +790,7 @@ export function App() {
 
     const tick = async (initial: boolean) => {
       if (disposed || inFlight) return
+      if (!initial && selectedBlockRef.current) return // Pause polling while block detail is open
       inFlight = true
       controller = new AbortController()
 
@@ -4315,7 +4317,11 @@ export function App() {
           freshBlockIds={freshBlockIds}
           nowMs={nowMs}
           selectedBlockId={selectedBlock?.blockId ?? null}
-          onBlockClick={(block: any) => setSelectedBlock(selectedBlock?.blockId === block.blockId ? null : block)}
+          onBlockClick={(block: any) => {
+            const next = selectedBlock?.blockId === block.blockId ? null : block
+            selectedBlockRef.current = next
+            setSelectedBlock(next)
+          }}
           rpcUrl={effectiveExplorerRpcUrl}
         />
       )}
