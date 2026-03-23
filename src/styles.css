@@ -517,6 +517,18 @@ body {
   flex-wrap: wrap;
 }
 
+.settings-backup-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.settings-backup-info {
+  padding-bottom: 6px;
+  white-space: nowrap;
+}
+
 .settings-inline-help {
   color: var(--muted);
   font-size: 0.8rem;

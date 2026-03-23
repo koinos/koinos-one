@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react'
 import { normalizeAppLanguage } from '../../i18n'
 import { normalizeNodeBaseDirInput } from '../../app/utils'
 import { MicroservicesConfigPanel } from './MicroservicesConfigPanel'
 
+type BackupInfo = { ok: boolean; lastModified: string | null; sizeBytes: number | null }
 type SettingsPanelProps = any
 
 export function SettingsPanel(props: SettingsPanelProps) {
@@ -43,8 +45,25 @@ export function SettingsPanel(props: SettingsPanelProps) {
     nodeBaseDirValidationLoading,
     nodeBaseDirValidation,
     formError,
-    resetDefaults
+    resetDefaults,
+    getKoinosNodeBridge
   } = props
+
+  const locale = language?.startsWith('es') ? 'es' : 'en'
+  const [backupInfo, setBackupInfo] = useState<BackupInfo | null>(null)
+  const [backupInfoLoading, setBackupInfoLoading] = useState(false)
+
+  useEffect(() => {
+    const url = nodeSettings?.blockchainBackupUrl || draftNodeBlockchainBackupUrl
+    if (!url || !url.startsWith('http')) return
+    setBackupInfoLoading(true)
+    const bridge = getKoinosNodeBridge?.()
+    if (!bridge?.backupInfo) { setBackupInfoLoading(false); return }
+    bridge.backupInfo(url)
+      .then((info: BackupInfo) => setBackupInfo(info))
+      .catch(() => setBackupInfo(null))
+      .finally(() => setBackupInfoLoading(false))
+  }, [nodeSettings?.blockchainBackupUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
         <section
@@ -179,17 +198,31 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <p>{t('settings.blockchainBackupDescription')}</p>
             </div>
 
-            <label>
-              {t('settings.backupUrl')}
-              <input
-                type="url"
-                value={draftNodeBlockchainBackupUrl}
-                onChange={(event) => setDraftNodeBlockchainBackupUrl(event.target.value)}
-                placeholder="http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz"
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
+            <div className="settings-backup-row">
+              <label style={{ flex: 1 }}>
+                {t('settings.backupUrl')}
+                <input
+                  type="url"
+                  value={draftNodeBlockchainBackupUrl}
+                  onChange={(event) => setDraftNodeBlockchainBackupUrl(event.target.value)}
+                  placeholder="http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz"
+                  spellCheck={false}
+                  autoComplete="off"
+                  style={{ maxWidth: 480, fontSize: '0.8em' }}
+                />
+              </label>
+              <div className="settings-backup-info">
+                {backupInfo?.lastModified
+                  ? <span className="settings-inline-help" title={backupInfo.lastModified}>
+                      {t('settings.backupDate')}: {new Date(backupInfo.lastModified).toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {backupInfo.sizeBytes ? ` · ${(backupInfo.sizeBytes / (1024 ** 3)).toFixed(1)} GB` : ''}
+                    </span>
+                  : backupInfoLoading
+                    ? <span className="settings-inline-help">{t('common.loading')}</span>
+                    : null
+                }
+              </div>
+            </div>
 
             <div className="settings-actions settings-actions-inline">
               <button

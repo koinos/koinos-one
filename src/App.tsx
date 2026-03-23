@@ -3509,6 +3509,7 @@ export function App() {
           nodeBaseDirValidation={nodeBaseDirValidation}
           formError={formError}
           resetDefaults={resetDefaults}
+          getKoinosNodeBridge={getKoinosNodeBridge}
         />
       )}
 

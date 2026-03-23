@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('knodel', {
     stop: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:stop', settings),
     restoreBackup: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:restore-backup', settings),
     restoreBackupVerify: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:restore-backup-verify', settings),
+    backupInfo: (url?: string) => ipcRenderer.invoke('knodel:koinos-node:backup-info', url),
     rpcCall: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:rpc-call', params),
     dashboardProducers: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:dashboard-producers', params),
     dashboardPeers: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:dashboard-peers', params),

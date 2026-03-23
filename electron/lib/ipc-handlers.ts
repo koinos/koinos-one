@@ -223,6 +223,21 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('knodel:koinos-node:stop', async (_event, input?: KoinosNodeSettingsInput) => deps.koinosNodeAction('stop', input))
   ipcMain.handle('knodel:koinos-node:restore-backup', async (event, input?: KoinosNodeSettingsInput) => deps.koinosNodeRestoreBackup(input, event.sender))
   ipcMain.handle('knodel:koinos-node:restore-backup-verify', async (event, input?: KoinosNodeSettingsInput) => deps.koinosNodeRestoreBackupAndVerify(input, event.sender))
+  ipcMain.handle('knodel:koinos-node:backup-info', async (_event, url?: string) => {
+    if (!url || typeof url !== 'string') return { ok: false, lastModified: null, sizeBytes: null }
+    try {
+      const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(10000) })
+      const lastModified = response.headers.get('last-modified')
+      const contentLength = response.headers.get('content-length')
+      return {
+        ok: response.ok,
+        lastModified: lastModified || null,
+        sizeBytes: contentLength ? parseInt(contentLength, 10) : null
+      }
+    } catch {
+      return { ok: false, lastModified: null, sizeBytes: null }
+    }
+  })
   ipcMain.handle('knodel:koinos-node:rpc-call', async (_event, input?: KoinosJsonRpcProxyInput) => deps.koinosJsonRpcProxy(input))
   ipcMain.handle('knodel:koinos-node:dashboard-producers', async (_event, input?: KoinosNodeSettingsInput & { rpcUrl?: string; windowBlocks?: number }) => deps.koinosNodeDashboardProducers(input))
   ipcMain.handle('knodel:koinos-node:dashboard-peers', async (_event, input?: KoinosNodeSettingsInput) => deps.koinosNodeDashboardPeers(input))
