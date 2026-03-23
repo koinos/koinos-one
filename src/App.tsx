@@ -118,6 +118,8 @@ export function App() {
   const [head, setHead] = useState<HeadSnapshot | null>(null)
   const [publicChainHead, setPublicChainHead] = useState<HeadSnapshot | null>(null)
   const [localChainHead, setLocalChainHead] = useState<HeadSnapshot | null>(null)
+  const [blocksPerSecond, setBlocksPerSecond] = useState<number | null>(null)
+  const prevChainHeadRef = useRef<{ height: number; time: number } | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -1016,6 +1018,22 @@ export function App() {
                 : t('status.error')
           : t('status.noState')
   const nodeStatusClass = nodeError || nodeHasPartialOutage ? 'is-error' : nodeRunningCount > 0 ? 'is-live' : 'is-idle'
+  // Calculate blocks/sec from chain head height changes
+  if (localChainHead) {
+    const now = Date.now()
+    const prev = prevChainHeadRef.current
+    if (prev && localChainHead.height > prev.height) {
+      const elapsedSec = (now - prev.time) / 1000
+      if (elapsedSec > 0.5) {
+        const rate = (localChainHead.height - prev.height) / elapsedSec
+        setBlocksPerSecond(Math.round(rate * 10) / 10)
+        prevChainHeadRef.current = { height: localChainHead.height, time: now }
+      }
+    } else if (!prev || localChainHead.height !== prev.height) {
+      prevChainHeadRef.current = { height: localChainHead.height, time: now }
+    }
+  }
+
   const syncGapBlocks =
     publicChainHead && localChainHead ? Math.max(0, publicChainHead.height - localChainHead.height) : null
   const syncGapTimeMs =
@@ -1186,12 +1204,15 @@ export function App() {
           ? t('status.liveProducing')
           : t('status.liveSynchronized')
         : nodeStateText
+  const blocksPerSecLabel = blocksPerSecond !== null && blocksPerSecond > 0 && showChainSyncProgress
+    ? ` · ${blocksPerSecond} blk/s`
+    : ''
   const footerStatusMeta = showChainSyncProgress && publicChainHead && localChainHead
     ? t('status.syncProgress', {
         current: localChainHead.height.toLocaleString(locale),
         target: publicChainHead.height.toLocaleString(locale),
         percent: chainSyncPercentLabel
-      })
+      }) + blocksPerSecLabel
     : null
   const hasAppOverlayOpen =
     nodeProfilesModalOpen ||
@@ -3601,8 +3622,6 @@ export function App() {
                     <th>{t('common.name')}</th>
                     <th>{t('common.status')}</th>
                     <th>{t('common.port')}</th>
-                    <th>{t('node.col.lastError')}</th>
-                    <th>{t('common.type')}</th>
                     <th>{t('common.logs')}</th>
                     <th>{t('common.start')}</th>
                     <th>{t('common.restart')}</th>
@@ -3632,18 +3651,10 @@ export function App() {
                         }}
                       >
                         <td className="node-service-name-cell" title={serviceTooltip}>
-                          <div className="node-service-name-row">
-                            <span className="node-service-primary mono">{service.name}</span>
-                            <span className="node-service-secondary mono">
-                              {formatNodeServiceRuntimeDetail(service, language)}
-                            </span>
-                          </div>
-                          <div className="node-service-meta">
-                            <span>
-                              <span className="node-service-meta-label">{t('node.serviceVersionLabel')}</span>{' '}
-                              <span className="mono">{formatNodeServiceVersion(service, language)}</span>
-                            </span>
-                          </div>
+                          <span className="mono">
+                            {formatNodeServiceVersion(service, language) || service.name}
+                            {service.nativePid ? ` (pid ${service.nativePid})` : ''}
+                          </span>
                         </td>
                         <td>
                           <span
@@ -3655,22 +3666,7 @@ export function App() {
                           </span>
                         </td>
                         <td className="mono">{formatNodeServicePorts(service)}</td>
-                        <td className={`node-service-error-cell mono ${service.lastError ? 'has-error' : ''}`}>
-                          {service.lastError || '-'}
-                          {service.state === 'conflict' && canKillNodeConflict(service) && (
-                            <button
-                              type="button"
-                              className="ghost-button node-service-conflict-button"
-                              onClick={() => openNodeConflictDialog(service)}
-                              disabled={!hasNodeControls || nodeBusy}
-                            >
-                              {t('node.resolveConflict')}
-                            </button>
-                          )}
-                        </td>
-                        <td>
-                          <span className="node-service-runtime-tag">{formatNodeServiceType(service, language)}</span>
-                        </td>
+                        {/* TYPE and LAST ERROR columns removed — native-only mode */}
                         <td className="node-service-action-cell">
                           <button
                             type="button"

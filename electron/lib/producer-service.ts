@@ -377,26 +377,62 @@ async function sampleDashboardPerformancePs(
     }
   }
 
-  const result = await deps.runCommand('ps', [
-    '-o',
-    'pid=,%cpu=,rss=,vsz=,etime=,state=,command=',
-    '-p',
-    uniquePids.join(',')
-  ], {
-    cwd: process.cwd(),
-    timeoutMs: 5000
-  })
-
   const rowsByPid = new Map<number, DashboardPerformancePsSample>()
-  for (const line of result.output.split(/\r?\n/)) {
-    const parsed = parseDashboardPerformancePsRow(line)
-    if (!parsed) continue
-    rowsByPid.set(parsed.pid, parsed)
+
+  if (process.platform === 'win32') {
+    // On Windows, use wmic to get process metrics (ps is not available)
+    const pidFilter = uniquePids.map((pid) => `ProcessId=${pid}`).join(' OR ')
+    const result = await deps.runCommand('wmic', [
+      'process',
+      'where',
+      pidFilter,
+      'get',
+      'ProcessId,WorkingSetSize,VirtualSize,CommandLine',
+      '/format:csv'
+    ], {
+      cwd: process.cwd(),
+      timeoutMs: 5000
+    })
+
+    for (const line of result.output.split(/\r?\n/)) {
+      const parts = line.split(',')
+      // CSV format: Node,CommandLine,ProcessId,VirtualSize,WorkingSetSize
+      if (parts.length < 5) continue
+      const pid = parseInt(parts[parts.length - 3], 10)
+      const virtualBytes = parseInt(parts[parts.length - 1], 10)
+      const rssBytes = parseInt(parts[parts.length - 2], 10)
+      if (!Number.isFinite(pid) || pid <= 0) continue
+      rowsByPid.set(pid, {
+        pid,
+        cpuPercent: null, // wmic doesn't provide instant CPU %
+        rssBytes: Number.isFinite(rssBytes) ? rssBytes : null,
+        virtualBytes: Number.isFinite(virtualBytes) ? virtualBytes : null,
+        uptimeSeconds: null,
+        state: 'running',
+        command: parts.slice(1, parts.length - 3).join(',').trim() || null
+      })
+    }
+  } else {
+    const result = await deps.runCommand('ps', [
+      '-o',
+      'pid=,%cpu=,rss=,vsz=,etime=,state=,command=',
+      '-p',
+      uniquePids.join(',')
+    ], {
+      cwd: process.cwd(),
+      timeoutMs: 5000
+    })
+
+    for (const line of result.output.split(/\r?\n/)) {
+      const parsed = parseDashboardPerformancePsRow(line)
+      if (!parsed) continue
+      rowsByPid.set(parsed.pid, parsed)
+    }
   }
 
   return {
     rowsByPid,
-    warning: result.ok || rowsByPid.size > 0 ? null : result.output.trim() || 'Could not sample process metrics.'
+    warning: rowsByPid.size > 0 ? null : 'Could not sample process metrics.'
   }
 }
 
