@@ -1,5 +1,7 @@
+import React from 'react'
 import { LOCAL_RPC_SOURCE } from '../../app/constants'
 import { formatDateTime, formatExplorerRpcSourceKind, formatRelativeAge, formatRpcDisplayUrl, normalizeExplorerRpcSource, shortHash } from '../../app/utils'
+import { BlockInlineDetail } from './BlockInlineDetail'
 
 type ExplorerPanelProps = any
 
@@ -19,7 +21,9 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
     rows,
     freshBlockIds,
     nowMs,
-    onBlockClick
+    onBlockClick,
+    selectedBlockId,
+    rpcUrl
   } = props
 
   return (
@@ -99,24 +103,41 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row: any) => (
-                <tr
-                  key={row.blockId}
-                  className={`explorer-row ${freshBlockIds.includes(row.blockId) ? 'is-fresh' : ''}`}
-                  onClick={() => onBlockClick?.(row)}
-                  style={{ cursor: onBlockClick ? 'pointer' : undefined }}
-                >
-                  <td className="mono">#{row.height.toLocaleString(locale)}</td>
-                  <td className="mono explorer-block-id" title={row.blockId}>
-                    {row.blockId}
-                  </td>
-                  <td className="mono" title={row.signer || t('common.na')}>
-                    {row.signer || t('common.na')}
-                  </td>
-                  <td>{formatRelativeAge(row.timestampMs, nowMs)}</td>
-                  <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>
-                </tr>
-              ))}
+              {rows.map((row: any) => {
+                const isSelected = selectedBlockId === row.blockId
+                return (
+                  <React.Fragment key={row.blockId}>
+                    <tr
+                      className={`explorer-row ${freshBlockIds.includes(row.blockId) ? 'is-fresh' : ''} ${isSelected ? 'is-selected' : ''}`}
+                      onClick={() => onBlockClick?.(row)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td className="mono">#{row.height.toLocaleString(locale)}</td>
+                      <td className="mono explorer-block-id" title={row.blockId}>
+                        {row.blockId}
+                      </td>
+                      <td className="mono" title={row.signer || t('common.na')}>
+                        {row.signer || t('common.na')}
+                      </td>
+                      <td>{formatRelativeAge(row.timestampMs, nowMs)}</td>
+                      <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>
+                    </tr>
+                    {isSelected && (
+                      <tr className="explorer-detail-row">
+                        <td colSpan={5}>
+                          <BlockInlineDetail
+                            t={t}
+                            locale={locale}
+                            language={language}
+                            rpcUrl={rpcUrl}
+                            block={row}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                )
+              })}
 
               {!isInitialLoading && rows.length === 0 && (
                 <tr>

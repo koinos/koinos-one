@@ -4299,35 +4299,25 @@ export function App() {
       )}
 
       {activeTab === 'explorer' && (
-        <>
-          <ExplorerPanel
-            t={t}
-            effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
-            settings={settings}
-            language={language}
-            head={head}
-            locale={locale}
-            headBlockTimeText={headBlockTimeText}
-            lastUpdateText={lastUpdateText}
-            isInitialLoading={isInitialLoading}
-            setSettings={setSettings}
-            errorMessage={errorMessage}
-            rows={rows}
-            freshBlockIds={freshBlockIds}
-            nowMs={nowMs}
-            onBlockClick={(block: any) => setSelectedBlock(block)}
-          />
-          {selectedBlock && (
-            <BlockDetailDialog
-              t={t}
-              locale={locale}
-              language={language}
-              rpcUrl={effectiveExplorerRpcUrl}
-              block={selectedBlock}
-              onClose={() => setSelectedBlock(null)}
-            />
-          )}
-        </>
+        <ExplorerPanel
+          t={t}
+          effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
+          settings={settings}
+          language={language}
+          head={head}
+          locale={locale}
+          headBlockTimeText={headBlockTimeText}
+          lastUpdateText={lastUpdateText}
+          isInitialLoading={isInitialLoading}
+          setSettings={setSettings}
+          errorMessage={errorMessage}
+          rows={rows}
+          freshBlockIds={freshBlockIds}
+          nowMs={nowMs}
+          selectedBlockId={selectedBlock?.blockId ?? null}
+          onBlockClick={(block: any) => setSelectedBlock(selectedBlock?.blockId === block.blockId ? null : block)}
+          rpcUrl={effectiveExplorerRpcUrl}
+        />
       )}
 
       </div>
