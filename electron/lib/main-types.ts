@@ -300,6 +300,8 @@ export type KoinosNodeDashboardPerformanceHost = {
   freeMemoryBytes: number
   loadAverage: number[]
   uptimeSeconds: number
+  freeDiskBytes: number | null
+  totalDiskBytes: number | null
 }
 
 export type KoinosNodeDashboardPerformanceTotals = {

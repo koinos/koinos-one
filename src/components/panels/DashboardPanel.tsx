@@ -318,11 +318,21 @@ export function DashboardPanel(props: DashboardPanelProps) {
           <div className="overview-grid">
             <article className="stat-card">
               <span className="stat-label">{t('dashboard.performance.freeSystemRam')}</span>
-              <p className="stat-value">{formatBytes(dashboardPerformance?.host.freeMemoryBytes, locale, t('common.na'))}</p>
+              <p className="stat-value">
+                {formatBytes(dashboardPerformance?.host.freeMemoryBytes, locale, t('common.na'))}
+                {dashboardPerformance?.host.totalMemoryBytes
+                  ? ` / ${formatBytes(dashboardPerformance.host.totalMemoryBytes, locale, '')}`
+                  : ''}
+              </p>
             </article>
             <article className="stat-card">
-              <span className="stat-label">{t('dashboard.performance.lastSample')}</span>
-              <p className="stat-value">{formatDateTime(dashboardPerformance?.sampledAt ?? 0, locale, t('common.na'))}</p>
+              <span className="stat-label">{t('dashboard.performance.freeDisk')}</span>
+              <p className="stat-value">
+                {formatBytes(dashboardPerformance?.host.freeDiskBytes, locale, t('common.na'))}
+                {dashboardPerformance?.host.totalDiskBytes
+                  ? ` / ${formatBytes(dashboardPerformance.host.totalDiskBytes, locale, '')}`
+                  : ''}
+              </p>
             </article>
             <article className="stat-card">
               <span className="stat-label">{t('dashboard.performance.hostUptime')}</span>

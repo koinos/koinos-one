@@ -380,36 +380,51 @@ async function sampleDashboardPerformancePs(
   const rowsByPid = new Map<number, DashboardPerformancePsSample>()
 
   if (process.platform === 'win32') {
-    // On Windows, use wmic to get process metrics (ps is not available)
-    const pidFilter = uniquePids.map((pid) => `ProcessId=${pid}`).join(' OR ')
-    const result = await deps.runCommand('wmic', [
-      'process',
-      'where',
-      pidFilter,
-      'get',
-      'ProcessId,WorkingSetSize,VirtualSize,CommandLine',
-      '/format:csv'
+    // On Windows, use PowerShell to get process metrics including CPU
+    const pidList = uniquePids.join(',')
+    const psScript = `Get-Process -Id ${pidList} -ErrorAction SilentlyContinue | Select-Object Id,CPU,WorkingSet64,VirtualMemorySize64,StartTime | ForEach-Object { "$($_.Id),$($_.CPU),$($_.WorkingSet64),$($_.VirtualMemorySize64),$($_.StartTime)" }`
+    const result = await deps.runCommand('powershell', [
+      '-NoProfile', '-NonInteractive', '-Command', psScript
     ], {
       cwd: process.cwd(),
-      timeoutMs: 5000
+      timeoutMs: 8000
     })
 
     for (const line of result.output.split(/\r?\n/)) {
-      const parts = line.split(',')
-      // CSV format: Node,CommandLine,ProcessId,VirtualSize,WorkingSetSize
-      if (parts.length < 5) continue
-      const pid = parseInt(parts[parts.length - 3], 10)
-      const virtualBytes = parseInt(parts[parts.length - 1], 10)
-      const rssBytes = parseInt(parts[parts.length - 2], 10)
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      const parts = trimmed.split(',')
+      if (parts.length < 4) continue
+      // Format: PID,CPU(seconds),WorkingSet64,VirtualMemorySize64,StartTime
+      const pid = parseInt(parts[0], 10)
+      const cpuSeconds = parseFloat(parts[1])
+      const rssBytes = parseInt(parts[2], 10)
+      const virtualBytes = parseInt(parts[3], 10)
+      const startTime = parts.slice(4).join(',').trim()
       if (!Number.isFinite(pid) || pid <= 0) continue
+
+      let uptimeSeconds: number | null = null
+      if (startTime) {
+        const startMs = new Date(startTime).getTime()
+        if (Number.isFinite(startMs) && startMs > 0) {
+          uptimeSeconds = Math.max(0, Math.floor((Date.now() - startMs) / 1000))
+        }
+      }
+
+      // CPU: PowerShell gives total CPU seconds; approximate % = cpuSec / uptimeSec * 100
+      let cpuPercent: number | null = null
+      if (Number.isFinite(cpuSeconds) && uptimeSeconds && uptimeSeconds > 0) {
+        cpuPercent = Number.parseFloat(((cpuSeconds / uptimeSeconds) * 100).toFixed(2))
+      }
+
       rowsByPid.set(pid, {
         pid,
-        cpuPercent: null, // wmic doesn't provide instant CPU %
+        cpuPercent,
         rssBytes: Number.isFinite(rssBytes) ? rssBytes : null,
         virtualBytes: Number.isFinite(virtualBytes) ? virtualBytes : null,
-        uptimeSeconds: null,
+        uptimeSeconds,
         state: 'running',
-        command: parts.slice(1, parts.length - 3).join(',').trim() || null
+        command: null
       })
     }
   } else {

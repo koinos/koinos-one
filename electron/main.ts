@@ -278,13 +278,26 @@ const producerService = createProducerService({
   isComposeServiceRunning,
   blockProducerPrivateKeyFilePath,
   getAppMetrics: () => app.getAppMetrics(),
-  hostSnapshot: () => ({
-    cpuCount: os.cpus().length,
-    totalMemoryBytes: os.totalmem(),
-    freeMemoryBytes: os.freemem(),
-    loadAverage: os.loadavg(),
-    uptimeSeconds: os.uptime()
-  }),
+  hostSnapshot: () => {
+    let freeDiskBytes: number | null = null
+    let totalDiskBytes: number | null = null
+    try {
+      const homeDrive = process.env.HOMEDRIVE || 'C:'
+      const diskRoot = process.platform === 'win32' ? homeDrive + '\\' : '/'
+      const stats = fs.statfsSync(diskRoot)
+      freeDiskBytes = stats.bavail * stats.bsize
+      totalDiskBytes = stats.blocks * stats.bsize
+    } catch { /* ignore */ }
+    return {
+      cpuCount: os.cpus().length,
+      totalMemoryBytes: os.totalmem(),
+      freeMemoryBytes: os.freemem(),
+      loadAverage: os.loadavg(),
+      uptimeSeconds: os.uptime(),
+      freeDiskBytes,
+      totalDiskBytes
+    }
+  },
   now: () => Date.now(),
   runCommand
 })

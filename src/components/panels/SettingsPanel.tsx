@@ -241,22 +241,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </span>
             </div>
 
-            <label>
-              {t('settings.configFile')}
-              <span className="settings-path-preview mono" title={configFileDisplayPath || 'config/config.yml'}>
-                {configFileDisplayPath || t('common.emptyPath')}
-              </span>
-              <button
-                type="button"
-                className="ghost-button settings-inline-button"
-                onClick={() => {
-                  void openNodeFileEditor('config')
-                }}
-                disabled={!hasNodeControls || nodeFileEditorLoading || nodeFileEditorSaving}
-              >
-                {t('common.viewEdit')}
-              </button>
-            </label>
+            {/* Config file editor removed — use Microservices Configuration section below */}
 
             <label>
               {t('settings.baseDataDir')}

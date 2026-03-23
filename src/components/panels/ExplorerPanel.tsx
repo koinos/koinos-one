@@ -18,7 +18,8 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
     errorMessage,
     rows,
     freshBlockIds,
-    nowMs
+    nowMs,
+    onBlockClick
   } = props
 
   return (
@@ -101,14 +102,16 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
               {rows.map((row: any) => (
                 <tr
                   key={row.blockId}
-                  className={freshBlockIds.includes(row.blockId) ? 'is-fresh' : undefined}
+                  className={`explorer-row ${freshBlockIds.includes(row.blockId) ? 'is-fresh' : ''}`}
+                  onClick={() => onBlockClick?.(row)}
+                  style={{ cursor: onBlockClick ? 'pointer' : undefined }}
                 >
                   <td className="mono">#{row.height.toLocaleString(locale)}</td>
-                  <td className="mono" title={`${row.blockId}\nPrev: ${row.previousId || t('common.na')}`}>
-                    {shortHash(row.blockId, 18, 12)}
+                  <td className="mono explorer-block-id" title={row.blockId}>
+                    {row.blockId}
                   </td>
                   <td className="mono" title={row.signer || t('common.na')}>
-                    {shortHash(row.signer, 14, 10)}
+                    {row.signer || t('common.na')}
                   </td>
                   <td>{formatRelativeAge(row.timestampMs, nowMs)}</td>
                   <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>

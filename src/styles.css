@@ -524,6 +524,96 @@ body {
   flex-wrap: wrap;
 }
 
+.explorer-block-id {
+  font-size: 0.75em;
+  word-break: break-all;
+  max-width: 320px;
+}
+
+.explorer-row:hover {
+  background: rgba(0, 255, 200, 0.05);
+}
+
+/* Block Detail Dialog */
+.block-detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.block-detail-dialog {
+  background: var(--card-bg, #0d1b2a);
+  border: 1px solid var(--border-color, #1b3a5c);
+  border-radius: 8px;
+  max-width: 700px;
+  width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.block-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, #1b3a5c);
+}
+
+.block-detail-header h2 {
+  margin: 0;
+  font-size: 1.1em;
+}
+
+.block-detail-close {
+  font-size: 1.2em;
+  padding: 4px 8px;
+}
+
+.block-detail-body {
+  padding: 16px 20px;
+}
+
+.block-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.block-detail-table tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.block-detail-table td {
+  padding: 10px 8px;
+  vertical-align: top;
+}
+
+.block-detail-label {
+  color: var(--muted, #8899aa);
+  white-space: nowrap;
+  width: 140px;
+  font-weight: 500;
+  font-size: 0.85em;
+}
+
+.block-detail-hash {
+  word-break: break-all;
+  font-size: 0.8em;
+  line-height: 1.4;
+}
+
+.block-detail-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .settings-backup-info {
   padding-bottom: 6px;
   white-space: nowrap;

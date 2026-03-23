@@ -79,6 +79,7 @@ import {
 import { AppFooter } from './components/panels/AppFooter'
 import { DashboardPanel } from './components/panels/DashboardPanel'
 import { ExplorerPanel } from './components/panels/ExplorerPanel'
+import { BlockDetailDialog } from './components/panels/BlockDetailDialog'
 import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
@@ -119,6 +120,7 @@ export function App() {
   const [publicChainHead, setPublicChainHead] = useState<HeadSnapshot | null>(null)
   const [localChainHead, setLocalChainHead] = useState<HeadSnapshot | null>(null)
   const [blocksPerSecond, setBlocksPerSecond] = useState<number | null>(null)
+  const [selectedBlock, setSelectedBlock] = useState<any>(null)
   const prevChainHeadRef = useRef<{ height: number; time: number } | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -4297,22 +4299,33 @@ export function App() {
       )}
 
       {activeTab === 'explorer' && (
-        <ExplorerPanel
-          t={t}
-          effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
-          settings={settings}
-          language={language}
-          head={head}
-          locale={locale}
-          headBlockTimeText={headBlockTimeText}
-          lastUpdateText={lastUpdateText}
-          isInitialLoading={isInitialLoading}
-          setSettings={setSettings}
-          errorMessage={errorMessage}
-          rows={rows}
-          freshBlockIds={freshBlockIds}
-          nowMs={nowMs}
-        />
+        <>
+          <ExplorerPanel
+            t={t}
+            effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
+            settings={settings}
+            language={language}
+            head={head}
+            locale={locale}
+            headBlockTimeText={headBlockTimeText}
+            lastUpdateText={lastUpdateText}
+            isInitialLoading={isInitialLoading}
+            setSettings={setSettings}
+            errorMessage={errorMessage}
+            rows={rows}
+            freshBlockIds={freshBlockIds}
+            nowMs={nowMs}
+            onBlockClick={(block: any) => setSelectedBlock(block)}
+          />
+          {selectedBlock && (
+            <BlockDetailDialog
+              t={t}
+              locale={locale}
+              block={selectedBlock}
+              onClose={() => setSelectedBlock(null)}
+            />
+          )}
+        </>
       )}
 
       </div>
