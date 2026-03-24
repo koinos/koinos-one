@@ -316,36 +316,45 @@ build_cpp() {
 
     local build_dir="$svc_dir/build"
 
-    # Step 1: Initial configure (triggers FetchContent + Hunter downloads)
-    echo "  [1/4] Configuring (triggers FetchContent + Hunter downloads)..."
+    # Step 1: Initial configure (triggers FetchContent to download koinos_cmake)
+    echo "  [1/4] Configuring (FetchContent download)..."
     local cmake_args
     cmake_args=($(cmake_configure_args "$svc_dir" "$build_dir"))
     "$CMAKE_CMD" "${cmake_args[@]}" 2>&1 || true
 
-    # Step 2: Patch Hunter config and cache for macOS compatibility
+    # Step 2: Patch Hunter config for macOS compatibility
     echo "  [2/4] Patching Hunter config for macOS compatibility..."
 
-    # On ARM64, ensure the Hunter global cache passes CMAKE_OSX_ARCHITECTURES=arm64
-    # to ALL sub-builds so every dependency compiles for the correct arch.
+    # On ARM64, inject CMAKE_OSX_ARCHITECTURES into the Hunter global cache
+    # BEFORE any Hunter packages get built. The cache.cmake is read by ALL
+    # Hunter ExternalProject sub-builds via -C flag.
     if [ "$IS_ARM64" = true ]; then
-      local hunter_cache
-      hunter_cache="$(find "$build_dir/_3rdParty/Hunter" -name "cache.cmake" 2>/dev/null | head -1)"
-      if [ -n "$hunter_cache" ] && ! grep -q 'CMAKE_OSX_ARCHITECTURES' "$hunter_cache" 2>/dev/null; then
-        echo 'set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "")' >> "$hunter_cache"
-        echo "  Injected CMAKE_OSX_ARCHITECTURES=arm64 into Hunter cache"
-      fi
+      # Find all Hunter cache.cmake files (there may be multiple config hashes)
+      while IFS= read -r -d '' hunter_cache; do
+        if ! grep -q 'CMAKE_OSX_ARCHITECTURES' "$hunter_cache" 2>/dev/null; then
+          echo 'set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Force ARM64 on Apple Silicon")' >> "$hunter_cache"
+          echo "  Injected CMAKE_OSX_ARCHITECTURES=arm64 into: $hunter_cache"
+        fi
+      done < <(find "$build_dir/_3rdParty/Hunter" -name "cache.cmake" -print0 2>/dev/null)
     fi
 
     if patch_hunter_config "$build_dir"; then
-      # On first service, clean the ZLIB cache so it rebuilds with patched flags
+      # On first service, clean the entire Hunter install so deps rebuild with correct arch
       if [ "$first_svc" = true ]; then
         clean_hunter_zlib_cache
+        # Also clean the Install dir to force ALL packages to rebuild
+        local hunter_install_dir
+        hunter_install_dir="$(find "$build_dir/_3rdParty/Hunter" -name "Install" -type d 2>/dev/null | head -1)"
+        if [ -n "$hunter_install_dir" ] && [ -d "$hunter_install_dir" ]; then
+          echo "  Cleaning Hunter Install directory to force ARM64 rebuild..."
+          rm -rf "$hunter_install_dir"
+        fi
         first_svc=false
       fi
     fi
 
-    # Step 3: Reconfigure with patches applied
-    echo "  [3/4] Reconfiguring with patches..."
+    # Step 3: Reconfigure with patches applied (this triggers Hunter package builds)
+    echo "  [3/4] Reconfiguring with patches (building Hunter packages)..."
     if ! "$CMAKE_CMD" "${cmake_args[@]}" 2>&1; then
       echo "FAILED: $svc cmake configure"
       ((FAIL++)) || true
