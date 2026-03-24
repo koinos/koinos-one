@@ -68,11 +68,40 @@ echo "  Vendor:    $VENDOR"
 echo "  Homebrew:  ${HOMEBREW_PREFIX:-not found}"
 echo "============================================================================"
 
+# --- CMake version selection ---
+# Hunter 0.25.5 is incompatible with CMake 4.x. Prefer CMake 3.28.x.
+# Install via: pip3 install cmake==3.28.4 --user --break-system-packages
+CMAKE_CMD="cmake"
+PYTHON_CMAKE="$HOME/Library/Python/3.9/bin/cmake"
+if [ -x "$PYTHON_CMAKE" ]; then
+  PY_CMAKE_MAJOR="$("$PYTHON_CMAKE" --version | head -1 | sed 's/cmake version //' | cut -d. -f1)"
+  if [ "$PY_CMAKE_MAJOR" -lt 4 ]; then
+    CMAKE_CMD="$PYTHON_CMAKE"
+    echo "  CMake:     $("$CMAKE_CMD" --version | head -1) (from pip, Hunter-compatible)"
+  fi
+fi
+
+CMAKE_MAJOR="$("$CMAKE_CMD" --version | head -1 | sed 's/cmake version //' | cut -d. -f1)"
+if [ "$CMAKE_MAJOR" -ge 4 ]; then
+  echo "  CMake:     $("$CMAKE_CMD" --version | head -1) (WARNING: CMake 4.x may have Hunter compat issues)"
+  echo "  TIP:       Install CMake 3.28: pip3 install cmake==3.28.4 --user --break-system-packages"
+  export CMAKE_POLICY_VERSION_MINIMUM=3.5
+  CMAKE_POLICY_FIX=true
+else
+  echo "  CMake:     $("$CMAKE_CMD" --version | head -1)"
+  CMAKE_POLICY_FIX=false
+fi
+
 # --- CMake configure args ---
 cmake_configure_args() {
   local src_dir="$1"
   local build_dir="$2"
   local args=(-S "$src_dir" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release)
+
+  # CMake 4.x compat: Hunter 0.25.5 sub-builds use cmake_minimum_required < 3.5
+  if [ "$CMAKE_POLICY_FIX" = true ]; then
+    args+=(-DCMAKE_POLICY_VERSION_MINIMUM=3.5)
+  fi
 
   # Prefer Ninja if available
   if command -v ninja &>/dev/null; then
@@ -157,6 +186,77 @@ build_go() {
 # ============================================================================
 # C++ Services
 # ============================================================================
+patch_hunter_config() {
+  # Patch the Hunter config.cmake fetched by FetchContent to fix ZLIB on macOS.
+  # Hunter 0.25.5's ZLIB (via zutil.h) defines fdopen as NULL on TARGET_OS_MAC,
+  # which conflicts with macOS SDK headers. Fix: pass -UTARGET_OS_MAC via CMAKE_C_FLAGS.
+  local build_dir="$1"
+  local config_file="$build_dir/_deps/koinos_cmake-src/Hunter/config.cmake"
+
+  if [ ! -f "$config_file" ]; then
+    echo "  WARNING: Hunter config not found at $config_file"
+    return 1
+  fi
+
+  # Only patch if not already patched
+  if grep -q 'UTARGET_OS_MAC' "$config_file" 2>/dev/null; then
+    echo "  Hunter config already patched"
+    return 0
+  fi
+
+  echo "  Patching Hunter config: adding -UTARGET_OS_MAC to ZLIB C flags..."
+
+  # Replace the ZLIB hunter_config to add -UTARGET_OS_MAC flag
+  sed -i '' '/^hunter_config(ZLIB/,/^)/c\
+hunter_config(ZLIB\
+   VERSION ${HUNTER_ZLIB_VERSION}\
+   CMAKE_ARGS\
+      CMAKE_POSITION_INDEPENDENT_CODE=ON\
+      CMAKE_CXX_STANDARD=20\
+      CMAKE_CXX_STANDARD_REQUIRED=ON\
+      CMAKE_C_FLAGS=-UTARGET_OS_MAC\
+)' "$config_file"
+
+  # On Apple Silicon, add CMAKE_OSX_ARCHITECTURES=arm64 to abseil, re2, c-ares, gRPC
+  # so Hunter sub-builds correctly detect arm64 and avoid x86 SSE flags.
+  if [ "$IS_ARM64" = true ]; then
+    echo "  Patching Hunter config: adding CMAKE_OSX_ARCHITECTURES=arm64 to abseil/gRPC deps..."
+    for pkg in abseil re2 c-ares; do
+      if grep -q "^hunter_config($pkg" "$config_file"; then
+        sed -i '' "/^hunter_config($pkg/,/^)/ {
+          /CMAKE_CXX_STANDARD_REQUIRED=ON/a\\
+\\      CMAKE_OSX_ARCHITECTURES=arm64
+        }" "$config_file"
+      fi
+    done
+    # Also patch gRPC itself
+    if grep -q "^hunter_config(gRPC" "$config_file"; then
+      sed -i '' '/^hunter_config(gRPC/,/^)/ {
+        /CMAKE_CXX_STANDARD_REQUIRED=ON/a\
+\      CMAKE_OSX_ARCHITECTURES=arm64
+      }' "$config_file"
+    fi
+  fi
+
+  echo "  Hunter config patched successfully"
+  return 0
+}
+
+clean_hunter_zlib_cache() {
+  # Remove Hunter's cached ZLIB install so it rebuilds with the new flags
+  local hunter_base="${HUNTER_ROOT:-$HOME/.hunter}"
+  # Find and remove ZLIB install stamps and installed artifacts
+  find "$hunter_base" -path "*/Build/ZLIB" -type d 2>/dev/null | while read -r zlib_dir; do
+    echo "  Cleaning Hunter ZLIB cache: $zlib_dir"
+    rm -rf "$zlib_dir"
+  done
+  # Also clean the ZLIB install directory
+  find "$hunter_base" -path "*/Install/ZLIB" -type d 2>/dev/null | while read -r zlib_dir; do
+    echo "  Cleaning Hunter ZLIB install: $zlib_dir"
+    rm -rf "$zlib_dir"
+  done
+}
+
 build_cpp() {
   echo ""
   echo "=== Building C++ Services ==="
@@ -172,6 +272,8 @@ build_cpp() {
     koinos-account-history
   )
 
+  local first_svc=true
+
   for svc in "${CPP_SERVICES[@]}"; do
     echo ""
     echo "--- Building $svc ---"
@@ -183,19 +285,33 @@ build_cpp() {
 
     local build_dir="$svc_dir/build"
 
-    # Step 1: Configure
-    echo "  [1/2] Configuring..."
+    # Step 1: Initial configure (triggers FetchContent + Hunter downloads)
+    echo "  [1/4] Configuring (triggers FetchContent + Hunter downloads)..."
     local cmake_args
     cmake_args=($(cmake_configure_args "$svc_dir" "$build_dir"))
-    if ! cmake "${cmake_args[@]}" 2>&1; then
+    "$CMAKE_CMD" "${cmake_args[@]}" 2>&1 || true
+
+    # Step 2: Patch Hunter config for macOS ZLIB compatibility (once per service)
+    echo "  [2/4] Patching Hunter config for macOS compatibility..."
+    if patch_hunter_config "$build_dir"; then
+      # On first service, clean the ZLIB cache so it rebuilds with patched flags
+      if [ "$first_svc" = true ]; then
+        clean_hunter_zlib_cache
+        first_svc=false
+      fi
+    fi
+
+    # Step 3: Reconfigure with patches applied
+    echo "  [3/4] Reconfiguring with patches..."
+    if ! "$CMAKE_CMD" "${cmake_args[@]}" 2>&1; then
       echo "FAILED: $svc cmake configure"
       ((FAIL++)) || true
       continue
     fi
 
-    # Step 2: Build
-    echo "  [2/2] Building..."
-    if cmake --build "$build_dir" --config Release --parallel 2>&1; then
+    # Step 4: Build
+    echo "  [4/4] Building..."
+    if "$CMAKE_CMD" --build "$build_dir" --config Release --parallel 2>&1; then
       echo "OK: $svc built"
       ((PASS++)) || true
     else
