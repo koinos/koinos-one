@@ -110,6 +110,11 @@ cmake_configure_args() {
 
   if [ "$IS_ARM64" = true ]; then
     args+=(-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_APPLE_SILICON_PROCESSOR=arm64)
+    # Use ARM64 toolchain so Hunter propagates arch to ALL sub-projects (gRPC, etc.)
+    local toolchain="$KNODEL_ROOT/cmake/arm64-toolchain.cmake"
+    if [ -f "$toolchain" ]; then
+      args+=(-DCMAKE_TOOLCHAIN_FILE="$toolchain")
+    fi
   fi
 
   if [ -n "$HOMEBREW_PREFIX" ]; then
@@ -184,12 +189,192 @@ build_go() {
 }
 
 # ============================================================================
-# C++ Services
+# C++ Services — Patched tarball approach (from native-mac-services branch)
 # ============================================================================
-patch_hunter_config() {
-  # Patch the Hunter config.cmake fetched by FetchContent to fix ZLIB on macOS.
-  # Hunter 0.25.5's ZLIB (via zutil.h) defines fdopen as NULL on TARGET_OS_MAC,
-  # which conflicts with macOS SDK headers. Fix: pass -UTARGET_OS_MAC via CMAKE_C_FLAGS.
+# On macOS (especially ARM64), Hunter 0.25.5 has multiple issues:
+#   1. ZLIB: zutil.h redefines fdopen=NULL on TARGET_OS_MAC
+#   2. abseil: AbseilConfigureCopts.cmake emits x86 SSE flags on ARM64
+#   3. koinos_exception: missing BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED
+#
+# Strategy: download upstream tarballs, patch them, create local tarballs,
+# then rewrite Hunter/config.cmake URLs to point to local file:// paths.
+# ============================================================================
+
+PATCH_CACHE_DIR="$KNODEL_ROOT/.native-build-cache"
+
+sha1_file() {
+  shasum -a 1 "$1" | cut -d' ' -f1
+}
+
+# --- Prepare patched ZLIB tarball ---
+ensure_patched_zlib_tarball() {
+  local version="1.3.0-p0"
+  local upstream_url="https://github.com/cpp-pm/zlib/archive/refs/tags/v${version}.tar.gz"
+  local upstream_path="$PATCH_CACHE_DIR/zlib-${version}-upstream.tar.gz"
+  local patched_path="$PATCH_CACHE_DIR/zlib-${version}-darwin-patched.tar.gz"
+
+  mkdir -p "$PATCH_CACHE_DIR"
+
+  if [ -f "$patched_path" ]; then
+    echo "$patched_path"
+    return 0
+  fi
+
+  # Try to find existing Hunter-cached tarball first
+  local cached
+  cached="$(find "${HUNTER_ROOT:-$HOME/.hunter}" -path "*/Download/ZLIB/*/v${version}.tar.gz" -type f 2>/dev/null | head -1)"
+  if [ -n "$cached" ]; then
+    cp "$cached" "$upstream_path"
+  elif [ ! -f "$upstream_path" ]; then
+    echo "  Downloading ZLIB ${version}..."
+    curl -sL "$upstream_url" -o "$upstream_path"
+  fi
+
+  local tmp
+  tmp="$(mktemp -d)"
+  tar -xzf "$upstream_path" -C "$tmp"
+  local root
+  root="$(ls "$tmp")"
+
+  # Patch: fix TARGET_OS_MAC check in zutil.h
+  local zutil="$tmp/$root/zutil.h"
+  if [ -f "$zutil" ]; then
+    sed -i '' 's/#if defined(MACOS) || defined(TARGET_OS_MAC)/#if (defined(MACOS) || defined(TARGET_OS_MAC)) \&\& !defined(__APPLE__)/' "$zutil"
+    echo "  Patched zutil.h"
+  fi
+
+  tar -czf "$patched_path" -C "$tmp" "$root"
+  rm -rf "$tmp"
+  echo "$patched_path"
+}
+
+# --- Prepare patched abseil tarball ---
+ensure_patched_abseil_tarball() {
+  local version="20230802.1"
+  local upstream_url="https://github.com/abseil/abseil-cpp/archive/${version}.tar.gz"
+  local upstream_path="$PATCH_CACHE_DIR/abseil-${version}-upstream.tar.gz"
+  local patched_path="$PATCH_CACHE_DIR/abseil-${version}-darwin-patched.tar.gz"
+
+  mkdir -p "$PATCH_CACHE_DIR"
+
+  if [ -f "$patched_path" ]; then
+    echo "$patched_path"
+    return 0
+  fi
+
+  # Try to find existing Hunter-cached tarball
+  local cached
+  cached="$(find "${HUNTER_ROOT:-$HOME/.hunter}" -path "*/Download/abseil/*/${version}.tar.gz" -type f 2>/dev/null | head -1)"
+  if [ -n "$cached" ]; then
+    cp "$cached" "$upstream_path"
+  elif [ ! -f "$upstream_path" ]; then
+    echo "  Downloading abseil ${version}..."
+    curl -sL "$upstream_url" -o "$upstream_path"
+  fi
+
+  local tmp
+  tmp="$(mktemp -d)"
+  tar -xzf "$upstream_path" -C "$tmp"
+  local root
+  root="$(ls "$tmp")"
+
+  # Patch AbseilConfigureCopts.cmake: fix ARM64 detection
+  # The original Apple/Clang block unconditionally sets x86 SSE flags.
+  # We need to add an ARM64 check so it skips SSE on arm64.
+  local copts_file="$tmp/$root/absl/copts/AbseilConfigureCopts.cmake"
+  if [ -f "$copts_file" ] && ! grep -q 'CMAKE_OSX_ARCHITECTURES STREQUAL "arm64"' "$copts_file"; then
+    echo "  Patching AbseilConfigureCopts.cmake for ARM64..."
+    # Replace the Apple/Clang HWAES block with ARM64-aware version
+    python3 -c "
+import re, sys
+content = open('$copts_file').read()
+
+# Find the Apple Clang block and add ARM64 architecture check
+old_if = 'if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES [[Clang]])\n'
+new_if = '''if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES [[Clang]])
+  if(
+    CMAKE_OSX_ARCHITECTURES STREQUAL \"arm64\"
+    OR (
+      NOT CMAKE_OSX_ARCHITECTURES
+      AND CMAKE_SYSTEM_PROCESSOR STREQUAL \"arm64\"
+    )
+  )
+    set(ABSL_RANDOM_RANDEN_COPTS \"\${ABSL_RANDOM_HWAES_ARM_FLAGS}\")
+  elseif(CMAKE_OSX_ARCHITECTURES STREQUAL \"x86_64\" OR (NOT CMAKE_OSX_ARCHITECTURES AND CMAKE_SYSTEM_PROCESSOR MATCHES \"x86_64|amd64\"))
+    set(ABSL_RANDOM_RANDEN_COPTS \"\${ABSL_RANDOM_HWAES_X64_FLAGS}\")
+  else()
+'''
+content = content.replace(old_if, new_if)
+
+# Also close the extra if/else
+old_end = '''  if(ABSL_RANDOM_RANDEN_COPTS AND NOT ABSL_RANDOM_RANDEN_COPTS_WARNING)
+    list(APPEND ABSL_RANDOM_RANDEN_COPTS \"-Wno-unused-command-line-argument\")
+  endif()
+'''
+new_end = '''  if(ABSL_RANDOM_RANDEN_COPTS AND NOT ABSL_RANDOM_RANDEN_COPTS_WARNING)
+    list(APPEND ABSL_RANDOM_RANDEN_COPTS \"-Wno-unused-command-line-argument\")
+  endif()
+  endif()
+'''
+content = content.replace(old_end, new_end)
+
+open('$copts_file', 'w').write(content)
+" 2>&1 || echo "  WARNING: python3 patch failed, trying sed fallback"
+  fi
+
+  tar -czf "$patched_path" -C "$tmp" "$root"
+  rm -rf "$tmp"
+  echo "$patched_path"
+}
+
+# --- Prepare patched koinos_exception tarball ---
+ensure_patched_koinos_exception_tarball() {
+  local version="1.0.2"
+  local upstream_url="https://github.com/koinos/koinos-exception-cpp/archive/v${version}.tar.gz"
+  local upstream_path="$PATCH_CACHE_DIR/koinos-exception-${version}-upstream.tar.gz"
+  local patched_path="$PATCH_CACHE_DIR/koinos-exception-${version}-darwin-patched.tar.gz"
+
+  mkdir -p "$PATCH_CACHE_DIR"
+
+  if [ -f "$patched_path" ]; then
+    echo "$patched_path"
+    return 0
+  fi
+
+  # Try to find existing Hunter-cached tarball
+  local cached
+  cached="$(find "${HUNTER_ROOT:-$HOME/.hunter}" -path "*/Download/koinos_exception/*/v${version}.tar.gz" -type f 2>/dev/null | head -1)"
+  if [ -n "$cached" ]; then
+    cp "$cached" "$upstream_path"
+  elif [ ! -f "$upstream_path" ]; then
+    echo "  Downloading koinos_exception ${version}..."
+    curl -sL "$upstream_url" -o "$upstream_path"
+  fi
+
+  local tmp
+  tmp="$(mktemp -d)"
+  tar -xzf "$upstream_path" -C "$tmp"
+  local root
+  root="$(ls "$tmp")"
+
+  # Patch: add BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED before boost include
+  local header="$tmp/$root/include/koinos/exception.hpp"
+  if [ -f "$header" ] && ! grep -q 'BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED' "$header"; then
+    echo "  Patching koinos exception.hpp for macOS stacktrace..."
+    sed -i '' 's|#include <boost/exception/all.hpp>|#ifndef BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED\
+#define BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED 1\
+#endif\
+\
+#include <boost/exception/all.hpp>|' "$header"
+  fi
+
+  tar -czf "$patched_path" -C "$tmp" "$root"
+  rm -rf "$tmp"
+  echo "$patched_path"
+}
+
+# --- Patch Hunter config.cmake with local patched tarball URLs ---
+patch_hunter_config_with_tarballs() {
   local build_dir="$1"
   local config_file="$build_dir/_deps/koinos_cmake-src/Hunter/config.cmake"
 
@@ -198,94 +383,178 @@ patch_hunter_config() {
     return 1
   fi
 
-  # Only patch if not already patched
-  if grep -q 'UTARGET_OS_MAC' "$config_file" 2>/dev/null; then
-    echo "  Hunter config already patched"
+  # Check if already patched
+  if grep -q 'darwin-patched' "$config_file" 2>/dev/null; then
+    echo "  Hunter config already patched with local tarballs"
     return 0
   fi
 
-  echo "  Patching Hunter config: adding -UTARGET_OS_MAC to ZLIB C flags..."
+  echo "  Preparing patched tarballs..."
 
-  # Replace the ZLIB hunter_config to add -UTARGET_OS_MAC flag and force arm64 arch
-  if [ "$IS_ARM64" = true ]; then
-    sed -i '' '/^hunter_config(ZLIB/,/^)/c\
-hunter_config(ZLIB\
-   VERSION ${HUNTER_ZLIB_VERSION}\
-   CMAKE_ARGS\
-      CMAKE_POSITION_INDEPENDENT_CODE=ON\
-      CMAKE_CXX_STANDARD=20\
-      CMAKE_CXX_STANDARD_REQUIRED=ON\
-      CMAKE_C_FLAGS=-UTARGET_OS_MAC\
-      CMAKE_OSX_ARCHITECTURES=arm64\
-)' "$config_file"
-  else
-    sed -i '' '/^hunter_config(ZLIB/,/^)/c\
-hunter_config(ZLIB\
-   VERSION ${HUNTER_ZLIB_VERSION}\
-   CMAKE_ARGS\
-      CMAKE_POSITION_INDEPENDENT_CODE=ON\
-      CMAKE_CXX_STANDARD=20\
-      CMAKE_CXX_STANDARD_REQUIRED=ON\
-      CMAKE_C_FLAGS=-UTARGET_OS_MAC\
-)' "$config_file"
-  fi
+  local zlib_tarball abseil_tarball exc_tarball
+  zlib_tarball="$(ensure_patched_zlib_tarball)"
+  abseil_tarball="$(ensure_patched_abseil_tarball)"
+  exc_tarball="$(ensure_patched_koinos_exception_tarball)"
 
-  # On Apple Silicon, add CMAKE_OSX_ARCHITECTURES=arm64 to abseil, re2, c-ares, gRPC
-  # so Hunter sub-builds correctly detect arm64 and avoid x86 SSE flags.
+  local zlib_url="file://${zlib_tarball}"
+  local zlib_sha1="$(sha1_file "$zlib_tarball")"
+  local abseil_url="file://${abseil_tarball}"
+  local abseil_sha1="$(sha1_file "$abseil_tarball")"
+  local exc_url="file://${exc_tarball}"
+  local exc_sha1="$(sha1_file "$exc_tarball")"
+
+  echo "  ZLIB:              $zlib_tarball (sha1: $zlib_sha1)"
+  echo "  abseil:            $abseil_tarball (sha1: $abseil_sha1)"
+  echo "  koinos_exception:  $exc_tarball (sha1: $exc_sha1)"
+
+  local arm64_flag=""
   if [ "$IS_ARM64" = true ]; then
-    echo "  Patching Hunter config: adding CMAKE_OSX_ARCHITECTURES=arm64 to abseil/gRPC deps..."
-    for pkg in abseil re2 c-ares; do
-      if grep -q "^hunter_config($pkg" "$config_file"; then
-        sed -i '' "/^hunter_config($pkg/,/^)/ {
-          /CMAKE_CXX_STANDARD_REQUIRED=ON/a\\
-\\      CMAKE_OSX_ARCHITECTURES=arm64
-        }" "$config_file"
-      fi
-    done
-    # Also patch gRPC itself
-    if grep -q "^hunter_config(gRPC" "$config_file"; then
-      sed -i '' '/^hunter_config(gRPC/,/^)/ {
-        /CMAKE_CXX_STANDARD_REQUIRED=ON/a\
-\      CMAKE_OSX_ARCHITECTURES=arm64
-      }' "$config_file"
+    arm64_flag="--arm64"
+
+    # Also patch rocksdb for ARM64 CRC
+    local rocksdb_tarball
+    rocksdb_tarball="$(ensure_patched_rocksdb_tarball)"
+    if [ -n "$rocksdb_tarball" ] && [ -f "$rocksdb_tarball" ]; then
+      local rocksdb_url="file://${rocksdb_tarball}"
+      local rocksdb_sha1="$(sha1_file "$rocksdb_tarball")"
+      echo "  rocksdb:           $rocksdb_tarball (sha1: $rocksdb_sha1)"
+      # Replace rocksdb URL in config
+      python3 -c "
+import re
+content = open('$config_file').read()
+pattern = re.compile(
+    r'(hunter_config\(rocksdb\s*\n)'
+    r'(.*?\n)*?'
+    r'(\s+CMAKE_ARGS\s*\n)',
+    re.MULTILINE
+)
+replacement = (
+    'hunter_config(rocksdb\n'
+    '   URL \"$rocksdb_url\"\n'
+    '   SHA1 \"$rocksdb_sha1\"\n'
+    '   CMAKE_ARGS\n'
+)
+new_content, count = pattern.subn(replacement, content)
+if count > 0:
+    print('  Replaced hunter_config(rocksdb) with patched tarball URL')
+open('$config_file', 'w').write(new_content)
+"
     fi
   fi
 
-  echo "  Hunter config patched successfully"
+  python3 "$KNODEL_ROOT/scripts/patch-hunter-config.py" \
+    "$config_file" \
+    "$zlib_url" "$zlib_sha1" \
+    "$abseil_url" "$abseil_sha1" \
+    "$exc_url" "$exc_sha1" \
+    $arm64_flag
 
-  # Patch abseil RANDEN_COPTS to avoid -msse4.1 on ARM64.
-  # The Apple multi-arch code in AbseilConfigureCopts.cmake doesn't work correctly
-  # because CMake deduplicates -Xarch_x86_64 prefixes, leaving -msse4.1 unscoped.
-  # Fix: directly patch the GENERATED_AbseilCopts.cmake in Hunter's abseil source.
-  local hunter_base="${HUNTER_ROOT:-$HOME/.hunter}"
-  while IFS= read -r -d '' copts_file; do
-    if grep -q 'ABSL_RANDOM_HWAES_X64_FLAGS' "$copts_file" 2>/dev/null; then
-      if ! grep -q 'Patched for ARM64' "$copts_file" 2>/dev/null; then
-        echo "  Patching abseil GENERATED_AbseilCopts.cmake: clearing X64 HWAES flags for ARM64 compat"
-        # On ARM64-only builds, we don't need x86_64 flags at all
-        sed -i '' '/ABSL_RANDOM_HWAES_X64_FLAGS/,/)/ {
-          s/"-maes"/# "-maes" # Patched for ARM64/
-          s/"-msse4.1"/# "-msse4.1" # Patched for ARM64/
-        }' "$copts_file"
-      fi
-    fi
-  done < <(find "$hunter_base" -path "*/Build/abseil/Source/absl/copts/GENERATED_AbseilCopts.cmake" -type f -print0 2>/dev/null)
   return 0
 }
 
-clean_hunter_zlib_cache() {
-  # Remove Hunter's cached ZLIB install so it rebuilds with the new flags
+# --- Prepare patched rocksdb tarball (ARM64 CRC) ---
+ensure_patched_rocksdb_tarball() {
+  if [ "$IS_ARM64" != true ]; then return 1; fi
+
+  local version="8.8.1"
+  local upstream_url="https://github.com/facebook/rocksdb/archive/v${version}.tar.gz"
+  local upstream_path="$PATCH_CACHE_DIR/rocksdb-${version}-upstream.tar.gz"
+  local patched_path="$PATCH_CACHE_DIR/rocksdb-${version}-darwin-patched.tar.gz"
+
+  mkdir -p "$PATCH_CACHE_DIR"
+
+  if [ -f "$patched_path" ]; then
+    echo "$patched_path"
+    return 0
+  fi
+
+  local cached
+  cached="$(find "${HUNTER_ROOT:-$HOME/.hunter}" -path "*/Download/rocksdb/*/v${version}.tar.gz" -type f 2>/dev/null | head -1)"
+  if [ -n "$cached" ]; then
+    cp "$cached" "$upstream_path"
+  elif [ ! -f "$upstream_path" ]; then
+    echo "  Downloading rocksdb ${version}..."
+    curl -sL "$upstream_url" -o "$upstream_path"
+  fi
+
+  local tmp
+  tmp="$(mktemp -d)"
+  tar -xzf "$upstream_path" -C "$tmp"
+  local root
+  root="$(ls "$tmp")"
+
+  # Patch CMakeLists.txt: force HAS_ARMV8_CRC=TRUE on arm64
+  # The PORTABLE=ON mode skips -march=native but the arm64 CRC check is
+  # separate. However, Hunter's toolchain may cause CMAKE_SYSTEM_PROCESSOR
+  # to not match "arm64". We force it.
+  local cml="$tmp/$root/CMakeLists.txt"
+  if [ -f "$cml" ] && ! grep -q 'KNODEL_ARM64_CRC_PATCH' "$cml"; then
+    echo "  Patching rocksdb CMakeLists.txt for ARM64 CRC..."
+    # Add a forced ARM64 CRC block right after the existing arm64 check
+    sed -i '' '/^endif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")/a\
+\
+# KNODEL_ARM64_CRC_PATCH: Force ARM64 CRC on Apple Silicon\
+if(APPLE AND NOT HAS_ARMV8_CRC)\
+  CHECK_C_COMPILER_FLAG("-march=armv8-a+crc+crypto" KNODEL_HAS_ARMV8_CRC)\
+  if(KNODEL_HAS_ARMV8_CRC)\
+    set(HAS_ARMV8_CRC TRUE)\
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")\
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")\
+    message(STATUS "KNODEL: Forced ARM64 CRC support")\
+  endif()\
+endif()
+' "$cml"
+  fi
+
+  tar -czf "$patched_path" -C "$tmp" "$root"
+  rm -rf "$tmp"
+  echo "$patched_path"
+}
+
+clean_hunter_caches() {
+  # Clean Hunter's cached builds for packages we've patched
   local hunter_base="${HUNTER_ROOT:-$HOME/.hunter}"
-  # Find and remove ZLIB install stamps and installed artifacts
-  find "$hunter_base" -path "*/Build/ZLIB" -type d 2>/dev/null | while read -r zlib_dir; do
-    echo "  Cleaning Hunter ZLIB cache: $zlib_dir"
-    rm -rf "$zlib_dir"
+  for pkg in ZLIB abseil gRPC koinos_exception rocksdb; do
+    find "$hunter_base" -path "*/Build/$pkg" -type d 2>/dev/null | while read -r dir; do
+      echo "  Cleaning Hunter cache: $dir"
+      rm -rf "$dir"
+    done
   done
-  # Also clean the ZLIB install directory
-  find "$hunter_base" -path "*/Install/ZLIB" -type d 2>/dev/null | while read -r zlib_dir; do
-    echo "  Cleaning Hunter ZLIB install: $zlib_dir"
-    rm -rf "$zlib_dir"
-  done
+}
+
+# --- Patch rocksdb source in Hunter cache to force ARM64 CRC ---
+# Hunter's cmake_args mechanism doesn't properly pass flags with spaces,
+# so we patch the rocksdb source directly after Hunter extracts it.
+patch_rocksdb_arm64_crc() {
+  if [ "$IS_ARM64" != true ]; then return 0; fi
+
+  local hunter_base="${HUNTER_ROOT:-$HOME/.hunter}"
+  # Find all extracted rocksdb Source dirs
+  while IFS= read -r -d '' cmakelists; do
+    local srcdir="$(dirname "$cmakelists")"
+    if grep -q 'crc32c_arm64.cc' "$cmakelists" && ! grep -q 'FORCE_ARM64_CRC' "$cmakelists"; then
+      echo "  Patching rocksdb CMakeLists.txt to force ARM64 CRC..."
+      # Insert an unconditional HAS_ARMV8_CRC=TRUE right before the arm64 check
+      sed -i '' '/CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64"/,/endif(CMAKE_SYSTEM_PROCESSOR/ {
+        /CHECK_C_COMPILER_FLAG.*armv8.*HAS_ARMV8_CRC/a\
+\  # FORCE_ARM64_CRC: patched by knodel build script\
+\  set(HAS_ARMV8_CRC TRUE)
+      }' "$cmakelists"
+      # Also ensure the CRC flags are set
+      sed -i '' '/HAS_ARMV8_CRC/,/endif(HAS_ARMV8_CRC)/ {
+        /set(CMAKE_C_FLAGS.*armv8/s/^/#ORIG /
+        /set(CMAKE_CXX_FLAGS.*armv8/s/^/#ORIG /
+      }' "$cmakelists"
+      # Add the flags unconditionally after the HAS_ARMV8_CRC block
+      sed -i '' '/endif(HAS_ARMV8_CRC)/a\
+# Forced ARM64 CRC flags (patched by knodel)\
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")\
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")\
+set(HAS_ARMV8_CRC TRUE)
+' "$cmakelists"
+      echo "  Patched: $cmakelists"
+    fi
+  done < <(find "$hunter_base" -path "*/rocksdb/Source/CMakeLists.txt" -type f -print0 2>/dev/null)
 }
 
 build_cpp() {
@@ -303,7 +572,7 @@ build_cpp() {
     koinos-account-history
   )
 
-  local first_svc=true
+  local hunter_cleaned=false
 
   for svc in "${CPP_SERVICES[@]}"; do
     echo ""
@@ -322,39 +591,19 @@ build_cpp() {
     cmake_args=($(cmake_configure_args "$svc_dir" "$build_dir"))
     "$CMAKE_CMD" "${cmake_args[@]}" 2>&1 || true
 
-    # Step 2: Patch Hunter config for macOS compatibility
-    echo "  [2/4] Patching Hunter config for macOS compatibility..."
-
-    # On ARM64, inject CMAKE_OSX_ARCHITECTURES into the Hunter global cache
-    # BEFORE any Hunter packages get built. The cache.cmake is read by ALL
-    # Hunter ExternalProject sub-builds via -C flag.
-    if [ "$IS_ARM64" = true ]; then
-      # Find all Hunter cache.cmake files (there may be multiple config hashes)
-      while IFS= read -r -d '' hunter_cache; do
-        if ! grep -q 'CMAKE_OSX_ARCHITECTURES' "$hunter_cache" 2>/dev/null; then
-          echo 'set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Force ARM64 on Apple Silicon")' >> "$hunter_cache"
-          echo "  Injected CMAKE_OSX_ARCHITECTURES=arm64 into: $hunter_cache"
-        fi
-      done < <(find "$build_dir/_3rdParty/Hunter" -name "cache.cmake" -print0 2>/dev/null)
-    fi
-
-    if patch_hunter_config "$build_dir"; then
-      # On first service, clean the entire Hunter install so deps rebuild with correct arch
-      if [ "$first_svc" = true ]; then
-        clean_hunter_zlib_cache
-        # Also clean the Install dir to force ALL packages to rebuild
-        local hunter_install_dir
-        hunter_install_dir="$(find "$build_dir/_3rdParty/Hunter" -name "Install" -type d 2>/dev/null | head -1)"
-        if [ -n "$hunter_install_dir" ] && [ -d "$hunter_install_dir" ]; then
-          echo "  Cleaning Hunter Install directory to force ARM64 rebuild..."
-          rm -rf "$hunter_install_dir"
-        fi
-        first_svc=false
+    # Step 2: Patch Hunter config with local patched tarballs
+    echo "  [2/4] Patching Hunter config with local patched tarballs..."
+    if patch_hunter_config_with_tarballs "$build_dir"; then
+      # Clean Hunter caches on first service only, so packages rebuild with patches
+      if [ "$hunter_cleaned" = false ]; then
+        echo "  Cleaning Hunter caches to force rebuild with patched sources..."
+        clean_hunter_caches
+        hunter_cleaned=true
       fi
     fi
 
     # Step 3: Reconfigure with patches applied (this triggers Hunter package builds)
-    echo "  [3/4] Reconfiguring with patches (building Hunter packages)..."
+    echo "  [3/4] Reconfiguring with patched tarballs (building Hunter packages)..."
     if ! "$CMAKE_CMD" "${cmake_args[@]}" 2>&1; then
       echo "FAILED: $svc cmake configure"
       ((FAIL++)) || true
