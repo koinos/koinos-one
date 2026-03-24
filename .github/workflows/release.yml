@@ -16,8 +16,13 @@ jobs:
     runs-on: macos-14  # Apple Silicon (M1)
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Init submodules (tolerant of missing commits)
+        run: |
+          git submodule init
+          git submodule update --recursive --depth 1 || true
+          # Ensure all submodule dirs exist even if specific commits are missing
+          git submodule foreach --recursive 'git checkout HEAD 2>/dev/null || true'
 
       - uses: actions/setup-node@v4
         with:
@@ -66,8 +71,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Init submodules (tolerant of missing commits)
+        run: |
+          git submodule init
+          git submodule update --recursive --depth 1
+        continue-on-error: true
 
       - uses: actions/setup-node@v4
         with:
