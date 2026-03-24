@@ -206,8 +206,20 @@ patch_hunter_config() {
 
   echo "  Patching Hunter config: adding -UTARGET_OS_MAC to ZLIB C flags..."
 
-  # Replace the ZLIB hunter_config to add -UTARGET_OS_MAC flag
-  sed -i '' '/^hunter_config(ZLIB/,/^)/c\
+  # Replace the ZLIB hunter_config to add -UTARGET_OS_MAC flag and force arm64 arch
+  if [ "$IS_ARM64" = true ]; then
+    sed -i '' '/^hunter_config(ZLIB/,/^)/c\
+hunter_config(ZLIB\
+   VERSION ${HUNTER_ZLIB_VERSION}\
+   CMAKE_ARGS\
+      CMAKE_POSITION_INDEPENDENT_CODE=ON\
+      CMAKE_CXX_STANDARD=20\
+      CMAKE_CXX_STANDARD_REQUIRED=ON\
+      CMAKE_C_FLAGS=-UTARGET_OS_MAC\
+      CMAKE_OSX_ARCHITECTURES=arm64\
+)' "$config_file"
+  else
+    sed -i '' '/^hunter_config(ZLIB/,/^)/c\
 hunter_config(ZLIB\
    VERSION ${HUNTER_ZLIB_VERSION}\
    CMAKE_ARGS\
@@ -216,6 +228,7 @@ hunter_config(ZLIB\
       CMAKE_CXX_STANDARD_REQUIRED=ON\
       CMAKE_C_FLAGS=-UTARGET_OS_MAC\
 )' "$config_file"
+  fi
 
   # On Apple Silicon, add CMAKE_OSX_ARCHITECTURES=arm64 to abseil, re2, c-ares, gRPC
   # so Hunter sub-builds correctly detect arm64 and avoid x86 SSE flags.
@@ -239,6 +252,24 @@ hunter_config(ZLIB\
   fi
 
   echo "  Hunter config patched successfully"
+
+  # Patch abseil RANDEN_COPTS to avoid -msse4.1 on ARM64.
+  # The Apple multi-arch code in AbseilConfigureCopts.cmake doesn't work correctly
+  # because CMake deduplicates -Xarch_x86_64 prefixes, leaving -msse4.1 unscoped.
+  # Fix: directly patch the GENERATED_AbseilCopts.cmake in Hunter's abseil source.
+  local hunter_base="${HUNTER_ROOT:-$HOME/.hunter}"
+  while IFS= read -r -d '' copts_file; do
+    if grep -q 'ABSL_RANDOM_HWAES_X64_FLAGS' "$copts_file" 2>/dev/null; then
+      if ! grep -q 'Patched for ARM64' "$copts_file" 2>/dev/null; then
+        echo "  Patching abseil GENERATED_AbseilCopts.cmake: clearing X64 HWAES flags for ARM64 compat"
+        # On ARM64-only builds, we don't need x86_64 flags at all
+        sed -i '' '/ABSL_RANDOM_HWAES_X64_FLAGS/,/)/ {
+          s/"-maes"/# "-maes" # Patched for ARM64/
+          s/"-msse4.1"/# "-msse4.1" # Patched for ARM64/
+        }' "$copts_file"
+      fi
+    fi
+  done < <(find "$hunter_base" -path "*/Build/abseil/Source/absl/copts/GENERATED_AbseilCopts.cmake" -type f -print0 2>/dev/null)
   return 0
 }
 
@@ -291,8 +322,20 @@ build_cpp() {
     cmake_args=($(cmake_configure_args "$svc_dir" "$build_dir"))
     "$CMAKE_CMD" "${cmake_args[@]}" 2>&1 || true
 
-    # Step 2: Patch Hunter config for macOS ZLIB compatibility (once per service)
+    # Step 2: Patch Hunter config and cache for macOS compatibility
     echo "  [2/4] Patching Hunter config for macOS compatibility..."
+
+    # On ARM64, ensure the Hunter global cache passes CMAKE_OSX_ARCHITECTURES=arm64
+    # to ALL sub-builds so every dependency compiles for the correct arch.
+    if [ "$IS_ARM64" = true ]; then
+      local hunter_cache
+      hunter_cache="$(find "$build_dir/_3rdParty/Hunter" -name "cache.cmake" 2>/dev/null | head -1)"
+      if [ -n "$hunter_cache" ] && ! grep -q 'CMAKE_OSX_ARCHITECTURES' "$hunter_cache" 2>/dev/null; then
+        echo 'set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "")' >> "$hunter_cache"
+        echo "  Injected CMAKE_OSX_ARCHITECTURES=arm64 into Hunter cache"
+      fi
+    fi
+
     if patch_hunter_config "$build_dir"; then
       # On first service, clean the ZLIB cache so it rebuilds with patched flags
       if [ "$first_svc" = true ]; then
