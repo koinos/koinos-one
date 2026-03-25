@@ -71,10 +71,6 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
               </select>
             </label>
             <div className="table-meta">
-              <span>{formatExplorerRpcSourceKind(settings.rpcSource, language)}</span>
-              <span className="mono" title={effectiveExplorerRpcUrl}>
-                {formatRpcDisplayUrl(effectiveExplorerRpcUrl)}
-              </span>
               <span>{t('explorer.refreshMeta', { ms: settings.pollMs })}</span>
               <span>{t('explorer.rowsMeta', { count: settings.rowLimit })}</span>
             </div>
