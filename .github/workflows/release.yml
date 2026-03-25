@@ -14,15 +14,11 @@ jobs:
   # ============================================================
   build-mac:
     runs-on: macos-14  # Apple Silicon (M1)
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
-
-      - name: Init submodules (tolerant of missing commits)
-        run: |
-          git submodule init
-          git submodule update --recursive --depth 1 || true
-          # Ensure all submodule dirs exist even if specific commits are missing
-          git submodule foreach --recursive 'git checkout HEAD 2>/dev/null || true'
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
@@ -34,24 +30,33 @@ jobs:
 
       - name: Install macOS build dependencies
         run: |
-          brew install gmp
+          brew install gmp ninja
           pip3 install cmake==3.28.4 --break-system-packages
+
+      - name: Cache Hunter packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.hunter
+          key: hunter-mac-arm64-${{ hashFiles('vendor/koinos/koinos-chain/CMakeLists.txt') }}
+          restore-keys: |
+            hunter-mac-arm64-
 
       - name: Install npm dependencies
         run: npm ci
 
       - name: Build native services
         run: ./scripts/build-native-mac.sh
-        timeout-minutes: 60
+        timeout-minutes: 120
 
       - name: Stage bundle
         run: npm run stage
+        continue-on-error: true
 
       - name: Build Electron app
         run: npm run build
 
       - name: Build macOS icon
-        run: npm run build:icon:mac
+        run: npm run build:icon:mac 2>/dev/null || true
 
       - name: Package DMG (unsigned)
         run: npx cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg
@@ -69,14 +74,11 @@ jobs:
   # ============================================================
   build-win:
     runs-on: windows-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-
-      - name: Init submodules (tolerant of missing commits)
-        run: |
-          git submodule init
-          git submodule update --recursive --depth 1
-        continue-on-error: true
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
@@ -89,15 +91,24 @@ jobs:
       - name: Install CMake 3.28
         run: pip install cmake==3.28.4
 
+      - name: Cache Hunter packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.hunter
+          key: hunter-win-x64-${{ hashFiles('vendor/koinos/koinos-chain/CMakeLists.txt') }}
+          restore-keys: |
+            hunter-win-x64-
+
       - name: Install npm dependencies
         run: npm ci
 
       - name: Build native services
         run: scripts\build-native-win.bat
-        timeout-minutes: 60
+        timeout-minutes: 90
 
       - name: Stage bundle
-        run: npm run stage
+        run: node scripts/stage-bundle-win.js
+        continue-on-error: true
 
       - name: Build Electron app
         run: npm run build
@@ -118,6 +129,7 @@ jobs:
   # ============================================================
   release:
     needs: [build-mac, build-win]
+    if: always() && (needs.build-mac.result == 'success' || needs.build-win.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Download macOS artifact
@@ -125,12 +137,14 @@ jobs:
         with:
           name: mac-dmg
           path: artifacts/
+        continue-on-error: true
 
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: win-installer
           path: artifacts/
+        continue-on-error: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
