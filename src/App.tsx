@@ -1025,7 +1025,8 @@ export function App() {
           : t('status.noState')
   const nodeStatusClass = nodeError || nodeHasPartialOutage ? 'is-error' : nodeRunningCount > 0 ? 'is-live' : 'is-idle'
   // Calculate blocks/sec from chain head height changes
-  if (localChainHead) {
+  useEffect(() => {
+    if (!localChainHead) return
     const now = Date.now()
     const prev = prevChainHeadRef.current
     if (prev && localChainHead.height > prev.height) {
@@ -1038,7 +1039,7 @@ export function App() {
     } else if (!prev || localChainHead.height !== prev.height) {
       prevChainHeadRef.current = { height: localChainHead.height, time: now }
     }
-  }
+  }, [localChainHead?.height]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncGapBlocks =
     publicChainHead && localChainHead ? Math.max(0, publicChainHead.height - localChainHead.height) : null
