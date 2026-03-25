@@ -24,8 +24,8 @@
 
 /* Global scrollbar — match app theme */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: rgba(6, 11, 14, 0.6);
@@ -1129,9 +1129,8 @@ body {
 
 /* Microservices config panel */
 .microservices-config-panel {
-  margin-top: 28px;
-  padding-top: 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 0;
+  padding: 16px;
 }
 
 .config-section {

@@ -97,7 +97,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
         ))}
       </div>
 
-      <form className="settings-form" onSubmit={applySettings}>
+      <form className="settings-form" onSubmit={applySettings} style={activeTab === 'microservices' ? { display: 'none' } : undefined}>
 
         {/* ─── General ─── */}
         {activeTab === 'general' && (
