@@ -63,9 +63,7 @@ export function WalletAccountsTab(props: WalletAccountsTabProps) {
             <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={!hasWalletControls || isBusy}>
               {t('wallet.importAccountAction')}
             </button>
-            <button type="button" className="ghost-button" onClick={onOpenImportWatch} disabled={!hasWalletControls || isBusy}>
-              {t('wallet.importWatchAction')}
-            </button>
+            {/* Import watch-only removed — not needed for MVP */}
           </div>
         </div>
 
