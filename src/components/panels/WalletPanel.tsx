@@ -339,14 +339,11 @@ export function WalletPanel(props: WalletPanelProps) {
               walletActionLoading={walletActionLoading}
               accounts={accounts}
               activeAccountId={activeWalletAccountId}
-              activeView={walletSubtab}
+              activeWalletCanSign={activeWalletCanSign}
               canCreateDerivedAccount={canCreateDerivedAccount}
               onSetActiveAccount={(accountId: string) => {
                 void setWalletActiveAccount(accountId)
               }}
-              onToggleTokens={() => toggleWalletView('tokens')}
-              onToggleAccounts={() => toggleWalletView('accounts')}
-              onToggleSecurity={() => toggleWalletView('security')}
               onOpenCreateAccount={() => setCreateAccountModalOpen(true)}
               onOpenImportWif={() => setImportModalOpen(true)}
               onOpenRenameAccount={() => {
@@ -357,18 +354,21 @@ export function WalletPanel(props: WalletPanelProps) {
                 const active = accounts.find((a) => a.id === activeWalletAccountId)
                 if (active) openRemoveModalForAccount(active)
               }}
+              onOpenSend={() => openSendModal('send')}
+              onOpenBurn={() => openSendModal('burn')}
+              onSetAsProducer={() => {
+                void setWalletActiveAccount(activeWalletAccountId)
+              }}
             />
           </div>
 
-          {walletSubtab === 'tokens' && (
-            <WalletPortfolioTab
-              t={t}
-              walletBalance={walletBalance}
-              activeWalletCanSign={activeWalletCanSign}
-              onOpenSend={() => openSendModal('send')}
-              onOpenBurn={() => openSendModal('burn')}
-            />
-          )}
+          <WalletPortfolioTab
+            t={t}
+            walletBalance={walletBalance}
+            activeWalletCanSign={activeWalletCanSign}
+            onOpenSend={() => openSendModal('send')}
+            onOpenBurn={() => openSendModal('burn')}
+          />
 
           {walletSubtab === 'security' && (
             <WalletSecurityTab

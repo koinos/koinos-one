@@ -14,18 +14,7 @@ export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
       <div className="wallet-card-grid">
         <article className="wallet-card wallet-portfolio-card">
           <div className="wallet-section-header">
-            <div>
-              <h3>{t('wallet.tokensTitle')}</h3>
-              <p>{t('wallet.tokensDescription')}</p>
-            </div>
-            <div className="wallet-inline-actions">
-              <button type="button" className="ghost-button" onClick={onOpenSend} disabled={!activeWalletCanSign}>
-                {t('wallet.transferAction')}
-              </button>
-              <button type="button" className="primary-button" onClick={onOpenBurn} disabled={!activeWalletCanSign}>
-                {t('wallet.burnAction')}
-              </button>
-            </div>
+            <div></div>
           </div>
 
           <div className="wallet-token-table">
