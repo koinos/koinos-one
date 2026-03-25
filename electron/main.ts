@@ -2332,6 +2332,80 @@ async function startNativeServiceProcess(
     }
   }
 
+  // After backup restore: temporarily force verify-blocks=true for correct merkle roots
+  if (serviceId === 'chain') {
+    const backupMarkerPath = path.join(settings.baseDir, '.backup-just-restored')
+    if (fs.existsSync(backupMarkerPath)) {
+      try {
+        const configPath = path.join(settings.baseDir, 'config.yml')
+        if (fs.existsSync(configPath)) {
+          const yaml = require('yaml')
+          const doc = yaml.parseDocument(fs.readFileSync(configPath, 'utf-8'))
+          const currentVerify = doc.getIn(['chain', 'verify-blocks'])
+
+          if (!currentVerify) {
+            // Enable verify-blocks for this startup to fix merkle roots
+            doc.setIn(['chain', 'verify-blocks'], true)
+            fs.writeFileSync(configPath, doc.toString(), 'utf-8')
+            console.log('[chain] Backup restore detected — enabled verify-blocks for merkle correction')
+
+            // Schedule: after chain starts and finishes indexing, revert verify-blocks and restart
+            const revertAfterIndexing = () => {
+              setTimeout(async () => {
+                const chainState = nativeServiceProcesses.get('chain')
+                if (!chainState || chainState.closed) return
+
+                // Wait for chain to finish indexing (up to 60 seconds)
+                let indexingDone = false
+                for (let i = 0; i < 60; i++) {
+                  await new Promise(resolve => setTimeout(resolve, 1000))
+                  const cs = nativeServiceProcesses.get('chain')
+                  if (!cs || cs.closed) return
+                  // Check if chain is listening (indexing done)
+                  // Check chain log file for indexing completion
+                  const chainLogPath = path.join(settings.baseDir, 'chain', 'logs', 'chain.log')
+                  const logContent = fs.existsSync(chainLogPath) ? fs.readFileSync(chainLogPath, 'utf-8') : ''
+                  if (logContent.includes('Listening for requests over AMQP')) {
+                    indexingDone = true
+                    break
+                  }
+                }
+
+                if (!indexingDone) {
+                  console.log('[chain] Backup merkle correction: timed out waiting for indexer')
+                  return
+                }
+
+                // Revert verify-blocks to false
+                try {
+                  const doc2 = yaml.parseDocument(fs.readFileSync(configPath, 'utf-8'))
+                  doc2.setIn(['chain', 'verify-blocks'], false)
+                  fs.writeFileSync(configPath, doc2.toString(), 'utf-8')
+                  fs.unlinkSync(backupMarkerPath)
+                  console.log('[chain] Backup merkle correction complete — reverted verify-blocks, restarting chain')
+
+                  // Restart chain with corrected config
+                  const stopResult = await stopNativeServiceProcess('chain')
+                  if (stopResult.ok) {
+                    await startNativeServiceProcess(settings, 'chain', serviceDefinitions)
+                  }
+                } catch (revertError) {
+                  console.log('[chain] Could not revert verify-blocks:', revertError)
+                }
+              }, 2000)
+            }
+            revertAfterIndexing()
+          } else {
+            // verify-blocks already true, just clean up the marker
+            fs.unlinkSync(backupMarkerPath)
+          }
+        }
+      } catch (markerError) {
+        console.log('[chain] Backup marker check failed:', markerError)
+      }
+    }
+  }
+
   // Auto-inject producer address into config.yml if starting block_producer without one
   if (serviceId === 'block_producer') {
     try {

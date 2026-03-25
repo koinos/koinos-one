@@ -786,6 +786,19 @@ function restoreBlockchainBackupPayload(
     throw new Error('El backup no contiene ningun subdirectorio restaurable')
   }
 
+  // Write marker file so chain knows to run verify-blocks on first startup after restore
+  if (restored.includes('chain') || restored.includes('block_store')) {
+    try {
+      fs.writeFileSync(
+        path.join(settings.baseDir, '.backup-just-restored'),
+        JSON.stringify({ restoredAt: new Date().toISOString(), directories: restored }),
+        'utf-8'
+      )
+    } catch {
+      // Non-critical — worst case user needs to manually set verify-blocks once
+    }
+  }
+
   return restored
 }
 
