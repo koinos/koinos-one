@@ -17,6 +17,8 @@ type NativeVersionResolverDeps = {
   cache: Map<string, VersionCacheEntry>
   findExecutableInPath: (command: string) => string | null
   nativeRabbitmqCtlExecutable: () => string | null
+  resolveAmqpBrokerPath?: () => string
+  fileExists: (filePath: string) => boolean
   runCommand: (command: string, args: string[], options: { cwd: string; timeoutMs?: number }) => Promise<RunCommandResult>
 }
 
@@ -180,6 +182,12 @@ export function createNativeVersionResolver(deps: NativeVersionResolverDeps) {
   }
 
   async function resolveNativeAmqpVersion(): Promise<string | null> {
+    // Check for GarageMQ first (bundled AMQP broker)
+    const garagemqPath = deps.resolveAmqpBrokerPath?.() ?? null
+    if (garagemqPath && deps.fileExists(garagemqPath)) {
+      return 'GarageMQ (bundled)'
+    }
+
     const brewExecutable = deps.findExecutableInPath('brew')
     const rabbitmqCtl = deps.nativeRabbitmqCtlExecutable()
     const fingerprint = [fileFingerprint(brewExecutable), fileFingerprint(rabbitmqCtl)].filter(Boolean).join('|') || 'amqp:none'

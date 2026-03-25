@@ -232,6 +232,8 @@ const nativeVersionResolver = createNativeVersionResolver({
   cache: nativeServiceVersionCache,
   findExecutableInPath,
   nativeRabbitmqCtlExecutable,
+  resolveAmqpBrokerPath,
+  fileExists: (filePath: string) => fs.existsSync(filePath),
   runCommand
 })
 
@@ -1813,7 +1815,8 @@ function nativeServiceBindHost(port: KoinosNodeServicePort | null, fallback = '1
 }
 
 function nativeAmqpRuntimeDir(settings: KoinosNodeSettings): string {
-  return path.join(settings.baseDir, 'amqp')
+  const baseDir = path.isAbsolute(settings.baseDir) ? settings.baseDir : path.join(os.homedir(), settings.baseDir)
+  return path.join(baseDir, 'amqp')
 }
 
 function nativeAmqpConfigPath(settings: KoinosNodeSettings): string {
