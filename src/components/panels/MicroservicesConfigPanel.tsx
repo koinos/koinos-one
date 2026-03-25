@@ -1,18 +1,302 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { parseDocument, Document, YAMLMap } from 'yaml'
+import {
+  CONFIG_SECTIONS,
+  CONFIG_SECTION_LABEL_KEYS,
+  CONFIG_SECTION_DESC_KEYS,
+  getFieldsForSection,
+  extractConfigValues,
+  type KoinosConfigValues,
+  type ConfigFieldMeta,
+  type ConfigSection
+} from '../../app/koinos-config-schema'
+import { getKoinosNodeBridge, toNodeApiSettings } from '../../app/utils'
+import type { NodeManagerSettings } from '../../app/types'
+
 type MicroservicesConfigPanelProps = {
   t: (key: string) => string
   hasNodeControls: boolean
-  nodeSettings: any
+  nodeSettings: NodeManagerSettings
 }
 
 export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings }: MicroservicesConfigPanelProps) {
+  const [configDoc, setConfigDoc] = useState<Document | null>(null)
+  const [draftValues, setDraftValues] = useState<KoinosConfigValues>({
+    global: {}, block_producer: {}, chain: {}, jsonrpc: {}, grpc: {}, mempool: {}, p2p: {}
+  })
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [savedBanner, setSavedBanner] = useState(false)
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    () => new Set(CONFIG_SECTIONS.filter((s) => s !== 'global'))
+  )
+  const bannerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const loadConfig = useCallback(async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge) return
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await bridge.fileRead({ ...toNodeApiSettings(nodeSettings), kind: 'config' })
+      if (result.ok && result.content) {
+        const doc = parseDocument(result.content)
+        setConfigDoc(doc)
+        const parsed = doc.toJSON() || {}
+        setDraftValues(extractConfigValues(parsed))
+      } else {
+        setConfigDoc(null)
+        setDraftValues({ global: {}, block_producer: {}, chain: {}, jsonrpc: {}, grpc: {}, mempool: {}, p2p: {} })
+        if (!result.ok) setError(result.output || t('config.loadError'))
+      }
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [nodeSettings, t])
+
+  useEffect(() => {
+    if (hasNodeControls) loadConfig()
+  }, [hasNodeControls, loadConfig])
+
+  useEffect(() => {
+    return () => {
+      if (bannerTimeout.current) clearTimeout(bannerTimeout.current)
+    }
+  }, [])
+
+  const saveConfig = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge) return
+    setSaving(true)
+    setError(null)
+    try {
+      const doc = configDoc ? configDoc.clone() : new Document({})
+
+      for (const section of CONFIG_SECTIONS) {
+        const sectionValues = draftValues[section] as Record<string, unknown>
+        const hasValues = Object.entries(sectionValues).some(
+          ([, v]) => v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)
+        )
+        if (!hasValues) continue
+
+        // Ensure the section exists as a block-style map (not inline flow)
+        let sectionNode = doc.get(section)
+        if (!sectionNode || !(sectionNode instanceof YAMLMap)) {
+          const newMap = new YAMLMap()
+          newMap.flow = false
+          doc.set(doc.createNode(section), newMap)
+          sectionNode = newMap
+        }
+        if (sectionNode instanceof YAMLMap) {
+          sectionNode.flow = false
+        }
+
+        for (const [key, value] of Object.entries(sectionValues)) {
+          if (value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) {
+            doc.deleteIn([section, key])
+          } else if (value === false) {
+            // Explicitly write false booleans (don't skip them)
+            doc.setIn([section, key], false)
+          } else {
+            doc.setIn([section, key], value)
+            // Ensure the section stays block-style after setIn
+            const updated = doc.get(section)
+            if (updated instanceof YAMLMap) updated.flow = false
+          }
+        }
+      }
+
+      const content = doc.toString()
+      const result = await bridge.fileWrite({
+        ...toNodeApiSettings(nodeSettings),
+        kind: 'config',
+        content
+      })
+
+      if (result.ok) {
+        setSavedBanner(true)
+        if (bannerTimeout.current) clearTimeout(bannerTimeout.current)
+        bannerTimeout.current = setTimeout(() => setSavedBanner(false), 10000)
+        await loadConfig()
+      } else {
+        setError(result.output || t('config.saveError'))
+      }
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateField = (section: ConfigSection, key: string, value: unknown) => {
+    setDraftValues((prev) => ({
+      ...prev,
+      [section]: { ...prev[section], [key]: value }
+    }))
+  }
+
+  const toggleSection = (section: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(section)) next.delete(section)
+      else next.add(section)
+      return next
+    })
+  }
+
   if (!hasNodeControls) return null
 
+  const renderField = (field: ConfigFieldMeta) => {
+    const sectionValues = draftValues[field.section as ConfigSection] as Record<string, unknown>
+    const value = sectionValues?.[field.key]
+
+    switch (field.type) {
+      case 'text':
+        return (
+          <label key={`${field.section}.${field.key}`} className={field.dangerous ? 'config-field-dangerous' : ''}>
+            <span>{t(field.labelKey)}</span>
+            <input
+              type="text"
+              value={(value as string) ?? ''}
+              placeholder={field.placeholder}
+              onChange={(e) => updateField(field.section as ConfigSection, field.key, e.target.value || undefined)}
+            />
+            <span className="settings-inline-help">{t(field.helpKey)}</span>
+          </label>
+        )
+
+      case 'number':
+        return (
+          <label key={`${field.section}.${field.key}`} className={field.dangerous ? 'config-field-dangerous' : ''}>
+            <span>{t(field.labelKey)}</span>
+            <input
+              type="number"
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              value={value !== undefined ? String(value) : ''}
+              placeholder={field.placeholder}
+              onChange={(e) => {
+                const v = e.target.value ? Number(e.target.value) : undefined
+                updateField(field.section as ConfigSection, field.key, v)
+              }}
+            />
+            <span className="settings-inline-help">{t(field.helpKey)}</span>
+          </label>
+        )
+
+      case 'boolean':
+        return (
+          <label key={`${field.section}.${field.key}`} className={`settings-toggle-row ${field.dangerous ? 'config-field-dangerous' : ''}`}>
+            <input
+              type="checkbox"
+              checked={Boolean(value)}
+              onChange={(e) => updateField(field.section as ConfigSection, field.key, e.target.checked)}
+            />
+            <span>{t(field.labelKey)}</span>
+            <span className="settings-inline-help">{t(field.helpKey)}</span>
+          </label>
+        )
+
+      case 'select':
+        return (
+          <label key={`${field.section}.${field.key}`} className={field.dangerous ? 'config-field-dangerous' : ''}>
+            <span>{t(field.labelKey)}</span>
+            <select
+              value={(value as string) ?? ''}
+              onChange={(e) => updateField(field.section as ConfigSection, field.key, e.target.value || undefined)}
+            >
+              <option value="">{t('config.default')}</option>
+              {field.options?.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            <span className="settings-inline-help">{t(field.helpKey)}</span>
+          </label>
+        )
+
+      case 'string-array':
+        return (
+          <label key={`${field.section}.${field.key}`} className={field.dangerous ? 'config-field-dangerous' : ''}>
+            <span>{t(field.labelKey)}</span>
+            <textarea
+              className="mono settings-textarea"
+              rows={4}
+              value={Array.isArray(value) ? (value as string[]).join('\n') : ''}
+              placeholder={field.placeholder}
+              onChange={(e) => {
+                const lines = e.target.value.split('\n').filter((l) => l.trim())
+                updateField(field.section as ConfigSection, field.key, lines.length > 0 ? lines : undefined)
+              }}
+            />
+            <span className="settings-inline-help">{t(field.helpKey)}</span>
+          </label>
+        )
+
+      default:
+        return null
+    }
+  }
+
   return (
-    <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid var(--border-color, #333)', borderRadius: '8px' }}>
-      <h3 style={{ margin: '0 0 0.5rem 0' }}>Microservices</h3>
-      <p style={{ opacity: 0.7, fontSize: '0.85rem' }}>
-        Native service configuration coming soon.
-      </p>
+    <div className="microservices-config-panel">
+      <div className="settings-subheader">
+        <h3>{t('config.title')}</h3>
+        <p>{t('config.subtitle')}</p>
+      </div>
+
+      {loading && <p className="settings-inline-help is-busy">{t('config.loading')}</p>}
+      {error && <p className="form-error">{error}</p>}
+      {savedBanner && (
+        <div className="config-restart-banner">
+          {t('config.restartBanner')}
+        </div>
+      )}
+
+      {!loading &&
+        CONFIG_SECTIONS.map((section) => {
+          const fields = getFieldsForSection(section)
+          const collapsed = collapsedSections.has(section)
+          return (
+            <div key={section} className="config-section">
+              <div
+                className="config-section-header"
+                onClick={() => toggleSection(section)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && toggleSection(section)}
+              >
+                <span className="collapse-indicator">{collapsed ? '\u25b6' : '\u25bc'}</span>
+                <span className="config-section-title">{t(CONFIG_SECTION_LABEL_KEYS[section])}</span>
+                <span className="config-section-desc">{t(CONFIG_SECTION_DESC_KEYS[section])}</span>
+              </div>
+              {!collapsed && (
+                <div className="config-section-fields">
+                  {fields.map(renderField)}
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+      {!loading && (
+        <div className="settings-actions">
+          <button type="button" className="ghost-button" onClick={loadConfig} disabled={loading}>
+            {t('config.reload')}
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={saveConfig}
+            disabled={saving}
+          >
+            {saving ? t('config.saving') : t('config.save')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
