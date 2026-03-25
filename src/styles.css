@@ -3220,12 +3220,20 @@ body {
 
 .table-panel-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 16px;
   align-items: flex-start;
-  padding: 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(17, 28, 36, 0.9), rgba(11, 19, 25, 0.92));
+}
+
+.table-panel-tools-left {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
 }
 
 .table-panel-header h2 {
@@ -3274,7 +3282,7 @@ body {
   flex-wrap: wrap;
   color: var(--muted);
   font-size: 0.85rem;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .table-meta span {

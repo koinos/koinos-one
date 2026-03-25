@@ -52,8 +52,7 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
 
       <main className="table-panel" aria-busy={isInitialLoading}>
         <div className="table-panel-header">
-          <div></div>
-          <div className="table-panel-tools">
+          <div className="table-panel-tools-left">
             <label className="table-select">
               <span>{t('explorer.rpcSource')}</span>
               <select
