@@ -76,7 +76,7 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings }: M
       const doc = configDoc ? configDoc.clone() : new Document({})
 
       for (const section of CONFIG_SECTIONS) {
-        const sectionValues = draftValues[section] as Record<string, unknown>
+        const sectionValues = (draftValues[section] || {}) as Record<string, unknown>
         const hasValues = Object.entries(sectionValues).some(
           ([, v]) => v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)
         )
@@ -150,8 +150,8 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings }: M
   if (!hasNodeControls) return null
 
   const renderField = (field: ConfigFieldMeta) => {
-    const sectionValues = draftValues[field.section as ConfigSection] as Record<string, unknown>
-    const value = sectionValues?.[field.key]
+    const sectionValues = (draftValues[field.section as ConfigSection] || {}) as Record<string, unknown>
+    const value = sectionValues[field.key]
 
     switch (field.type) {
       case 'text':
