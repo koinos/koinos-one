@@ -55,74 +55,88 @@ export const CONFIG_SECTION_DESC_KEYS: Record<ConfigSection, string> = {
   contract_meta_store: 'config.desc.contract_meta_store'
 }
 
-export type ConfigFieldType = 'string' | 'number' | 'boolean' | 'string[]'
+export type ConfigFieldType = 'text' | 'number' | 'boolean' | 'select' | 'string-array'
 
 export interface ConfigFieldMeta {
   section: ConfigSection
   key: string
   type: ConfigFieldType
-  label: string
-  description?: string
-  defaultValue?: unknown
+  labelKey: string
+  helpKey: string
+  placeholder?: string
+  dangerous?: boolean
+  min?: number
+  max?: number
+  step?: number
+  options?: string[]
 }
 
-// Field definitions per section
+// ---- Field definitions per section ----
+// labelKey format: config.field.<section>.<key>
+// helpKey format:  config.help.<section>.<key>
+
 const GLOBAL_FIELDS: ConfigFieldMeta[] = [
-  { section: 'global', key: 'amqp', type: 'string', label: 'AMQP URL', description: 'AMQP broker connection string', defaultValue: 'amqp://guest:guest@localhost:5672/' },
-  { section: 'global', key: 'log-level', type: 'string', label: 'Log Level', description: 'Logging verbosity (debug, info, warn, error)', defaultValue: 'info' },
-  { section: 'global', key: 'log-color', type: 'boolean', label: 'Log Color', description: 'Enable colored log output', defaultValue: true },
-  { section: 'global', key: 'log-datetime', type: 'boolean', label: 'Log Datetime', description: 'Include timestamps in logs', defaultValue: true },
-  { section: 'global', key: 'instance-id', type: 'string', label: 'Instance ID', description: 'Unique node instance identifier' },
-  { section: 'global', key: 'jobs', type: 'number', label: 'Jobs', description: 'Number of worker threads', defaultValue: 16 }
+  { section: 'global', key: 'amqp', type: 'text', labelKey: 'config.field.global.amqp', helpKey: 'config.help.global.amqp', placeholder: 'amqp://guest:guest@localhost:5672/' },
+  { section: 'global', key: 'log-level', type: 'select', labelKey: 'config.field.global.log-level', helpKey: 'config.help.global.log-level', options: ['debug', 'info', 'warn', 'error'] },
+  { section: 'global', key: 'log-color', type: 'boolean', labelKey: 'config.field.global.log-color', helpKey: 'config.help.global.log-color' },
+  { section: 'global', key: 'log-datetime', type: 'boolean', labelKey: 'config.field.global.log-datetime', helpKey: 'config.help.global.log-datetime' },
+  { section: 'global', key: 'instance-id', type: 'text', labelKey: 'config.field.global.instance-id', helpKey: 'config.help.global.instance-id' },
+  { section: 'global', key: 'fork-algorithm', type: 'select', labelKey: 'config.field.global.fork-algorithm', helpKey: 'config.help.global.fork-algorithm', options: ['fifo', 'pob', 'block-time'] },
+  { section: 'global', key: 'jobs', type: 'number', labelKey: 'config.field.global.jobs', helpKey: 'config.help.global.jobs', min: 1, max: 64, step: 1 },
+  { section: 'global', key: 'blacklist', type: 'string-array', labelKey: 'config.field.global.blacklist', helpKey: 'config.help.global.blacklist' },
+  { section: 'global', key: 'whitelist', type: 'string-array', labelKey: 'config.field.global.whitelist', helpKey: 'config.help.global.whitelist' },
+  { section: 'global', key: 'reset', type: 'boolean', labelKey: 'config.field.global.reset', helpKey: 'config.help.global.reset', dangerous: true }
 ]
 
 const CHAIN_FIELDS: ConfigFieldMeta[] = [
-  { section: 'chain', key: 'genesis-key', type: 'string', label: 'Genesis Key', description: 'Genesis block signing key' },
-  { section: 'chain', key: 'read-compute-bandwidth-limit', type: 'number', label: 'Read Compute Bandwidth', description: 'Max compute bandwidth for read operations', defaultValue: 10000000 },
-  { section: 'chain', key: 'fork-algorithm', type: 'string', label: 'Fork Algorithm', description: 'Block fork resolution algorithm', defaultValue: 'fifo' }
+  { section: 'chain', key: 'verify-blocks', type: 'boolean', labelKey: 'config.field.chain.verify-blocks', helpKey: 'config.help.chain.verify-blocks' },
+  { section: 'chain', key: 'pending-transaction-limit', type: 'number', labelKey: 'config.field.chain.pending-transaction-limit', helpKey: 'config.help.chain.pending-transaction-limit', min: 1, max: 1000, step: 1 },
+  { section: 'chain', key: 'disable-pending-transaction-limit', type: 'boolean', labelKey: 'config.field.chain.disable-pending-transaction-limit', helpKey: 'config.help.chain.disable-pending-transaction-limit', dangerous: true },
+  { section: 'chain', key: 'read-compute-bandwidth-limit', type: 'number', labelKey: 'config.field.chain.read-compute-bandwidth-limit', helpKey: 'config.help.chain.read-compute-bandwidth-limit', min: 0, step: 100000 }
 ]
 
 const MEMPOOL_FIELDS: ConfigFieldMeta[] = [
-  { section: 'mempool', key: 'transaction-expiration', type: 'number', label: 'Transaction Expiration (s)', description: 'Seconds before pending transactions expire', defaultValue: 120 }
+  { section: 'mempool', key: 'transaction-expiration', type: 'number', labelKey: 'config.field.mempool.transaction-expiration', helpKey: 'config.help.mempool.transaction-expiration', min: 10, max: 600, step: 10 }
 ]
 
 const BLOCK_STORE_FIELDS: ConfigFieldMeta[] = [
-  { section: 'block_store', key: 'basedir', type: 'string', label: 'Data Directory', description: 'Block storage directory path' }
+  { section: 'block_store', key: 'basedir', type: 'text', labelKey: 'config.field.block-store.basedir', helpKey: 'config.help.block-store.basedir' }
 ]
 
 const P2P_FIELDS: ConfigFieldMeta[] = [
-  { section: 'p2p', key: 'listen', type: 'string', label: 'Listen Address', description: 'P2P listen address', defaultValue: '/ip4/0.0.0.0/tcp/8888' },
-  { section: 'p2p', key: 'seed', type: 'string[]', label: 'Seed Nodes', description: 'Bootstrap peer addresses' },
-  { section: 'p2p', key: 'peer-exchange', type: 'boolean', label: 'Peer Exchange', description: 'Enable peer exchange protocol', defaultValue: true },
-  { section: 'p2p', key: 'disable-gossip', type: 'boolean', label: 'Disable Gossip', description: 'Disable gossip protocol', defaultValue: false }
+  { section: 'p2p', key: 'listen', type: 'text', labelKey: 'config.field.p2p.listen', helpKey: 'config.help.p2p.listen', placeholder: '/ip4/0.0.0.0/tcp/8888' },
+  { section: 'p2p', key: 'seed', type: 'string-array', labelKey: 'config.field.p2p.seed', helpKey: 'config.help.p2p.seed', placeholder: '/dns4/seed.koinos.io/tcp/8888/p2p/...' },
+  { section: 'p2p', key: 'peer-exchange', type: 'boolean', labelKey: 'config.field.p2p.peer-exchange', helpKey: 'config.help.p2p.peer-exchange' },
+  { section: 'p2p', key: 'disable-gossip', type: 'boolean', labelKey: 'config.field.p2p.disable-gossip', helpKey: 'config.help.p2p.disable-gossip' },
+  { section: 'p2p', key: 'force-gossip', type: 'boolean', labelKey: 'config.field.p2p.force-gossip', helpKey: 'config.help.p2p.force-gossip' },
+  { section: 'p2p', key: 'checkpoint', type: 'string-array', labelKey: 'config.field.p2p.checkpoint', helpKey: 'config.help.p2p.checkpoint' }
 ]
 
 const BLOCK_PRODUCER_FIELDS: ConfigFieldMeta[] = [
-  { section: 'block_producer', key: 'private-key-file', type: 'string', label: 'Private Key File', description: 'Path to block producer private key' },
-  { section: 'block_producer', key: 'pob-contract-id', type: 'string', label: 'PoB Contract ID', description: 'Proof of Burn contract address' },
-  { section: 'block_producer', key: 'vhp-contract-id', type: 'string', label: 'VHP Contract ID', description: 'Virtual Hash Power contract address' },
-  { section: 'block_producer', key: 'approve-proposals', type: 'string[]', label: 'Approve Proposals', description: 'Governance proposals to auto-approve' }
+  { section: 'block_producer', key: 'private-key-file', type: 'text', labelKey: 'config.field.block-producer.private-key-file', helpKey: 'config.help.block-producer.private-key-file', dangerous: true },
+  { section: 'block_producer', key: 'pob-contract-id', type: 'text', labelKey: 'config.field.block-producer.pob-contract-id', helpKey: 'config.help.block-producer.pob-contract-id' },
+  { section: 'block_producer', key: 'vhp-contract-id', type: 'text', labelKey: 'config.field.block-producer.vhp-contract-id', helpKey: 'config.help.block-producer.vhp-contract-id' },
+  { section: 'block_producer', key: 'approve-proposals', type: 'string-array', labelKey: 'config.field.block-producer.approve-proposals', helpKey: 'config.help.block-producer.approve-proposals' }
 ]
 
 const JSONRPC_FIELDS: ConfigFieldMeta[] = [
-  { section: 'jsonrpc', key: 'listen', type: 'string', label: 'Listen Address', description: 'JSON-RPC HTTP listen address', defaultValue: '0.0.0.0:8080' },
-  { section: 'jsonrpc', key: 'whitelist', type: 'string[]', label: 'API Whitelist', description: 'Allowed JSON-RPC methods (empty = all)' }
+  { section: 'jsonrpc', key: 'listen', type: 'text', labelKey: 'config.field.jsonrpc.listen', helpKey: 'config.help.jsonrpc.listen', placeholder: '0.0.0.0:8080' }
 ]
 
 const GRPC_FIELDS: ConfigFieldMeta[] = [
-  { section: 'grpc', key: 'listen', type: 'string', label: 'Listen Address', description: 'gRPC listen address', defaultValue: '0.0.0.0:50051' }
+  { section: 'grpc', key: 'listen', type: 'text', labelKey: 'config.field.grpc.endpoint', helpKey: 'config.help.grpc.endpoint', placeholder: '0.0.0.0:50051' }
 ]
 
 const ACCOUNT_HISTORY_FIELDS: ConfigFieldMeta[] = [
-  { section: 'account_history', key: 'basedir', type: 'string', label: 'Data Directory', description: 'Account history storage path' }
+  { section: 'account_history', key: 'basedir', type: 'text', labelKey: 'config.field.account-history.basedir', helpKey: 'config.help.account-history.basedir' }
 ]
 
 const TRANSACTION_STORE_FIELDS: ConfigFieldMeta[] = [
-  { section: 'transaction_store', key: 'basedir', type: 'string', label: 'Data Directory', description: 'Transaction store path' }
+  { section: 'transaction_store', key: 'basedir', type: 'text', labelKey: 'config.field.transaction-store.basedir', helpKey: 'config.help.transaction-store.basedir' }
 ]
 
 const CONTRACT_META_STORE_FIELDS: ConfigFieldMeta[] = [
-  { section: 'contract_meta_store', key: 'basedir', type: 'string', label: 'Data Directory', description: 'Contract meta store path' }
+  { section: 'contract_meta_store', key: 'basedir', type: 'text', labelKey: 'config.field.contract-meta-store.basedir', helpKey: 'config.help.contract-meta-store.basedir' }
 ]
 
 const ALL_FIELDS: Record<ConfigSection, ConfigFieldMeta[]> = {
@@ -145,28 +159,19 @@ export function getFieldsForSection(section: ConfigSection): ConfigFieldMeta[] {
 
 export type KoinosConfigValues = Partial<Record<ConfigSection, Record<string, unknown>>>
 
-export function extractConfigValues(doc: import('yaml').Document): KoinosConfigValues {
+/**
+ * Extract config values from a parsed YAML plain object (doc.toJSON()).
+ * Maps YAML top-level keys (with hyphens) to ConfigSection names (with underscores).
+ */
+export function extractConfigValues(parsed: Record<string, unknown>): KoinosConfigValues {
   const values: KoinosConfigValues = {}
-  if (!doc || !doc.contents) return values
+  if (!parsed || typeof parsed !== 'object') return values
 
-  const root = doc.contents
-  if (!root || typeof (root as any).items === 'undefined') return values
-
-  for (const item of (root as any).items || []) {
-    const key = String(item.key)
-    const section = key.replace(/-/g, '_') as ConfigSection
-    if (CONFIG_SECTIONS.includes(section) && item.value && typeof (item.value as any).items !== 'undefined') {
-      const sectionValues: Record<string, unknown> = {}
-      for (const subItem of (item.value as any).items || []) {
-        const subKey = String(subItem.key)
-        const val = subItem.value
-        if (val && typeof val.toJSON === 'function') {
-          sectionValues[subKey] = val.toJSON()
-        } else if (val !== null && val !== undefined) {
-          sectionValues[subKey] = typeof val === 'object' && 'value' in val ? val.value : val
-        }
-      }
-      values[section] = sectionValues
+  for (const [rawKey, rawValue] of Object.entries(parsed)) {
+    // Koinos YAML uses hyphens (block-store), schema uses underscores (block_store)
+    const section = rawKey.replace(/-/g, '_') as ConfigSection
+    if (CONFIG_SECTIONS.includes(section) && rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+      values[section] = rawValue as Record<string, unknown>
     }
   }
 
