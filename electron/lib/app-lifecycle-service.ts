@@ -266,7 +266,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     if (deps.isDev && deps.viteDevServerUrl) {
       void win.loadURL(deps.viteDevServerUrl)
     } else {
-      void win.loadFile(path.join(__dirname, '../dist/index.html'))
+      void win.loadFile(path.join(__dirname, '../../dist/index.html'))
     }
 
     win.on('close', (event) => {
