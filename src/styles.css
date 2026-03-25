@@ -22,6 +22,29 @@
   box-sizing: border-box;
 }
 
+/* Global scrollbar — match app theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(6, 11, 14, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(151, 184, 199, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(151, 184, 199, 0.5);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(151, 184, 199, 0.3) rgba(6, 11, 14, 0.6);
+}
+
 html,
 body,
 #root {
@@ -339,6 +362,35 @@ body {
     radial-gradient(circle at top right, rgba(47, 210, 183, 0.12), transparent 55%);
   box-shadow: var(--shadow);
   overflow: hidden;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0 16px;
+  background: rgba(6, 12, 16, 0.5);
+}
+
+.settings-tab-button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.settings-tab-button:hover {
+  color: var(--text);
+}
+
+.settings-tab-button.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .settings-form {
