@@ -85,9 +85,14 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
           </div>
         </div>
 
-        {errorMessage && (
+        {errorMessage && !props.localNodeNotRunning && (
           <div className="error-banner" role="alert">
             <strong>{t('explorer.rpcErrorBanner')}</strong> <span>{errorMessage}</span>
+          </div>
+        )}
+        {props.localNodeNotRunning && (
+          <div className="info-banner" role="status">
+            <span>{t('status.startServicesToExplore')}</span>
           </div>
         )}
 
