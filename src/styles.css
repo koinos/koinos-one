@@ -3231,7 +3231,7 @@ body {
 .table-panel-tools-left {
   display: flex;
   gap: 12px;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
   width: 100%;
 }
