@@ -5,10 +5,15 @@ type WalletAccountBarProps = {
   accounts: KnodelWalletAccountSummary[]
   activeAccountId: string
   activeView: 'tokens' | 'accounts' | 'security'
+  canCreateDerivedAccount: boolean
   onSetActiveAccount: (accountId: string) => void
   onToggleTokens: () => void
   onToggleAccounts: () => void
   onToggleSecurity: () => void
+  onOpenCreateAccount: () => void
+  onOpenImportWif: () => void
+  onOpenRenameAccount: () => void
+  onOpenRemoveAccount: () => void
 }
 
 export function WalletAccountBar(props: WalletAccountBarProps) {
@@ -19,10 +24,14 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
     accounts,
     activeAccountId,
     activeView,
+    canCreateDerivedAccount,
     onSetActiveAccount,
     onToggleTokens,
-    onToggleAccounts,
-    onToggleSecurity
+    onToggleSecurity,
+    onOpenCreateAccount,
+    onOpenImportWif,
+    onOpenRenameAccount,
+    onOpenRemoveAccount
   } = props
 
   const isBusy = walletActionLoading !== null
@@ -44,6 +53,31 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
             ))}
           </select>
         </label>
+        <div className="wallet-account-bar-buttons">
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={onOpenCreateAccount}
+            disabled={!hasWalletControls || isBusy || !canCreateDerivedAccount}
+            title={!canCreateDerivedAccount ? t('wallet.deriveAccountUnavailable') : undefined}
+          >
+            {t('wallet.createDerivedAccountAction')}
+          </button>
+          <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={!hasWalletControls || isBusy}>
+            {t('wallet.importAccountAction')}
+          </button>
+          <button type="button" className="ghost-button" onClick={onOpenRenameAccount} disabled={!hasWalletControls || isBusy}>
+            {t('wallet.renameAccountAction')}
+          </button>
+          <button
+            type="button"
+            className="danger-button"
+            onClick={onOpenRemoveAccount}
+            disabled={!hasWalletControls || isBusy || accounts.length <= 1}
+          >
+            {t('wallet.removeAccountAction')}
+          </button>
+        </div>
       </div>
 
       <div className="wallet-account-actions">
@@ -54,14 +88,6 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
           disabled={!hasWalletControls || isBusy}
         >
           {t('wallet.tokensTitle')}
-        </button>
-        <button
-          type="button"
-          className={`wallet-header-toggle ${activeView === 'accounts' ? 'is-active' : ''}`}
-          onClick={onToggleAccounts}
-          disabled={!hasWalletControls || isBusy}
-        >
-          {t('wallet.accountsTitle')}
         </button>
         <button
           type="button"

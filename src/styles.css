@@ -1470,10 +1470,17 @@ body {
 }
 
 .wallet-account-bar-main {
-  display: grid;
-  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  display: flex;
   gap: 12px;
-  align-items: end;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.wallet-account-bar-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .wallet-account-picker {

@@ -340,12 +340,23 @@ export function WalletPanel(props: WalletPanelProps) {
               accounts={accounts}
               activeAccountId={activeWalletAccountId}
               activeView={walletSubtab}
+              canCreateDerivedAccount={canCreateDerivedAccount}
               onSetActiveAccount={(accountId: string) => {
                 void setWalletActiveAccount(accountId)
               }}
               onToggleTokens={() => toggleWalletView('tokens')}
               onToggleAccounts={() => toggleWalletView('accounts')}
               onToggleSecurity={() => toggleWalletView('security')}
+              onOpenCreateAccount={() => setCreateAccountModalOpen(true)}
+              onOpenImportWif={() => setImportModalOpen(true)}
+              onOpenRenameAccount={() => {
+                const active = accounts.find((a) => a.id === activeWalletAccountId)
+                if (active) openRenameModalForAccount(active)
+              }}
+              onOpenRemoveAccount={() => {
+                const active = accounts.find((a) => a.id === activeWalletAccountId)
+                if (active) openRemoveModalForAccount(active)
+              }}
             />
           </div>
 
@@ -356,25 +367,6 @@ export function WalletPanel(props: WalletPanelProps) {
               activeWalletCanSign={activeWalletCanSign}
               onOpenSend={() => openSendModal('send')}
               onOpenBurn={() => openSendModal('burn')}
-            />
-          )}
-
-          {walletSubtab === 'accounts' && (
-            <WalletAccountsTab
-              t={t}
-              hasWalletControls={hasWalletControls}
-              walletActionLoading={walletActionLoading}
-              accounts={accounts}
-              activeAccountId={activeWalletAccountId}
-              canCreateDerivedAccount={canCreateDerivedAccount}
-              onSetActiveAccount={(accountId: string) => {
-                void setWalletActiveAccount(accountId)
-              }}
-              onOpenCreateAccount={() => setCreateAccountModalOpen(true)}
-              onOpenImportWif={() => setImportModalOpen(true)}
-              onOpenImportWatch={() => setImportWatchModalOpen(true)}
-              onOpenRenameAccount={openRenameModalForAccount}
-              onOpenRemoveAccount={openRemoveModalForAccount}
             />
           )}
 
