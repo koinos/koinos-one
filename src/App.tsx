@@ -837,17 +837,14 @@ export function App() {
     }
   }, [settings, effectiveExplorerRpcUrl, language, t])
 
-  const isLocalRpc = settings.rpcSource === 'local'
-  const localNodeNotRunning = isLocalRpc && nodeRunningCount === 0
   const statusText = useMemo(() => {
-    if (errorMessage && localNodeNotRunning) return t('status.startServicesToExplore')
     if (errorMessage) return t('status.rpcError', { message: errorMessage })
     if (isInitialLoading) {
       return t('status.connectingTo', { target: formatExplorerRpcSourceTarget(settings.rpcSource, language) })
     }
     if (isRefreshing) return t('status.updatingBlocks')
     return t('status.liveBlocksVisible', { count: rows.length })
-  }, [errorMessage, isInitialLoading, isRefreshing, language, localNodeNotRunning, rows.length, settings.rpcSource, t])
+  }, [errorMessage, isInitialLoading, isRefreshing, language, rows.length, settings.rpcSource, t])
 
   const lastUpdateText = lastSuccessAt ? formatTime(lastSuccessAt, locale, t('common.na')) : t('common.na')
   const headBlockTimeText = head ? formatDateTime(head.timestampMs, locale, t('common.na')) : t('common.na')
@@ -985,6 +982,8 @@ export function App() {
   const nodeStoppedServices = nodeServices.filter((service) => !isNodeServiceRunning(service))
   const nodeHasStoppedServices = nodeStoppedServices.length > 0
   const nodeHasPartialOutage = nodeRunningCount > 0 && nodeHasStoppedServices
+  const isLocalRpc = settings.rpcSource === 'local'
+  const localNodeNotRunning = isLocalRpc && nodeRunningCount === 0
   const selectedNodePresetMatchesRunningState = selectedNodePreset
     ? sameStringList(selectedNodePreset.services, nodeRunningServiceIds)
     : false
@@ -1203,7 +1202,9 @@ export function App() {
       : 'is-idle'
     : nodeStatusClass
   const footerStatusText = !hasNodeControls
-    ? statusText
+    ? localNodeNotRunning && errorMessage
+      ? t('status.startServicesToExplore')
+      : statusText
     : showChainSyncProgress
       ? t('status.syncingChain')
       : nodeRunningCount > 0 && !nodeHasPartialOutage
