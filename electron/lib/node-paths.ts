@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 import {
@@ -20,9 +21,12 @@ export function ensureKoinosBaseDir(inputPath: string): string {
   const normalized = expanded.trim() || DEFAULT_BASEDIR
   const trimmedTrailingSeparators = normalized.replace(/[\\/]+$/, '')
   if (!trimmedTrailingSeparators) return DEFAULT_BASEDIR
-  return trimmedTrailingSeparators.endsWith('.koinos')
+  const withSuffix = trimmedTrailingSeparators.endsWith('.koinos')
     ? trimmedTrailingSeparators
     : path.join(trimmedTrailingSeparators, '.koinos')
+  // Always return an absolute path — relative paths cause failures in packaged builds
+  // where CWD is the install directory, not the user's home
+  return path.isAbsolute(withSuffix) ? withSuffix : path.join(os.homedir(), withSuffix)
 }
 
 export function restoreWorkspaceParentPath(baseDir: string): string {

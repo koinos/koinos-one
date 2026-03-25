@@ -2253,7 +2253,8 @@ function nativeServiceLaunchSpec(
     }
   }
 
-  const args = [`--basedir=${settings.baseDir}`, `--amqp=${amqpUrl}`]
+  const absoluteBaseDir = path.isAbsolute(settings.baseDir) ? settings.baseDir : path.join(os.homedir(), settings.baseDir)
+  const args = [`--basedir=${absoluteBaseDir}`, `--amqp=${amqpUrl}`]
 
   if (serviceId === 'p2p') {
     const p2pPort = composeServicePortByTarget(serviceDefinitions.get('p2p'), 8888)
