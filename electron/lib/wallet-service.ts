@@ -98,6 +98,7 @@ type WalletServiceDeps = {
   formatWholeUnits: (value: bigint | string | number | null | undefined, decimals?: number) => string | null
   safeIsChecksumAddress: (value: string | null | undefined) => boolean
   loadProducerProfile: () => KnodelProducerProfile | null
+  updateConfigProducerAddress?: (address: string) => void
 }
 
 export { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-accounts'
@@ -271,6 +272,16 @@ export function createWalletService(deps: WalletServiceDeps) {
         seedPhrase: seedPhrase || undefined,
         derivationPath: derivationPath || undefined
       })
+
+      // Auto-set producer address in config.yml when wallet is created
+      try {
+        if (deps.updateConfigProducerAddress) {
+          deps.updateConfigProducerAddress(address)
+        }
+      } catch {
+        // Non-critical — user can set it manually
+      }
+
       return {
         ok: true,
         output: `Producer account imported for ${address}.`,

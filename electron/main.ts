@@ -327,7 +327,20 @@ const walletService = createWalletService({
   loadContractWithFetchedAbi,
   formatWholeUnits,
   safeIsChecksumAddress,
-  loadProducerProfile
+  loadProducerProfile,
+  updateConfigProducerAddress: (address: string) => {
+    try {
+      const settings = normalizeNodeSettings()
+      const configPath = path.join(settings.baseDir, 'config.yml')
+      if (!fs.existsSync(configPath)) return
+      const yaml = require('yaml')
+      const doc = yaml.parseDocument(fs.readFileSync(configPath, 'utf-8'))
+      doc.setIn(['block_producer', 'producer'], address)
+      fs.writeFileSync(configPath, doc.toString(), 'utf-8')
+    } catch {
+      // Non-critical
+    }
+  }
 })
 
 const logsService = createLogsService({
@@ -2316,6 +2329,36 @@ async function startNativeServiceProcess(
     return {
       ok: false,
       output: `Falta el artefacto nativo para ${serviceId}: ${buildDefinition.artifactPath}`
+    }
+  }
+
+  // Auto-inject producer address into config.yml if starting block_producer without one
+  if (serviceId === 'block_producer') {
+    try {
+      const configPath = path.join(settings.baseDir, 'config.yml')
+      if (fs.existsSync(configPath)) {
+        const yaml = require('yaml')
+        const configContent = fs.readFileSync(configPath, 'utf-8')
+        const doc = yaml.parseDocument(configContent)
+        const existingProducer = doc.getIn(['block_producer', 'producer'])
+        if (!existingProducer) {
+          // Try to get address from wallet
+          const walletResult = await walletService.walletOverview()
+          const address = (walletResult as any)?.accounts?.[0]?.address || (walletResult as any)?.address
+          if (address) {
+            doc.setIn(['block_producer', 'producer'], address)
+            fs.writeFileSync(configPath, doc.toString(), 'utf-8')
+            console.log(`[block_producer] Auto-set producer address to ${address} in config.yml`)
+          } else {
+            return {
+              ok: false,
+              output: 'No producer address configured and no wallet found. Create a wallet in the Wallet tab first, then retry.'
+            }
+          }
+        }
+      }
+    } catch (configError) {
+      console.log(`[block_producer] Could not auto-inject producer address: ${configError instanceof Error ? configError.message : configError}`)
     }
   }
 
