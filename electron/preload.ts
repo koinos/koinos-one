@@ -4,7 +4,7 @@ const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'knodel:koinos-node:backup-progress:event'
 
 contextBridge.exposeInMainWorld('knodel', {
-  version: '0.9.0',
+  version: require('../package.json').version,
   appConfig: {
     loadPublicRpcUrls: () => ipcRenderer.invoke('knodel:app-config:public-rpcs:load'),
     savePublicRpcUrls: (params?: unknown) => ipcRenderer.invoke('knodel:app-config:public-rpcs:save', params)
