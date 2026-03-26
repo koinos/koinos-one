@@ -1471,9 +1471,13 @@ body {
 
 .wallet-account-bar-main {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: flex-end;
-  flex-wrap: wrap;
+  width: 100%;
+}
+
+.wallet-account-bar-spacer {
+  flex: 1;
 }
 
 .wallet-account-bar-buttons {

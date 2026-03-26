@@ -255,10 +255,11 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     const win = new BrowserWindow({
       width: 1280,
       height: 800,
-      icon: path.join(__dirname, '../../assets/branding/icon.ico'),
+      icon: path.join(__dirname, '../../assets/branding/icon.png'),
       autoHideMenuBar: true,
       webPreferences: {
-        preload: deps.preloadPath
+        preload: deps.preloadPath,
+        sandbox: false
       }
     })
     deps.setMainWindow(win)

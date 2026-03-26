@@ -54,40 +54,41 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
             ))}
           </select>
         </label>
-        <div className="wallet-account-bar-buttons">
-          <button type="button" className="primary-button" onClick={onOpenSend} disabled={!hasWalletControls || isBusy || !activeWalletCanSign}>
-            {t('wallet.sendAction')}
-          </button>
-          <button type="button" className="ghost-button" onClick={onOpenBurn} disabled={!hasWalletControls || isBusy || !activeWalletCanSign}>
-            {t('wallet.burnAction')}
-          </button>
-          <button type="button" className="ghost-button" onClick={onSetAsProducer} disabled={!hasWalletControls || isBusy || !activeWalletCanSign}>
-            {t('wallet.setAsProducerAction')}
-          </button>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={onOpenCreateAccount}
-            disabled={!hasWalletControls || isBusy || !canCreateDerivedAccount}
-            title={!canCreateDerivedAccount ? t('wallet.deriveAccountUnavailable') : undefined}
-          >
-            {t('wallet.createDerivedAccountAction')}
-          </button>
-          <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={!hasWalletControls || isBusy}>
-            {t('wallet.importAccountAction')}
-          </button>
-          <button type="button" className="ghost-button" onClick={onOpenRenameAccount} disabled={!hasWalletControls || isBusy}>
-            {t('wallet.renameAccountAction')}
-          </button>
-          <button
-            type="button"
-            className="danger-button"
-            onClick={onOpenRemoveAccount}
-            disabled={!hasWalletControls || isBusy || accounts.length <= 1}
-          >
-            {t('wallet.removeAccountAction')}
-          </button>
-        </div>
+        <button type="button" className="ghost-button" onClick={onSetAsProducer} disabled={!hasWalletControls || isBusy || !activeWalletCanSign}>
+          {t('wallet.setAsProducerAction')}
+        </button>
+        <button type="button" className="ghost-button" onClick={onOpenRenameAccount} disabled={!hasWalletControls || isBusy}>
+          {t('wallet.renameAccountAction')}
+        </button>
+        <button
+          type="button"
+          className="danger-button"
+          onClick={onOpenRemoveAccount}
+          disabled={!hasWalletControls || isBusy || accounts.length <= 1}
+        >
+          {t('wallet.removeAccountAction')}
+        </button>
+        <div className="wallet-account-bar-spacer" />
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={onOpenCreateAccount}
+          disabled={!hasWalletControls || isBusy || !canCreateDerivedAccount}
+          title={!canCreateDerivedAccount ? t('wallet.deriveAccountUnavailable') : undefined}
+        >
+          {t('wallet.createDerivedAccountAction')}
+        </button>
+        <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={!hasWalletControls || isBusy}>
+          {t('wallet.importAccountAction')}
+        </button>
+      </div>
+      <div className="wallet-account-bar-buttons">
+        <button type="button" className="primary-button" onClick={onOpenSend} disabled={!hasWalletControls || isBusy || !activeWalletCanSign}>
+          Send
+        </button>
+        <button type="button" className="ghost-button" onClick={onOpenBurn} disabled={!hasWalletControls || isBusy || !activeWalletCanSign}>
+          {t('wallet.burnAction')}
+        </button>
       </div>
     </div>
   )

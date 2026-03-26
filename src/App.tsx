@@ -84,6 +84,7 @@ import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
+import pkg from '../package.json'
 
 type WalletActivityEntry = {
   id: string
@@ -111,7 +112,7 @@ function walletBalanceCacheKeys(address?: string | null, accountId?: string | nu
 }
 
 export function App() {
-  const appVersion = window.knodel?.version?.trim() || '0.9.0'
+  const appVersion = window.knodel?.version?.trim() || pkg.version
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
   const [nodeSettings, setNodeSettings] = useState<NodeManagerSettings>(() => loadInitialNodeSettings())

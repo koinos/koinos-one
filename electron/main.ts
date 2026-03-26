@@ -3327,6 +3327,9 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') {
+    app.dock.setIcon(path.join(__dirname, '../assets/branding/icon.png'))
+  }
   registerIpcHandlers()
   createWindow()
   app.on('activate', () => {

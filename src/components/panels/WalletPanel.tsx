@@ -901,14 +901,6 @@ export function WalletPanel(props: WalletPanelProps) {
         }}
       />
 
-      {(walletResultData || walletLoading) && (!hasWallet || walletUnlocked) && (
-        <div className="wallet-output">
-          <div className="node-services-header">
-            <h3>{walletResultTitle || t('wallet.outputTitle')}</h3>
-          </div>
-          <pre className="mono">{walletResultText || t('common.loading')}</pre>
-        </div>
-      )}
     </section>
   )
 }
