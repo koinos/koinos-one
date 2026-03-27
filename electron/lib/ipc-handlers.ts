@@ -181,6 +181,15 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
 
   for (const channel of handlers) ipcMain.removeHandler(channel)
 
+  // Sync handler for app version (used by preload before contextBridge)
+  ipcMain.on('knodel:app-version', (event) => {
+    try {
+      event.returnValue = require('../../package.json').version
+    } catch {
+      event.returnValue = '0.10.0'
+    }
+  })
+
   ipcMain.handle('knodel:app-config:public-rpcs:load', async () => deps.loadPublicRpcConfig())
   ipcMain.handle('knodel:app-config:public-rpcs:save', async (_event, input?: PublicRpcConfigInput) => deps.savePublicRpcConfig(input))
   ipcMain.handle('knodel:koinos-node:defaults', async () => deps.getNodeDefaults())

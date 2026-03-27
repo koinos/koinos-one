@@ -3,8 +3,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'knodel:koinos-node:backup-progress:event'
 
+// Read version via IPC from main process (preload can't require package.json reliably)
+const appVersion = ipcRenderer.sendSync('knodel:app-version') || '0.10.0'
+
 contextBridge.exposeInMainWorld('knodel', {
-  version: require('../package.json').version,
+  version: appVersion,
   appConfig: {
     loadPublicRpcUrls: () => ipcRenderer.invoke('knodel:app-config:public-rpcs:load'),
     savePublicRpcUrls: (params?: unknown) => ipcRenderer.invoke('knodel:app-config:public-rpcs:save', params)
