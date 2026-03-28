@@ -36,7 +36,7 @@ Requisitos: Xcode CLT, CMake 3.28.x, Go 1.22+, Node.js 20+, GMP (`brew install g
 ./scripts/build-native-mac.sh amqp     # solo GarageMQ
 ```
 
-> En Apple Silicon, el script parchea automaticamente Hunter (ZLIB, abseil, rocksdb CRC, gRPC) para ARM64.
+> En Apple Silicon, el script parchea automaticamente Hunter (ZLIB, abseil, rocksdb CRC, gRPC, fizzy) para ARM64 y Xcode 26+.
 
 ### Windows (x64)
 
