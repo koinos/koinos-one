@@ -226,7 +226,7 @@ ensure_patched_zlib_tarball() {
   if [ -n "$cached" ]; then
     cp "$cached" "$upstream_path"
   elif [ ! -f "$upstream_path" ]; then
-    echo "  Downloading ZLIB ${version}..."
+    echo "  Downloading ZLIB ${version}..." >&2
     curl -sL "$upstream_url" -o "$upstream_path"
   fi
 
@@ -240,7 +240,7 @@ ensure_patched_zlib_tarball() {
   local zutil="$tmp/$root/zutil.h"
   if [ -f "$zutil" ]; then
     sed -i '' 's/#if defined(MACOS) || defined(TARGET_OS_MAC)/#if (defined(MACOS) || defined(TARGET_OS_MAC)) \&\& !defined(__APPLE__)/' "$zutil"
-    echo "  Patched zutil.h"
+    echo "  Patched zutil.h" >&2
   fi
 
   tar -czf "$patched_path" -C "$tmp" "$root"
@@ -268,7 +268,7 @@ ensure_patched_abseil_tarball() {
   if [ -n "$cached" ]; then
     cp "$cached" "$upstream_path"
   elif [ ! -f "$upstream_path" ]; then
-    echo "  Downloading abseil ${version}..."
+    echo "  Downloading abseil ${version}..." >&2
     curl -sL "$upstream_url" -o "$upstream_path"
   fi
 
@@ -283,7 +283,7 @@ ensure_patched_abseil_tarball() {
   # We need to add an ARM64 check so it skips SSE on arm64.
   local copts_file="$tmp/$root/absl/copts/AbseilConfigureCopts.cmake"
   if [ -f "$copts_file" ] && ! grep -q 'CMAKE_OSX_ARCHITECTURES STREQUAL "arm64"' "$copts_file"; then
-    echo "  Patching AbseilConfigureCopts.cmake for ARM64..."
+    echo "  Patching AbseilConfigureCopts.cmake for ARM64..." >&2
     # Replace the Apple/Clang HWAES block with ARM64-aware version
     python3 -c "
 import re, sys
@@ -319,7 +319,7 @@ new_end = '''  if(ABSL_RANDOM_RANDEN_COPTS AND NOT ABSL_RANDOM_RANDEN_COPTS_WARN
 content = content.replace(old_end, new_end)
 
 open('$copts_file', 'w').write(content)
-" 2>&1 || echo "  WARNING: python3 patch failed, trying sed fallback"
+" 2>&1 || echo "  WARNING: python3 patch failed, trying sed fallback" >&2
   fi
 
   tar -czf "$patched_path" -C "$tmp" "$root"
@@ -347,7 +347,7 @@ ensure_patched_koinos_exception_tarball() {
   if [ -n "$cached" ]; then
     cp "$cached" "$upstream_path"
   elif [ ! -f "$upstream_path" ]; then
-    echo "  Downloading koinos_exception ${version}..."
+    echo "  Downloading koinos_exception ${version}..." >&2
     curl -sL "$upstream_url" -o "$upstream_path"
   fi
 
@@ -360,7 +360,7 @@ ensure_patched_koinos_exception_tarball() {
   # Patch: add BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED before boost include
   local header="$tmp/$root/include/koinos/exception.hpp"
   if [ -f "$header" ] && ! grep -q 'BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED' "$header"; then
-    echo "  Patching koinos exception.hpp for macOS stacktrace..."
+    echo "  Patching koinos exception.hpp for macOS stacktrace..." >&2
     sed -i '' 's|#include <boost/exception/all.hpp>|#ifndef BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED\
 #define BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED 1\
 #endif\
@@ -410,15 +410,25 @@ patch_hunter_config_with_tarballs() {
   local arm64_flag=""
   if [ "$IS_ARM64" = true ]; then
     arm64_flag="--arm64"
+  fi
 
-    # Also patch rocksdb for ARM64 CRC
+  # Apply ZLIB / abseil / koinos_exception patches first (patch-hunter-config.py checks
+  # for 'darwin-patched' to skip already-patched files, so rocksdb must come AFTER)
+  python3 "$KNODEL_ROOT/scripts/patch-hunter-config.py" \
+    "$config_file" \
+    "$zlib_url" "$zlib_sha1" \
+    "$abseil_url" "$abseil_sha1" \
+    "$exc_url" "$exc_sha1" \
+    $arm64_flag
+
+  # Patch rocksdb for ARM64 CRC (done after patch-hunter-config.py to avoid early skip)
+  if [ "$IS_ARM64" = true ]; then
     local rocksdb_tarball
     rocksdb_tarball="$(ensure_patched_rocksdb_tarball)"
     if [ -n "$rocksdb_tarball" ] && [ -f "$rocksdb_tarball" ]; then
       local rocksdb_url="file://${rocksdb_tarball}"
       local rocksdb_sha1="$(sha1_file "$rocksdb_tarball")"
       echo "  rocksdb:           $rocksdb_tarball (sha1: $rocksdb_sha1)"
-      # Replace rocksdb URL in config
       python3 -c "
 import re
 content = open('$config_file').read()
@@ -442,14 +452,122 @@ open('$config_file', 'w').write(new_content)
     fi
   fi
 
-  python3 "$KNODEL_ROOT/scripts/patch-hunter-config.py" \
-    "$config_file" \
-    "$zlib_url" "$zlib_sha1" \
-    "$abseil_url" "$abseil_sha1" \
-    "$exc_url" "$exc_sha1" \
-    $arm64_flag
+  # Patch libsecp256k1-vrf hunter_config to pass correct GMP paths on macOS
+  # Without this, find_package(GMP) picks up /usr/local/lib (x86_64) on ARM64 macs.
+  if [ -n "$HOMEBREW_PREFIX" ] && [ -f "${HOMEBREW_PREFIX}/lib/libgmp.dylib" ]; then
+    python3 -c "
+import re
+content = open('$config_file').read()
+old = '''hunter_config(libsecp256k1-vrf
+   URL \"https://github.com/koinos/secp256k1-vrf/archive/db479e83be5685f652a9bafefaef77246fdf3bbe.tar.gz\"
+   SHA1 \"62df75e061c4afd6f0548f1e8267cc3da6abee15\"
+)'''
+new = '''hunter_config(libsecp256k1-vrf
+   URL \"https://github.com/koinos/secp256k1-vrf/archive/db479e83be5685f652a9bafefaef77246fdf3bbe.tar.gz\"
+   SHA1 \"62df75e061c4afd6f0548f1e8267cc3da6abee15\"
+   CMAKE_ARGS
+     -DGMP_LIBRARY=${HOMEBREW_PREFIX}/lib/libgmp.dylib
+     -DGMP_INCLUDE_DIR=${HOMEBREW_PREFIX}/include
+)'''
+if old in content:
+    content = content.replace(old, new)
+    open('$config_file', 'w').write(content)
+    print('  Patched libsecp256k1-vrf with ARM64 GMP paths')
+elif 'GMP_LIBRARY' in content:
+    print('  libsecp256k1-vrf GMP already patched')
+else:
+    print('  WARNING: could not find libsecp256k1-vrf hunter_config to patch')
+"
+  fi
 
   return 0
+}
+
+# --- Patch fizzy source for modern libc++ (macOS 26+) and force-build ---
+# fizzy uses std::basic_string_view<uint8_t> which requires char_traits<unsigned char>.
+# Starting with Xcode 26 (macOS 26), char_traits<T> for non-standard types is deprecated
+# and triggers -Werror,-Wdeprecated-declarations.
+#
+# We cannot change fizzy's hunter_config CMAKE_ARGS (that changes the config SHA and forces
+# a full rebuild of all Hunter packages). Instead:
+# 1. Run cmake configure (step 1) to let Hunter extract fizzy's source.
+# 2. This function patches bytes.hpp THEN immediately builds and installs fizzy manually,
+#    creating Hunter's DONE stamp so step 3's cmake configure sees fizzy as complete.
+#
+# Must be called AFTER step 1 (cmake configure) so fizzy is already extracted.
+# Returns 0 if it successfully patched+built fizzy, 1 if already done or not yet extracted.
+patch_fizzy_for_modern_libcxx() {
+  local hunter_base="${HUNTER_ROOT:-$HOME/.hunter}"
+
+  # Find the fizzy Build dir (contains DONE, Source, Build subdirs)
+  local fizzy_build_dir
+  fizzy_build_dir="$(find "$hunter_base" -path "*/Build/fizzy" -type d 2>/dev/null | head -1)"
+  if [ -z "$fizzy_build_dir" ]; then
+    return 1  # fizzy not yet extracted
+  fi
+
+  # If DONE file exists, fizzy is already built — nothing to do
+  if [ -f "$fizzy_build_dir/DONE" ]; then
+    return 1
+  fi
+
+  local bytes_hpp="$fizzy_build_dir/Source/lib/fizzy/bytes.hpp"
+  if [ ! -f "$bytes_hpp" ]; then
+    return 1  # source not yet extracted
+  fi
+
+  # Patch bytes.hpp if not already patched
+  if ! grep -q 'KNODEL_FIZZY_PATCH' "$bytes_hpp"; then
+    sed -i '' 's|#pragma once|#pragma once\
+\
+// KNODEL_FIZZY_PATCH: suppress char_traits<uint8_t> deprecation in libc++ 26+\
+#if defined(__clang__)\
+#  pragma clang diagnostic push\
+#  pragma clang diagnostic ignored "-Wdeprecated-declarations"\
+#endif|' "$bytes_hpp"
+    printf '\n#if defined(__clang__)\n#  pragma clang diagnostic pop\n#endif\n' >> "$bytes_hpp"
+    echo "  Patched fizzy bytes.hpp: $bytes_hpp"
+  fi
+
+  # Find the inner cmake build dir (where make can be run)
+  local inner_build
+  inner_build="$(find "$fizzy_build_dir/Build" -name "fizzy-Release-build" -type d 2>/dev/null | head -1)"
+  if [ -z "$inner_build" ]; then
+    echo "  WARNING: fizzy inner cmake build dir not found; will retry after step 3"
+    return 1
+  fi
+
+  local stamp_dir
+  stamp_dir="$(find "$fizzy_build_dir/Build" -name "fizzy-Release-stamp" -type d 2>/dev/null | head -1)"
+  if [ -z "$stamp_dir" ]; then
+    echo "  WARNING: fizzy stamp dir not found"
+    return 1
+  fi
+
+  echo "  Building fizzy with patched bytes.hpp..."
+  local ncpu
+  ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  if make -C "$inner_build" -j"$ncpu" 2>&1 | tail -3; then
+    make -C "$inner_build" install 2>&1 | tail -3
+    # Create ExternalProject build/install stamps
+    touch "$stamp_dir/fizzy-Release-build"
+    touch "$stamp_dir/fizzy-Release-install"
+    # Create Hunter DONE file so subsequent cmake runs skip fizzy entirely
+    touch "$fizzy_build_dir/DONE"
+    # Merge fizzy Install artifacts into the shared Hunter install prefix
+    local hunter_install="${fizzy_build_dir%/Build/fizzy}/Install"
+    cp -r "$fizzy_build_dir/Install/lib/." "$hunter_install/lib/" 2>/dev/null || true
+    cp -r "$fizzy_build_dir/Install/include/." "$hunter_install/include/" 2>/dev/null || true
+    cp -r "$fizzy_build_dir/Install/licenses/." "$hunter_install/licenses/" 2>/dev/null || true
+    mkdir -p "$fizzy_build_dir/Install/licenses/fizzy"
+    [ -f "$fizzy_build_dir/Source/LICENSE" ] && \
+      cp "$fizzy_build_dir/Source/LICENSE" "$fizzy_build_dir/Install/licenses/fizzy/"
+    echo "  OK: fizzy built and stamped as DONE"
+    return 0
+  else
+    echo "  ERROR: fizzy build failed even after patching bytes.hpp"
+    return 1
+  fi
 }
 
 # --- Prepare patched rocksdb tarball (ARM64 CRC) ---
@@ -564,6 +682,12 @@ build_cpp() {
   echo "      Subsequent builds use cached packages and are much faster."
   echo ""
 
+  # Ensure Homebrew arm64 libs take precedence over any x86_64 libs in /usr/local
+  if [ -n "$HOMEBREW_PREFIX" ]; then
+    export LIBRARY_PATH="${HOMEBREW_PREFIX}/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    export CPATH="${HOMEBREW_PREFIX}/include${CPATH:+:$CPATH}"
+  fi
+
   local CPP_SERVICES=(
     koinos-chain
     koinos-mempool
@@ -593,6 +717,7 @@ build_cpp() {
 
     # Step 2: Patch Hunter config with local patched tarballs
     echo "  [2/4] Patching Hunter config with local patched tarballs..."
+    local config_file="$build_dir/_deps/koinos_cmake-src/Hunter/config.cmake"
     if patch_hunter_config_with_tarballs "$build_dir"; then
       # Clean Hunter caches on first service only, so packages rebuild with patches
       if [ "$hunter_cleaned" = false ]; then
@@ -600,6 +725,46 @@ build_cpp() {
         clean_hunter_caches
         hunter_cleaned=true
       fi
+    fi
+
+    # Step 2c: Patch fizzy bytes.hpp for modern libc++ (macOS 26+).
+    # Must run AFTER fizzy is extracted (configure stamp exists) so the source is present.
+    # We do NOT clean the Build dir — keeping the configure stamp lets Hunter skip
+    # re-extraction and proceed directly to the build step with our patched source.
+    patch_fizzy_for_modern_libcxx
+
+    # Step 2b-zlib: Patch ZLIB zutil.h already extracted in Hunter cache.
+    # ExternalProject reuses existing extracted source (stamp exists), so changing
+    # the URL in config.cmake doesn't help — we must patch the source directly.
+    find "${HUNTER_ROOT:-$HOME/.hunter}" \
+      -path "*/Build/ZLIB/Source/zutil.h" -type f 2>/dev/null \
+    | while read -r zutil; do
+      if ! grep -q 'KNODEL_ZLIB_PATCH' "$zutil"; then
+        sed -i '' \
+          's/#if defined(MACOS) || defined(TARGET_OS_MAC)/#if (defined(MACOS) || defined(TARGET_OS_MAC)) \&\& !defined(__APPLE__) \/\/ KNODEL_ZLIB_PATCH/' \
+          "$zutil"
+        echo "  Patched ZLIB zutil.h: $zutil"
+      fi
+    done
+
+    # Step 2b: Inject ARM64 GMP paths into Hunter's args.cmake for libsecp256k1-vrf.
+    # Hunter creates an empty args.cmake loaded as initial cache for each sub-build.
+    # Writing SET(GMP_LIBRARY CACHE PATH) here causes find_package(GMP) to use it
+    # instead of searching, bypassing the x86_64 /usr/local version.
+    if [ "$IS_ARM64" = true ] && [ -n "$HOMEBREW_PREFIX" ]; then
+      find "${HUNTER_ROOT:-$HOME/.hunter}" \
+        -path "*/Build/libsecp256k1-vrf/args.cmake" -type f 2>/dev/null \
+      | while read -r args_cmake; do
+        if ! grep -q 'KNODEL_GMP_PATCH' "$args_cmake"; then
+          cat >> "$args_cmake" <<GMPPATCH
+# KNODEL_GMP_PATCH: Force ARM64 Homebrew GMP to prevent x86_64 /usr/local pick-up
+set(GMP_LIBRARY "${HOMEBREW_PREFIX}/lib/libgmp.dylib" CACHE PATH "GMP library" FORCE)
+set(GMP_INCLUDE_DIR "${HOMEBREW_PREFIX}/include" CACHE PATH "GMP include dir" FORCE)
+set(GMP_FOUND TRUE CACHE BOOL "GMP found" FORCE)
+GMPPATCH
+          echo "  Injected ARM64 GMP into Hunter args.cmake: $args_cmake"
+        fi
+      done
     fi
 
     # Step 3: Reconfigure with patches applied (this triggers Hunter package builds)
