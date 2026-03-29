@@ -33,5 +33,10 @@ export const DEFAULT_NODE_SETTINGS = {
 export const SYNC_GAP_BLOCK_THRESHOLD = 50
 export const SYNC_GAP_TIME_THRESHOLD_MS = 30_000
 
+export const AUTO_RESTART_CHAIN_GAP_THRESHOLD = 100
+export const AUTO_RESTART_CHAIN_COOLDOWN_MS = 5 * 60 * 1000
+export const AUTO_RESTART_CHAIN_CHECK_INTERVAL_MS = 60 * 1000
+export const AUTO_RESTART_CHAIN_MIN_STALL_CHECKS = 3
+
 export const ANSI_BASIC_COLORS = ['#20272b', '#ff6b6b', '#3ddc97', '#f4b35d', '#5aa8ff', '#d88cff', '#58d7e7', '#d9e3e8']
 export const ANSI_BRIGHT_COLORS = ['#6a7d86', '#ff9b95', '#7cf3be', '#ffd98a', '#90c3ff', '#f0b7ff', '#93effa', '#ffffff']

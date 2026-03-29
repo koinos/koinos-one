@@ -7,6 +7,7 @@ import {
   LANGUAGE_STORAGE_KEY,
   NODE_SETTINGS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
+  AUTO_RESTART_CHAIN_CHECK_INTERVAL_MS,
   SYNC_GAP_BLOCK_THRESHOLD,
   SYNC_GAP_TIME_THRESHOLD_MS
 } from './app/constants'
@@ -84,6 +85,8 @@ import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
+import { createAutoRestartState, evaluateAutoRestart, parseIndexerProgress } from './app/chain-sync'
+import type { AutoRestartState, IndexerProgress } from './app/chain-sync'
 import pkg from '../package.json'
 
 type WalletActivityEntry = {
@@ -121,6 +124,9 @@ export function App() {
   const [publicChainHead, setPublicChainHead] = useState<HeadSnapshot | null>(null)
   const [localChainHead, setLocalChainHead] = useState<HeadSnapshot | null>(null)
   const [blocksPerSecond, setBlocksPerSecond] = useState<number | null>(null)
+  const [indexerProgress, setIndexerProgress] = useState<IndexerProgress>(null)
+  const [indexerBlocksPerSec, setIndexerBlocksPerSec] = useState<number | null>(null)
+  const prevIndexerRef = useRef<{ height: number; time: number } | null>(null)
   const [selectedBlock, setSelectedBlock] = useState<any>(null)
   const selectedBlockRef = useRef<any>(null)
   const prevChainHeadRef = useRef<{ height: number; time: number } | null>(null)
@@ -1048,15 +1054,18 @@ export function App() {
     publicChainHead && localChainHead ? Math.max(0, publicChainHead.height - localChainHead.height) : null
   const syncGapTimeMs =
     publicChainHead && localChainHead ? Math.max(0, publicChainHead.timestampMs - localChainHead.timestampMs) : null
-  const showChainSyncProgress = Boolean(
+  const showIndexerProgress = Boolean(nodeRunningCount > 0 && indexerProgress)
+  const showChainSyncProgress = showIndexerProgress || Boolean(
     nodeRunningCount > 0 &&
       publicChainHead &&
       localChainHead &&
       ((syncGapBlocks ?? 0) > SYNC_GAP_BLOCK_THRESHOLD || (syncGapTimeMs ?? 0) > SYNC_GAP_TIME_THRESHOLD_MS)
   )
-  const chainSyncPercent = showChainSyncProgress && publicChainHead
-    ? clamp((localChainHead!.height / publicChainHead.height) * 100, 0, 100)
-    : null
+  const chainSyncPercent = showIndexerProgress
+    ? clamp(indexerProgress!.percent, 0, 100)
+    : showChainSyncProgress && publicChainHead
+      ? clamp((localChainHead!.height / publicChainHead.height) * 100, 0, 100)
+      : null
   const walletResultText = useMemo(
     () => (walletResultData ? JSON.stringify(walletResultData, null, 2) : ''),
     [walletResultData]
@@ -1209,23 +1218,40 @@ export function App() {
     ? localNodeNotRunning && errorMessage
       ? t('status.startServicesToExplore')
       : statusText
-    : showChainSyncProgress
-      ? t('status.syncingChain')
-      : nodeRunningCount > 0 && !nodeHasPartialOutage
-        ? blockProducerRunning && producerSetupComplete && producerFooterState === 'producing'
-          ? t('status.liveProducing')
-          : t('status.liveSynchronized')
-        : nodeStateText
-  const blocksPerSecLabel = blocksPerSecond !== null && blocksPerSecond > 0 && showChainSyncProgress
+    : showIndexerProgress
+      ? t('status.indexingChain')
+      : showChainSyncProgress
+        ? t('status.syncingChain')
+        : nodeRunningCount > 0 && !nodeHasPartialOutage
+          ? blockProducerRunning && producerSetupComplete && producerFooterState === 'producing'
+            ? t('status.liveProducing')
+            : t('status.liveSynchronized')
+          : nodeStateText
+  const blocksPerSecLabel = blocksPerSecond !== null && blocksPerSecond > 0 && showChainSyncProgress && !showIndexerProgress
     ? ` · ${blocksPerSecond} blk/s`
     : ''
-  const footerStatusMeta = showChainSyncProgress && publicChainHead && localChainHead
-    ? t('status.syncProgress', {
-        current: localChainHead.height.toLocaleString(locale),
-        target: publicChainHead.height.toLocaleString(locale),
-        percent: chainSyncPercentLabel
-      }) + blocksPerSecLabel
-    : null
+  const indexerPercentLabel = showIndexerProgress
+    ? indexerProgress!.percent >= 99
+      ? indexerProgress!.percent.toFixed(2)
+      : indexerProgress!.percent >= 10
+        ? indexerProgress!.percent.toFixed(1)
+        : indexerProgress!.percent.toFixed(2)
+    : ''
+  const indexerBlkSecLabel = showIndexerProgress && indexerBlocksPerSec !== null && indexerBlocksPerSec > 0
+    ? ` · ${indexerBlocksPerSec} blk/s`
+    : ''
+  const footerStatusMeta = showIndexerProgress
+    ? t('status.indexProgress', {
+        height: indexerProgress!.height.toLocaleString(locale),
+        percent: indexerPercentLabel
+      }) + indexerBlkSecLabel
+    : showChainSyncProgress && publicChainHead && localChainHead
+      ? t('status.syncProgress', {
+          current: localChainHead.height.toLocaleString(locale),
+          target: publicChainHead.height.toLocaleString(locale),
+          percent: chainSyncPercentLabel
+        }) + blocksPerSecLabel
+      : null
   const hasAppOverlayOpen =
     nodeProfilesModalOpen ||
     nodeLogsModalOpen ||
@@ -1288,6 +1314,110 @@ export function App() {
     primaryPublicRpcUrl,
     settings.pollMs
   ])
+
+  // Auto-restart chain when sync gap is detected and chain is stalled
+  useEffect(() => {
+    if (!hasNodeControls || nodeRunningCount === 0) return
+
+    let disposed = false
+    let autoRestartState: AutoRestartState = createAutoRestartState()
+
+    const timer = window.setInterval(() => {
+      if (disposed) return
+
+      const result = evaluateAutoRestart(autoRestartState, {
+        localHeight: localChainHead?.height ?? null,
+        publicHeight: publicChainHead?.height ?? null,
+        now: Date.now()
+      })
+      autoRestartState = result.state
+
+      if (!result.shouldRestart) return
+
+      console.log(
+        `[auto-restart] Chain stalled at height ${localChainHead?.height ?? 0}, gap=${(publicChainHead?.height ?? 0) - (localChainHead?.height ?? 0)} blocks. Restarting chain to trigger indexer.`
+      )
+      const bridge = getKoinosNodeBridge()
+      if (bridge?.serviceRestart) {
+        void bridge.serviceRestart({ ...toNodeApiSettings(nodeSettings), service: 'chain' }).then((res) => {
+          if (!disposed && res.status) {
+            setNodeStatus(res.status)
+          }
+          console.log(`[auto-restart] Chain restart ${res.ok ? 'succeeded' : 'failed'}: ${res.output || ''}`)
+        }).catch((err) => {
+          console.error('[auto-restart] Chain restart error:', err)
+        })
+      }
+    }, AUTO_RESTART_CHAIN_CHECK_INTERVAL_MS)
+
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [hasNodeControls, nodeRunningCount, publicChainHead, localChainHead, nodeSettings]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll chain logs for indexer progress when RPC is not available
+  useEffect(() => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.logs || !hasNodeControls || nodeRunningCount === 0) {
+      setIndexerProgress(null)
+      setIndexerBlocksPerSec(null)
+      prevIndexerRef.current = null
+      return
+    }
+    // If localChainHead is available, RPC is working = indexing is done
+    if (localChainHead) {
+      setIndexerProgress(null)
+      setIndexerBlocksPerSec(null)
+      prevIndexerRef.current = null
+      return
+    }
+
+    let disposed = false
+    let pollTimer: number | null = null
+
+    const tick = async () => {
+      try {
+        const result = await bridge.logs({
+          ...toNodeApiSettings(nodeSettings),
+          service: 'chain',
+          tail: 20
+        })
+        if (disposed) return
+        const progress = result.ok ? parseIndexerProgress(result.output) : null
+        setIndexerProgress(progress)
+
+        // Calculate blocks/sec from height changes
+        if (progress) {
+          const now = Date.now()
+          const prev = prevIndexerRef.current
+          if (prev && progress.height > prev.height) {
+            const elapsedSec = (now - prev.time) / 1000
+            if (elapsedSec > 1) {
+              const rate = (progress.height - prev.height) / elapsedSec
+              setIndexerBlocksPerSec(Math.round(rate))
+              prevIndexerRef.current = { height: progress.height, time: now }
+            }
+          } else if (!prev || progress.height !== prev.height) {
+            prevIndexerRef.current = { height: progress.height, time: now }
+          }
+        }
+      } catch {
+        if (!disposed) {
+          setIndexerProgress(null)
+          setIndexerBlocksPerSec(null)
+        }
+      }
+    }
+
+    void tick()
+    pollTimer = window.setInterval(() => { void tick() }, 5000)
+
+    return () => {
+      disposed = true
+      if (pollTimer !== null) window.clearInterval(pollTimer)
+    }
+  }, [hasNodeControls, nodeRunningCount, localChainHead, nodeSettings]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const bridge = getKoinosNodeBridge()
