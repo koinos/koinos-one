@@ -8,12 +8,13 @@
 4. [Remote Node Lifecycle Management](#4-remote-node-lifecycle-management)
 5. [Multi-Node Architecture](#5-multi-node-architecture)
 6. [Remote Dashboard and Monitoring](#6-remote-dashboard-and-monitoring)
-7. [Security Considerations](#7-security-considerations)
-8. [UI Changes](#8-ui-changes)
-9. [Docker Compose Specifics](#9-docker-compose-specifics)
-10. [Error Handling and Edge Cases](#10-error-handling-and-edge-cases)
-11. [Implementation Phases](#11-implementation-phases)
-12. [File-Level Change Map](#12-file-level-change-map)
+7. [Per-Tab Remote Compatibility Analysis](#7-per-tab-remote-compatibility-analysis)
+8. [Security Considerations](#8-security-considerations)
+9. [UI Changes](#9-ui-changes)
+10. [Docker Compose Specifics](#10-docker-compose-specifics)
+11. [Error Handling and Edge Cases](#11-error-handling-and-edge-cases)
+12. [Implementation Phases](#12-implementation-phases)
+13. [File-Level Change Map](#13-file-level-change-map)
 
 ---
 
@@ -371,7 +372,199 @@ Parsed into existing `KoinosNodeDashboardPerformanceResult` type.
 
 ---
 
-## 7. Security Considerations
+## 7. Per-Tab Remote Compatibility Analysis
+
+Every existing UI tab must work transparently when the user switches to a remote node. This section details what each tab currently depends on, what works as-is, and what the `RemoteNodeBackend` must implement.
+
+### 7.1 Compatibility Matrix
+
+| Tab / Feature | Data Source | Works As-Is? | RemoteNodeBackend Requirement |
+|---------------|------------|--------------|-------------------------------|
+| Explorer | RPC (`chain.get_head_info`, `get_blocks_by_id`) | ✅ Yes | RPC via SSH tunnel |
+| Block Detail Dialog | RPC (`chain.get_blocks_by_id`) | ✅ Yes | RPC via SSH tunnel |
+| Dashboard: Producers | `bridge.dashboardProducers()` → main.ts → RPC | ⚠️ Needs routing | `dashboardProducers()` via RPC through tunnel |
+| Dashboard: Peers | `bridge.dashboardPeers()` → main.ts → P2P log parsing | ❌ No | Parse `docker compose logs p2p` via SSH |
+| Dashboard: Forecast | `bridge.producerOverview()` → RPC + local key | ⚠️ Partial | RPC through tunnel + SFTP for key reading |
+| Dashboard: Performance | `bridge.dashboardPerformance()` → local host metrics | ❌ No | SSH commands (`free`, `df`, `nproc`, `docker stats`) |
+| Wallet | `getWalletBridge()` → local encrypted storage | ✅ Yes (always local) | N/A — wallet stays local, balance queries use RPC |
+| Producer: Overview | `bridge.producerOverview()` → RPC + local key | ⚠️ Partial | RPC through tunnel + SFTP for remote key |
+| Producer: Register | `bridge.producerRegister()` → RPC tx broadcast | ⚠️ Partial | SFTP to upload key + RPC for registration tx |
+| Producer: Local Info | `bridge.producerLocalInfo()` → reads local key file | ❌ No | SFTP read from `/opt/koinos/data/block_producer/` |
+| Microservices: Status | `bridge.status()` → PID/port checks | ❌ No | `docker compose ps --format json` via SSH |
+| Microservices: Start/Stop | `bridge.serviceAction()` → child process | ❌ No | `docker compose up/stop/restart` via SSH |
+| Microservices: Config | `bridge.fileRead/fileWrite()` → local filesystem | ❌ No | SFTP read/write to `/opt/koinos/config/` |
+| Node File Editor | `bridge.fileRead/fileWrite()` → local filesystem | ❌ No | SFTP read/write |
+| Settings: General | localStorage | ✅ Yes | N/A |
+| Settings: Explorer | localStorage | ✅ Yes | N/A |
+| Settings: Dashboard | localStorage | ✅ Yes | N/A |
+| Settings: Backup (create) | `bridge.createBackup()` → local tar | ❌ No | SSH exec tar on remote server |
+| Settings: Backup (restore) | `bridge.restoreLocalBackup()` → local tar | ❌ No | SSH exec wget+tar on remote, or SFTP upload |
+| Node Logs | `bridge.logs/logsFollowStart()` → child stdout | ❌ No | `docker compose logs -f` via SSH streaming |
+
+### 7.2 Detailed Gap Analysis
+
+#### Gap 1: Dashboard Peers
+
+**Current implementation:** `dashboardPeers()` in `producer-service.ts` calls `bridge.logs()` to tail the P2P service logs and parses peer connection entries (IP, agent, height).
+
+**Remote implementation required:**
+```bash
+# Fetch recent P2P logs
+docker compose -f /opt/koinos/docker-compose.yml logs --tail=2000 p2p 2>&1
+```
+- Parse the same log format from Docker output
+- The log format is identical (same Koinos P2P binary running inside Docker)
+- Add `--since=1h` flag to limit log volume over SSH
+- `RemoteNodeBackend.dashboardPeers()` must: SSH exec → parse logs → return same `KoinosNodeDashboardPeersResult`
+
+#### Gap 2: Dashboard Performance (per-container metrics)
+
+**Current implementation:** `dashboardPerformance()` reads host CPU/memory/disk via local commands.
+
+**Remote implementation required:**
+```bash
+# Host metrics
+nproc                                              # CPU count
+free -b | grep Mem                                 # Total/used/free RAM
+df -B1 /opt/koinos/data | tail -1                 # Disk usage
+cat /proc/loadavg                                  # Load average
+cat /proc/uptime                                   # Uptime seconds
+
+# Per-container metrics (single call, no streaming)
+docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}'
+```
+- Batch all commands in a single SSH exec with `&&` to minimize roundtrips
+- Parse `docker stats` output into per-service metrics
+- Map container names (`koinos-chain-1`) to service IDs (`chain`)
+- Return as `KoinosNodeDashboardPerformanceResult` with added `services[]` array for per-container breakdown
+
+#### Gap 3: Config File Editor (SFTP)
+
+**Current implementation:** `NodeFileEditorModal` calls `bridge.fileRead({ kind: 'config' })` which reads `{baseDir}/config.yml` from local filesystem.
+
+**Remote implementation required:**
+- `RemoteNodeBackend.fileRead()`:
+  ```typescript
+  const sftp = await sshManager.sftp(nodeId)
+  const content = await sftp.readFile('/opt/koinos/config/config.yml', 'utf8')
+  return { ok: true, content, filePath: '/opt/koinos/config/config.yml' }
+  ```
+- `RemoteNodeBackend.fileWrite()`:
+  ```typescript
+  const sftp = await sshManager.sftp(nodeId)
+  await sftp.writeFile('/opt/koinos/config/config.yml', content, 'utf8')
+  return { ok: true }
+  ```
+- After write, prompt user to restart affected services (same UX as local)
+- The `MicroservicesConfigPanel` YAML editor works unmodified — it only cares about the string content, not how it's fetched
+
+#### Gap 4: Remote Backup Operations (Post-Provisioning)
+
+**Current implementation:** `createLocalBackup()` stops services, runs `tar -czf` locally, checks disk space, generates SHA-256. `restoreFromLocalFile()` opens file picker, extracts tar to BASEDIR.
+
+**Remote backup create:**
+```bash
+# Stop services
+cd /opt/koinos && docker compose down
+
+# Check disk space
+df -B1 /opt/koinos/data | tail -1
+
+# Create backup (tar runs on remote server — fast, no network transfer)
+tar -czf /opt/koinos/backups/koinos_backup_$(date +%Y-%m-%d).tar.gz \
+  -C /opt/koinos/data chain block_store
+
+# Generate checksum
+sha256sum /opt/koinos/backups/koinos_backup_*.tar.gz
+
+# Restart
+cd /opt/koinos && docker compose up -d
+```
+- Progress: poll file size via `stat -c %s /opt/koinos/backups/koinos_backup_*.tar.gz` every 2s
+- No need to transfer the backup to the user's machine (stays on server)
+- Optional: offer SFTP download if user wants a local copy
+
+**Remote backup restore:**
+Two modes:
+1. **From URL (on remote):** `wget` + `tar` directly on the server — fast, no user upload
+   ```bash
+   cd /opt/koinos && docker compose down
+   cd /opt/koinos/data && wget -q <url> -O backup.tar.gz && tar xzf backup.tar.gz && rm backup.tar.gz
+   cd /opt/koinos && docker compose up -d
+   ```
+2. **From local file (upload):** User picks a local `.tar.gz` → SFTP upload to remote → extract
+   - Much slower (network transfer of ~24GB)
+   - Progress: monitor SFTP upload bytes transferred
+   - After upload: SSH exec `tar xzf` on remote
+
+**Remote backup UI changes in SettingsPanel:**
+- "Create remote backup" button → runs tar on server, shows path + size when done
+- "Download backup" button → SFTP download to local (optional)
+- "Restore from URL" → wget on server (fast)
+- "Upload and restore" → SFTP upload + extract (slow, show upload progress)
+
+#### Gap 5: Node Logs Streaming
+
+**Current implementation:** `logsFollowStart()` attaches to `childProcess.stdout/stderr` of native services.
+
+**Remote implementation required:**
+```bash
+docker compose -f /opt/koinos/docker-compose.yml logs -f --tail=50 <serviceId> 2>&1
+```
+- Use SSH exec with `stream: true` option from ssh2 library
+- Pipe stdout chunks as `KoinosNodeLogsFollowEvent` to renderer via `webContents.send`
+- Handle `logsFollowStop()` by killing the SSH exec channel
+- Support multiple concurrent log streams (one per service) via separate SSH channels on the same connection
+- Color/ANSI codes: Docker compose logs include ANSI colors — the existing `renderAnsiLog()` in `utils.tsx` already handles this
+
+#### Gap 6: Producer Key Management on Remote
+
+**Current implementation:** `producerLocalInfo()` reads the producer public key from `{baseDir}/block_producer/public.key`.
+
+**Remote implementation required:**
+- Read key: SFTP read `/opt/koinos/data/block_producer/public.key`
+- Upload key: When user registers as producer from Knodel's wallet, generate key pair locally, SFTP upload private key to `/opt/koinos/data/block_producer/private.key`
+- Security: the private key transit is encrypted (SSH/SFTP), and stored encrypted at rest on the remote server via Docker volume permissions
+- `producerRegisteredKey()` works unmodified — it's a pure RPC call to the blockchain
+
+### 7.3 What Needs NO Changes
+
+These work transparently because they either use RPC (routed through SSH tunnel) or are purely local:
+
+1. **Explorer Panel** — all RPC, tunnel-compatible
+2. **Block Detail Dialog** — all RPC, tunnel-compatible
+3. **Wallet Panel** — wallet is always local to Knodel; balance queries go through RPC
+4. **Settings: General/Explorer/Dashboard tabs** — localStorage only
+5. **i18n / theme / language** — renderer-only, no node dependency
+6. **Transaction signing and broadcast** — signing is local (wallet), broadcast goes through RPC
+
+### 7.4 NodeBackend Method Coverage
+
+Every method in the `NodeBackend` interface maps to a specific remote implementation:
+
+| NodeBackend Method | Remote Implementation |
+|---|---|
+| `status()` | `docker compose ps --format json` via SSH |
+| `start()` | `docker compose up -d` via SSH |
+| `stop()` | `docker compose down` via SSH |
+| `serviceAction(action, id)` | `docker compose {up -d\|stop\|restart} {id}` via SSH |
+| `logs(input)` | `docker compose logs --tail=N {id}` via SSH |
+| `logsFollowStart(sender, input)` | `docker compose logs -f --tail=50 {id}` via SSH stream |
+| `logsFollowStop(streamId)` | Kill SSH exec channel |
+| `fileRead(input)` | SFTP read from `/opt/koinos/config/` |
+| `fileWrite(input)` | SFTP write to `/opt/koinos/config/` |
+| `rpcCall(input)` | HTTP fetch through SSH tunnel to `localhost:8080` |
+| `dashboardProducers(input)` | RPC through SSH tunnel |
+| `dashboardPeers(input)` | `docker compose logs p2p` via SSH → parse |
+| `dashboardPerformance(input)` | `free`, `df`, `nproc`, `docker stats` via SSH |
+| `producerOverview(input)` | RPC through tunnel + SFTP for key reading |
+| `backupCreate()` | SSH exec `tar -czf` on remote server |
+| `backupRestore(input)` | SSH exec `wget`+`tar` or SFTP upload + `tar` |
+| `dispose()` | Close SSH tunnel + connection |
+
+---
+
+## 8. Security Considerations
 
 ### 7.1 SSH Key Management
 
@@ -406,7 +599,7 @@ Parsed into existing `KoinosNodeDashboardPerformanceResult` type.
 
 ---
 
-## 8. UI Changes
+## 9. UI Changes
 
 ### 8.1 Node Selector Component
 
@@ -459,7 +652,7 @@ Add all new keys to `src/i18n.ts` (EN + ES):
 
 ---
 
-## 9. Docker Compose Specifics
+## 10. Docker Compose Specifics
 
 ### 9.1 Docker Images
 
@@ -530,7 +723,7 @@ Default: no limits. Configurable via advanced settings.
 
 ---
 
-## 10. Error Handling and Edge Cases
+## 11. Error Handling and Edge Cases
 
 ### 10.1 Lost SSH Connection During Operation
 
@@ -575,7 +768,7 @@ Default: no limits. Configurable via advanced settings.
 
 ---
 
-## 11. Implementation Phases
+## 12. Implementation Phases
 
 ### Phase 1: Node Abstraction Layer (Foundation)
 
@@ -654,7 +847,7 @@ Refactor existing code to support `NodeBackend` interface. No remote functionali
 
 ---
 
-## 12. File-Level Change Map
+## 13. File-Level Change Map
 
 ### New Files
 
