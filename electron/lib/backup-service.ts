@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
 
 import { BrowserWindow, dialog, type OpenDialogOptions, type WebContents } from 'electron'
+import { parseDocument } from 'yaml'
 
 import { DEFAULT_BASEDIR } from './constants'
 import type {
@@ -49,6 +50,43 @@ function saveLastBackupPath(backupFilePath: string): void {
 }
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.knodel-blockchain-backup-cache'
+
+// ── Config.yml verify-blocks helper ──
+
+/**
+ * Read or modify the `chain.verify-blocks` setting in the BASEDIR config.yml.
+ * Uses the `yaml` library to preserve comments and formatting.
+ */
+function setConfigVerifyBlocks(baseDir: string, enabled: boolean): { ok: boolean; output: string } {
+  const configPath = path.join(baseDir, 'config.yml')
+  try {
+    if (!fs.existsSync(configPath)) {
+      return { ok: false, output: `config.yml not found at ${configPath}` }
+    }
+    const raw = fs.readFileSync(configPath, 'utf-8')
+    const doc = parseDocument(raw)
+    doc.setIn(['chain', 'verify-blocks'], enabled)
+    fs.writeFileSync(configPath, doc.toString(), 'utf-8')
+    return { ok: true, output: `Set chain.verify-blocks=${enabled} in ${configPath}` }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    return { ok: false, output: `Failed to set verify-blocks: ${msg}` }
+  }
+}
+
+function readConfigVerifyBlocks(baseDir: string): boolean | null {
+  const configPath = path.join(baseDir, 'config.yml')
+  try {
+    if (!fs.existsSync(configPath)) return null
+    const raw = fs.readFileSync(configPath, 'utf-8')
+    const doc = parseDocument(raw)
+    const value = doc.getIn(['chain', 'verify-blocks'])
+    if (typeof value === 'boolean') return value
+    return null
+  } catch {
+    return null
+  }
+}
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type ServiceDefinition = Record<string, unknown>
@@ -1235,12 +1273,19 @@ export function createBackupService(deps: BackupServiceDeps) {
       if (BLOCKCHAIN_BACKUP_RESET_DIRS.length) {
         notes.push(`Cleared runtime state: ${BLOCKCHAIN_BACKUP_RESET_DIRS.join(', ')}`)
       }
-      reportProgress('restore', 92, 'Preparing BASEDIR runtime files')
+      reportProgress('restore', 90, 'Preparing BASEDIR runtime files')
       notes.push(deps.ensureBaseDirKoinosRuntimeFiles(settings))
+
+      // Enable verify-blocks: true for safe re-sync after restore.
+      // P2P state deltas may not match the restored chain state, causing
+      // "block previous state merkle mismatch" errors with verify-blocks: false.
+      reportProgress('restore', 92, 'Enabling verify-blocks for safe re-sync...')
+      const verifyResult = setConfigVerifyBlocks(settings.baseDir, true)
+      notes.push(verifyResult.output)
 
       const status = await deps.koinosNodeStatus(settings)
       if (completeOnSuccess) {
-        reportProgress('complete', 100, `Backup restored into ${settings.baseDir}`)
+        reportProgress('complete', 100, `Backup restored into ${settings.baseDir}. verify-blocks enabled for safe re-sync.`)
       }
       return {
         ok: true,
@@ -1614,13 +1659,24 @@ export function createBackupService(deps: BackupServiceDeps) {
       fs.rmSync(extractDir, { recursive: true, force: true })
 
       // 10. Prepare runtime and restart
-      reportProgress('restore', 90, 'Preparando archivos de runtime...')
+      reportProgress('restore', 88, 'Preparando archivos de runtime...')
       notes.push(deps.ensureBaseDirKoinosRuntimeFiles(settings))
+
+      // 11. Enable verify-blocks: true for safe re-sync after restore
+      //     P2P state deltas may not match the restored chain state, causing
+      //     "block previous state merkle mismatch" errors with verify-blocks: false.
+      //     Chain will re-execute WASM for each block, which is slower but always correct.
+      reportProgress('restore', 90, 'Activando verify-blocks para re-sync seguro...')
+      const verifyResult = setConfigVerifyBlocks(settings.baseDir, true)
+      notes.push(verifyResult.output)
+      if (verifyResult.ok) {
+        reportProgress('restore', 91, 'verify-blocks activado — chain re-verificará bloques tras restaurar')
+      }
 
       reportProgress('start', 92, 'Reiniciando servicios...')
       await deps.koinosNodeAction('start', input)
 
-      reportProgress('complete', 100, `Backup restaurado desde ${path.basename(archivePath)}`)
+      reportProgress('complete', 100, `Backup restaurado desde ${path.basename(archivePath)}. verify-blocks activado para re-sync seguro.`)
       return {
         ok: true,
         action,
@@ -1751,7 +1807,25 @@ export function createBackupService(deps: BackupServiceDeps) {
 
       if (checkCancelled()) return cleanupOnCancel(undefined, destPath)
 
-      // 2. Stop services to ensure atomic snapshot
+      // 2. Query chain head height BEFORE stopping (while RPC is still available)
+      emitProgress('prepare', 5, 'Consultando altura de chain antes de parar...')
+      let snapshotChainHeight: string | null = null
+      let snapshotChainHeadId: string | null = null
+      try {
+        const serviceDefinitions = deps.readServiceDefinitions(settings)
+        const rpcUrl = localNodeJsonRpcUrl(settings, serviceDefinitions, deps.composeServicePortByTarget)
+        const rpcResult = await koinosJsonRpcProxy({ rpcUrl, method: 'chain.get_head_info', params: {} })
+        if (rpcResult.ok) {
+          const summary = extractHeadInfoSummary(rpcResult.result)
+          if (summary.ok) {
+            snapshotChainHeight = summary.height
+            snapshotChainHeadId = summary.headId
+            emitProgress('prepare', 7, `Chain head antes de parar: bloque ${summary.height}`)
+          }
+        }
+      } catch { /* non-critical: RPC not available, proceed without height */ }
+
+      // 3. Stop services to ensure atomic snapshot
       emitProgress('stop', 10, 'Parando servicios para garantizar consistencia...')
       const stopResult = await deps.koinosNodeAction('stop', input)
       if (!stopResult.ok) {
@@ -1762,7 +1836,7 @@ export function createBackupService(deps: BackupServiceDeps) {
 
       if (checkCancelled()) return cleanupOnCancel(undefined, destPath)
 
-      // 3. Verify required directories exist
+      // 4. Verify required directories exist
       emitProgress('prepare', 20, 'Verificando directorios de blockchain...')
       const chainDir = path.join(baseDir, 'chain')
       const blockStoreDir = path.join(baseDir, 'block_store')
@@ -1773,16 +1847,25 @@ export function createBackupService(deps: BackupServiceDeps) {
         return { ok: false, action, output: 'Directorios chain/ o block_store/ no existen en BASEDIR', status: 'error' }
       }
 
-      // 4. Write manifest with snapshot height
+      // 5. Write manifest with snapshot height and consistency info
       emitProgress('prepare', 25, 'Creando manifiesto de backup...')
       const manifestPath = path.join(baseDir, 'backup-manifest.json')
-      const manifest = {
+      const manifest: Record<string, unknown> = {
         created: new Date().toISOString(),
         basedir: baseDir,
         directories: ['chain', 'block_store'],
-        knodel_version: process.env.npm_package_version || 'unknown'
+        knodel_version: process.env.npm_package_version || 'unknown',
+        // Consistency metadata: height recorded before stopping services
+        snapshot_chain_height: snapshotChainHeight || null,
+        snapshot_chain_head_id: snapshotChainHeadId || null,
+        // Flag indicating restore should use verify-blocks: true for safety
+        // because P2P state deltas may not match the restored chain state
+        restore_requires_verify_blocks: true
       }
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+      if (snapshotChainHeight) {
+        emitProgress('prepare', 26, `Manifest creado (chain height: ${snapshotChainHeight})`)
+      }
 
       if (checkCancelled()) return cleanupOnCancel(manifestPath, destPath)
 
