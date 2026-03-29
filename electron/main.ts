@@ -3086,6 +3086,14 @@ function cancelCreateBackup(): { ok: boolean; output: string } {
   return backupService.cancelCreateBackup()
 }
 
+function getVerifyBlocks(input?: KoinosNodeSettingsInput): { ok: boolean; enabled: boolean | null; output: string } {
+  return backupService.getVerifyBlocks(input)
+}
+
+function setVerifyBlocks(input?: KoinosNodeSettingsInput & { enabled?: boolean }): { ok: boolean; output: string } {
+  return backupService.setVerifyBlocks(input)
+}
+
 async function restoreFromLocalFile(
   input?: KoinosNodeSettingsInput,
   sender?: Electron.WebContents
@@ -3300,6 +3308,8 @@ function registerIpcHandlers() {
     createLocalBackup,
     cancelCreateBackup,
     restoreFromLocalFile,
+    getVerifyBlocks,
+    setVerifyBlocks,
     koinosJsonRpcProxy,
     koinosNodeDashboardProducers,
     koinosNodeDashboardPeers,

@@ -1,7 +1,8 @@
 import {
   AUTO_RESTART_CHAIN_COOLDOWN_MS,
   AUTO_RESTART_CHAIN_GAP_THRESHOLD,
-  AUTO_RESTART_CHAIN_MIN_STALL_CHECKS
+  AUTO_RESTART_CHAIN_MIN_STALL_CHECKS,
+  VERIFY_BLOCKS_SYNC_THRESHOLD
 } from './constants'
 
 // --- Indexer progress parsing ---
@@ -95,4 +96,29 @@ export function evaluateAutoRestart(state: AutoRestartState, input: AutoRestartI
     shouldRestart: true,
     state: { lastRestartAt: now, stallCount: 0, lastSeenHeight: currentHeight }
   }
+}
+
+// --- Verify-blocks auto-disable ---
+
+/**
+ * Determines if verify-blocks should be automatically disabled.
+ * After a restore, verify-blocks is enabled for safe re-sync. Once chain
+ * catches up (gap below threshold), it can be safely disabled for performance.
+ */
+export function shouldDisableVerifyBlocks(input: {
+  localHeight: number | null
+  publicHeight: number | null
+  verifyBlocksEnabled: boolean | null
+}): boolean {
+  const { localHeight, publicHeight, verifyBlocksEnabled } = input
+
+  // Only act if verify-blocks is currently enabled
+  if (verifyBlocksEnabled !== true) return false
+
+  // Need both heights to evaluate
+  if (localHeight === null || publicHeight === null) return false
+
+  // Disable when gap is small enough (chain is caught up)
+  const gap = publicHeight - localHeight
+  return gap <= VERIFY_BLOCKS_SYNC_THRESHOLD
 }

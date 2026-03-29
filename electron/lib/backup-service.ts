@@ -1976,6 +1976,26 @@ export function createBackupService(deps: BackupServiceDeps) {
     }
   }
 
+  function getVerifyBlocks(input?: KoinosNodeSettingsInput): { ok: boolean; enabled: boolean | null; output: string } {
+    try {
+      const settings = deps.normalizeNodeSettings(input)
+      const enabled = readConfigVerifyBlocks(settings.baseDir)
+      return { ok: true, enabled, output: enabled === null ? 'verify-blocks not set in config.yml' : `verify-blocks=${enabled}` }
+    } catch (error) {
+      return { ok: false, enabled: null, output: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  function setVerifyBlocks(input?: KoinosNodeSettingsInput & { enabled?: boolean }): { ok: boolean; output: string } {
+    try {
+      const settings = deps.normalizeNodeSettings(input)
+      const enabled = input?.enabled ?? false
+      return setConfigVerifyBlocks(settings.baseDir, enabled)
+    } catch (error) {
+      return { ok: false, output: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   return {
     koinosJsonRpcProxy,
     koinosNodeRestoreBackup,
@@ -1984,6 +2004,8 @@ export function createBackupService(deps: BackupServiceDeps) {
     cancelCreateBackup,
     restoreFromLocalFile,
     copyNodeBaseDirData,
-    selectNodeBaseDir
+    selectNodeBaseDir,
+    getVerifyBlocks,
+    setVerifyBlocks
   }
 }

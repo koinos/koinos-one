@@ -65,6 +65,8 @@ type IpcHandlerDeps = {
   createLocalBackup: (input: KoinosNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   cancelCreateBackup: () => Awaitable<{ ok: boolean; output: string }>
   restoreFromLocalFile: (input: KoinosNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
+  getVerifyBlocks: (input?: KoinosNodeSettingsInput) => Awaitable<{ ok: boolean; enabled: boolean | null; output: string }>
+  setVerifyBlocks: (input?: KoinosNodeSettingsInput & { enabled?: boolean }) => Awaitable<{ ok: boolean; output: string }>
   koinosJsonRpcProxy: (input?: KoinosJsonRpcProxyInput) => Awaitable<unknown>
   koinosNodeDashboardProducers: (input?: KoinosNodeSettingsInput & { rpcUrl?: string; windowBlocks?: number }) => Awaitable<unknown>
   koinosNodeDashboardPeers: (input?: KoinosNodeSettingsInput) => Awaitable<unknown>
@@ -238,6 +240,8 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('knodel:koinos-node:create-backup', async (event, input?: KoinosNodeSettingsInput) => deps.createLocalBackup(input, event.sender))
   ipcMain.handle('knodel:koinos-node:cancel-create-backup', async () => deps.cancelCreateBackup())
   ipcMain.handle('knodel:koinos-node:restore-local-backup', async (event, input?: KoinosNodeSettingsInput) => deps.restoreFromLocalFile(input, event.sender))
+  ipcMain.handle('knodel:koinos-node:get-verify-blocks', async (_event, input?: KoinosNodeSettingsInput) => deps.getVerifyBlocks(input))
+  ipcMain.handle('knodel:koinos-node:set-verify-blocks', async (_event, input?: KoinosNodeSettingsInput & { enabled?: boolean }) => deps.setVerifyBlocks(input))
   ipcMain.handle('knodel:koinos-node:backup-info', async (_event, url?: string) => {
     if (!url || typeof url !== 'string') return { ok: false, lastModified: null, sizeBytes: null }
     try {

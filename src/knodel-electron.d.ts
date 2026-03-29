@@ -854,6 +854,8 @@ declare global {
       createBackup: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeBackupRestoreResult>
       cancelCreateBackup: () => Promise<{ ok: boolean; output: string }>
       restoreLocalBackup: (settings?: KnodelKoinosNodeSettings) => Promise<KnodelKoinosNodeBackupRestoreResult>
+      getVerifyBlocks: (settings?: KnodelKoinosNodeSettings) => Promise<{ ok: boolean; enabled: boolean | null; output: string }>
+      setVerifyBlocks: (settings?: KnodelKoinosNodeSettings & { enabled?: boolean }) => Promise<{ ok: boolean; output: string }>
       rpcCall: (params: KnodelKoinosJsonRpcProxyParams) => Promise<KnodelKoinosJsonRpcProxyResult>
       dashboardProducers: (
         params?: KnodelKoinosNodeDashboardProducersParams

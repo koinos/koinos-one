@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('knodel', {
     createBackup: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:create-backup', settings),
     cancelCreateBackup: () => ipcRenderer.invoke('knodel:koinos-node:cancel-create-backup'),
     restoreLocalBackup: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:restore-local-backup', settings),
+    getVerifyBlocks: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:get-verify-blocks', settings),
+    setVerifyBlocks: (settings?: unknown) => ipcRenderer.invoke('knodel:koinos-node:set-verify-blocks', settings),
     backupInfo: (url?: string) => ipcRenderer.invoke('knodel:koinos-node:backup-info', url),
     rpcCall: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:rpc-call', params),
     dashboardProducers: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:dashboard-producers', params),

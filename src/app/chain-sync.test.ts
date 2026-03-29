@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   AUTO_RESTART_CHAIN_COOLDOWN_MS,
   AUTO_RESTART_CHAIN_GAP_THRESHOLD,
-  AUTO_RESTART_CHAIN_MIN_STALL_CHECKS
+  AUTO_RESTART_CHAIN_MIN_STALL_CHECKS,
+  VERIFY_BLOCKS_SYNC_THRESHOLD
 } from './constants'
-import { createAutoRestartState, evaluateAutoRestart, parseIndexerProgress, type AutoRestartState } from './chain-sync'
+import { createAutoRestartState, evaluateAutoRestart, parseIndexerProgress, shouldDisableVerifyBlocks, type AutoRestartState } from './chain-sync'
 
 function run(state: AutoRestartState, localHeight: number | null, publicHeight: number | null, now = 1000000) {
   return evaluateAutoRestart(state, { localHeight, publicHeight, now })
@@ -259,5 +260,49 @@ Indexing chain (5.5%) - Height: 1900000, ID: 0x1220abc`
   it('handles high-precision decimal percentages', () => {
     const log = 'Indexing chain (99.999999%) - Height: 34633100, ID: 0x1220abc'
     expect(parseIndexerProgress(log)).toEqual({ percent: 99.999999, height: 34633100 })
+  })
+})
+
+describe('shouldDisableVerifyBlocks', () => {
+  it('returns false when verify-blocks is not enabled', () => {
+    expect(shouldDisableVerifyBlocks({ localHeight: 100, publicHeight: 100, verifyBlocksEnabled: false })).toBe(false)
+    expect(shouldDisableVerifyBlocks({ localHeight: 100, publicHeight: 100, verifyBlocksEnabled: null })).toBe(false)
+  })
+
+  it('returns false when heights are null', () => {
+    expect(shouldDisableVerifyBlocks({ localHeight: null, publicHeight: 100, verifyBlocksEnabled: true })).toBe(false)
+    expect(shouldDisableVerifyBlocks({ localHeight: 100, publicHeight: null, verifyBlocksEnabled: true })).toBe(false)
+  })
+
+  it('returns false when gap is above threshold', () => {
+    expect(shouldDisableVerifyBlocks({
+      localHeight: 34620000,
+      publicHeight: 34620000 + VERIFY_BLOCKS_SYNC_THRESHOLD + 1,
+      verifyBlocksEnabled: true
+    })).toBe(false)
+  })
+
+  it('returns true when gap is at threshold', () => {
+    expect(shouldDisableVerifyBlocks({
+      localHeight: 34620000,
+      publicHeight: 34620000 + VERIFY_BLOCKS_SYNC_THRESHOLD,
+      verifyBlocksEnabled: true
+    })).toBe(true)
+  })
+
+  it('returns true when gap is below threshold', () => {
+    expect(shouldDisableVerifyBlocks({
+      localHeight: 34636000,
+      publicHeight: 34636010,
+      verifyBlocksEnabled: true
+    })).toBe(true)
+  })
+
+  it('returns true when fully synced', () => {
+    expect(shouldDisableVerifyBlocks({
+      localHeight: 34636000,
+      publicHeight: 34636000,
+      verifyBlocksEnabled: true
+    })).toBe(true)
   })
 })

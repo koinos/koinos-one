@@ -85,7 +85,7 @@ import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
-import { createAutoRestartState, evaluateAutoRestart, parseIndexerProgress } from './app/chain-sync'
+import { createAutoRestartState, evaluateAutoRestart, parseIndexerProgress, shouldDisableVerifyBlocks } from './app/chain-sync'
 import type { AutoRestartState, IndexerProgress } from './app/chain-sync'
 import pkg from '../package.json'
 
@@ -1316,15 +1316,51 @@ export function App() {
   ])
 
   // Auto-restart chain when sync gap is detected and chain is stalled
+  // Also auto-disable verify-blocks when chain catches up after restore
   useEffect(() => {
     if (!hasNodeControls || nodeRunningCount === 0) return
 
     let disposed = false
     let autoRestartState: AutoRestartState = createAutoRestartState()
+    let verifyBlocksCheckDone = false
 
     const timer = window.setInterval(() => {
       if (disposed) return
 
+      const bridge = getKoinosNodeBridge()
+
+      // --- Auto-disable verify-blocks when chain is synced ---
+      if (!verifyBlocksCheckDone && bridge?.getVerifyBlocks && bridge?.setVerifyBlocks && bridge?.serviceRestart) {
+        void (async () => {
+          try {
+            const vbResult = await bridge.getVerifyBlocks!(toNodeApiSettings(nodeSettings))
+            if (shouldDisableVerifyBlocks({
+              localHeight: localChainHead?.height ?? null,
+              publicHeight: publicChainHead?.height ?? null,
+              verifyBlocksEnabled: vbResult.enabled
+            })) {
+              console.log('[verify-blocks] Chain synced — disabling verify-blocks and restarting chain for performance')
+              const setResult = await bridge.setVerifyBlocks!({ ...toNodeApiSettings(nodeSettings), enabled: false })
+              console.log(`[verify-blocks] ${setResult.output}`)
+              if (setResult.ok) {
+                verifyBlocksCheckDone = true
+                const restartResult = await bridge.serviceRestart!({ ...toNodeApiSettings(nodeSettings), service: 'chain' })
+                if (!disposed && restartResult.status) {
+                  setNodeStatus(restartResult.status)
+                }
+                console.log(`[verify-blocks] Chain restart ${restartResult.ok ? 'succeeded' : 'failed'}`)
+              }
+            } else if (vbResult.enabled === false) {
+              // Already disabled, no need to check again
+              verifyBlocksCheckDone = true
+            }
+          } catch (err) {
+            console.error('[verify-blocks] Error checking verify-blocks:', err)
+          }
+        })()
+      }
+
+      // --- Auto-restart stalled chain ---
       const result = evaluateAutoRestart(autoRestartState, {
         localHeight: localChainHead?.height ?? null,
         publicHeight: publicChainHead?.height ?? null,
@@ -1337,7 +1373,6 @@ export function App() {
       console.log(
         `[auto-restart] Chain stalled at height ${localChainHead?.height ?? 0}, gap=${(publicChainHead?.height ?? 0) - (localChainHead?.height ?? 0)} blocks. Restarting chain to trigger indexer.`
       )
-      const bridge = getKoinosNodeBridge()
       if (bridge?.serviceRestart) {
         void bridge.serviceRestart({ ...toNodeApiSettings(nodeSettings), service: 'chain' }).then((res) => {
           if (!disposed && res.status) {
