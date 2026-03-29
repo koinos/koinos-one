@@ -5,6 +5,7 @@ import {
   DEFAULT_PUBLIC_RPC_URLS,
   DEFAULT_SETTINGS,
   LANGUAGE_STORAGE_KEY,
+  LOCAL_RPC_SOURCE,
   NODE_SETTINGS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
   AUTO_RESTART_CHAIN_CHECK_INTERVAL_MS,
@@ -274,7 +275,14 @@ export function App() {
     () => resolveProducerRpcUrl(nodeStatus, primaryPublicRpcUrl),
     [nodeStatus, primaryPublicRpcUrl]
   )
-  const footerRpcUrl = activeTab === 'producer' ? producerRpcUrl : effectiveExplorerRpcUrl
+  // Wallet RPC: use local node only when synced (gap ≤ threshold), else fall back to public
+  const walletRpcUrl = useMemo(() => {
+    if (settings.rpcSource !== LOCAL_RPC_SOURCE) return settings.rpcSource
+    const gap = (publicChainHead?.height ?? 0) - (localChainHead?.height ?? 0)
+    const localSynced = localChainHead && publicChainHead && gap <= SYNC_GAP_BLOCK_THRESHOLD
+    return localSynced ? localNodeRpcUrl : primaryPublicRpcUrl
+  }, [settings.rpcSource, publicChainHead, localChainHead, localNodeRpcUrl, primaryPublicRpcUrl])
+  const footerRpcUrl = activeTab === 'producer' ? producerRpcUrl : activeTab === 'wallet' ? walletRpcUrl : effectiveExplorerRpcUrl
   const walletAccounts = walletOverview?.accounts || []
   const activeWalletAccountId = `${walletOverview?.activeAccountId || ''}`.trim()
   const activeWalletAccount =
@@ -1409,7 +1417,7 @@ export function App() {
         }
       }
 
-      // --- Auto-restart stalled chain ---
+      // --- Auto-restart stalled chain (with merkle mismatch auto-recovery) ---
       const result = evaluateAutoRestart(autoRestartStateRef.current, {
         localHeight: lHead?.height ?? null,
         publicHeight: pHead?.height ?? null,
@@ -1419,18 +1427,34 @@ export function App() {
 
       if (!result.shouldRestart) return
 
-      console.log(
-        `[auto-restart] Chain stalled at height ${lHead?.height ?? 0}, gap=${gap} blocks. Restarting chain to trigger indexer.`
-      )
       if (bridge?.serviceRestart) {
-        void bridge.serviceRestart({ ...toNodeApiSettings(settings), service: 'chain' }).then((res) => {
-          if (!disposed && res.status) {
-            setNodeStatus(res.status)
+        void (async () => {
+          try {
+            // When chain is stalled, check if enabling verify-blocks could help
+            if (bridge?.getVerifyBlocks && bridge?.setVerifyBlocks) {
+              const vbResult = await bridge.getVerifyBlocks!(toNodeApiSettings(settings))
+              if (vbResult.enabled === false) {
+                console.log(
+                  `[auto-restart] Chain stalled at height ${lHead?.height ?? 0} with verify-blocks=false (likely merkle mismatch). Enabling verify-blocks and restarting chain.`
+                )
+                const setResult = await bridge.setVerifyBlocks!({ ...toNodeApiSettings(settings), enabled: true })
+                console.log(`[auto-restart] ${setResult.output}`)
+                verifyBlocksCheckDoneRef.current = false // re-arm auto-disable for when chain catches up
+              } else {
+                console.log(
+                  `[auto-restart] Chain stalled at height ${lHead?.height ?? 0}, gap=${gap} blocks. Restarting chain to trigger indexer.`
+                )
+              }
+            }
+            const res = await bridge.serviceRestart!({ ...toNodeApiSettings(settings), service: 'chain' })
+            if (!disposed && res.status) {
+              setNodeStatus(res.status)
+            }
+            console.log(`[auto-restart] Chain restart ${res.ok ? 'succeeded' : 'failed'}: ${res.output || ''}`)
+          } catch (err) {
+            console.error('[auto-restart] Chain restart error:', err)
           }
-          console.log(`[auto-restart] Chain restart ${res.ok ? 'succeeded' : 'failed'}: ${res.output || ''}`)
-        }).catch((err) => {
-          console.error('[auto-restart] Chain restart error:', err)
-        })
+        })()
       }
     }, AUTO_RESTART_CHAIN_CHECK_INTERVAL_MS)
 
@@ -2749,7 +2773,7 @@ export function App() {
     setWalletLoading(true)
     setWalletError(null)
     try {
-      const result = await bridge.overview({ rpcUrl: effectiveExplorerRpcUrl })
+      const result = await bridge.overview({ rpcUrl: walletRpcUrl })
       setWalletOverview(result)
       if (!result.ok) {
         setWalletError(result.output || 'Could not load wallet overview')
@@ -2911,7 +2935,11 @@ export function App() {
       }
 
       if (options?.refreshBalance) {
-        await refreshProducerSigningWalletBalance(signingWalletAddress || undefined, activeWalletAccountId || undefined)
+        await refreshProducerSigningWalletBalance(
+          activeWalletAddress || signingWalletAddress || undefined,
+          activeWalletAccountId || undefined,
+          { rpcUrlOverride: walletRpcUrl }
+        )
       }
     } catch (error) {
       setWalletError(error instanceof Error ? error.message : `${title} failed.`)
@@ -2929,7 +2957,7 @@ export function App() {
     await runWalletAction(actionId, t('wallet.transferTitle'), async () => {
       if (walletTransferAsset === 'koin') {
         return bridge.transferKoin({
-          rpcUrl: effectiveExplorerRpcUrl,
+          rpcUrl: walletRpcUrl,
           toAddress,
           amount,
           accountId: activeWalletAccountId || undefined,
@@ -2938,7 +2966,7 @@ export function App() {
         })
       }
       return bridge.transferVhp({
-        rpcUrl: effectiveExplorerRpcUrl,
+        rpcUrl: walletRpcUrl,
         toAddress,
         amount,
         accountId: activeWalletAccountId || undefined,
@@ -2956,7 +2984,7 @@ export function App() {
     const targetAddress = walletBurnTargetAddressDraft.trim() || activeWalletAddress || undefined
     await runWalletAction('wallet-burn', t('wallet.burnTitle'), async () => {
       return bridge.burn({
-        rpcUrl: effectiveExplorerRpcUrl,
+        rpcUrl: walletRpcUrl,
         percent,
         amount,
         dryRun: walletBurnDryRun,

@@ -56,10 +56,10 @@ describe('evaluateAutoRestart', () => {
     })
 
     it('increments stall count when height changes by less than 5', () => {
-      const state: AutoRestartState = { lastRestartAt: 0, stallCount: 1, lastSeenHeight: 1000 }
+      const state: AutoRestartState = { lastRestartAt: 0, stallCount: 0, lastSeenHeight: 1000 }
       const result = run(state, 1005, 5000)
       expect(result.shouldRestart).toBe(false)
-      expect(result.state.stallCount).toBe(2)
+      expect(result.state.stallCount).toBe(1)
     })
 
     it('resets stall count when height advances by more than 5', () => {
