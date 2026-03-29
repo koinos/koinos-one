@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
 
@@ -31,6 +31,22 @@ import type {
 import { directoryHasEntries } from './workspace-service'
 
 const BLOCKCHAIN_BACKUP_REQUIRED_DIRS = ['chain', 'block_store'] as const
+const LAST_BACKUP_PATH_FILE = '.knodel-last-backup-path'
+
+function readLastBackupPath(): string | null {
+  try {
+    const filePath = path.join(process.env.HOME || process.env.USERPROFILE || '', LAST_BACKUP_PATH_FILE)
+    if (fs.existsSync(filePath)) return fs.readFileSync(filePath, 'utf8').trim() || null
+  } catch { /* ignore */ }
+  return null
+}
+
+function saveLastBackupPath(backupFilePath: string): void {
+  try {
+    const filePath = path.join(process.env.HOME || process.env.USERPROFILE || '', LAST_BACKUP_PATH_FILE)
+    fs.writeFileSync(filePath, path.dirname(backupFilePath), 'utf8')
+  } catch { /* ignore */ }
+}
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.knodel-blockchain-backup-cache'
 
@@ -679,7 +695,9 @@ async function extractBlockchainBackupDirectories(
   payloadRootRelativePath: string,
   restoreDirectories: string[],
   runCommand: BackupServiceDeps['runCommand'],
-  onProgress?: (dirName: string, index: number, total: number) => void
+  onProgress?: (dirName: string, index: number, total: number) => void,
+  /** Called periodically during extraction with (extractedBytes) for incremental progress */
+  onExtractPoll?: (extractedBytes: number) => void
 ): Promise<{ ok: boolean; output: string }> {
   fs.mkdirSync(extractDir, { recursive: true })
 
@@ -722,12 +740,42 @@ async function extractBlockchainBackupDirectories(
     const targetPath = path.join(payloadRoot, dirName)
     fs.rmSync(targetPath, { recursive: true, force: true })
 
+    // Poll extracted directory size for incremental progress
+    let pollTimer: NodeJS.Timeout | null = null
+    if (onExtractPoll) {
+      pollTimer = setInterval(() => {
+        try {
+          // Quick size estimate: count bytes via statSync on the target dir
+          let totalBytes = 0
+          const countDir = (dir: string, depth: number) => {
+            if (depth > 3) return // limit depth to avoid slow traversal
+            try {
+              const entries = fs.readdirSync(dir, { withFileTypes: true })
+              for (const entry of entries) {
+                const entryPath = path.join(dir, entry.name)
+                if (entry.isFile()) {
+                  try { totalBytes += fs.statSync(entryPath).size } catch { /* ignore */ }
+                } else if (entry.isDirectory()) {
+                  countDir(entryPath, depth + 1)
+                }
+              }
+            } catch { /* ignore */ }
+          }
+          if (fs.existsSync(targetPath)) countDir(targetPath, 0)
+          onExtractPoll(totalBytes)
+        } catch { /* ignore */ }
+      }, 3000)
+    }
+
     // On Windows, use the built-in bsdtar (System32\tar.exe) which handles
     // Windows paths natively, avoiding MSYS/Git Bash path mangling issues
     const tarExtractCmd = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
     const extractResult = await runCommand(tarExtractCmd, ['-xzf', archivePath, '-C', extractDir, archiveMemberPath], {
       cwd: process.cwd()
     })
+
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+
     if (!extractResult.ok) {
       return {
         ok: false,
@@ -1433,10 +1481,425 @@ export function createBackupService(deps: BackupServiceDeps) {
     }
   }
 
+  async function restoreFromLocalFile(
+    input: KoinosNodeSettingsInput | undefined,
+    sender: WebContents
+  ): Promise<KoinosNodeBackupRestoreResult> {
+    const action: KoinosNodeBackupProgressAction = 'restore-backup'
+    const reportProgress = createBackupProgressReporter(sender, action)
+    const notes: string[] = []
+
+    try {
+      const settings = deps.normalizeNodeSettings(input)
+
+      // 1. Ask user to pick a local .tar.gz backup file
+      reportProgress('prepare', 2, 'Selecciona el archivo de backup local...')
+
+      // Default to the directory where the last backup was created
+      const lastBackupDir = readLastBackupPath()
+      const dialogOptions: OpenDialogOptions = {
+        title: 'Seleccionar backup local (.tar.gz)',
+        filters: [{ name: 'tar.gz', extensions: ['tar.gz', 'tgz'] }],
+        properties: ['openFile'],
+        ...(lastBackupDir ? { defaultPath: lastBackupDir } : {})
+      }
+      const result = await dialog.showOpenDialog(dialogOptions)
+      if (result.canceled || !result.filePaths.length) {
+        return { ok: false, action, output: 'Restauracion cancelada por el usuario', status: 'cancelled' }
+      }
+      const archivePath = result.filePaths[0]
+      notes.push(`Restoring from local file: ${archivePath}`)
+
+      // 2. Validate the archive exists and is non-empty
+      if (!fs.existsSync(archivePath)) {
+        reportProgress('error', 2, `Archivo no encontrado: ${archivePath}`)
+        return { ok: false, action, output: `Archivo no encontrado: ${archivePath}`, status: 'error' }
+      }
+      const archiveStats = fs.statSync(archivePath)
+      if (archiveStats.size === 0) {
+        reportProgress('error', 2, 'El archivo de backup esta vacio')
+        return { ok: false, action, output: 'El archivo de backup esta vacio', status: 'error' }
+      }
+      notes.push(`Archive size: ${(archiveStats.size / (1024 ** 3)).toFixed(2)} GB`)
+
+      // 3. Stop services
+      reportProgress('stop', 8, 'Parando servicios antes de restaurar...')
+      const stopResult = await deps.koinosNodeAction('stop', input)
+      if (stopResult.output) notes.push(stopResult.output)
+      if (!stopResult.ok) {
+        reportProgress('error', 8, stopResult.output || 'No se pudieron parar los servicios')
+        return { ok: false, action, output: [...notes, 'No se pudieron parar los servicios'].filter(Boolean).join('\n'), status: stopResult.status }
+      }
+
+      // 4. Prepare runtime config
+      reportProgress('prepare', 15, 'Preparando archivos de configuracion...')
+      const configPrep = deps.ensureKoinosConfigFiles(settings)
+      if (configPrep.output) notes.push(configPrep.output)
+
+      // 5. Discover payload root in archive
+      reportProgress('extract', 20, 'Inspeccionando contenido del archivo...')
+      const payloadRootResult = await discoverBlockchainBackupPayloadRootInArchive(archivePath)
+      if (!payloadRootResult.ok || payloadRootResult.payloadRootRelativePath === undefined) {
+        reportProgress('error', 20, payloadRootResult.output || 'No se pudo localizar el payload del backup')
+        await deps.koinosNodeAction('start', input)
+        return { ok: false, action, output: [...notes, payloadRootResult.output].filter(Boolean).join('\n'), status: await deps.koinosNodeStatus(settings) }
+      }
+      const payloadRootRelativePath = payloadRootResult.payloadRootRelativePath
+      notes.push(payloadRootResult.output)
+
+      // 6. Determine restorable directories
+      //    For local backups (created by Knodel), skip the expensive full tar listing
+      //    and use the known required directories directly.
+      reportProgress('extract', 22, 'Determinando directorios a restaurar...')
+      const restoreDirectories = [...BLOCKCHAIN_BACKUP_REQUIRED_DIRS] as string[]
+      notes.push(`Directories to restore: ${restoreDirectories.join(', ')}`)
+
+      // 7. Extract to temp workspace
+      const baseDirValidation = deps.validateNodeBaseDirAccess(settings)
+      const restoreWorkspaceParent = baseDirValidation.restoreWorkspaceParent || path.join(settings.baseDir, '..')
+      const extractDir = path.join(restoreWorkspaceParent, '.knodel-local-restore-tmp')
+      fs.rmSync(extractDir, { recursive: true, force: true })
+      fs.mkdirSync(extractDir, { recursive: true })
+
+      // Estimate uncompressed size as ~2x the archive (typical gzip ratio)
+      const estimatedUncompressedBytes = archiveStats.size * 2
+      const archiveGB = (archiveStats.size / (1024 ** 3)).toFixed(1)
+      reportProgress('extract', 30, `Extrayendo backup (~${archiveGB} GB comprimido, esto puede tardar varios minutos)...`)
+      const extractResult = await extractBlockchainBackupDirectories(
+        archivePath,
+        extractDir,
+        path.join(extractDir, 'extract-state.json'),
+        payloadRootRelativePath,
+        restoreDirectories,
+        deps.runCommand,
+        (dirName, index, total) => {
+          const progress = 30 + Math.round(((index + 1) / Math.max(total, 1)) * 40)
+          reportProgress('extract', Math.min(progress, 70), `Extrayendo ${dirName} (${index + 1} de ${total})`)
+        },
+        (extractedBytes) => {
+          // Map extractedBytes to progress range 30..70
+          const fraction = Math.min(extractedBytes / estimatedUncompressedBytes, 0.99)
+          const progress = Math.round(30 + fraction * 40)
+          const extractedGB = (extractedBytes / (1024 ** 3)).toFixed(1)
+          const estGB = (estimatedUncompressedBytes / (1024 ** 3)).toFixed(1)
+          reportProgress('extract', Math.min(progress, 69), `Extrayendo... ${extractedGB} / ~${estGB} GB (~${Math.round(fraction * 100)}%)`)
+        }
+      )
+      if (!extractResult.ok) {
+        reportProgress('error', 70, extractResult.output || 'No se pudo extraer el backup')
+        fs.rmSync(extractDir, { recursive: true, force: true })
+        await deps.koinosNodeAction('start', input)
+        return { ok: false, action, output: [...notes, extractResult.output].filter(Boolean).join('\n'), status: await deps.koinosNodeStatus(settings) }
+      }
+      notes.push(extractResult.output)
+
+      // 8. Restore into BASEDIR
+      reportProgress('restore', 75, `Restaurando blockchain state en ${settings.baseDir}...`)
+      const payloadRoot = blockchainBackupPayloadRootPath(extractDir, payloadRootRelativePath)
+      const finalPayloadRoot = fs.existsSync(payloadRoot)
+        ? payloadRoot
+        : findBlockchainBackupPayloadRoot(extractDir)
+      if (!finalPayloadRoot) {
+        const err = `El backup no contiene los directorios esperados (${BLOCKCHAIN_BACKUP_REQUIRED_DIRS.join(', ')})`
+        reportProgress('error', 75, err)
+        fs.rmSync(extractDir, { recursive: true, force: true })
+        await deps.koinosNodeAction('start', input)
+        return { ok: false, action, output: [...notes, err].filter(Boolean).join('\n'), status: await deps.koinosNodeStatus(settings) }
+      }
+
+      const restoredDirs = restoreBlockchainBackupPayload(finalPayloadRoot, restoreDirectories, settings)
+      notes.push(`Restored: ${restoredDirs.join(', ')}`)
+
+      // 9. Clean up temp workspace
+      fs.rmSync(extractDir, { recursive: true, force: true })
+
+      // 10. Prepare runtime and restart
+      reportProgress('restore', 90, 'Preparando archivos de runtime...')
+      notes.push(deps.ensureBaseDirKoinosRuntimeFiles(settings))
+
+      reportProgress('start', 92, 'Reiniciando servicios...')
+      await deps.koinosNodeAction('start', input)
+
+      reportProgress('complete', 100, `Backup restaurado desde ${path.basename(archivePath)}`)
+      return {
+        ok: true,
+        action,
+        output: notes.filter(Boolean).join('\n'),
+        status: await deps.koinosNodeStatus(settings)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error restaurando backup local'
+      reportProgress('error', 0, message)
+      try { await deps.koinosNodeAction('start', input) } catch { /* best effort */ }
+      return { ok: false, action, output: [...notes, message].filter(Boolean).join('\n'), status: 'error' }
+    }
+  }
+
+  // ── Cancel support for createLocalBackup ──
+  let activeBackupTarProcess: ChildProcess | null = null
+  let activeBackupCancelled = false
+  let activeBackupInput: KoinosNodeSettingsInput | undefined
+  let activeBackupSender: WebContents | null = null
+
+  function cancelCreateBackup(): { ok: boolean; output: string } {
+    if (!activeBackupTarProcess && !activeBackupCancelled) {
+      // No active backup — set flag so in-progress backup sees it at next checkpoint
+      activeBackupCancelled = true
+      return { ok: true, output: 'Cancel requested (no tar process running yet)' }
+    }
+    activeBackupCancelled = true
+    if (activeBackupTarProcess) {
+      try { activeBackupTarProcess.kill('SIGTERM') } catch { /* ignore */ }
+      setTimeout(() => {
+        try { activeBackupTarProcess?.kill('SIGKILL') } catch { /* ignore */ }
+      }, 2000)
+    }
+    return { ok: true, output: 'Cancel signal sent' }
+  }
+
+  /** Spawn tar and return a promise; stores child process ref for cancellation.
+   *  If destPath + estimatedBytes are provided, polls output file size for progress. */
+  function spawnTar(
+    args: string[],
+    cwd: string,
+    progressOpts?: { destPath: string; estimatedBytes: number; onProgress: (fraction: number) => void }
+  ): Promise<{ ok: boolean; code: number | null; output: string }> {
+    return new Promise((resolve) => {
+      const child = spawn('tar', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+      activeBackupTarProcess = child
+
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk: Buffer | string) => { stdout += String(chunk) })
+      child.stderr.on('data', (chunk: Buffer | string) => { stderr += String(chunk) })
+
+      // Poll output file size for incremental progress
+      let pollTimer: NodeJS.Timeout | null = null
+      if (progressOpts) {
+        const { destPath, estimatedBytes, onProgress } = progressOpts
+        pollTimer = setInterval(() => {
+          try {
+            const stats = fs.statSync(destPath)
+            const fraction = Math.min(stats.size / estimatedBytes, 0.99)
+            onProgress(fraction)
+          } catch { /* file may not exist yet */ }
+        }, 2000)
+      }
+
+      const cleanup = () => {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+        activeBackupTarProcess = null
+      }
+
+      child.on('error', (err) => {
+        cleanup()
+        resolve({ ok: false, code: null, output: err.message })
+      })
+      child.on('close', (code) => {
+        cleanup()
+        const output = (stdout + '\n' + stderr).trim()
+        resolve({ ok: code === 0, code, output })
+      })
+    })
+  }
+
+  async function createLocalBackup(
+    input: KoinosNodeSettingsInput | undefined,
+    sender: WebContents
+  ): Promise<KoinosNodeBackupRestoreResult> {
+    const action: KoinosNodeBackupProgressAction = 'create-backup'
+    activeBackupCancelled = false
+    activeBackupInput = input
+    activeBackupSender = sender
+
+    function emitProgress(phase: KoinosNodeBackupProgressPhase, progress: number, message: string) {
+      sender.send('knodel:koinos-node:backup-progress:event', { action, phase, progress, message } satisfies KoinosNodeBackupProgressEvent)
+    }
+
+    function checkCancelled(): boolean {
+      return activeBackupCancelled
+    }
+
+    async function cleanupOnCancel(manifestPath?: string, destPath?: string) {
+      emitProgress('stop', 0, 'Backup cancelado. Limpiando...')
+      if (manifestPath) try { fs.unlinkSync(manifestPath) } catch { /* ignore */ }
+      if (destPath) try { fs.unlinkSync(destPath) } catch { /* ignore */ }
+      if (destPath) try { fs.unlinkSync(`${destPath}.sha256`) } catch { /* ignore */ }
+      try { await deps.koinosNodeAction('start', input) } catch { /* best effort */ }
+      activeBackupTarProcess = null
+      activeBackupSender = null
+      emitProgress('complete', 0, 'Backup cancelado por el usuario')
+      return { ok: false, action, output: 'Backup cancelado por el usuario', status: 'cancelled' } as KoinosNodeBackupRestoreResult
+    }
+
+    try {
+      const settings = deps.normalizeNodeSettings(input)
+      const baseDir = settings.baseDir
+
+      // 1. Ask user where to save the backup
+      emitProgress('prepare', 2, 'Selecciona donde guardar el backup...')
+      const result = await dialog.showSaveDialog({
+        title: 'Guardar backup de blockchain',
+        defaultPath: `koinos_backup_${new Date().toISOString().slice(0, 10)}.tar.gz`,
+        filters: [{ name: 'tar.gz', extensions: ['tar.gz'] }]
+      })
+      if (result.canceled || !result.filePath) {
+        activeBackupSender = null
+        return { ok: false, action, output: 'Backup cancelado por el usuario', status: 'cancelled' }
+      }
+      const destPath = result.filePath
+
+      if (checkCancelled()) return cleanupOnCancel(undefined, destPath)
+
+      // 2. Stop services to ensure atomic snapshot
+      emitProgress('stop', 10, 'Parando servicios para garantizar consistencia...')
+      const stopResult = await deps.koinosNodeAction('stop', input)
+      if (!stopResult.ok) {
+        emitProgress('error', 10, `No se pudieron parar los servicios: ${stopResult.output}`)
+        activeBackupSender = null
+        return { ok: false, action, output: `Error al parar servicios: ${stopResult.output}`, status: 'error' }
+      }
+
+      if (checkCancelled()) return cleanupOnCancel(undefined, destPath)
+
+      // 3. Verify required directories exist
+      emitProgress('prepare', 20, 'Verificando directorios de blockchain...')
+      const chainDir = path.join(baseDir, 'chain')
+      const blockStoreDir = path.join(baseDir, 'block_store')
+      if (!fs.existsSync(chainDir) || !fs.existsSync(blockStoreDir)) {
+        emitProgress('error', 20, 'No se encontraron los directorios chain/ y block_store/')
+        await deps.koinosNodeAction('start', input)
+        activeBackupSender = null
+        return { ok: false, action, output: 'Directorios chain/ o block_store/ no existen en BASEDIR', status: 'error' }
+      }
+
+      // 4. Write manifest with snapshot height
+      emitProgress('prepare', 25, 'Creando manifiesto de backup...')
+      const manifestPath = path.join(baseDir, 'backup-manifest.json')
+      const manifest = {
+        created: new Date().toISOString(),
+        basedir: baseDir,
+        directories: ['chain', 'block_store'],
+        knodel_version: process.env.npm_package_version || 'unknown'
+      }
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+
+      if (checkCancelled()) return cleanupOnCancel(manifestPath, destPath)
+
+      // 5. Check disk space — estimate required as sum of chain/ + block_store/ sizes
+      emitProgress('prepare', 28, 'Verificando espacio en disco...')
+      let sourceSizeBytes = 0
+      for (const dirName of ['chain', 'block_store']) {
+        const dirPath = path.join(baseDir, dirName)
+        const du = await deps.runCommand('du', ['-sk', dirPath], { cwd: baseDir, timeoutMs: 60000 })
+        if (du.ok) {
+          const kbMatch = du.output.match(/^(\d+)/)
+          if (kbMatch) sourceSizeBytes += parseInt(kbMatch[1], 10) * 1024
+        }
+      }
+      // Compressed tar.gz is typically 40-60% of source; require at least 70% as safety margin
+      const estimatedCompressedBytes = Math.max(sourceSizeBytes * 0.7, 1024 * 1024 * 100)
+      const destDir = path.dirname(destPath)
+      try {
+        const dfResult = await deps.runCommand('df', ['-k', destDir], { cwd: destDir, timeoutMs: 10000 })
+        if (dfResult.ok) {
+          const lines = dfResult.output.split(/\r?\n/).filter(Boolean)
+          if (lines.length >= 2) {
+            const fields = lines[1].split(/\s+/)
+            const availableKb = parseInt(fields[3], 10)
+            if (!isNaN(availableKb) && availableKb * 1024 < estimatedCompressedBytes) {
+              const availGB = (availableKb / (1024 * 1024)).toFixed(1)
+              const needGB = (estimatedCompressedBytes / (1024 ** 3)).toFixed(1)
+              emitProgress('error', 28, `Espacio insuficiente: ~${needGB} GB necesarios, solo ${availGB} GB disponibles en ${destDir}`)
+              await deps.koinosNodeAction('start', input)
+              try { fs.unlinkSync(manifestPath) } catch { /* ignore */ }
+              activeBackupSender = null
+              return { ok: false, action, output: `Espacio insuficiente: ~${needGB} GB necesarios, solo ${availGB} GB disponibles`, status: 'error' }
+            }
+          }
+        }
+      } catch { /* non-critical, proceed anyway */ }
+
+      if (checkCancelled()) return cleanupOnCancel(manifestPath, destPath)
+
+      // 6. Compress chain/ and block_store/ into tar.gz (using spawn for cancel support)
+      const sourceGB = (sourceSizeBytes / (1024 ** 3)).toFixed(1)
+      emitProgress('compress', 30, `Comprimiendo blockchain (~${sourceGB} GB, esto puede tardar varios minutos)...`)
+      const tarArgs = ['-czf', destPath, '-C', baseDir, 'chain', 'block_store', 'backup-manifest.json']
+      if (fs.existsSync(path.join(baseDir, 'config.yml'))) {
+        tarArgs.push('config.yml')
+      }
+
+      const tarResult = await spawnTar(tarArgs, baseDir, {
+        destPath,
+        estimatedBytes: estimatedCompressedBytes,
+        onProgress: (fraction) => {
+          // Map fraction (0..1) to progress range 30..85
+          const progress = Math.round(30 + fraction * 55)
+          const writtenGB = (fraction * estimatedCompressedBytes / (1024 ** 3)).toFixed(1)
+          const estGB = (estimatedCompressedBytes / (1024 ** 3)).toFixed(1)
+          emitProgress('compress', progress, `Comprimiendo... ${writtenGB} / ~${estGB} GB (~${Math.round(fraction * 100)}%)`)
+        }
+      })
+
+      // Clean up manifest
+      try { fs.unlinkSync(manifestPath) } catch { /* ignore */ }
+
+      if (checkCancelled()) return cleanupOnCancel(undefined, destPath)
+
+      if (!tarResult.ok) {
+        emitProgress('error', 50, `Error al comprimir: ${tarResult.output}`)
+        await deps.koinosNodeAction('start', input)
+        activeBackupSender = null
+        return { ok: false, action, output: `Error al comprimir: ${tarResult.output}`, status: 'error' }
+      }
+
+      // 7. Generate SHA-256 checksum
+      emitProgress('save', 85, 'Calculando checksum SHA-256...')
+      const hash = createHash('sha256')
+      const stream = fs.createReadStream(destPath)
+      for await (const chunk of stream) {
+        if (checkCancelled()) { stream.destroy(); return cleanupOnCancel(undefined, destPath) }
+        hash.update(chunk)
+      }
+      const checksum = hash.digest('hex')
+      fs.writeFileSync(`${destPath}.sha256`, `${checksum}  ${path.basename(destPath)}\n`, 'utf8')
+
+      // 8. Report size
+      const stats = fs.statSync(destPath)
+      const sizeGB = (stats.size / (1024 ** 3)).toFixed(2)
+
+      // 9. Save last backup path for future restore dialog
+      saveLastBackupPath(destPath)
+
+      // 10. Restart services
+      emitProgress('start', 90, 'Reiniciando servicios...')
+      await deps.koinosNodeAction('start', input)
+
+      activeBackupSender = null
+      emitProgress('complete', 100, `Backup creado: ${path.basename(destPath)} (${sizeGB} GB)`)
+      return {
+        ok: true,
+        action,
+        output: `Backup guardado en ${destPath} (${sizeGB} GB, SHA-256: ${checksum.slice(0, 12)}...)`,
+        status: 'complete'
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      emitProgress('error', 0, `Error creando backup: ${message}`)
+      try { await deps.koinosNodeAction('start', input) } catch { /* best effort restart */ }
+      activeBackupSender = null
+      return { ok: false, action, output: message, status: 'error' }
+    }
+  }
+
   return {
     koinosJsonRpcProxy,
     koinosNodeRestoreBackup,
     koinosNodeRestoreBackupAndVerify,
+    createLocalBackup,
+    cancelCreateBackup,
+    restoreFromLocalFile,
     copyNodeBaseDirData,
     selectNodeBaseDir
   }

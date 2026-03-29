@@ -152,6 +152,7 @@ export function App() {
   const [nodeActionLoading, setNodeActionLoading] = useState<NodeAction | null>(null)
   const [nodeRestoreBackupLoading, setNodeRestoreBackupLoading] = useState(false)
   const [nodeRestoreBackupVerifyLoading, setNodeRestoreBackupVerifyLoading] = useState(false)
+  const [nodeCreateBackupLoading, setNodeCreateBackupLoading] = useState(false)
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
   const [nodeProducerOverview, setNodeProducerOverview] = useState<KnodelKoinosNodeProducerOverviewResult | null>(null)
@@ -853,6 +854,7 @@ export function App() {
     nodeActionLoading !== null ||
     nodeRestoreBackupLoading ||
     nodeRestoreBackupVerifyLoading ||
+    nodeCreateBackupLoading ||
     nodeCloneLoading ||
     nodeBaseDirPickerLoading ||
     nodeBaseDirCopyLoading ||
@@ -3096,6 +3098,66 @@ export function App() {
     }
   }
 
+  const runCreateBackup = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.createBackup) return
+
+    setNodeCreateBackupLoading(true)
+    setNodeError(null)
+    setNodeBackupProgress({
+      action: 'create-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.creatingBackup'),
+      updatedAt: Date.now()
+    })
+
+    try {
+      const result = await bridge.createBackup(toNodeApiSettings(nodeSettings))
+      if (!result.ok) {
+        setNodeError(result.output || 'Error creating backup')
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'Error creating backup')
+    } finally {
+      setNodeCreateBackupLoading(false)
+    }
+  }
+
+  const runCancelBackup = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.cancelCreateBackup) return
+    try {
+      await bridge.cancelCreateBackup()
+    } catch { /* ignore */ }
+  }
+
+  const runRestoreLocalBackup = async () => {
+    const bridge = getKoinosNodeBridge()
+    if (!bridge?.restoreLocalBackup) return
+
+    setNodeRestoreBackupLoading(true)
+    setNodeError(null)
+    setNodeBackupProgress({
+      action: 'restore-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.restoringBackup'),
+      updatedAt: Date.now()
+    })
+
+    try {
+      const result = await bridge.restoreLocalBackup(toNodeApiSettings(nodeSettings))
+      if (!result.ok) {
+        setNodeError(result.output || 'Error restoring local backup')
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'Error restoring local backup')
+    } finally {
+      setNodeRestoreBackupLoading(false)
+    }
+  }
+
   const restartNodeForNewBaseDir = async () => {
     const bridge = getKoinosNodeBridge()
     if (!bridge || !nodeBaseDirChangeDialog) return
@@ -3504,9 +3566,14 @@ export function App() {
           draftNodeBlockchainBackupUrl={draftNodeBlockchainBackupUrl}
           setDraftNodeBlockchainBackupUrl={setDraftNodeBlockchainBackupUrl}
           runNodeRestoreBackupVerify={runNodeRestoreBackupVerify}
+          runCreateBackup={runCreateBackup}
+          runCancelBackup={runCancelBackup}
+          runRestoreLocalBackup={runRestoreLocalBackup}
           nodeBusy={nodeBusy}
           nodeSettings={nodeSettings}
           nodeRestoreBackupVerifyLoading={nodeRestoreBackupVerifyLoading}
+          nodeCreateBackupLoading={nodeCreateBackupLoading}
+          nodeBackupProgress={nodeBackupProgress}
           configFileDisplayPath={configFileDisplayPath}
           draftNodeBaseDir={draftNodeBaseDir}
           setDraftNodeBaseDir={setDraftNodeBaseDir}
@@ -3765,9 +3832,11 @@ export function App() {
           <div className="node-backup-progress" role="status" aria-live="polite">
             <div className="node-services-header">
               <h3>
-                {nodeBackupProgress.action === 'restore-backup'
-                  ? t('node.backupProgress.restore')
-                  : t('node.backupProgress.verify')}
+                {nodeBackupProgress.action === 'create-backup'
+                  ? t('node.backupProgress.create')
+                  : nodeBackupProgress.action === 'restore-backup'
+                    ? t('node.backupProgress.restore')
+                    : t('node.backupProgress.verify')}
               </h3>
               <span>{nodeBackupProgress.progress}%</span>
             </div>

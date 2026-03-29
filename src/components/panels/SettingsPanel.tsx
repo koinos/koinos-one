@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { normalizeAppLanguage } from '../../i18n'
-import { normalizeNodeBaseDirInput } from '../../app/utils'
+import { normalizeNodeBaseDirInput, formatTime } from '../../app/utils'
 import { MicroservicesConfigPanel } from './MicroservicesConfigPanel'
-
 type BackupInfo = { ok: boolean; lastModified: string | null; sizeBytes: number | null }
 type SettingsPanelProps = any
 
@@ -33,9 +32,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
     draftNodeBlockchainBackupUrl,
     setDraftNodeBlockchainBackupUrl,
     runNodeRestoreBackupVerify,
+    runCreateBackup,
+    runCancelBackup,
+    runRestoreLocalBackup,
     nodeBusy,
     nodeSettings,
     nodeRestoreBackupVerifyLoading,
+    nodeCreateBackupLoading,
+    nodeBackupProgress,
     configFileDisplayPath,
     draftNodeBaseDir,
     setDraftNodeBaseDir,
@@ -349,10 +353,73 @@ export function SettingsPanel(props: SettingsPanelProps) {
               >
                 {nodeRestoreBackupVerifyLoading ? t('node.restoringVerify') : t('node.restoreVerify')}
               </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => { void runRestoreLocalBackup() }}
+                disabled={!hasNodeControls || nodeBusy}
+                title="Restaurar desde un archivo .tar.gz local"
+              >
+                {nodeBusy ? 'Restaurando...' : 'Restore from local file'}
+              </button>
               <span className="settings-inline-help">
                 {t('node.restoreVerifyRequiresJsonrpc')}
               </span>
             </div>
+
+            <div className="settings-subheader" style={{ marginTop: '1.5rem' }}>
+              <h3>{t('node.createBackup')}</h3>
+              <p>Crea un snapshot local de chain/ y block_store/. Los servicios se paran automaticamente para garantizar consistencia.</p>
+            </div>
+
+            <div className="settings-actions settings-actions-inline">
+              {nodeCreateBackupLoading ? (
+                <button
+                  type="button"
+                  className="ghost-button danger-button"
+                  onClick={() => { void runCancelBackup() }}
+                >
+                  {t('node.cancelBackup')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => { void runCreateBackup() }}
+                  disabled={!hasNodeControls || nodeBusy}
+                >
+                  {t('node.createBackup')}
+                </button>
+              )}
+            </div>
+
+            {nodeBackupProgress && (
+              <div className="node-backup-progress" role="status" aria-live="polite" style={{ marginTop: '1rem' }}>
+                <div className="node-services-header">
+                  <h3>
+                    {nodeBackupProgress.action === 'create-backup'
+                      ? t('node.backupProgress.create')
+                      : nodeBackupProgress.action === 'restore-backup'
+                        ? t('node.backupProgress.restore')
+                        : t('node.backupProgress.verify')}
+                  </h3>
+                  <span>{nodeBackupProgress.progress}%</span>
+                </div>
+                <p className="node-backup-progress-text">{nodeBackupProgress.message}</p>
+                <div className="node-backup-progress-bar" aria-hidden="true">
+                  <span
+                    className="node-backup-progress-fill"
+                    style={{ width: `${Math.max(2, nodeBackupProgress.progress)}%` }}
+                  />
+                </div>
+                <p className="node-backup-progress-meta mono">
+                  {t('node.backupPhaseMeta', {
+                    phase: nodeBackupProgress.phase,
+                    time: formatTime(nodeBackupProgress.updatedAt, locale)
+                  })}
+                </p>
+              </div>
+            )}
 
             <div className="settings-actions">
               <button type="submit" className="primary-button">

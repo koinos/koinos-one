@@ -2027,6 +2027,9 @@ async function waitForTcpListenerClosed(host: string, port: number, timeoutMs: n
 }
 
 function nativeAmqpUsesBrewService(): boolean {
+  // GarageMQ takes priority over Homebrew RabbitMQ when the binary exists
+  const gmq = resolveAmqpBrokerPath()
+  if (gmq && fs.existsSync(gmq)) return false
   return process.platform === 'darwin' && Boolean(findExecutableInPath('brew')) && Boolean(nativeRabbitmqServerExecutable())
 }
 
@@ -3072,6 +3075,24 @@ async function koinosNodeRestoreBackupAndVerify(
   return backupService.koinosNodeRestoreBackupAndVerify(input, sender)
 }
 
+async function createLocalBackup(
+  input?: KoinosNodeSettingsInput,
+  sender?: Electron.WebContents
+): Promise<KoinosNodeBackupRestoreResult> {
+  return backupService.createLocalBackup(input, sender!)
+}
+
+function cancelCreateBackup(): { ok: boolean; output: string } {
+  return backupService.cancelCreateBackup()
+}
+
+async function restoreFromLocalFile(
+  input?: KoinosNodeSettingsInput,
+  sender?: Electron.WebContents
+): Promise<KoinosNodeBackupRestoreResult> {
+  return backupService.restoreFromLocalFile(input, sender!)
+}
+
 async function copyNodeBaseDirData(input?: KoinosNodeBaseDirCopyInput): Promise<KoinosNodeBaseDirCopyResult> {
   return backupService.copyNodeBaseDirData(input)
 }
@@ -3276,6 +3297,9 @@ function registerIpcHandlers() {
     koinosNodeAction,
     koinosNodeRestoreBackup,
     koinosNodeRestoreBackupAndVerify,
+    createLocalBackup,
+    cancelCreateBackup,
+    restoreFromLocalFile,
     koinosJsonRpcProxy,
     koinosNodeDashboardProducers,
     koinosNodeDashboardPeers,

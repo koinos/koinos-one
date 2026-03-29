@@ -62,6 +62,9 @@ type IpcHandlerDeps = {
   koinosNodeAction: (action: 'start' | 'stop', input?: KoinosNodeSettingsInput) => Awaitable<unknown>
   koinosNodeRestoreBackup: (input: KoinosNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   koinosNodeRestoreBackupAndVerify: (input: KoinosNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
+  createLocalBackup: (input: KoinosNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
+  cancelCreateBackup: () => Awaitable<{ ok: boolean; output: string }>
+  restoreFromLocalFile: (input: KoinosNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   koinosJsonRpcProxy: (input?: KoinosJsonRpcProxyInput) => Awaitable<unknown>
   koinosNodeDashboardProducers: (input?: KoinosNodeSettingsInput & { rpcUrl?: string; windowBlocks?: number }) => Awaitable<unknown>
   koinosNodeDashboardPeers: (input?: KoinosNodeSettingsInput) => Awaitable<unknown>
@@ -232,6 +235,9 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('knodel:koinos-node:stop', async (_event, input?: KoinosNodeSettingsInput) => deps.koinosNodeAction('stop', input))
   ipcMain.handle('knodel:koinos-node:restore-backup', async (event, input?: KoinosNodeSettingsInput) => deps.koinosNodeRestoreBackup(input, event.sender))
   ipcMain.handle('knodel:koinos-node:restore-backup-verify', async (event, input?: KoinosNodeSettingsInput) => deps.koinosNodeRestoreBackupAndVerify(input, event.sender))
+  ipcMain.handle('knodel:koinos-node:create-backup', async (event, input?: KoinosNodeSettingsInput) => deps.createLocalBackup(input, event.sender))
+  ipcMain.handle('knodel:koinos-node:cancel-create-backup', async () => deps.cancelCreateBackup())
+  ipcMain.handle('knodel:koinos-node:restore-local-backup', async (event, input?: KoinosNodeSettingsInput) => deps.restoreFromLocalFile(input, event.sender))
   ipcMain.handle('knodel:koinos-node:backup-info', async (_event, url?: string) => {
     if (!url || typeof url !== 'string') return { ok: false, lastModified: null, sizeBytes: null }
     try {

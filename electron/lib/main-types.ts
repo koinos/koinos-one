@@ -115,9 +115,9 @@ export type KoinosNodeCommandResult = {
 
 export type KoinosNodeBackupRestoreResult = {
   ok: boolean
-  action: 'restore-backup' | 'restore-backup-verify'
+  action: KoinosNodeBackupProgressAction
   output: string
-  status: KoinosNodeStatus
+  status: KoinosNodeStatus | string
 }
 
 export type BlockchainBackupWorkspacePaths = {
@@ -488,7 +488,7 @@ export type KoinosNodeLogsFollowEvent = {
   message?: string
 }
 
-export type KoinosNodeBackupProgressAction = 'restore-backup' | 'restore-backup-verify'
+export type KoinosNodeBackupProgressAction = 'restore-backup' | 'restore-backup-verify' | 'create-backup'
 
 export type KoinosNodeBackupProgressPhase =
   | 'prepare'
@@ -497,6 +497,8 @@ export type KoinosNodeBackupProgressPhase =
   | 'checksum'
   | 'extract'
   | 'restore'
+  | 'compress'
+  | 'save'
   | 'start'
   | 'verify'
   | 'complete'
