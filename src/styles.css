@@ -1769,6 +1769,17 @@ body {
   letter-spacing: 0.05em;
 }
 
+.wallet-portfolio-card {
+  max-width: 420px;
+  margin: 0 16px;
+}
+
+.wallet-portfolio-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .wallet-quick-actions {
   display: flex;
   flex-wrap: wrap;

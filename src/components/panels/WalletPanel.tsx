@@ -9,7 +9,7 @@ import { WalletSecurityTab } from './wallet/WalletSecurityTab'
 import { WalletSendModal } from './wallet/WalletSendModal'
 
 type WalletPanelProps = any
-type WalletSubtab = 'tokens' | 'accounts' | 'security'
+type WalletSubtab = 'tokens' | 'security'
 
 type WalletCreateDraft = {
   ok?: boolean
@@ -354,21 +354,27 @@ export function WalletPanel(props: WalletPanelProps) {
                 const active = accounts.find((a) => a.id === activeWalletAccountId)
                 if (active) openRemoveModalForAccount(active)
               }}
+              activeView={walletSubtab}
               onOpenSend={() => openSendModal('send')}
               onOpenBurn={() => openSendModal('burn')}
               onSetAsProducer={() => {
                 void setWalletActiveAccount(activeWalletAccountId)
               }}
+              onToggleTokens={() => toggleWalletView('tokens')}
+              onToggleSecurity={() => toggleWalletView('security')}
             />
           </div>
 
-          <WalletPortfolioTab
-            t={t}
-            walletBalance={walletBalance}
-            activeWalletCanSign={activeWalletCanSign}
-            onOpenSend={() => openSendModal('send')}
-            onOpenBurn={() => openSendModal('burn')}
-          />
+          {walletSubtab === 'tokens' && (
+            <WalletPortfolioTab
+              t={t}
+              walletBalance={walletBalance}
+              activeWalletCanSign={activeWalletCanSign}
+              isBusy={walletActionLoading !== null}
+              onOpenSend={() => openSendModal('send')}
+              onOpenBurn={() => openSendModal('burn')}
+            />
+          )}
 
           {walletSubtab === 'security' && (
             <WalletSecurityTab
