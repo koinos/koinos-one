@@ -22,5 +22,9 @@ vendor/amqp-broker/garagemq.exe
 vendor/amqp-broker/garagemq
 vendor/amqp-broker/admin-frontend/node_modules/
 
+# Claude Code worktrees and caches
+.claude/worktrees/
+.native-build-cache/
+
 # Bundle staging
 build/
