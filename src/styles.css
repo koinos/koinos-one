@@ -1510,6 +1510,16 @@ body {
   font: inherit;
 }
 
+.copy-address-button {
+  padding: 6px 8px !important;
+  min-width: unset !important;
+  align-self: end;
+}
+
+.copy-address-button svg {
+  display: block;
+}
+
 .wallet-account-actions {
   display: flex;
   flex-wrap: wrap;

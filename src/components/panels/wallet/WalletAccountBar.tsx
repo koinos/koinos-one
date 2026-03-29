@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 type WalletAccountBarProps = {
   t: (key: string, values?: Record<string, string | number>) => string
   hasWalletControls: boolean
@@ -36,6 +38,16 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
   } = props
 
   const isBusy = walletActionLoading !== null
+  const [copied, setCopied] = useState(false)
+  const activeAddress = accounts.find((a) => a.id === activeAccountId)?.address ?? ''
+
+  const handleCopyAddress = () => {
+    if (!activeAddress) return
+    void navigator.clipboard.writeText(activeAddress).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
 
   return (
     <div className="wallet-account-bar">
@@ -54,6 +66,24 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
             ))}
           </select>
         </label>
+        <button
+          type="button"
+          className="ghost-button copy-address-button"
+          onClick={handleCopyAddress}
+          disabled={!activeAddress}
+          title={copied ? t('common.copied') : t('wallet.copyAddress')}
+        >
+          {copied ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )}
+        </button>
         <button type="button" className="ghost-button" onClick={onSetAsProducer} disabled={!hasWalletControls || isBusy || !activeWalletCanSign}>
           {t('wallet.setAsProducerAction')}
         </button>
