@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.10.1] - 2026-03-29
+
+### Added
+
+- Auto-enable `verify-blocks` on merkle mismatch: when chain stalls with `verify-blocks: false`, it is automatically enabled and chain restarted.
+- Auto-disable `verify-blocks` when chain catches up (gap ≤ 50 blocks) for performance.
+- P2P auto-restart when 0 peers detected during sync gap (after 2 consecutive checks).
+- Smart wallet RPC selection: wallet uses local node only when synced, falls back to public RPC otherwise.
+- Copy address button next to the wallet account selector.
+- Tokens/Security subtab navigation restored in the wallet panel.
+- Wallet command result text box restored (shows transaction output).
+
+### Changed
+
+- Compact wallet portfolio card (max-width 420px) with Send/Burn buttons inside.
+- Reduced chain stall detection threshold from 3 to 2 checks (~2 min instead of 3 min).
+
+### Fixed
+
+- Fixed auto-restart timer never firing: the 60s `setInterval` was destroyed and recreated every 3s by React due to frequently-changing useEffect dependencies. Moved reactive values to refs.
+- Fixed auto-restart state (stall count, peer count) resetting on every React re-render by using `useRef`.
+- Fixed wallet balance not updating after transactions when local node is behind (now queries the same RPC used for the transaction).
+
 ## [0.9.0] - 2026-03-11
 
 ### Added

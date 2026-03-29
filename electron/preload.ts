@@ -4,7 +4,7 @@ const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'knodel:koinos-node:backup-progress:event'
 
 // Read version via IPC from main process (preload can't require package.json reliably)
-const appVersion = ipcRenderer.sendSync('knodel:app-version') || '0.10.0'
+const appVersion = ipcRenderer.sendSync('knodel:app-version') || '0.10.1'
 
 contextBridge.exposeInMainWorld('knodel', {
   version: appVersion,
