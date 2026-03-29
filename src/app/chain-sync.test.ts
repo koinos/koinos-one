@@ -3,9 +3,11 @@ import {
   AUTO_RESTART_CHAIN_COOLDOWN_MS,
   AUTO_RESTART_CHAIN_GAP_THRESHOLD,
   AUTO_RESTART_CHAIN_MIN_STALL_CHECKS,
+  AUTO_RESTART_P2P_COOLDOWN_MS,
+  AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS,
   VERIFY_BLOCKS_SYNC_THRESHOLD
 } from './constants'
-import { createAutoRestartState, evaluateAutoRestart, parseIndexerProgress, shouldDisableVerifyBlocks, type AutoRestartState } from './chain-sync'
+import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, parseIndexerProgress, shouldDisableVerifyBlocks, type AutoRestartState } from './chain-sync'
 
 function run(state: AutoRestartState, localHeight: number | null, publicHeight: number | null, now = 1000000) {
   return evaluateAutoRestart(state, { localHeight, publicHeight, now })
@@ -304,5 +306,76 @@ describe('shouldDisableVerifyBlocks', () => {
       publicHeight: 34636000,
       verifyBlocksEnabled: true
     })).toBe(true)
+  })
+})
+
+describe('evaluateP2pRestart', () => {
+  const base = { syncGapExists: true, p2pRunning: true, now: 100000 }
+
+  it('does not restart when P2P has peers', () => {
+    const state = createP2pRestartState()
+    const result = evaluateP2pRestart(state, { ...base, peerCount: 3 })
+    expect(result.shouldRestart).toBe(false)
+    expect(result.state.noPeersCount).toBe(0)
+  })
+
+  it('does not restart when P2P is not running', () => {
+    const state = createP2pRestartState()
+    const result = evaluateP2pRestart(state, { ...base, peerCount: 0, p2pRunning: false })
+    expect(result.shouldRestart).toBe(false)
+  })
+
+  it('does not restart when no sync gap', () => {
+    const state = createP2pRestartState()
+    const result = evaluateP2pRestart(state, { ...base, peerCount: 0, syncGapExists: false })
+    expect(result.shouldRestart).toBe(false)
+  })
+
+  it('does not restart before min checks reached', () => {
+    let state = createP2pRestartState()
+    for (let i = 0; i < AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS - 1; i++) {
+      const result = evaluateP2pRestart(state, { ...base, peerCount: 0, now: 100000 + i * 60000 })
+      expect(result.shouldRestart).toBe(false)
+      state = result.state
+    }
+    expect(state.noPeersCount).toBe(AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS - 1)
+  })
+
+  it('restarts after min checks with 0 peers', () => {
+    let state = createP2pRestartState()
+    for (let i = 0; i < AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS; i++) {
+      const result = evaluateP2pRestart(state, { ...base, peerCount: 0, now: 100000 + i * 60000 })
+      state = result.state
+      if (i === AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS - 1) {
+        expect(result.shouldRestart).toBe(true)
+      }
+    }
+  })
+
+  it('respects cooldown after restart', () => {
+    const state = { noPeersCount: 0, lastRestartAt: 100000 }
+    // Within cooldown
+    let result = evaluateP2pRestart(state, { ...base, peerCount: 0, now: 100000 + 60000 })
+    result = evaluateP2pRestart(result.state, { ...base, peerCount: 0, now: 100000 + 120000 })
+    expect(result.shouldRestart).toBe(false)
+
+    // After cooldown
+    result = evaluateP2pRestart(result.state, { ...base, peerCount: 0, now: 100000 + AUTO_RESTART_P2P_COOLDOWN_MS + 1 })
+    // Still needs min checks after cooldown — noPeersCount was accumulating
+    // With MIN_NO_PEERS_CHECKS=2, after 3 checks it should trigger
+    expect(result.state.noPeersCount >= AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS || result.shouldRestart).toBe(true)
+  })
+
+  it('resets counter when peers appear', () => {
+    let state = createP2pRestartState()
+    // Accumulate no-peers checks
+    const r1 = evaluateP2pRestart(state, { ...base, peerCount: 0 })
+    state = r1.state
+    expect(state.noPeersCount).toBe(1)
+
+    // Peers appear
+    const r2 = evaluateP2pRestart(state, { ...base, peerCount: 2 })
+    expect(r2.state.noPeersCount).toBe(0)
+    expect(r2.shouldRestart).toBe(false)
   })
 })

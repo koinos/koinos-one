@@ -2,6 +2,8 @@ import {
   AUTO_RESTART_CHAIN_COOLDOWN_MS,
   AUTO_RESTART_CHAIN_GAP_THRESHOLD,
   AUTO_RESTART_CHAIN_MIN_STALL_CHECKS,
+  AUTO_RESTART_P2P_COOLDOWN_MS,
+  AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS,
   VERIFY_BLOCKS_SYNC_THRESHOLD
 } from './constants'
 
@@ -121,4 +123,58 @@ export function shouldDisableVerifyBlocks(input: {
   // Disable when gap is small enough (chain is caught up)
   const gap = publicHeight - localHeight
   return gap <= VERIFY_BLOCKS_SYNC_THRESHOLD
+}
+
+// --- P2P auto-restart when no peers ---
+
+export type P2pRestartState = {
+  noPeersCount: number
+  lastRestartAt: number
+}
+
+export function createP2pRestartState(): P2pRestartState {
+  return { noPeersCount: 0, lastRestartAt: 0 }
+}
+
+/**
+ * Evaluates whether P2P should be restarted due to having no peers.
+ * Triggers when: chain has a sync gap, P2P is running but has 0 peers
+ * for N consecutive checks, and cooldown has elapsed.
+ */
+export function evaluateP2pRestart(state: P2pRestartState, input: {
+  peerCount: number
+  syncGapExists: boolean
+  p2pRunning: boolean
+  now: number
+}): { shouldRestart: boolean; state: P2pRestartState } {
+  const { peerCount, syncGapExists, p2pRunning, now } = input
+
+  // Only act when P2P is running and there's a sync gap
+  if (!p2pRunning || !syncGapExists) {
+    return { shouldRestart: false, state: { ...state, noPeersCount: 0 } }
+  }
+
+  // If we have peers, reset counter
+  if (peerCount > 0) {
+    return { shouldRestart: false, state: { ...state, noPeersCount: 0 } }
+  }
+
+  // No peers — increment counter
+  const nextCount = state.noPeersCount + 1
+
+  // Not enough consecutive no-peers checks yet
+  if (nextCount < AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS) {
+    return { shouldRestart: false, state: { ...state, noPeersCount: nextCount } }
+  }
+
+  // Cooldown check
+  if (state.lastRestartAt > 0 && now - state.lastRestartAt < AUTO_RESTART_P2P_COOLDOWN_MS) {
+    return { shouldRestart: false, state: { ...state, noPeersCount: nextCount } }
+  }
+
+  // Trigger restart
+  return {
+    shouldRestart: true,
+    state: { noPeersCount: 0, lastRestartAt: now }
+  }
 }

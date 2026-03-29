@@ -85,8 +85,8 @@ import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
-import { createAutoRestartState, evaluateAutoRestart, parseIndexerProgress, shouldDisableVerifyBlocks } from './app/chain-sync'
-import type { AutoRestartState, IndexerProgress } from './app/chain-sync'
+import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, parseIndexerProgress, shouldDisableVerifyBlocks } from './app/chain-sync'
+import type { AutoRestartState, IndexerProgress, P2pRestartState } from './app/chain-sync'
 import pkg from '../package.json'
 
 type WalletActivityEntry = {
@@ -1322,12 +1322,16 @@ export function App() {
 
     let disposed = false
     let autoRestartState: AutoRestartState = createAutoRestartState()
+    let p2pRestartState: P2pRestartState = createP2pRestartState()
     let verifyBlocksCheckDone = false
 
     const timer = window.setInterval(() => {
       if (disposed) return
 
       const bridge = getKoinosNodeBridge()
+      const now = Date.now()
+      const gap = (publicChainHead?.height ?? 0) - (localChainHead?.height ?? 0)
+      const syncGapExists = gap > SYNC_GAP_BLOCK_THRESHOLD
 
       // --- Auto-disable verify-blocks when chain is synced ---
       if (!verifyBlocksCheckDone && bridge?.getVerifyBlocks && bridge?.setVerifyBlocks && bridge?.serviceRestart) {
@@ -1360,18 +1364,53 @@ export function App() {
         })()
       }
 
+      // --- Auto-restart P2P when no peers and sync gap exists ---
+      if (bridge?.dashboardPeers && bridge?.serviceRestart) {
+        const p2pService = nodeServices.find((s) => s.id === 'p2p')
+        const p2pRunning = p2pService ? isNodeServiceRunning(p2pService) : false
+
+        if (p2pRunning && syncGapExists) {
+          void (async () => {
+            try {
+              const peersResult = await bridge.dashboardPeers!(toNodeApiSettings(nodeSettings))
+              const peerCount = peersResult.ok ? peersResult.rows.length : 0
+              const p2pResult = evaluateP2pRestart(p2pRestartState, {
+                peerCount,
+                syncGapExists,
+                p2pRunning,
+                now
+              })
+              p2pRestartState = p2pResult.state
+
+              if (p2pResult.shouldRestart) {
+                console.log(`[auto-restart] P2P has 0 peers with sync gap=${gap} blocks. Restarting P2P to reconnect.`)
+                const restartResult = await bridge.serviceRestart!({ ...toNodeApiSettings(nodeSettings), service: 'p2p' })
+                if (!disposed && restartResult.status) {
+                  setNodeStatus(restartResult.status)
+                }
+                console.log(`[auto-restart] P2P restart ${restartResult.ok ? 'succeeded' : 'failed'}: ${restartResult.output || ''}`)
+              }
+            } catch (err) {
+              console.error('[auto-restart] P2P peers check error:', err)
+            }
+          })()
+        } else {
+          p2pRestartState = createP2pRestartState()
+        }
+      }
+
       // --- Auto-restart stalled chain ---
       const result = evaluateAutoRestart(autoRestartState, {
         localHeight: localChainHead?.height ?? null,
         publicHeight: publicChainHead?.height ?? null,
-        now: Date.now()
+        now
       })
       autoRestartState = result.state
 
       if (!result.shouldRestart) return
 
       console.log(
-        `[auto-restart] Chain stalled at height ${localChainHead?.height ?? 0}, gap=${(publicChainHead?.height ?? 0) - (localChainHead?.height ?? 0)} blocks. Restarting chain to trigger indexer.`
+        `[auto-restart] Chain stalled at height ${localChainHead?.height ?? 0}, gap=${gap} blocks. Restarting chain to trigger indexer.`
       )
       if (bridge?.serviceRestart) {
         void bridge.serviceRestart({ ...toNodeApiSettings(nodeSettings), service: 'chain' }).then((res) => {
@@ -1389,7 +1428,7 @@ export function App() {
       disposed = true
       window.clearInterval(timer)
     }
-  }, [hasNodeControls, nodeRunningCount, publicChainHead, localChainHead, nodeSettings]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasNodeControls, nodeRunningCount, publicChainHead, localChainHead, nodeSettings, nodeServices]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll chain logs for indexer progress when RPC is not available
   useEffect(() => {
