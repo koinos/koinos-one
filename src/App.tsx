@@ -130,6 +130,9 @@ export function App() {
   const [selectedBlock, setSelectedBlock] = useState<any>(null)
   const selectedBlockRef = useRef<any>(null)
   const prevChainHeadRef = useRef<{ height: number; time: number } | null>(null)
+  const autoRestartStateRef = useRef<AutoRestartState>(createAutoRestartState())
+  const p2pRestartStateRef = useRef<P2pRestartState>(createP2pRestartState())
+  const verifyBlocksCheckDoneRef = useRef(false)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -1321,9 +1324,6 @@ export function App() {
     if (!hasNodeControls || nodeRunningCount === 0) return
 
     let disposed = false
-    let autoRestartState: AutoRestartState = createAutoRestartState()
-    let p2pRestartState: P2pRestartState = createP2pRestartState()
-    let verifyBlocksCheckDone = false
 
     const timer = window.setInterval(() => {
       if (disposed) return
@@ -1334,7 +1334,7 @@ export function App() {
       const syncGapExists = gap > SYNC_GAP_BLOCK_THRESHOLD
 
       // --- Auto-disable verify-blocks when chain is synced ---
-      if (!verifyBlocksCheckDone && bridge?.getVerifyBlocks && bridge?.setVerifyBlocks && bridge?.serviceRestart) {
+      if (!verifyBlocksCheckDoneRef.current && bridge?.getVerifyBlocks && bridge?.setVerifyBlocks && bridge?.serviceRestart) {
         void (async () => {
           try {
             const vbResult = await bridge.getVerifyBlocks!(toNodeApiSettings(nodeSettings))
@@ -1347,7 +1347,7 @@ export function App() {
               const setResult = await bridge.setVerifyBlocks!({ ...toNodeApiSettings(nodeSettings), enabled: false })
               console.log(`[verify-blocks] ${setResult.output}`)
               if (setResult.ok) {
-                verifyBlocksCheckDone = true
+                verifyBlocksCheckDoneRef.current = true
                 const restartResult = await bridge.serviceRestart!({ ...toNodeApiSettings(nodeSettings), service: 'chain' })
                 if (!disposed && restartResult.status) {
                   setNodeStatus(restartResult.status)
@@ -1356,7 +1356,7 @@ export function App() {
               }
             } else if (vbResult.enabled === false) {
               // Already disabled, no need to check again
-              verifyBlocksCheckDone = true
+              verifyBlocksCheckDoneRef.current = true
             }
           } catch (err) {
             console.error('[verify-blocks] Error checking verify-blocks:', err)
@@ -1374,13 +1374,14 @@ export function App() {
             try {
               const peersResult = await bridge.dashboardPeers!(toNodeApiSettings(nodeSettings))
               const peerCount = peersResult.ok ? peersResult.rows.length : 0
-              const p2pResult = evaluateP2pRestart(p2pRestartState, {
+              console.log(`[auto-restart] P2P check: peers=${peerCount}, gap=${gap}, noPeersCount=${p2pRestartStateRef.current.noPeersCount}`)
+              const p2pResult = evaluateP2pRestart(p2pRestartStateRef.current, {
                 peerCount,
                 syncGapExists,
                 p2pRunning,
                 now
               })
-              p2pRestartState = p2pResult.state
+              p2pRestartStateRef.current = p2pResult.state
 
               if (p2pResult.shouldRestart) {
                 console.log(`[auto-restart] P2P has 0 peers with sync gap=${gap} blocks. Restarting P2P to reconnect.`)
@@ -1395,17 +1396,17 @@ export function App() {
             }
           })()
         } else {
-          p2pRestartState = createP2pRestartState()
+          p2pRestartStateRef.current = createP2pRestartState()
         }
       }
 
       // --- Auto-restart stalled chain ---
-      const result = evaluateAutoRestart(autoRestartState, {
+      const result = evaluateAutoRestart(autoRestartStateRef.current, {
         localHeight: localChainHead?.height ?? null,
         publicHeight: publicChainHead?.height ?? null,
         now
       })
-      autoRestartState = result.state
+      autoRestartStateRef.current = result.state
 
       if (!result.shouldRestart) return
 
