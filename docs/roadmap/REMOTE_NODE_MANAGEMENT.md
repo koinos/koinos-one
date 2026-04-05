@@ -24,10 +24,11 @@
 
 The current architecture is hardwired to a single local node:
 
-- **`electron/main.ts`**: Module-level Maps (`nativeServiceProcesses`, `logsFollowSessions`) and a single `knodelStorage` instance. All service factories instantiated once at module scope.
-- **`electron/lib/ipc-handlers.ts`**: `IpcHandlerDeps` accepts a single flat set of function references. Every IPC channel maps to exactly one implementation.
-- **`electron/preload.ts`**: `window.knodel` exposes a flat API with no node identifier.
-- **`src/App.tsx`**: All state in a single component — `nodeSettings`, `nodeStatus`, etc. are singular values, not keyed by node ID.
+- **`electron/main.ts`**: Module-level Maps (`nativeServiceProcesses`, `logsFollowSessions`, `nativeLogsStreamIdsByService`, `nativeServiceVersionCache`) and a single `knodelStorage` instance. All service factories (`workspaceService`, `producerService`, `walletService`, `logsService`, `backupService`, `nativeRuntimeService`, `nativeBuildService`, `appLifecycleService`) instantiated once at module scope.
+- **`electron/lib/ipc-handlers.ts`**: `IpcHandlerDeps` accepts ~85 async function references organized by domain: ~40 node-scoped (status, start/stop, logs, dashboard, producer, backup, file read/write), ~20 wallet-scoped (import, unlock, transfer, accounts), and ~10 app-scoped (config, public RPCs, build). Every IPC channel maps to exactly one implementation.
+- **`electron/lib/workspace-service.ts`**: `normalizeNodeSettings()` resolves paths (`baseDir`, `repoPath`, config file paths) and is called by almost every IPC handler before operating. Tightly coupled to local filesystem.
+- **`electron/preload.ts`**: `window.knodel` exposes a flat API (`koinosNode`, `wallet`, `appConfig` namespaces) with no node identifier.
+- **`src/App.tsx`**: All state in a single component (90+ `useState` hooks) — `nodeSettings`, `nodeStatus`, etc. are singular values, not keyed by node ID. Auto-restart logic (`autoRestartStateRef`, `p2pRestartStateRef`) and merkle mismatch detection (`verifyBlocksCheckDoneRef`) are hardcoded for local node.
 
 ### Target Architecture (Multi-Node: Local + N Remote)
 
@@ -193,6 +194,8 @@ Phases: `validate` → `install-docker` → `deploy-compose` → `configure` →
 
 Each phase sends progress (0-100) and a human-readable message.
 
+**Important:** All event payloads (provisioning, logs follow, backup progress) must include a `nodeId: string` field. The existing `LOGS_FOLLOW_EVENT_CHANNEL` and `BACKUP_PROGRESS_EVENT_CHANNEL` carry no node identifier today — their payload types (`KoinosNodeLogsFollowEvent`, `BackupProgressEvent`) must be extended with `nodeId` to prevent event mixing when streaming from multiple nodes simultaneously. The channel names stay the same (changing them would break listeners); only the payload changes.
+
 ### 3.3 Firewall Configuration
 
 During provisioning:
@@ -336,6 +339,24 @@ const [provisionProgress, setProvisionProgress] = useState<ProvisionProgressStat
 
 On node switch: clear `nodeStatus`, `nodeSettings`, `dashboardProducers`, etc. and refetch from new backend.
 
+### 5.5 Producer Profile Per-Node
+
+The current producer profile (`producer-profile.v1.json`) and producer wallet (`producer-wallet.json`) are single global files. For multi-node block production:
+
+- **Producer profile must be per-node:** `producer-profile.{nodeId}.v1.json` — each node may produce with a different address/config
+- **Producer wallet stays global** — keys belong to the user, not the node. Balance queries route through the active node's RPC
+- `producerService` must accept `nodeId` to load the correct profile via `loadProducerRuntimeConfig(nodeId)`
+- `persistProducerRuntimeConfig(nodeId, config)` writes to the per-node profile file
+
+### 5.6 Workspace Service Adaptation
+
+`workspaceService.normalizeNodeSettings()` resolves local paths (`baseDir`, `repoPath`, config files) and is called by almost every IPC handler. For remote nodes:
+
+- Create `RemoteWorkspaceService` (or parametrize the existing one) that resolves remote paths (`/opt/koinos/config/`, `/opt/koinos/data/`)
+- `LocalNodeBackend` uses the existing `workspaceService`
+- `RemoteNodeBackend` uses `RemoteWorkspaceService` with the node's `dockerComposePath` as root
+- Path resolution is internal to each backend — IPC handlers never deal with raw paths
+
 ---
 
 ## 6. Remote Dashboard and Monitoring
@@ -349,6 +370,13 @@ SSH tunnel per remote node → local RPC access:
 3. `rpcSource` = public URL → use directly (no tunnel)
 
 All existing RPC-based panels (Explorer, Dashboard, Producer, Wallet) work unmodified — they already go through an RPC URL.
+
+**Integration with `ExplorerSettings.rpcSource`:** The renderer's `ExplorerSettings` type has `rpcSource: 'local' | string` (where string is a custom URL). The RPC URL resolution in `src/app/utils.tsx` must be updated to:
+- When `activeNodeId === 'local'` and `rpcSource === 'local'`: use `http://127.0.0.1:8080/` (unchanged)
+- When `activeNodeId` is remote and `rpcSource === 'local'`: resolve to `http://127.0.0.1:{tunnelPort}/` via a new IPC call or state that provides the tunnel port for the active remote node
+- When `rpcSource` is a custom URL: use directly regardless of active node (user explicitly chose a public endpoint)
+
+This change is small but critical — without it, switching to a remote node while `rpcSource === 'local'` would try to hit `localhost:8080` which belongs to the local node, not the remote one.
 
 ### 6.2 Performance Metrics for Remote Nodes
 
@@ -384,7 +412,7 @@ Every existing UI tab must work transparently when the user switches to a remote
 | Block Detail Dialog | RPC (`chain.get_blocks_by_id`) | ✅ Yes | RPC via SSH tunnel |
 | Dashboard: Producers | `bridge.dashboardProducers()` → main.ts → RPC | ⚠️ Needs routing | `dashboardProducers()` via RPC through tunnel |
 | Dashboard: Peers | `bridge.dashboardPeers()` → main.ts → P2P log parsing | ❌ No | Parse `docker compose logs p2p` via SSH |
-| Dashboard: Forecast | `bridge.producerOverview()` → RPC + local key | ⚠️ Partial | RPC through tunnel + SFTP for key reading |
+| Dashboard: Forecast | `bridge.producerOverview()` → RPC + local key | ✅ Yes (via tunnel + SFTP) | RPC through tunnel + SFTP for remote key reading. Wallet is local, calculation is pure RPC + local wallet data |
 | Dashboard: Performance | `bridge.dashboardPerformance()` → local host metrics | ❌ No | SSH commands (`free`, `df`, `nproc`, `docker stats`) |
 | Wallet | `getWalletBridge()` → local encrypted storage | ✅ Yes (always local) | N/A — wallet stays local, balance queries use RPC |
 | Producer: Overview | `bridge.producerOverview()` → RPC + local key | ⚠️ Partial | RPC through tunnel + SFTP for remote key |
@@ -676,6 +704,14 @@ rabbitmq:3-management-alpine
 
 New file: `electron/lib/remote-compose-generator.ts`
 
+**Approach:** Use a static YAML template embedded in the source (similar to how submodules already have configs), not purely programmatic generation. This is easier to debug (user can inspect the template), less prone to YAML generation bugs, and user overrides apply as patches on top of the template.
+
+The template is parameterized with:
+- Service selection (based on profiles)
+- Image tags (default `latest`, user can pin)
+- Volume paths (default `/opt/koinos/data/`)
+- Port bindings
+
 Key decisions:
 - All services use `latest` tag (user can pin versions)
 - AMQP binds only to `127.0.0.1` and internal Docker network
@@ -770,20 +806,32 @@ Default: no limits. Configurable via advanced settings.
 
 ## 12. Implementation Phases
 
-### Phase 1: Node Abstraction Layer (Foundation)
+### Phase 1A: Interfaces and Types (Additive, Zero Regression Risk)
 
-Refactor existing code to support `NodeBackend` interface. No remote functionality yet — app works exactly as before through the new abstraction.
+Add new types and interfaces without modifying any existing code paths. The app compiles and runs identically — these are unused definitions until Phase 1B wires them in.
 
-1. Create `NodeBackend` interface definition
-2. Create `LocalNodeBackend` wrapping existing services
-3. Create `NodeRegistry` with local-only registry
-4. Create `NodeBackendRouter` (nodeId → backend)
-5. Refactor `IpcHandlerDeps` to use router
-6. Add optional `nodeId` to all IPC input types
-7. Update preload, type declarations
-8. Add `registeredNodes` + `activeNodeId` state to App.tsx
+1. Create `NodeBackend` interface definition (`electron/lib/node-backend.ts`)
+2. Create `NodeRegistry` type and local-only registry (`electron/lib/node-registry.ts`)
+3. Add optional `nodeId?: string` to all node-scoped IPC input types in `main-types.ts`
+4. Add `nodeId: string` to event payload types (`KoinosNodeLogsFollowEvent`, `BackupProgressEvent`)
+5. Update `knodel-electron.d.ts` with new types and `nodeRegistry` API declarations
+6. Create `RemoteWorkspaceService` interface (`electron/lib/remote-workspace-service.ts`)
 
-**Verification:** App behavior identical. No visible UI changes.
+**Verification:** `npm run build` passes. App behavior identical. No runtime changes.
+
+### Phase 1B: Refactor to NodeBackend (Breaking Refactor, Requires Testing)
+
+Extract existing single-node logic into `LocalNodeBackend` behind the `NodeBackend` interface. App behavior remains identical but all node operations now go through the abstraction layer.
+
+1. Extract module-level Maps (`nativeServiceProcesses`, `logsFollowSessions`, `nativeLogsStreamIdsByService`, `nativeServiceVersionCache`) from `main.ts` into `LocalNodeBackend` as internal state
+2. Create `LocalNodeBackend` wrapping existing services — must inherit all AMQP special handling (GarageMQ binary, Homebrew detection, 90s startup timeout)
+3. Create `NodeBackendRouter` (`nodeId → backend`, defaults to `activeNodeId`)
+4. Refactor `IpcHandlerDeps` to use router — only the ~40 node-scoped functions route through it; ~20 wallet and ~10 app-config functions remain unchanged
+5. Update `preload.ts` with `nodeRegistry` namespace
+6. Add `registeredNodes` + `activeNodeId` state to App.tsx
+7. Refactor `producerService` to accept `nodeId` for per-node producer profile loading (`producer-profile.{nodeId}.v1.json`)
+
+**Verification:** App behavior identical. No visible UI changes. All existing tests pass.
 
 ### Phase 2: SSH Layer + Basic Connection
 
@@ -813,28 +861,31 @@ Refactor existing code to support `NodeBackend` interface. No remote functionali
 
 1. Create `RemoteNodeBackend` implementing `NodeBackend`
 2. SSH tunnel management for RPC
-3. Status via `docker compose ps`
+3. Status via `docker compose ps` — **must batch commands** (`docker compose ps --format json && docker stats --no-stream`) in a single SSH exec to be usable with SSH latency
 4. Start/stop/restart via `docker compose`
-5. Log streaming via SSH
+5. Log streaming via SSH (`docker compose logs -f` with SSH channel streaming)
 6. Config read/write via SSH/SFTP
-7. Dashboard performance via SSH system commands + `docker stats`
-8. Producer overview with remote key reading
+7. Dashboard performance via SSH system commands + `docker stats` (batched: `nproc && free -b && df -B1 && cat /proc/loadavg && docker stats --no-stream`)
+8. Producer overview with remote key reading (SFTP for key, RPC through tunnel)
+9. RPC URL resolution: update `src/app/utils.tsx` to resolve `rpcSource === 'local'` to tunnel port when active node is remote
+10. Disable auto-restart and verify-blocks logic in App.tsx for remote nodes — Docker handles restarts with `restart: unless-stopped`, and merkle mismatch detection is a local-only concern
 
-**Verification:** All existing panels work against remote nodes.
+**Verification:** All existing panels work against remote nodes. Switching between local and remote node preserves full functionality.
 
 ### Phase 5: Polish
 
-1. Auto-reconnect with backoff
-2. Graceful SSH disconnection handling
-3. Disk space monitoring
-4. Docker health checking
-5. Partial provisioning recovery
-6. Latency display + adaptive polling
-7. App shutdown handling
-8. Audit logging, host key verification (TOFU)
-9. Full EN + ES i18n
-10. Settings "Remote Nodes" tab
-11. Docker image updates
+1. Auto-reconnect with exponential backoff (1s, 2s, 4s, max 30s, up to 5 attempts)
+2. Graceful SSH disconnection handling — connection-lost banner with "Reconnect" button
+3. Disk space monitoring (< 10GB warning, < 2GB critical)
+4. Docker health checking (`systemctl is-active docker`, "Restart Docker" button)
+5. Partial provisioning recovery (idempotent steps, `provisioningState: 'incomplete'`)
+6. Latency display + adaptive polling (if latency > 500ms, double poll interval)
+7. App shutdown handling — close SSH connections gracefully, do NOT stop remote Docker containers
+8. Audit logging (`{userData}/logs/remote-audit-{nodeId}.log`, rotate at 10MB, never log credentials)
+9. Host key verification (TOFU — store fingerprint, alert on mismatch)
+10. Full EN + ES i18n for all remote node strings
+11. Settings "Remote Nodes" tab (edit name, update credentials, remove)
+12. Docker image updates (`docker compose pull` → `docker compose up -d`)
 
 ### Phase 6: Advanced (Post-MVP)
 
@@ -863,6 +914,7 @@ Refactor existing code to support `NodeBackend` interface. No remote functionali
 | `electron/lib/remote-provisioning-service.ts` | Docker install, compose deploy |
 | `electron/lib/remote-compose-generator.ts` | Generate docker-compose.yml |
 | `electron/lib/crypto-utils.ts` | Extracted AES-256-GCM encrypt/decrypt |
+| `electron/lib/remote-workspace-service.ts` | Path resolution for remote nodes (`/opt/koinos/` paths) |
 | `src/components/NodeSelector.tsx` | Node switcher dropdown |
 | `src/components/panels/RemoteNodeSetupWizard.tsx` | Multi-step setup wizard |
 
@@ -882,6 +934,7 @@ Refactor existing code to support `NodeBackend` interface. No remote functionali
 | `src/knodel-electron.d.ts` | nodeId in params, nodeRegistry API types |
 | `src/i18n.ts` | EN + ES for all remote node strings |
 | `src/components/panels/SettingsPanel.tsx` | "Remote Nodes" tab |
+| `electron/lib/producer-service.ts` | Per-node producer profile loading (`producer-profile.{nodeId}.v1.json`) |
 | `src/components/panels/MicroservicesConfigPanel.tsx` | Docker runtime display |
 | `package.json` | Add `ssh2` dependency |
 
@@ -891,9 +944,12 @@ Refactor existing code to support `NodeBackend` interface. No remote functionali
 
 | Phase | Estimated Scope | Files |
 |-------|----------------|-------|
-| Phase 1: Abstraction | ~15-20 files, refactoring only | 15 |
-| Phase 2: SSH + Connection | 6 new + 5 modified | 11 |
+| Phase 1A: Interfaces + Types | 5 new + 2 modified, additive only | 7 |
+| Phase 1B: Refactor to NodeBackend | 2 new + 8 modified, breaking refactor | 10 |
+| Phase 2: SSH + Connection | 4 new + 5 modified | 9 |
 | Phase 3: Provisioning | 3 new + 3 modified | 6 |
 | Phase 4: Full Backend | 1 new + 8 modified | 9 |
 | Phase 5: Polish | ~12 modified | 12 |
-| **Total** | **12 new files, ~25 modified** | — |
+| **Total** | **13 new files, ~27 modified** | — |
+
+**Prerequisite for Phases 3-5:** A VPS running Linux (Ubuntu 22.04+, 4GB RAM, 50GB disk) for end-to-end testing of remote provisioning and node management.
