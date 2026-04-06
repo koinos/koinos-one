@@ -15,6 +15,9 @@
 #include "interfaces/i_block_store.hpp"
 #include "interfaces/i_chain.hpp"
 #include "interfaces/i_mempool.hpp"
+#include "contract_meta_store/contract_meta_store.hpp"
+#include "transaction_store/transaction_store.hpp"
+#include "account_history/account_history.hpp"
 
 namespace koinos::node::jsonrpc {
 
@@ -38,6 +41,9 @@ public:
   JSONRPCServer( IChain* chain,
                  IMempool* mempool,
                  IBlockStore* block_store,
+                 contract_meta_store::ContractMetaStore* contract_meta = nullptr,
+                 transaction_store::TransactionStore* tx_store         = nullptr,
+                 account_history::AccountHistory* acct_history         = nullptr,
                  const std::string& listen_address = "0.0.0.0",
                  uint16_t port                     = 8080,
                  unsigned int threads               = 4 );
@@ -81,6 +87,15 @@ private:
   // ── Mempool dispatch ──
   nlohmann::json dispatch_mempool( const std::string& method, const nlohmann::json& params );
 
+  // ── Contract meta store dispatch ──
+  nlohmann::json dispatch_contract_meta_store( const std::string& method, const nlohmann::json& params );
+
+  // ── Transaction store dispatch ──
+  nlohmann::json dispatch_transaction_store( const std::string& method, const nlohmann::json& params );
+
+  // ── Account history dispatch ──
+  nlohmann::json dispatch_account_history( const std::string& method, const nlohmann::json& params );
+
   /** Build a JSON-RPC error response. */
   static nlohmann::json make_error( int code, const std::string& message, const nlohmann::json& id = nullptr );
 
@@ -104,6 +119,9 @@ private:
   IChain* _chain;
   IMempool* _mempool;
   IBlockStore* _block_store;
+  contract_meta_store::ContractMetaStore* _contract_meta;
+  transaction_store::TransactionStore* _tx_store;
+  account_history::AccountHistory* _acct_history;
 
   net::io_context _ioc;
   tcp::acceptor _acceptor;

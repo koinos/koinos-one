@@ -173,6 +173,9 @@ target_link_libraries(
   koinos_jsonrpc_lib
     PUBLIC
       koinos_node_interfaces
+      koinos_contract_meta_store_lib
+      koinos_transaction_store_lib
+      koinos_account_history_lib
       Koinos::log
       Koinos::proto
       Boost::system

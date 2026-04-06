@@ -481,6 +481,9 @@ int main( int argc, char** argv )
         &chain_adapter,
         nullptr, // mempool: future
         &block_store_impl,
+        cfg.is_enabled( "contract_meta_store" ) ? &contract_meta_impl : nullptr,
+        cfg.is_enabled( "transaction_store" ) ? &transaction_store_impl : nullptr,
+        cfg.is_enabled( "account_history" ) ? &account_history_impl : nullptr,
         jsonrpc_host,
         jsonrpc_port,
         static_cast< unsigned int >( cfg.jsonrpc_jobs )

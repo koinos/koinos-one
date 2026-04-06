@@ -61,6 +61,20 @@ function trimNativeLogBuffer(text: string, maxBytes: number): string {
   return text.slice(text.length - maxBytes)
 }
 
+/**
+ * Filter log lines by component prefix for monolith mode.
+ * The monolith outputs lines like: [chain] INFO message...
+ * When service='chain', only lines starting with [chain] are returned.
+ */
+export function filterLogsByComponent(logs: string, component: string): string {
+  if (!component || !logs) return logs
+  const prefix = `[${component}]`
+  return logs
+    .split('\n')
+    .filter((line) => line.includes(prefix))
+    .join('\n')
+}
+
 export function createLogsService(deps: LogsServiceDeps) {
   function tailNativeAmqpHomebrewLogs(tail: number): string {
     return deps.nativeAmqpHomebrewLogFiles()
@@ -258,6 +272,20 @@ export function createLogsService(deps: LogsServiceDeps) {
           service: targetService.service,
           tail,
           output: tailNativeAmqpHomebrewLogs(tail)
+        }
+      }
+
+      // In monolith mode, the single 'koinos-node' process contains all logs.
+      // Filter by [component] prefix when requesting a specific component.
+      const monolithState = deps.nativeServiceProcesses.get('koinos-node')
+      if (monolithState && !deps.nativeServiceProcesses.has(serviceId)) {
+        // serviceId is a component name within the monolith
+        const filtered = filterLogsByComponent(monolithState.output, serviceId)
+        return {
+          ok: true,
+          service: targetService.service,
+          tail,
+          output: tailTextLines(filtered, tail)
         }
       }
 

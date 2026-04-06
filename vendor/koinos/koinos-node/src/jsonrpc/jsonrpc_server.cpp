@@ -15,12 +15,18 @@ namespace koinos::node::jsonrpc {
 JSONRPCServer::JSONRPCServer( IChain* chain,
                               IMempool* mempool,
                               IBlockStore* block_store,
+                              contract_meta_store::ContractMetaStore* contract_meta,
+                              transaction_store::TransactionStore* tx_store,
+                              account_history::AccountHistory* acct_history,
                               const std::string& listen_address,
                               uint16_t port,
                               unsigned int threads )
     : _chain( chain ),
       _mempool( mempool ),
       _block_store( block_store ),
+      _contract_meta( contract_meta ),
+      _tx_store( tx_store ),
+      _acct_history( acct_history ),
       _ioc( threads ),
       _acceptor( _ioc, { net::ip::make_address( listen_address ), port } ),
       _thread_count( threads )
@@ -244,6 +250,12 @@ nlohmann::json JSONRPCServer::dispatch( const std::string& service,
     return dispatch_block_store( method, params );
   if( service == "mempool" )
     return dispatch_mempool( method, params );
+  if( service == "contract_meta_store" )
+    return dispatch_contract_meta_store( method, params );
+  if( service == "transaction_store" )
+    return dispatch_transaction_store( method, params );
+  if( service == "account_history" )
+    return dispatch_account_history( method, params );
 
   throw std::runtime_error( "Unknown service: " + service );
 }
@@ -414,6 +426,69 @@ nlohmann::json JSONRPCServer::dispatch_mempool( const std::string& method,
   }
 
   throw std::runtime_error( "Unknown mempool method: " + method );
+}
+
+// ---------------------------------------------------------------------------
+// Contract meta store dispatch
+// ---------------------------------------------------------------------------
+
+nlohmann::json JSONRPCServer::dispatch_contract_meta_store( const std::string& method,
+                                                             const nlohmann::json& params )
+{
+  if( !_contract_meta )
+    throw std::runtime_error( "contract_meta_store service not available" );
+
+  if( method == "get_contract_meta" )
+  {
+    rpc::contract_meta_store::get_contract_meta_request req;
+    json_to_proto( params, req );
+    auto resp = _contract_meta->get_contract_meta( req );
+    return nlohmann::json::parse( proto_to_json( resp ) );
+  }
+
+  throw std::runtime_error( "Unknown contract_meta_store method: " + method );
+}
+
+// ---------------------------------------------------------------------------
+// Transaction store dispatch
+// ---------------------------------------------------------------------------
+
+nlohmann::json JSONRPCServer::dispatch_transaction_store( const std::string& method,
+                                                           const nlohmann::json& params )
+{
+  if( !_tx_store )
+    throw std::runtime_error( "transaction_store service not available" );
+
+  if( method == "get_transactions_by_id" )
+  {
+    rpc::transaction_store::get_transactions_by_id_request req;
+    json_to_proto( params, req );
+    auto resp = _tx_store->get_transactions_by_id( req );
+    return nlohmann::json::parse( proto_to_json( resp ) );
+  }
+
+  throw std::runtime_error( "Unknown transaction_store method: " + method );
+}
+
+// ---------------------------------------------------------------------------
+// Account history dispatch
+// ---------------------------------------------------------------------------
+
+nlohmann::json JSONRPCServer::dispatch_account_history( const std::string& method,
+                                                         const nlohmann::json& params )
+{
+  if( !_acct_history )
+    throw std::runtime_error( "account_history service not available" );
+
+  if( method == "get_account_history" )
+  {
+    rpc::account_history::get_account_history_request req;
+    json_to_proto( params, req );
+    auto resp = _acct_history->get_account_history( req );
+    return nlohmann::json::parse( proto_to_json( resp ) );
+  }
+
+  throw std::runtime_error( "Unknown account_history method: " + method );
 }
 
 // ---------------------------------------------------------------------------
