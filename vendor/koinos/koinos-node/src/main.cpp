@@ -45,6 +45,10 @@
 // Phase 3: JSON-RPC gateway
 #include "jsonrpc/jsonrpc_server.hpp"
 
+// Phase 4: Contract meta store + Transaction store
+#include "contract_meta_store/contract_meta_store.hpp"
+#include "transaction_store/transaction_store.hpp"
+
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 
@@ -300,11 +304,13 @@ int main( int argc, char** argv )
     auto db_path = basedir / "db";
     std::filesystem::create_directories( db_path );
 
-    // Column families: default (chain state), blocks, block_meta
+    // Column families
     std::vector< rocksdb::ColumnFamilyDescriptor > cf_descriptors = {
-      { rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions() },
-      { "blocks",     rocksdb::ColumnFamilyOptions() },
-      { "block_meta", rocksdb::ColumnFamilyOptions() }
+      { rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions() }, // 0: chain state
+      { "blocks",         rocksdb::ColumnFamilyOptions() },                  // 1: block store
+      { "block_meta",     rocksdb::ColumnFamilyOptions() },                  // 2: block metadata
+      { "contract_meta",  rocksdb::ColumnFamilyOptions() },                  // 3: contract ABI
+      { "transaction_index", rocksdb::ColumnFamilyOptions() }                // 4: tx index
     };
 
     auto db_status = rocksdb::DB::Open( db_options, db_path.string(), cf_descriptors, &cf_handles, &raw_db );
@@ -320,8 +326,11 @@ int main( int argc, char** argv )
     // Block store using RocksDB column families
     node::block_store::BlockStore block_store_impl( raw_db, cf_handles[ 1 ], cf_handles[ 2 ] );
 
-    // Chain adapter implements IChain
+    // Phase 4: Contract meta store + Transaction store
+    node::contract_meta_store::ContractMetaStore contract_meta_impl( raw_db, cf_handles[ 3 ] );
+    node::transaction_store::TransactionStore transaction_store_impl( raw_db, cf_handles[ 4 ] );
 
+    // Chain adapter implements IChain
     ChainAdapter chain_adapter( controller );
 
     // Register block store component
@@ -363,6 +372,26 @@ int main( int argc, char** argv )
         block_store_impl.handle_block_accepted( ba );
       }
     );
+
+    // Contract meta store subscribes to block events
+    if( cfg.is_enabled( "contract_meta_store" ) )
+    {
+      event_bus.on_block_accepted.connect(
+        [&contract_meta_impl]( const broadcast::block_accepted& ba ) {
+          contract_meta_impl.handle_block_accepted( ba );
+        }
+      );
+    }
+
+    // Transaction store subscribes to block events
+    if( cfg.is_enabled( "transaction_store" ) )
+    {
+      event_bus.on_block_accepted.connect(
+        [&transaction_store_impl]( const broadcast::block_accepted& ba ) {
+          transaction_store_impl.handle_block_accepted( ba );
+        }
+      );
+    }
 
     event_bus.on_block_accepted.connect(
       [&]( const broadcast::block_accepted& ba ) {

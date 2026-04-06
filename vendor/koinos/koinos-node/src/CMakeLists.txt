@@ -96,6 +96,28 @@ target_link_libraries(chain PUBLIC
   Koinos::state_db Koinos::exception Koinos::crypto Koinos::log
   Koinos::util Koinos::proto vm_manager)
 
+# ── Contract Meta Store library (Phase 4) ──
+add_library(koinos_contract_meta_store_lib
+  contract_meta_store/contract_meta_store.cpp
+  contract_meta_store/contract_meta_store.hpp)
+
+target_include_directories(koinos_contract_meta_store_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(koinos_contract_meta_store_lib PUBLIC
+  Koinos::log Koinos::proto RocksDB::rocksdb)
+
+# ── Transaction Store library (Phase 4) ──
+add_library(koinos_transaction_store_lib
+  transaction_store/transaction_store.cpp
+  transaction_store/transaction_store.hpp)
+
+target_include_directories(koinos_transaction_store_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(koinos_transaction_store_lib PUBLIC
+  Koinos::log Koinos::proto RocksDB::rocksdb)
+
 # ── JSON-RPC server library (Phase 3: C++ port of Go jsonrpc) ──
 add_library(koinos_jsonrpc_lib
   jsonrpc/jsonrpc_server.cpp
@@ -134,6 +156,8 @@ target_link_libraries(
       koinos_node_core
       koinos_node_interfaces
       koinos_block_store_lib
+      koinos_contract_meta_store_lib
+      koinos_transaction_store_lib
       koinos_jsonrpc_lib
       Koinos::log
       Koinos::proto
