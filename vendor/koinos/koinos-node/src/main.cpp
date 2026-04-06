@@ -42,6 +42,9 @@
 // Phase 2: C++ block store
 #include "block_store/block_store.hpp"
 
+// Phase 3: JSON-RPC gateway
+#include "jsonrpc/jsonrpc_server.hpp"
+
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 
@@ -379,6 +382,49 @@ int main( int argc, char** argv )
                      << bi.topology().height();
       }
     );
+
+    // ── Phase 3: JSON-RPC server ──
+    // Parse listen address: "host:port" or just "port"
+    std::string jsonrpc_host = "0.0.0.0";
+    uint16_t jsonrpc_port    = 8080;
+    {
+      auto& listen = cfg.jsonrpc_listen;
+      auto colon   = listen.rfind( ':' );
+      if( colon != std::string::npos )
+      {
+        jsonrpc_host = listen.substr( 0, colon );
+        jsonrpc_port = static_cast< uint16_t >( std::stoi( listen.substr( colon + 1 ) ) );
+      }
+      else if( !listen.empty() )
+      {
+        jsonrpc_port = static_cast< uint16_t >( std::stoi( listen ) );
+      }
+    }
+
+    // Chain interface: use adapter if chain is built, otherwise nullptr
+    node::IChain* chain_ptr = nullptr;
+#ifdef KOINOS_HAS_CHAIN
+    chain_ptr = &chain_adapter;
+#endif
+
+    std::unique_ptr< node::jsonrpc::JSONRPCServer > jsonrpc_server;
+    if( cfg.is_enabled( "jsonrpc" ) )
+    {
+      jsonrpc_server = std::make_unique< node::jsonrpc::JSONRPCServer >(
+        chain_ptr,
+        nullptr, // mempool: Phase 1 future
+        &block_store_impl,
+        jsonrpc_host,
+        jsonrpc_port,
+        static_cast< unsigned int >( cfg.jsonrpc_jobs )
+      );
+
+      registry.add(
+        "jsonrpc",
+        [&]() { jsonrpc_server->start(); },
+        [&]() { jsonrpc_server->stop(); }
+      );
+    }
 
     // ── Signal handling ──
     boost::asio::signal_set signals( main_ioc, SIGINT, SIGTERM );

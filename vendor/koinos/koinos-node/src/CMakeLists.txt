@@ -55,6 +55,27 @@ target_link_libraries(
       Koinos::exception
       RocksDB::rocksdb)
 
+# ── JSON-RPC server library (Phase 3: C++ port of Go jsonrpc) ──
+add_library(koinos_jsonrpc_lib
+  jsonrpc/jsonrpc_server.cpp
+  jsonrpc/jsonrpc_server.hpp)
+
+target_include_directories(
+  koinos_jsonrpc_lib
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(
+  koinos_jsonrpc_lib
+    PUBLIC
+      koinos_node_interfaces
+      Koinos::log
+      Koinos::proto
+      Boost::system
+      Boost::thread
+      nlohmann_json::nlohmann_json
+      protobuf::libprotobuf)
+
 # ── Main executable ──
 #
 # Phase 1: Links the existing chain library directly.
@@ -72,6 +93,7 @@ target_link_libraries(
       koinos_node_core
       koinos_node_interfaces
       koinos_block_store_lib
+      koinos_jsonrpc_lib
       Koinos::log
       Koinos::proto
       Koinos::util
