@@ -55,6 +55,47 @@ target_link_libraries(
       Koinos::exception
       RocksDB::rocksdb)
 
+# ── VM Manager library (from koinos-chain, no AMQP deps) ──
+add_library(vm_manager
+  koinos/vm_manager/host_api.cpp
+  koinos/vm_manager/vm_backend.cpp
+  koinos/vm_manager/fizzy/fizzy_vm_backend.cpp
+  koinos/vm_manager/fizzy/module_cache.cpp
+  koinos/vm_manager/host_api.hpp
+  koinos/vm_manager/vm_backend.hpp
+  koinos/vm_manager/fizzy/exceptions.hpp
+  koinos/vm_manager/fizzy/fizzy_vm_backend.hpp
+  koinos/vm_manager/fizzy/module_cache.hpp)
+
+target_include_directories(vm_manager PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(vm_manager PUBLIC
+  Koinos::exception Koinos::log Koinos::util fizzy::fizzy)
+
+# ── Chain library (from koinos-chain, with MonolithClient replacing AMQP) ──
+add_library(chain
+  koinos/chain/chronicler.cpp
+  koinos/chain/controller.cpp
+  koinos/chain/execution_context.cpp
+  koinos/chain/host_api.cpp
+  koinos/chain/indexer.cpp
+  koinos/chain/proto_utils.cpp
+  koinos/chain/rectify.cpp
+  koinos/chain/resource_meter.cpp
+  koinos/chain/session.cpp
+  koinos/chain/state.cpp
+  koinos/chain/system_calls.cpp
+  koinos/chain/thunk_dispatcher.cpp)
+
+target_include_directories(chain PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(chain PUBLIC
+  koinos_node_core koinos_node_interfaces
+  Koinos::state_db Koinos::exception Koinos::crypto Koinos::log
+  Koinos::util Koinos::proto vm_manager)
+
 # ── JSON-RPC server library (Phase 3: C++ port of Go jsonrpc) ──
 add_library(koinos_jsonrpc_lib
   jsonrpc/jsonrpc_server.cpp
@@ -105,17 +146,8 @@ target_link_libraries(
       Boost::thread
       yaml-cpp::yaml-cpp)
 
-# Phase 1: Link the chain library (from koinos-chain submodule)
-# This requires either:
-#   a) add_subdirectory(${KOINOS_CHAIN_SOURCE_DIR}/src) in parent CMake, or
-#   b) find_package(koinos_chain) if installed
-# For now, use a conditional check:
-if(TARGET chain)
-  target_link_libraries(koinos_node PRIVATE chain)
-  target_compile_definitions(koinos_node PRIVATE KOINOS_HAS_CHAIN)
-  message(STATUS "koinos_node: linking chain library from koinos-chain")
-else()
-  message(WARNING "koinos_node: chain library target not found — chain integration disabled")
-endif()
+# Chain library is now built internally — always available
+target_link_libraries(koinos_node PRIVATE chain)
+target_compile_definitions(koinos_node PRIVATE KOINOS_HAS_CHAIN)
 
 koinos_install(TARGETS koinos_node)

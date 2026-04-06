@@ -12,6 +12,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -32,12 +33,11 @@
 #include "interfaces/i_chain.hpp"
 #include "interfaces/i_mempool.hpp"
 
-// Phase 1: chain controller (from koinos-chain library, minus AMQP)
-// Only available when building with the chain library linked.
-#ifdef KOINOS_HAS_CHAIN
+// Phase 1: chain controller (internal, AMQP replaced by MonolithClient)
 #include <koinos/chain/controller.hpp>
 #include <koinos/chain/indexer.hpp>
-#endif
+#include "core/monolith_client.hpp"
+#include "core/monolith_rpc_client.hpp"
 
 // Phase 2: C++ block store
 #include "block_store/block_store.hpp"
@@ -73,7 +73,7 @@ using namespace koinos;
 // ---------------------------------------------------------------------------
 // ChainAdapter — wraps chain::controller to implement IChain
 // ---------------------------------------------------------------------------
-#ifdef KOINOS_HAS_CHAIN
+
 class ChainAdapter final : public node::IChain
 {
 public:
@@ -148,7 +148,7 @@ public:
 private:
   chain::controller& _ctrl;
 };
-#endif // KOINOS_HAS_CHAIN
+
 
 // ---------------------------------------------------------------------------
 // main
@@ -248,7 +248,7 @@ int main( int argc, char** argv )
     boost::asio::io_context chain_ioc;
 
     // ── Phase 1: Chain component (requires chain library) ──
-#ifdef KOINOS_HAS_CHAIN
+
     chain::fork_resolution_algorithm fork_algo = chain::fork_resolution_algorithm::fifo;
     if( cfg.fork_algorithm == "pob" )
       fork_algo = chain::fork_resolution_algorithm::pob;
@@ -287,7 +287,7 @@ int main( int argc, char** argv )
 
     auto state_dir = basedir / "chain" / "blockchain";
     std::filesystem::create_directories( state_dir );
-#endif // KOINOS_HAS_CHAIN
+
 
     // ── Phase 2: RocksDB + Block Store ──
     rocksdb::DB* raw_db = nullptr;
@@ -321,9 +321,8 @@ int main( int argc, char** argv )
     node::block_store::BlockStore block_store_impl( raw_db, cf_handles[ 1 ], cf_handles[ 2 ] );
 
     // Chain adapter implements IChain
-#ifdef KOINOS_HAS_CHAIN
+
     ChainAdapter chain_adapter( controller );
-#endif
 
     // Register block store component
     if( cfg.is_enabled( "block_store" ) )
@@ -341,7 +340,7 @@ int main( int argc, char** argv )
     }
 
     // Register chain component
-#ifdef KOINOS_HAS_CHAIN
+
     if( cfg.is_enabled( "chain" ) )
     {
       registry.add(
@@ -355,10 +354,6 @@ int main( int argc, char** argv )
         }
       );
     }
-#else
-    if( cfg.is_enabled( "chain" ) )
-      LOG( warning ) << "[chain] Built without chain library — chain component disabled";
-#endif
 
     // ── EventBus wiring ──
 
@@ -401,18 +396,18 @@ int main( int argc, char** argv )
       }
     }
 
-    // Chain interface: use adapter if chain is built, otherwise nullptr
-    node::IChain* chain_ptr = nullptr;
-#ifdef KOINOS_HAS_CHAIN
-    chain_ptr = &chain_adapter;
-#endif
+    // Wire MonolithClient so the chain controller routes RPC/broadcast
+    // through IBlockStore + EventBus instead of AMQP
+    auto monolith_client = std::make_shared< node::MonolithRpcClient >(
+      &block_store_impl, nullptr /* mempool */, &event_bus );
+    controller.set_client( monolith_client );
 
     std::unique_ptr< node::jsonrpc::JSONRPCServer > jsonrpc_server;
     if( cfg.is_enabled( "jsonrpc" ) )
     {
       jsonrpc_server = std::make_unique< node::jsonrpc::JSONRPCServer >(
-        chain_ptr,
-        nullptr, // mempool: Phase 1 future
+        &chain_adapter,
+        nullptr, // mempool: future
         &block_store_impl,
         jsonrpc_host,
         jsonrpc_port,
