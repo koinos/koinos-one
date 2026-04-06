@@ -9,6 +9,7 @@
 
 #include <rocksdb/db.h>
 
+#include <koinos/block_store/block_store.pb.h>
 #include <koinos/broadcast/broadcast.pb.h>
 #include <koinos/rpc/block_store/block_store_rpc.pb.h>
 
@@ -89,7 +90,7 @@ private:
    * @param return_block   Include block data
    * @param return_receipt Include receipt data
    */
-  std::vector< rpc::block_store::block_item >
+  std::vector< koinos::block_store::block_item >
   fill_blocks( const std::string& start_id,
                uint32_t count,
                bool return_block,

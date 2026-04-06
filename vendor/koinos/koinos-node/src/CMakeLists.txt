@@ -1,3 +1,8 @@
+# yaml-cpp Hunter target is "yaml-cpp", not "yaml-cpp::yaml-cpp"
+if(TARGET yaml-cpp AND NOT TARGET yaml-cpp::yaml-cpp)
+  add_library(yaml-cpp::yaml-cpp ALIAS yaml-cpp)
+endif()
+
 # ── Core library (config, event_bus, service_registry) ──
 add_library(koinos_node_core
   core/config.cpp
@@ -85,6 +90,7 @@ target_link_libraries(
 # For now, use a conditional check:
 if(TARGET chain)
   target_link_libraries(koinos_node PRIVATE chain)
+  target_compile_definitions(koinos_node PRIVATE KOINOS_HAS_CHAIN)
   message(STATUS "koinos_node: linking chain library from koinos-chain")
 else()
   message(WARNING "koinos_node: chain library target not found — chain integration disabled")

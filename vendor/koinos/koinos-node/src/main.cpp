@@ -33,8 +33,11 @@
 #include "interfaces/i_mempool.hpp"
 
 // Phase 1: chain controller (from koinos-chain library, minus AMQP)
+// Only available when building with the chain library linked.
+#ifdef KOINOS_HAS_CHAIN
 #include <koinos/chain/controller.hpp>
 #include <koinos/chain/indexer.hpp>
+#endif
 
 // Phase 2: C++ block store
 #include "block_store/block_store.hpp"
@@ -67,6 +70,7 @@ using namespace koinos;
 // ---------------------------------------------------------------------------
 // ChainAdapter — wraps chain::controller to implement IChain
 // ---------------------------------------------------------------------------
+#ifdef KOINOS_HAS_CHAIN
 class ChainAdapter final : public node::IChain
 {
 public:
@@ -141,6 +145,7 @@ public:
 private:
   chain::controller& _ctrl;
 };
+#endif // KOINOS_HAS_CHAIN
 
 // ---------------------------------------------------------------------------
 // main
@@ -239,15 +244,14 @@ int main( int argc, char** argv )
     boost::asio::io_context main_ioc;
     boost::asio::io_context chain_ioc;
 
-    // ── Phase 1: Chain component ──
-    // Resolve fork algorithm
+    // ── Phase 1: Chain component (requires chain library) ──
+#ifdef KOINOS_HAS_CHAIN
     chain::fork_resolution_algorithm fork_algo = chain::fork_resolution_algorithm::fifo;
     if( cfg.fork_algorithm == "pob" )
       fork_algo = chain::fork_resolution_algorithm::pob;
     else if( cfg.fork_algorithm == "block-time" )
       fork_algo = chain::fork_resolution_algorithm::block_time;
 
-    // Load genesis data
     chain::genesis_data genesis;
     {
       auto genesis_path = basedir / "chain" / "genesis_data.json";
@@ -268,22 +272,19 @@ int main( int argc, char** argv )
       }
     }
 
-    // Construct chain controller (reuses existing koinos-chain library)
     std::optional< uint64_t > pending_limit;
     if( !cfg.disable_pending_transaction_limit )
       pending_limit = cfg.pending_transaction_limit;
 
     chain::controller controller(
       cfg.read_compute_bandwidth_limit,
-      64'000, // syscall buffer size
+      64'000,
       pending_limit
     );
 
     auto state_dir = basedir / "chain" / "blockchain";
     std::filesystem::create_directories( state_dir );
-
-    // NOTE: controller.set_client() is NOT called — no AMQP client needed.
-    // In monolith mode, the chain calls IBlockStore directly via the adapter.
+#endif // KOINOS_HAS_CHAIN
 
     // ── Phase 2: RocksDB + Block Store ──
     rocksdb::DB* raw_db = nullptr;
@@ -314,10 +315,12 @@ int main( int argc, char** argv )
                 << " with " << cf_handles.size() << " column families";
 
     // Block store using RocksDB column families
-    block_store::BlockStore block_store_impl( raw_db, cf_handles[ 1 ], cf_handles[ 2 ] );
+    node::block_store::BlockStore block_store_impl( raw_db, cf_handles[ 1 ], cf_handles[ 2 ] );
 
     // Chain adapter implements IChain
+#ifdef KOINOS_HAS_CHAIN
     ChainAdapter chain_adapter( controller );
+#endif
 
     // Register block store component
     if( cfg.is_enabled( "block_store" ) )
@@ -335,6 +338,7 @@ int main( int argc, char** argv )
     }
 
     // Register chain component
+#ifdef KOINOS_HAS_CHAIN
     if( cfg.is_enabled( "chain" ) )
     {
       registry.add(
@@ -348,6 +352,10 @@ int main( int argc, char** argv )
         }
       );
     }
+#else
+    if( cfg.is_enabled( "chain" ) )
+      LOG( warning ) << "[chain] Built without chain library — chain component disabled";
+#endif
 
     // ── EventBus wiring ──
 

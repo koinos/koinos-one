@@ -77,7 +77,7 @@ std::string BlockStore::get_ancestor_id_at_height( const std::string& block_id,
     if( record_bytes.empty() )
       KOINOS_THROW( block_not_present, "block not found during ancestor traversal" );
 
-    rpc::block_store::block_record record;
+    koinos::block_store::block_record record;
     if( !record.ParseFromString( record_bytes ) )
       KOINOS_THROW( db_error, "failed to parse block record" );
 
@@ -102,13 +102,13 @@ std::string BlockStore::get_ancestor_id_at_height( const std::string& block_id,
   }
 }
 
-std::vector< rpc::block_store::block_item >
+std::vector< koinos::block_store::block_item >
 BlockStore::fill_blocks( const std::string& start_id,
                          uint32_t count,
                          bool return_block,
                          bool return_receipt ) const
 {
-  std::vector< rpc::block_store::block_item > items;
+  std::vector< koinos::block_store::block_item > items;
   items.reserve( count );
 
   std::string current_id = start_id;
@@ -121,14 +121,14 @@ BlockStore::fill_blocks( const std::string& start_id,
     if( record_bytes.empty() )
       break;
 
-    rpc::block_store::block_record record;
+    koinos::block_store::block_record record;
     if( !record.ParseFromString( record_bytes ) )
       break;
 
     if( !first && record.block_height() != expected_height )
       break;
 
-    rpc::block_store::block_item item;
+    koinos::block_store::block_item item;
     item.set_block_id( record.block_id() );
     item.set_block_height( record.block_height() );
 
@@ -210,7 +210,7 @@ BlockStore::get_blocks_by_id( const rpc::block_store::get_blocks_by_id_request& 
     if( record_bytes.empty() )
       continue;
 
-    rpc::block_store::block_record record;
+    koinos::block_store::block_record record;
     if( !record.ParseFromString( record_bytes ) )
       continue;
 
@@ -316,7 +316,7 @@ BlockStore::add_block( const rpc::block_store::add_block_request& req )
     return resp; // Idempotent
 
   // Build the BlockRecord with skip-list pointers
-  rpc::block_store::block_record record;
+  koinos::block_store::block_record record;
   record.set_block_id( block.id() );
   record.set_block_height( height );
   *record.mutable_block() = block;
