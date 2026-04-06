@@ -64,7 +64,10 @@
 #include "transaction_store/transaction_store.hpp"
 
 #include <rocksdb/db.h>
+#include <rocksdb/filter_policy.h>
 #include <rocksdb/options.h>
+#include <rocksdb/slice_transform.h>
+#include <rocksdb/table.h>
 
 // Protobuf
 #include <koinos/broadcast/broadcast.pb.h>
@@ -318,18 +321,53 @@ int main( int argc, char** argv )
     rocksdb::Options db_options;
     db_options.create_if_missing          = true;
     db_options.create_missing_column_families = true;
+    db_options.max_background_jobs        = 4;            // Compaction + flush threads
+    db_options.bytes_per_sync             = 1048576;      // 1MB fsync interval
 
     auto db_path = basedir / "db";
     std::filesystem::create_directories( db_path );
 
+    // ── Per-CF tuning (Phase 5/Sprint 5) ──
+
+    // Default CF (chain state): small blocks, point lookups + iterators
+    rocksdb::ColumnFamilyOptions cf_default;
+
+    // Blocks CF: large values (full blocks), zstd compression, bloom filters
+    rocksdb::ColumnFamilyOptions cf_blocks;
+    rocksdb::BlockBasedTableOptions blocks_table_opts;
+    blocks_table_opts.block_size          = 64 * 1024;    // 64KB blocks (large values)
+    blocks_table_opts.filter_policy.reset( rocksdb::NewBloomFilterPolicy( 10 ) );
+    cf_blocks.table_factory.reset( rocksdb::NewBlockBasedTableFactory( blocks_table_opts ) );
+    cf_blocks.compression        = rocksdb::kZSTD;
+    cf_blocks.target_file_size_base = 64 * 1024 * 1024;  // 64MB SST files
+
+    // Block meta CF: tiny (single key)
+    rocksdb::ColumnFamilyOptions cf_block_meta;
+
+    // Contract meta CF: small values (ABI strings), bloom filters
+    rocksdb::ColumnFamilyOptions cf_contract_meta;
+    rocksdb::BlockBasedTableOptions contract_meta_table_opts;
+    contract_meta_table_opts.filter_policy.reset( rocksdb::NewBloomFilterPolicy( 10 ) );
+    cf_contract_meta.table_factory.reset( rocksdb::NewBlockBasedTableFactory( contract_meta_table_opts ) );
+
+    // Transaction index CF: moderate, bloom filters for point lookups
+    rocksdb::ColumnFamilyOptions cf_tx_index;
+    rocksdb::BlockBasedTableOptions tx_index_table_opts;
+    tx_index_table_opts.filter_policy.reset( rocksdb::NewBloomFilterPolicy( 10 ) );
+    cf_tx_index.table_factory.reset( rocksdb::NewBlockBasedTableFactory( tx_index_table_opts ) );
+
+    // Account history CF: range scans, no bloom (prefix iteration)
+    rocksdb::ColumnFamilyOptions cf_acct_history;
+    cf_acct_history.prefix_extractor.reset( rocksdb::NewFixedPrefixTransform( 34 ) ); // address length
+
     // Column families
     std::vector< rocksdb::ColumnFamilyDescriptor > cf_descriptors = {
-      { rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions() }, // 0: chain state
-      { "blocks",         rocksdb::ColumnFamilyOptions() },                  // 1: block store
-      { "block_meta",     rocksdb::ColumnFamilyOptions() },                  // 2: block metadata
-      { "contract_meta",  rocksdb::ColumnFamilyOptions() },                  // 3: contract ABI
-      { "transaction_index", rocksdb::ColumnFamilyOptions() },               // 4: tx index
-      { "account_history",   rocksdb::ColumnFamilyOptions() }                // 5: account history
+      { rocksdb::kDefaultColumnFamilyName, cf_default },      // 0: chain state
+      { "blocks",            cf_blocks },                      // 1: block store
+      { "block_meta",        cf_block_meta },                  // 2: block metadata
+      { "contract_meta",     cf_contract_meta },               // 3: contract ABI
+      { "transaction_index", cf_tx_index },                    // 4: tx index
+      { "account_history",   cf_acct_history }                 // 5: account history
     };
 
     auto db_status = rocksdb::DB::Open( db_options, db_path.string(), cf_descriptors, &cf_handles, &raw_db );
