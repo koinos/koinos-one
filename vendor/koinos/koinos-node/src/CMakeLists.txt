@@ -73,6 +73,21 @@ target_include_directories(vm_manager PUBLIC
 target_link_libraries(vm_manager PUBLIC
   Koinos::exception Koinos::log Koinos::util fizzy::fizzy)
 
+# ── Mempool library (from koinos-mempool, no AMQP deps) ──
+add_library(mempool_lib
+  koinos/mempool/mempool.cpp
+  koinos/mempool/block_applicator.cpp
+  koinos/mempool/state.cpp
+  koinos/mempool/mempool.hpp
+  koinos/mempool/block_applicator.hpp
+  koinos/mempool/state.hpp)
+
+target_include_directories(mempool_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(mempool_lib PUBLIC
+  Koinos::state_db Koinos::exception Koinos::crypto Koinos::log Koinos::proto)
+
 # ── Chain library (from koinos-chain, with MonolithClient replacing AMQP) ──
 add_library(chain
   koinos/chain/chronicler.cpp
@@ -200,6 +215,7 @@ target_link_libraries(
       koinos_node_core
       koinos_node_interfaces
       koinos_block_store_lib
+      mempool_lib
       koinos_p2p_lib
       koinos_account_history_lib
       koinos_grpc_server_lib

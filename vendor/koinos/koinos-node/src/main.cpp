@@ -45,6 +45,10 @@
 // Phase 3: JSON-RPC gateway
 #include "jsonrpc/jsonrpc_server.hpp"
 
+// Mempool
+#include <koinos/mempool/mempool.hpp>
+#include "mempool/mempool_adapter.hpp"
+
 // Phase 5: P2P
 #include "p2p/p2p_node.hpp"
 
@@ -300,6 +304,10 @@ int main( int argc, char** argv )
     std::filesystem::create_directories( state_dir );
 
 
+    // ── Mempool ──
+    koinos::mempool::mempool mempool_impl;
+    node::MempoolAdapter mempool_adapter( mempool_impl );
+
     // ── Phase 2: RocksDB + Block Store ──
     rocksdb::DB* raw_db = nullptr;
     std::vector< rocksdb::ColumnFamilyHandle* > cf_handles;
@@ -412,6 +420,21 @@ int main( int argc, char** argv )
       );
     }
 
+    // Mempool subscribes to block events
+    if( cfg.is_enabled( "mempool" ) )
+    {
+      event_bus.on_block_accepted.connect(
+        [&mempool_impl]( const broadcast::block_accepted& ba ) {
+          mempool_impl.handle_block( ba );
+        }
+      );
+      event_bus.on_block_irreversible.connect(
+        [&mempool_impl]( const broadcast::block_irreversible& bi ) {
+          mempool_impl.handle_irreversibility( bi );
+        }
+      );
+    }
+
     event_bus.on_block_accepted.connect(
       [&]( const broadcast::block_accepted& ba ) {
         LOG( debug ) << "[event_bus] block_accepted height="
@@ -442,7 +465,7 @@ int main( int argc, char** argv )
     if( cfg.is_enabled( "grpc" ) )
     {
       grpc_srv = std::make_unique< node::grpc_server::GRPCServer >(
-        &chain_adapter, nullptr, &block_store_impl, "0.0.0.0:50051", 2 );
+        &chain_adapter, &mempool_adapter, &block_store_impl, "0.0.0.0:50051", 2 );
       registry.add(
         "grpc",
         [&]() { grpc_srv->start(); },
@@ -471,7 +494,7 @@ int main( int argc, char** argv )
     // Wire MonolithClient so the chain controller routes RPC/broadcast
     // through IBlockStore + EventBus instead of AMQP
     auto monolith_client = std::make_shared< node::MonolithRpcClient >(
-      &block_store_impl, nullptr /* mempool */, &event_bus );
+      &block_store_impl, &mempool_adapter, &event_bus );
     controller.set_client( monolith_client );
 
     std::unique_ptr< node::jsonrpc::JSONRPCServer > jsonrpc_server;
@@ -479,7 +502,7 @@ int main( int argc, char** argv )
     {
       jsonrpc_server = std::make_unique< node::jsonrpc::JSONRPCServer >(
         &chain_adapter,
-        nullptr, // mempool: future
+        &mempool_adapter,
         &block_store_impl,
         cfg.is_enabled( "contract_meta_store" ) ? &contract_meta_impl : nullptr,
         cfg.is_enabled( "transaction_store" ) ? &transaction_store_impl : nullptr,
