@@ -1,0 +1,71 @@
+# ── Core library (config, event_bus, service_registry) ──
+add_library(koinos_node_core
+  core/config.cpp
+  core/config.hpp
+  core/event_bus.hpp
+  core/service_registry.hpp)
+
+target_include_directories(
+  koinos_node_core
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(
+  koinos_node_core
+    PUBLIC
+      Koinos::log
+      Koinos::proto
+      yaml-cpp::yaml-cpp
+      Boost::system
+      Boost::log)
+
+# ── Interface headers (header-only) ──
+add_library(koinos_node_interfaces INTERFACE)
+target_include_directories(
+  koinos_node_interfaces
+    INTERFACE
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(
+  koinos_node_interfaces
+    INTERFACE
+      Koinos::proto)
+
+# ── Main executable ──
+#
+# Phase 1: Links the existing chain library directly.
+# The chain library is built from the koinos-chain submodule but used
+# as a library target (no AMQP main). The monolith provides its own main().
+#
+# NOTE: For this to build, the koinos-chain library target must be available.
+# In development, add koinos-chain as a subdirectory or link the pre-built lib.
+
+add_executable(koinos_node main.cpp)
+
+target_link_libraries(
+  koinos_node
+    PRIVATE
+      koinos_node_core
+      koinos_node_interfaces
+      Koinos::log
+      Koinos::proto
+      Koinos::util
+      Koinos::exception
+      Koinos::crypto
+      Koinos::state_db
+      Boost::program_options
+      Boost::thread
+      yaml-cpp::yaml-cpp)
+
+# Phase 1: Link the chain library (from koinos-chain submodule)
+# This requires either:
+#   a) add_subdirectory(${KOINOS_CHAIN_SOURCE_DIR}/src) in parent CMake, or
+#   b) find_package(koinos_chain) if installed
+# For now, use a conditional check:
+if(TARGET chain)
+  target_link_libraries(koinos_node PRIVATE chain)
+  message(STATUS "koinos_node: linking chain library from koinos-chain")
+else()
+  message(WARNING "koinos_node: chain library target not found — chain integration disabled")
+endif()
+
+koinos_install(TARGETS koinos_node)
