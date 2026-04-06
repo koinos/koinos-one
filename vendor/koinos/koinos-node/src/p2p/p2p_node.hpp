@@ -1,0 +1,104 @@
+#pragma once
+
+#include <atomic>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <koinos/log.hpp>
+
+#include "interfaces/i_block_store.hpp"
+#include "interfaces/i_chain.hpp"
+#include "core/event_bus.hpp"
+
+#include "error_handler.hpp"
+#include "fork_watchdog.hpp"
+#include "gossip_toggle.hpp"
+#include "transport.hpp"
+#include "types.hpp"
+
+namespace koinos::node::p2p {
+
+/**
+ * P2P node — manages peer connections, block sync, gossip.
+ * Replaces the Go koinos-p2p service.
+ *
+ * Architecture:
+ * - ITransport: abstract network layer (cpp-libp2p implementation pending)
+ * - PeerErrorHandler: scoring with exponential decay
+ * - ForkWatchdog: fork bomb detection
+ * - GossipToggle: enable/disable based on sync state
+ * - Sync protocol: batch fetch from peers, sequential application
+ */
+class P2PNode
+{
+public:
+  P2PNode( const P2POptions& opts,
+           IChain* chain,
+           IBlockStore* block_store,
+           EventBus* event_bus,
+           std::unique_ptr< ITransport > transport );
+
+  ~P2PNode();
+
+  void start();
+  void stop();
+
+  uint32_t connected_peer_count() const;
+
+private:
+  // ── Peer sync state ──
+  struct PeerState
+  {
+    PeerID peer;
+    bool synced           = false;
+    bool handshake_done   = false;
+    std::thread sync_thread;
+  };
+
+  // ── Peer lifecycle ──
+  void on_peer_connected( const PeerID& peer );
+  void on_peer_disconnected( const PeerID& peer );
+
+  // ── Sync protocol (runs per peer in dedicated thread) ──
+  void peer_sync_loop( PeerID peer );
+  bool peer_handshake( const PeerID& peer );
+  bool request_sync_blocks( const PeerID& peer, bool& is_synced );
+
+  // ── Gossip handlers ──
+  void on_gossip_block( const PeerID& from, const protocol::block& block );
+  void on_gossip_transaction( const PeerID& from, const protocol::transaction& tx );
+
+  // ── EventBus handlers ──
+  void on_block_accepted( const broadcast::block_accepted& ba );
+  void on_block_irreversible( const broadcast::block_irreversible& bi );
+
+  // ── Helpers ──
+  void report_peer_error( const PeerID& peer, const std::string& error, uint64_t score );
+
+  P2POptions _opts;
+  IChain* _chain;
+  IBlockStore* _block_store;
+  EventBus* _event_bus;
+  std::unique_ptr< ITransport > _transport;
+
+  PeerErrorHandler _error_handler;
+  ForkWatchdog _fork_watchdog;
+  std::unique_ptr< GossipToggle > _gossip_toggle;
+
+  std::mutex _peers_mutex;
+  std::map< std::string, std::unique_ptr< PeerState > > _peers; // peer.id → state
+
+  std::atomic< bool > _running{ false };
+  std::atomic< uint64_t > _lib_height{ 0 };
+  std::string _chain_id;
+
+  // Seed peers for reconnection
+  std::vector< PeerID > _seed_peers;
+  std::thread _reconnect_thread;
+};
+
+} // namespace koinos::node::p2p

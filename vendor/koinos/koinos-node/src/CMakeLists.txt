@@ -96,6 +96,23 @@ target_link_libraries(chain PUBLIC
   Koinos::state_db Koinos::exception Koinos::crypto Koinos::log
   Koinos::util Koinos::proto vm_manager)
 
+# ── P2P library (Phase 5: sync, gossip, error scoring — transport abstracted) ──
+add_library(koinos_p2p_lib
+  p2p/p2p_node.cpp
+  p2p/p2p_node.hpp
+  p2p/transport.hpp
+  p2p/error_handler.hpp
+  p2p/fork_watchdog.hpp
+  p2p/gossip_toggle.hpp
+  p2p/types.hpp)
+
+target_include_directories(koinos_p2p_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(koinos_p2p_lib PUBLIC
+  koinos_node_core koinos_node_interfaces
+  Koinos::log Koinos::proto Boost::thread)
+
 # ── Contract Meta Store library (Phase 4) ──
 add_library(koinos_contract_meta_store_lib
   contract_meta_store/contract_meta_store.cpp
@@ -156,6 +173,7 @@ target_link_libraries(
       koinos_node_core
       koinos_node_interfaces
       koinos_block_store_lib
+      koinos_p2p_lib
       koinos_contract_meta_store_lib
       koinos_transaction_store_lib
       koinos_jsonrpc_lib

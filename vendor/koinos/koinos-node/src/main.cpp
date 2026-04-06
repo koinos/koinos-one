@@ -45,6 +45,9 @@
 // Phase 3: JSON-RPC gateway
 #include "jsonrpc/jsonrpc_server.hpp"
 
+// Phase 5: P2P
+#include "p2p/p2p_node.hpp"
+
 // Phase 4: Contract meta store + Transaction store
 #include "contract_meta_store/contract_meta_store.hpp"
 #include "transaction_store/transaction_store.hpp"
@@ -406,6 +409,17 @@ int main( int argc, char** argv )
                      << bi.topology().height();
       }
     );
+
+    // ── Phase 5: P2P ──
+    // P2P requires a transport implementation (cpp-libp2p).
+    // The P2PNode, ErrorHandler, ForkWatchdog, GossipToggle, and sync protocol
+    // are fully implemented. Once a transport is available:
+    //   auto transport = std::make_unique<Libp2pTransport>(opts, host);
+    //   auto p2p_node = std::make_unique<node::p2p::P2PNode>(
+    //     p2p_opts, &chain_adapter, &block_store_impl, &event_bus, std::move(transport));
+    //   registry.add("p2p", [&]() { p2p_node->start(); }, [&]() { p2p_node->stop(); });
+    if( cfg.is_enabled( "p2p" ) )
+      LOG( info ) << "[p2p] Component ready (transport layer pending cpp-libp2p integration)";
 
     // ── Phase 3: JSON-RPC server ──
     // Parse listen address: "host:port" or just "port"
