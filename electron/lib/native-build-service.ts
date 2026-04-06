@@ -5,6 +5,7 @@ import {
   nativeCmakeConfigureArgs,
   nativeCmakeExecutable,
   nativeServiceBuildDefinitionMap,
+  monolithBuildDefinition,
   type NativeBuildSystem,
   type NativeServiceBuildDefinition
 } from './native-tooling'
@@ -305,8 +306,47 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
     }
   }
 
+  async function monolithBuildStatus(): Promise<KoinosNodeNativeBuildsResult> {
+    const sourceRoot = deps.defaultKoinosSourceRoot
+    const definition = monolithBuildDefinition(sourceRoot)
+    const toolStatuses = await detectNativeBuildToolStatuses()
+    const toolStatus = toolStatuses.cmake
+
+    const repoExists = fs.existsSync(definition.repoPath)
+    const artifactExists = fs.existsSync(definition.artifactPath)
+
+    const service: KoinosNodeNativeBuildStatus = {
+      serviceId: 'koinos-node',
+      serviceName: 'Koinos Node',
+      supported: true,
+      buildSystem: 'cmake',
+      repoPath: definition.repoPath,
+      repoExists,
+      artifactPath: definition.artifactPath,
+      artifactExists,
+      artifactUpdatedAt: artifactUpdatedAt(definition.artifactPath),
+      buildable: repoExists && toolStatus.ok,
+      note: !repoExists
+        ? `Repo path not found: ${definition.repoPath}`
+        : !toolStatus.ok
+          ? toolStatus.note
+          : artifactExists
+            ? null
+            : 'Aun no compilado',
+      buildCommands: definition.buildCommands
+    }
+
+    return {
+      ok: true,
+      sourceRoot,
+      services: [service],
+      output: `Monolith build workspace: ${sourceRoot} · ${artifactExists ? 'compilado' : 'pendiente'}`
+    }
+  }
+
   return {
     nativeBuildStatus,
+    monolithBuildStatus,
     nativeBuildAll,
     nativeBuildServiceAction
   }

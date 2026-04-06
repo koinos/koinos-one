@@ -77,6 +77,13 @@ export type ServiceStatus = {
   managedByKnodel: boolean
 }
 
+export type ComponentHealth = {
+  name: string
+  enabled: boolean
+  healthy: boolean
+  details?: string
+}
+
 export type KoinosNodeStatus = {
   ok: boolean
   repoPath: string
@@ -85,11 +92,25 @@ export type KoinosNodeStatus = {
   configReady: boolean
   configDir: string
   services: ServiceStatus[]
+  components: ComponentHealth[]
   runningServices: number
   output: string
 }
 
-export type KoinosNodePresetSource = 'profile'
+export type KoinosNodeComponentToggleInput = KoinosNodeSettingsInput & {
+  component?: string
+  enabled?: boolean
+}
+
+export type KoinosNodeComponentToggleResult = {
+  ok: boolean
+  component: string
+  enabled: boolean
+  output: string
+  status: KoinosNodeStatus
+}
+
+export type KoinosNodePresetSource = 'profile' | 'features'
 
 export type KoinosNodePreset = {
   id: string
@@ -97,6 +118,7 @@ export type KoinosNodePreset = {
   source: KoinosNodePresetSource
   profiles: string[]
   services: string[]
+  featureFlags?: Record<string, boolean>
   description: string
 }
 

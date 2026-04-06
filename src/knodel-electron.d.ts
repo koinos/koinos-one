@@ -50,6 +50,13 @@ declare global {
     description: string
   }
 
+  type KnodelKoinosNodeComponentHealth = {
+    name: string
+    enabled: boolean
+    healthy: boolean
+    details?: string
+  }
+
   type KnodelKoinosNodeStatus = {
     ok: boolean
     dockerAvailable: boolean
@@ -63,6 +70,7 @@ declare global {
     configReady: boolean
     configDir: string
     services: KnodelKoinosNodeServiceStatus[]
+    components: KnodelKoinosNodeComponentHealth[]
     runningServices: number
     output: string
   }
@@ -282,6 +290,19 @@ declare global {
     output: string
     profileFilePath: string
     profile: KnodelProducerProfile | null
+  }
+
+  type KnodelKoinosNodeComponentToggleParams = KnodelKoinosNodeSettings & {
+    component: string
+    enabled: boolean
+  }
+
+  type KnodelKoinosNodeComponentToggleResult = {
+    ok: boolean
+    component: string
+    enabled: boolean
+    output: string
+    status: KnodelKoinosNodeStatus
   }
 
   type KnodelKoinosNodeServiceCommandParams = KnodelKoinosNodeSettings & {
@@ -883,6 +904,9 @@ declare global {
       serviceKillConflict: (
         params: KnodelKoinosNodeServiceCommandParams
       ) => Promise<KnodelKoinosNodeServiceCommandResult>
+      componentToggle: (
+        params: KnodelKoinosNodeComponentToggleParams
+      ) => Promise<KnodelKoinosNodeComponentToggleResult>
       presetReconcile: (params: KnodelKoinosNodePresetCommandParams) => Promise<KnodelKoinosNodePresetCommandResult>
       logs: (params?: KnodelKoinosNodeLogsParams) => Promise<KnodelKoinosNodeLogsResult>
       logsFollowStart: (params?: KnodelKoinosNodeLogsParams) => Promise<KnodelKoinosNodeLogsFollowStartResult>

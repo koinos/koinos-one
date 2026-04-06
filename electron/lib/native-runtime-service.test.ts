@@ -43,6 +43,7 @@ function createStatus(serviceOverrides?: Partial<ServiceStatus>): KoinosNodeStat
         ...serviceOverrides
       }
     ],
+    components: [],
     runningServices: serviceOverrides?.state === 'stopped' ? 0 : 1,
     output: ''
   }

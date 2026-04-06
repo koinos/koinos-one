@@ -3829,6 +3829,7 @@ export function App() {
           formError={formError}
           resetDefaults={resetDefaults}
           getKoinosNodeBridge={getKoinosNodeBridge}
+          nodeComponents={nodeStatus?.components}
         />
       )}
 

@@ -52,7 +52,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     nodeBaseDirValidation,
     formError,
     resetDefaults,
-    getKoinosNodeBridge
+    getKoinosNodeBridge,
+    nodeComponents
   } = props
 
   const locale = language?.startsWith('es') ? 'es' : 'en'
@@ -436,6 +437,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
           t={t}
           hasNodeControls={hasNodeControls}
           nodeSettings={nodeSettings}
+          components={nodeComponents}
         />
       )}
 

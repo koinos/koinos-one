@@ -13,13 +13,21 @@ import {
 import { getKoinosNodeBridge, toNodeApiSettings } from '../../app/utils'
 import type { NodeManagerSettings } from '../../app/types'
 
+type ComponentHealthEntry = {
+  name: string
+  enabled: boolean
+  healthy: boolean
+  details?: string
+}
+
 type MicroservicesConfigPanelProps = {
   t: (key: string) => string
   hasNodeControls: boolean
   nodeSettings: NodeManagerSettings
+  components?: ComponentHealthEntry[]
 }
 
-export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings }: MicroservicesConfigPanelProps) {
+export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, components }: MicroservicesConfigPanelProps) {
   const [configDoc, setConfigDoc] = useState<Document | null>(null)
   const [draftValues, setDraftValues] = useState<KoinosConfigValues>({
     global: {}, block_producer: {}, chain: {}, jsonrpc: {}, grpc: {}, mempool: {}, p2p: {}
@@ -247,6 +255,21 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings }: M
         <h3>{t('config.title')}</h3>
         <p>{t('config.subtitle')}</p>
       </div>
+
+      {components && components.length > 0 && (
+        <div className="component-health-grid">
+          {components.map((comp) => (
+            <div
+              key={comp.name}
+              className={`component-health-item ${comp.healthy ? 'is-healthy' : comp.enabled ? 'is-unhealthy' : 'is-disabled'}`}
+              title={comp.details || comp.name}
+            >
+              <span className="component-health-indicator" />
+              <span className="component-health-name">{comp.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {loading && <p className="settings-inline-help is-busy">{t('config.loading')}</p>}
       {error && <p className="form-error">{error}</p>}

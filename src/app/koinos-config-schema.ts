@@ -2,6 +2,7 @@
 
 export type ConfigSection =
   | 'global'
+  | 'features'
   | 'chain'
   | 'mempool'
   | 'block_store'
@@ -15,6 +16,7 @@ export type ConfigSection =
 
 export const CONFIG_SECTIONS: ConfigSection[] = [
   'global',
+  'features',
   'chain',
   'mempool',
   'block_store',
@@ -29,6 +31,7 @@ export const CONFIG_SECTIONS: ConfigSection[] = [
 
 export const CONFIG_SECTION_LABEL_KEYS: Record<ConfigSection, string> = {
   global: 'config.section.global',
+  features: 'config.section.features',
   chain: 'config.section.chain',
   mempool: 'config.section.mempool',
   block_store: 'config.section.block_store',
@@ -43,6 +46,7 @@ export const CONFIG_SECTION_LABEL_KEYS: Record<ConfigSection, string> = {
 
 export const CONFIG_SECTION_DESC_KEYS: Record<ConfigSection, string> = {
   global: 'config.desc.global',
+  features: 'config.desc.features',
   chain: 'config.desc.chain',
   mempool: 'config.desc.mempool',
   block_store: 'config.desc.block_store',
@@ -75,7 +79,21 @@ export interface ConfigFieldMeta {
 // labelKey format: config.field.<section>.<key>
 // helpKey format:  config.help.<section>.<key>
 
+const FEATURES_FIELDS: ConfigFieldMeta[] = [
+  { section: 'features', key: 'chain', type: 'boolean', labelKey: 'config.field.features.chain', helpKey: 'config.help.features.chain' },
+  { section: 'features', key: 'mempool', type: 'boolean', labelKey: 'config.field.features.mempool', helpKey: 'config.help.features.mempool' },
+  { section: 'features', key: 'block_store', type: 'boolean', labelKey: 'config.field.features.block_store', helpKey: 'config.help.features.block_store' },
+  { section: 'features', key: 'p2p', type: 'boolean', labelKey: 'config.field.features.p2p', helpKey: 'config.help.features.p2p' },
+  { section: 'features', key: 'jsonrpc', type: 'boolean', labelKey: 'config.field.features.jsonrpc', helpKey: 'config.help.features.jsonrpc' },
+  { section: 'features', key: 'grpc', type: 'boolean', labelKey: 'config.field.features.grpc', helpKey: 'config.help.features.grpc' },
+  { section: 'features', key: 'block_producer', type: 'boolean', labelKey: 'config.field.features.block_producer', helpKey: 'config.help.features.block_producer' },
+  { section: 'features', key: 'contract_meta_store', type: 'boolean', labelKey: 'config.field.features.contract_meta_store', helpKey: 'config.help.features.contract_meta_store' },
+  { section: 'features', key: 'transaction_store', type: 'boolean', labelKey: 'config.field.features.transaction_store', helpKey: 'config.help.features.transaction_store' },
+  { section: 'features', key: 'account_history', type: 'boolean', labelKey: 'config.field.features.account_history', helpKey: 'config.help.features.account_history' }
+]
+
 const GLOBAL_FIELDS: ConfigFieldMeta[] = [
+  /** @deprecated AMQP is removed in monolith mode. Kept for backward compatibility with multi-service mode. */
   { section: 'global', key: 'amqp', type: 'text', labelKey: 'config.field.global.amqp', helpKey: 'config.help.global.amqp', placeholder: 'amqp://guest:guest@localhost:5672/' },
   { section: 'global', key: 'log-level', type: 'select', labelKey: 'config.field.global.log-level', helpKey: 'config.help.global.log-level', options: ['debug', 'info', 'warn', 'error'] },
   { section: 'global', key: 'log-color', type: 'boolean', labelKey: 'config.field.global.log-color', helpKey: 'config.help.global.log-color' },
@@ -141,6 +159,7 @@ const CONTRACT_META_STORE_FIELDS: ConfigFieldMeta[] = [
 
 const ALL_FIELDS: Record<ConfigSection, ConfigFieldMeta[]> = {
   global: GLOBAL_FIELDS,
+  features: FEATURES_FIELDS,
   chain: CHAIN_FIELDS,
   mempool: MEMPOOL_FIELDS,
   block_store: BLOCK_STORE_FIELDS,

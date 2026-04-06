@@ -67,7 +67,7 @@ export function resolveKoinosConfigRoot(): string {
   return path.join(resolveDefaultKoinosSourceRoot(), 'koinos', 'config-example')
 }
 
-/** Path to bundled GarageMQ broker binary. */
+/** Path to bundled GarageMQ broker binary. @deprecated Use resolveMonolithBinaryPath() for monolith mode. */
 export function resolveAmqpBrokerPath(): string {
   const ext = executableExtension()
   if (isPackagedBuild()) {
@@ -76,10 +76,35 @@ export function resolveAmqpBrokerPath(): string {
   return path.resolve(__dirname, '..', '..', 'vendor', 'amqp-broker', 'garagemq' + ext)
 }
 
-/** Path to GarageMQ config template. */
+/** Path to GarageMQ config template. @deprecated Use monolith mode config instead. */
 export function resolveAmqpBrokerConfigPath(): string {
   if (isPackagedBuild()) {
     return path.join(process.resourcesPath!, 'koinos', 'config', 'amqp', 'garagemq.yaml')
   }
   return path.resolve(__dirname, '..', '..', 'vendor', 'amqp-broker', 'etc', 'config.yaml')
 }
+
+/** Path to the monolithic koinos_node binary. */
+export function resolveMonolithBinaryPath(): string {
+  const ext = executableExtension()
+  if (isPackagedBuild()) {
+    return path.join(process.resourcesPath!, 'koinos', 'bin', 'koinos_node' + ext)
+  }
+  return path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', 'koinos_node' + ext)
+}
+
+/** Known components within the monolith binary. */
+export const MONOLITH_COMPONENTS = [
+  'chain', 'mempool', 'block_store', 'p2p',
+  'block_producer', 'jsonrpc', 'grpc',
+  'transaction_store', 'contract_meta_store', 'account_history'
+] as const
+
+/** Components that are always enabled in the monolith. */
+export const MONOLITH_CORE_COMPONENTS = ['chain', 'mempool', 'block_store', 'p2p'] as const
+
+/** Components that can be toggled via feature flags. */
+export const MONOLITH_OPTIONAL_COMPONENTS = [
+  'block_producer', 'jsonrpc', 'grpc',
+  'transaction_store', 'contract_meta_store', 'account_history'
+] as const

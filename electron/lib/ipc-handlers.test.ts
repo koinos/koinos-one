@@ -75,6 +75,7 @@ function createDeps() {
     walletTransferVhp: vi.fn(async () => ({ ok: true })),
     walletTransferKoin: vi.fn(async () => ({ ok: true })),
     koinosNodeServiceAction: vi.fn(async () => ({ ok: true })),
+    koinosNodeComponentToggle: vi.fn(async () => ({ ok: true, component: '', enabled: true, output: '', status: {} })),
     koinosNodePresetReconcile: vi.fn(async () => ({ ok: true })),
     koinosNodeLogs: vi.fn(async () => ({ ok: true })),
     koinosNodeLogsFollowStart: vi.fn(async () => ({ ok: true })),

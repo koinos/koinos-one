@@ -51,7 +51,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
       return { configReady: true, output: `Created config/ from ${sourceDir === exampleDir ? 'config-example' : 'bundled config'} (${sourceDir})` }
     }
 
-    const required = ['config.yml', 'genesis_data.json', 'koinos_descriptors.pb', 'rabbitmq.conf']
+    const required = ['config.yml', 'genesis_data.json', 'koinos_descriptors.pb']
     const copied: string[] = []
     for (const file of required) {
       const target = path.join(configDir, file)

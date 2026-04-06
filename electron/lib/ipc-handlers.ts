@@ -3,6 +3,8 @@ import type { IpcMain, WebContents } from 'electron'
 import type {
   KoinosJsonRpcProxyInput,
   KoinosNodeBaseDirCopyInput,
+  KoinosNodeComponentToggleInput,
+  KoinosNodeComponentToggleResult,
   KoinosNodeDashboardPerformanceInput,
   KoinosNodeFileReadInput,
   KoinosNodeFileReadResult,
@@ -106,6 +108,7 @@ type IpcHandlerDeps = {
   walletTransferVhp: (input?: WalletTransferVhpInput) => Awaitable<unknown>
   walletTransferKoin: (input?: WalletTransferKoinInput) => Awaitable<unknown>
   koinosNodeServiceAction: (action: 'start' | 'stop' | 'restart' | 'kill-conflict', input?: KoinosNodeServiceCommandInput) => Awaitable<unknown>
+  koinosNodeComponentToggle: (input?: KoinosNodeComponentToggleInput) => Awaitable<KoinosNodeComponentToggleResult>
   koinosNodePresetReconcile: (input?: KoinosNodePresetCommandInput) => Awaitable<unknown>
   koinosNodeLogs: (input?: KoinosNodeLogsInput) => Awaitable<unknown>
   koinosNodeLogsFollowStart: (sender: WebContents, input?: KoinosNodeLogsFollowStartInput) => Awaitable<KoinosNodeLogsFollowStartResult>
@@ -151,6 +154,7 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'knodel:koinos-node:service-stop',
     'knodel:koinos-node:service-restart',
     'knodel:koinos-node:service-kill-conflict',
+    'knodel:koinos-node:component-toggle',
     'knodel:koinos-node:preset-reconcile',
     'knodel:koinos-node:logs',
     'knodel:koinos-node:logs-follow-start',
@@ -311,6 +315,7 @@ export function registerKnodelIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('knodel:koinos-node:service-stop', async (_event, input?: KoinosNodeServiceCommandInput) => deps.koinosNodeServiceAction('stop', input))
   ipcMain.handle('knodel:koinos-node:service-restart', async (_event, input?: KoinosNodeServiceCommandInput) => deps.koinosNodeServiceAction('restart', input))
   ipcMain.handle('knodel:koinos-node:service-kill-conflict', async (_event, input?: KoinosNodeServiceCommandInput) => deps.koinosNodeServiceAction('kill-conflict', input))
+  ipcMain.handle('knodel:koinos-node:component-toggle', async (_event, input?: KoinosNodeComponentToggleInput) => deps.koinosNodeComponentToggle(input))
   ipcMain.handle('knodel:koinos-node:preset-reconcile', async (_event, input?: KoinosNodePresetCommandInput) => deps.koinosNodePresetReconcile(input))
   ipcMain.handle('knodel:koinos-node:logs', async (_event, input?: KoinosNodeLogsInput) => deps.koinosNodeLogs(input))
   ipcMain.handle('knodel:koinos-node:logs-follow-start', async (event, input?: KoinosNodeLogsFollowStartInput) => deps.koinosNodeLogsFollowStart(event.sender, input))

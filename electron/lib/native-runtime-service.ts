@@ -574,3 +574,109 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
     nativeComposePresetReconcile
   }
 }
+
+// ---------------------------------------------------------------------------
+// Monolith runtime service — manages a single koinos_node process
+// ---------------------------------------------------------------------------
+
+type MonolithRuntimeServiceDeps = {
+  normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
+  assertRepoReady: (settings: KoinosNodeSettings) => void
+  prepareNativeStartNotes: (settings: KoinosNodeSettings, notes: string[]) => string[]
+  nativeRuntimeDockerConflictCheck: (settings: KoinosNodeSettings) => Promise<{ ok: boolean; output: string }>
+  startMonolithProcess: (
+    settings: KoinosNodeSettings,
+    enabledFeatures: string[],
+    disabledFeatures: string[]
+  ) => Promise<{ ok: boolean; output: string }>
+  stopMonolithProcess: () => Promise<{ ok: boolean; output: string }>
+  monolithComposeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
+  waitForTcpListener: (host: string, port: number, timeoutMs: number) => Promise<boolean>
+  monolithProcess: { pid: number | null; closed: boolean } | null
+}
+
+export function createMonolithRuntimeService(deps: MonolithRuntimeServiceDeps) {
+  async function monolithAction(
+    action: 'start' | 'stop',
+    input?: KoinosNodeSettingsInput
+  ): Promise<KoinosNodeCommandResult> {
+    const settings = deps.normalizeNodeSettings(input)
+    deps.assertRepoReady(settings)
+
+    const notes: string[] =
+      action === 'start'
+        ? deps.prepareNativeStartNotes(settings, [])
+        : []
+
+    if (action === 'start') {
+      const conflictCheck = await deps.nativeRuntimeDockerConflictCheck(settings)
+      if (!conflictCheck.ok) {
+        return {
+          ok: false,
+          action,
+          output: [notes.join('\n'), conflictCheck.output].filter(Boolean).join('\n'),
+          status: await deps.monolithComposeStatus(settings)
+        }
+      }
+    }
+
+    const result =
+      action === 'start'
+        ? await deps.startMonolithProcess(settings, [], [])
+        : await deps.stopMonolithProcess()
+
+    const status = await deps.monolithComposeStatus(settings)
+    return {
+      ok: result.ok,
+      action,
+      output: [notes.join('\n'), result.output].filter(Boolean).join('\n'),
+      status
+    }
+  }
+
+  async function monolithComponentToggle(
+    input?: KoinosNodeSettingsInput & { component?: string; enabled?: boolean }
+  ): Promise<{
+    ok: boolean
+    component: string
+    enabled: boolean
+    output: string
+    status: KoinosNodeStatus
+  }> {
+    const settings = deps.normalizeNodeSettings(input)
+    const component = input?.component?.trim() || ''
+    const enabled = input?.enabled ?? true
+
+    if (!component) {
+      return {
+        ok: false,
+        component: '',
+        enabled,
+        output: 'Parametro component invalido',
+        status: await deps.monolithComposeStatus(settings)
+      }
+    }
+
+    // Toggle requires writing config and restarting the monolith
+    const stopResult = await deps.stopMonolithProcess()
+    const startResult = await deps.startMonolithProcess(
+      settings,
+      enabled ? [component] : [],
+      enabled ? [] : [component]
+    )
+
+    const status = await deps.monolithComposeStatus(settings)
+    return {
+      ok: stopResult.ok && startResult.ok,
+      component,
+      enabled,
+      output: [stopResult.output, startResult.output].filter(Boolean).join('\n'),
+      status
+    }
+  }
+
+  return {
+    monolithAction,
+    monolithComponentToggle
+  }
+}

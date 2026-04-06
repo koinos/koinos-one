@@ -172,6 +172,7 @@ function createPerformanceService(overrides: Record<string, unknown> = {}) {
     configReady: true,
     configDir: '/tmp/koinos/config',
     services: [],
+    components: [],
     runningServices: 0,
     output: ''
   }
@@ -294,6 +295,7 @@ describe('dashboard performance', () => {
         configDir: '/tmp/koinos/config',
         runningServices: 1,
         output: '',
+        components: [],
         services: [
           {
             id: 'jsonrpc',

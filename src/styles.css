@@ -1133,6 +1133,48 @@ body {
   padding: 16px;
 }
 
+.component-health-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--color-bg-secondary, #1a1a2e);
+  border-radius: 6px;
+}
+
+.component-health-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.component-health-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.component-health-item.is-healthy .component-health-indicator {
+  background: #4caf50;
+}
+
+.component-health-item.is-unhealthy .component-health-indicator {
+  background: #f44336;
+}
+
+.component-health-item.is-disabled .component-health-indicator {
+  background: #666;
+}
+
+.component-health-item.is-disabled .component-health-name {
+  opacity: 0.5;
+}
+
 .config-section {
   margin-bottom: 4px;
 }

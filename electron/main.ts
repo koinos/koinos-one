@@ -132,6 +132,8 @@ import type {
   KoinosNodeProducerRegisteredKeyInput,
   KoinosNodeProducerRegisteredKeyResult,
   KoinosNodeSelectDirectoryResult,
+  KoinosNodeComponentToggleInput,
+  KoinosNodeComponentToggleResult,
   KoinosNodeServiceCommandInput,
   KoinosNodeServiceCommandResult,
   KoinosNodeServicePort,
@@ -2870,6 +2872,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
       configReady: fs.existsSync(configDir),
       configDir,
       services: [],
+      components: [],
       runningServices: 0,
       output: ['', error instanceof Error ? error.message : 'Invalid Koinos native settings']
         .filter(Boolean)
@@ -2907,6 +2910,16 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
     (service) => service.state === 'not built' || service.state === 'unavailable'
   )
 
+  // Derive component health from service statuses for monolith-aware consumers
+  const components = services
+    .filter((service) => service.id !== 'amqp')
+    .map((service) => ({
+      name: service.id,
+      enabled: true,
+      healthy: isComposeServiceRunning(service),
+      details: service.status
+    }))
+
   return {
     ok: unavailableNativeServices.length === 0,
     repoPath: settings.repoPath,
@@ -2915,6 +2928,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
     configReady: fs.existsSync(configDir),
     configDir,
     services,
+    components,
     runningServices,
     output: [
       '',
@@ -3051,6 +3065,41 @@ async function koinosNodeServiceAction(
   input?: KoinosNodeServiceCommandInput
 ): Promise<KoinosNodeServiceCommandResult> {
   return nativeComposeServiceAction(action, input)
+}
+
+async function koinosNodeComponentToggle(
+  input?: KoinosNodeComponentToggleInput
+): Promise<KoinosNodeComponentToggleResult> {
+  const settings = normalizeNodeSettings(input)
+  const component = input?.component?.trim() || ''
+  const enabled = input?.enabled ?? true
+
+  if (!component) {
+    return {
+      ok: false,
+      component: '',
+      enabled,
+      output: 'Parametro component invalido',
+      status: await nativeComposeStatus(settings)
+    }
+  }
+
+  // In the current multi-service mode, toggling a component maps to
+  // starting/stopping the corresponding service. In monolith mode this
+  // will write to config.yml features and restart the single process.
+  const serviceAction = enabled ? 'start' : 'stop'
+  const serviceResult = await nativeComposeServiceAction(serviceAction, {
+    ...input,
+    service: component
+  })
+
+  return {
+    ok: serviceResult.ok,
+    component,
+    enabled,
+    output: serviceResult.output,
+    status: serviceResult.status
+  }
 }
 
 async function koinosNodePresetReconcile(
@@ -3349,6 +3398,7 @@ function registerIpcHandlers() {
     walletTransferVhp,
     walletTransferKoin,
     koinosNodeServiceAction,
+    koinosNodeComponentToggle,
     koinosNodePresetReconcile,
     koinosNodeLogs,
     koinosNodeLogsFollowStart,

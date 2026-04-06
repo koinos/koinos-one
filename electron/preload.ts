@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('knodel', {
     serviceStop: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-stop', params),
     serviceRestart: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-restart', params),
     serviceKillConflict: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:service-kill-conflict', params),
+    componentToggle: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:component-toggle', params),
     presetReconcile: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:preset-reconcile', params),
     logs: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:logs', params),
     logsFollowStart: (params?: unknown) => ipcRenderer.invoke('knodel:koinos-node:logs-follow-start', params),

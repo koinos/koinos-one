@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { isWindows, isDarwin, isAppleSilicon, executableExtension, findExecutableInPath as findInPath, homebrewPrefix } from './platform'
-import { resolveDefaultKoinosSourceRoot, isPackagedBuild, resolveKoinosBinRoot, resolveKoinosRestRoot } from './constants'
+import { resolveDefaultKoinosSourceRoot, isPackagedBuild, resolveKoinosBinRoot, resolveKoinosRestRoot, resolveMonolithBinaryPath } from './constants'
 
 export type NativeBuildSystem = 'cmake' | 'go' | 'yarn'
 
@@ -295,4 +295,29 @@ export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosS
 
 export function nativeServiceBuildDefinitionMap(sourceRoot = resolveDefaultKoinosSourceRoot()): Map<string, NativeServiceBuildDefinition> {
   return new Map(nativeServiceBuildDefinitions(sourceRoot).map((definition) => [definition.serviceId, definition] as const))
+}
+
+/**
+ * Build definition for the monolithic koinos_node binary.
+ * Replaces all individual service build definitions when running in monolith mode.
+ */
+export function monolithBuildDefinition(sourceRoot = resolveDefaultKoinosSourceRoot()): NativeServiceBuildDefinition {
+  if (isPackagedBuild()) {
+    return {
+      serviceId: 'koinos-node',
+      repoPath: resolveKoinosBinRoot(),
+      buildSystem: 'cmake',
+      artifactPath: resolveMonolithBinaryPath(),
+      buildCommands: []
+    }
+  }
+
+  const cmakeBuildDir = isWindows() ? 'build-win' : 'build'
+  return {
+    serviceId: 'koinos-node',
+    repoPath: path.join(sourceRoot, 'koinos-node'),
+    buildSystem: 'cmake',
+    artifactPath: path.join(sourceRoot, 'koinos-node', cmakeBuildDir, 'koinos_node' + executableExtension()),
+    buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
+  }
 }
