@@ -368,7 +368,7 @@ int main( int argc, char** argv )
       );
     }
 
-    // Register chain component
+    // Register chain component with indexer
 
     if( cfg.is_enabled( "chain" ) )
     {
@@ -377,9 +377,61 @@ int main( int argc, char** argv )
         [&]() {
           controller.open( state_dir, genesis, fork_algo, cfg.reset );
           LOG( info ) << "[chain] State DB opened at " << state_dir.string();
+
+          // Run indexer to sync chain state from block_store.
+          // monolith_client is declared below — capture a reference to the shared_ptr.
+          // Note: indexer runs synchronously during startup, before other services start.
+          // This is safe because block_store is already initialized at this point.
         },
         [&]() {
           controller.close();
+        }
+      );
+    }
+
+    // Register block producer (optional)
+    // The block producer uses chain.propose_block() to create new blocks.
+    // It runs as a background timer checking if it's the producer's turn.
+    std::atomic< bool > producer_running{ false };
+    std::thread producer_thread;
+
+    if( cfg.is_enabled( "block_producer" ) )
+    {
+      registry.add(
+        "block_producer",
+        [&]() {
+          producer_running = true;
+          producer_thread  = std::thread( [&]() {
+            LOG( info ) << "[block_producer] Production loop started";
+            while( producer_running )
+            {
+              try
+              {
+                rpc::chain::propose_block_request req;
+                auto resp = controller.propose_block( req );
+
+                // If receipt present, the block was produced successfully
+                if( resp.has_receipt() )
+                {
+                  LOG( info ) << "[block_producer] Produced block";
+                }
+              }
+              catch( const std::exception& e )
+              {
+                // Production failures are normal (not our turn, no VHP, etc.)
+                LOG( debug ) << "[block_producer] " << e.what();
+              }
+
+              // Sleep between production attempts (3s default)
+              for( int i = 0; i < 30 && producer_running; ++i )
+                std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+            }
+          } );
+        },
+        [&]() {
+          producer_running = false;
+          if( producer_thread.joinable() )
+            producer_thread.join();
         }
       );
     }
@@ -514,6 +566,24 @@ int main( int argc, char** argv )
     auto monolith_client = std::make_shared< node::MonolithRpcClient >(
       &block_store_impl, &mempool_adapter, &event_bus );
     controller.set_client( monolith_client );
+
+    // Run chain indexer after client is set — syncs chain from block_store
+    if( cfg.is_enabled( "chain" ) && cfg.is_enabled( "block_store" ) )
+    {
+      try
+      {
+        chain::indexer idx( chain_ioc, controller, monolith_client, cfg.verify_blocks );
+        auto future = idx.index();
+        if( future.get() )
+          LOG( info ) << "[chain] Indexing complete";
+        else
+          LOG( warning ) << "[chain] Indexing returned false";
+      }
+      catch( const std::exception& e )
+      {
+        LOG( warning ) << "[chain] Indexer: " << e.what();
+      }
+    }
 
     std::unique_ptr< node::jsonrpc::JSONRPCServer > jsonrpc_server;
     if( cfg.is_enabled( "jsonrpc" ) )
