@@ -136,14 +136,18 @@ target_link_libraries(koinos_grpc_server_lib PUBLIC
   gRPC::grpc++ protobuf::libprotobuf)
 
 # ── P2P library (Phase 5: sync, gossip, error scoring — transport abstracted) ──
-add_library(koinos_p2p_lib
+set(P2P_SOURCES
   p2p/p2p_node.cpp
   p2p/p2p_node.hpp
   p2p/transport.hpp
   p2p/error_handler.hpp
   p2p/fork_watchdog.hpp
   p2p/gossip_toggle.hpp
-  p2p/types.hpp)
+  p2p/types.hpp
+  p2p/libp2p_transport.hpp
+  p2p/libp2p_transport.cpp)
+
+add_library(koinos_p2p_lib ${P2P_SOURCES})
 
 target_include_directories(koinos_p2p_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
@@ -151,6 +155,23 @@ target_include_directories(koinos_p2p_lib PUBLIC
 target_link_libraries(koinos_p2p_lib PUBLIC
   koinos_node_core koinos_node_interfaces
   Koinos::log Koinos::proto Boost::thread)
+
+# cpp-libp2p integration (optional — enable with -DKOINOS_ENABLE_LIBP2P=ON)
+option(KOINOS_ENABLE_LIBP2P "Enable cpp-libp2p transport for P2P networking" OFF)
+if(KOINOS_ENABLE_LIBP2P)
+  include(FetchContent)
+  FetchContent_Declare(
+    cpp_libp2p
+    GIT_REPOSITORY https://github.com/libp2p/cpp-libp2p.git
+    GIT_TAG        28e4abcea0bf3fb1b04e51febfea38305f101fe7)
+  FetchContent_MakeAvailable(cpp_libp2p)
+
+  target_link_libraries(koinos_p2p_lib PUBLIC libp2p)
+  target_compile_definitions(koinos_p2p_lib PUBLIC KOINOS_HAS_LIBP2P)
+  message(STATUS "koinos_node: cpp-libp2p enabled")
+else()
+  message(STATUS "koinos_node: cpp-libp2p disabled (use -DKOINOS_ENABLE_LIBP2P=ON to enable)")
+endif()
 
 # ── Contract Meta Store library (Phase 4) ──
 add_library(koinos_contract_meta_store_lib

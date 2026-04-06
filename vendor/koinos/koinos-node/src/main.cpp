@@ -51,6 +51,9 @@
 
 // Phase 5: P2P
 #include "p2p/p2p_node.hpp"
+#ifdef KOINOS_HAS_LIBP2P
+#include "p2p/libp2p_transport.hpp"
+#endif
 
 // Phase 6: gRPC + Account History
 #include "grpc_server/grpc_server.hpp"
@@ -450,15 +453,30 @@ int main( int argc, char** argv )
     );
 
     // ── Phase 5: P2P ──
-    // P2P requires a transport implementation (cpp-libp2p).
-    // The P2PNode, ErrorHandler, ForkWatchdog, GossipToggle, and sync protocol
-    // are fully implemented. Once a transport is available:
-    //   auto transport = std::make_unique<Libp2pTransport>(opts, host);
-    //   auto p2p_node = std::make_unique<node::p2p::P2PNode>(
-    //     p2p_opts, &chain_adapter, &block_store_impl, &event_bus, std::move(transport));
-    //   registry.add("p2p", [&]() { p2p_node->start(); }, [&]() { p2p_node->stop(); });
+    std::unique_ptr< node::p2p::P2PNode > p2p_node;
     if( cfg.is_enabled( "p2p" ) )
-      LOG( info ) << "[p2p] Component ready (transport layer pending cpp-libp2p integration)";
+    {
+#ifdef KOINOS_HAS_LIBP2P
+      // cpp-libp2p transport available — create real P2P node
+      node::p2p::Libp2pTransport::Config transport_cfg;
+      transport_cfg.listen_address = cfg.p2p_listen;
+      transport_cfg.seed_peers     = cfg.p2p_seeds;
+
+      auto transport = std::make_unique< node::p2p::Libp2pTransport >( transport_cfg );
+
+      node::p2p::P2POptions p2p_opts;
+      p2p_node = std::make_unique< node::p2p::P2PNode >(
+        p2p_opts, &chain_adapter, &block_store_impl, &event_bus, std::move( transport ) );
+
+      registry.add(
+        "p2p",
+        [&]() { p2p_node->start(); },
+        [&]() { p2p_node->stop(); }
+      );
+#else
+      LOG( info ) << "[p2p] Component ready (build with -DKOINOS_ENABLE_LIBP2P=ON for networking)";
+#endif
+    }
 
     // ── Phase 6: gRPC server ──
     std::unique_ptr< node::grpc_server::GRPCServer > grpc_srv;
