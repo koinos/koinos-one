@@ -18,8 +18,8 @@ Plan secuencial para llevar el monolito desde su estado actual (compila y arranc
 
 ### 1.1 Backup restore flow
 - [ ] Adaptar `migrate_block_store.sh` para copiar bloques desde un backup `.tar.gz` al layout del monolito
-- [ ] Verificar que el chain indexer sincroniza correctamente desde block_store después de un restore
-- [ ] Probar: restaurar backup → arrancar monolito → `chain.get_head_info` devuelve height correcto
+- [x] Verificar que el chain indexer sincroniza correctamente desde block_store después de un restore
+- [ ] Probar: restaurar backup → arrancar monolito → `chain.get_head_info` devuelve height correcto (needs real backup data)
 
 ### 1.2 Validar JSON-RPC contra nodo Go
 - [ ] Arrancar un nodo multi-servicio con los mismos datos
@@ -27,7 +27,7 @@ Plan secuencial para llevar el monolito desde su estado actual (compila y arranc
 - [ ] Documentar diferencias (si las hay) en el encoding protobuf→JSON
 
 ### 1.3 Mempool end-to-end
-- [ ] `chain.submit_transaction` → mempool acepta → verificar con `mempool.get_pending_transactions`
+- [x] `chain.submit_transaction` → mempool acepta → verificar con `mempool.get_pending_transactions`
 - [ ] Verificar `check_pending_account_resources` con cuentas reales
 - [ ] Verificar expiración de transacciones (120s)
 
@@ -46,16 +46,16 @@ Plan secuencial para llevar el monolito desde su estado actual (compila y arranc
 **Objetivo:** El monolito produce bloques en testnet.
 
 ### 2.1 Private key loading
-- [ ] Leer `block_producer.private-key-file` del config.yml
-- [ ] Cargar Ed25519 key y pasarla al controller vía `propose_block_request`
+- [x] Leer `block_producer.private-key-file` del config.yml
+- [x] Cargar Ed25519 key y pasarla al controller vía `propose_block_request`
 - [ ] Verificar que `propose_block()` genera un bloque válido
 
 ### 2.2 Producer address config
-- [ ] Leer `block_producer.producer` (address) del config.yml
+- [x] Leer `block_producer.producer` (address) del config.yml
 - [ ] Integrar con el wallet de Knodel (producer profile)
 
 ### 2.3 Production loop tuning
-- [ ] Ajustar intervalo de producción (actualmente 3s fijo → debería usar consensus timing)
+- [x] Ajustar intervalo de producción (actualmente 3s fijo → debería usar consensus timing)
 - [ ] Verificar que los bloques producidos son aceptados por el propio chain
 - [ ] Verificar broadcast via EventBus → block_store + contract_meta + tx_store
 
