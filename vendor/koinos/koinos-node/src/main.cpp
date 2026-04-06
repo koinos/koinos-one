@@ -54,6 +54,7 @@
 #ifdef KOINOS_HAS_LIBP2P
 #include "p2p/libp2p_transport.hpp"
 #endif
+#include "p2p/go_bridge_transport.hpp"
 
 // Phase 6: gRPC + Account History
 #include "grpc_server/grpc_server.hpp"
@@ -338,7 +339,7 @@ int main( int argc, char** argv )
     blocks_table_opts.block_size          = 64 * 1024;    // 64KB blocks (large values)
     blocks_table_opts.filter_policy.reset( rocksdb::NewBloomFilterPolicy( 10 ) );
     cf_blocks.table_factory.reset( rocksdb::NewBlockBasedTableFactory( blocks_table_opts ) );
-    cf_blocks.compression        = rocksdb::kZSTD;
+    cf_blocks.compression        = rocksdb::kNoCompression; // TODO: enable zstd/snappy when linked
     cf_blocks.target_file_size_base = 64 * 1024 * 1024;  // 64MB SST files
 
     // Block meta CF: tiny (single key)
@@ -587,7 +588,29 @@ int main( int argc, char** argv )
         [&]() { p2p_node->stop(); }
       );
 #else
-      LOG( info ) << "[p2p] Component ready (build with -DKOINOS_ENABLE_LIBP2P=ON for networking)";
+      // Fallback: use Go P2P binary as sidecar process
+      node::p2p::GoBridgeTransport::Config go_cfg;
+      // Look for Go P2P binary in standard locations
+      auto go_p2p_path = basedir / ".." / "koinos-p2p" / "build" / "bin" / "koinos-p2p";
+      if( !std::filesystem::exists( go_p2p_path ) )
+        go_p2p_path = std::filesystem::path( "/usr/local/bin/koinos-p2p" );
+
+      go_cfg.go_p2p_binary  = go_p2p_path.string();
+      go_cfg.basedir        = basedir.string();
+      go_cfg.listen_address = cfg.p2p_listen;
+      go_cfg.seed_peers     = cfg.p2p_seeds;
+
+      auto transport = std::make_unique< node::p2p::GoBridgeTransport >( go_cfg );
+
+      node::p2p::P2POptions p2p_opts;
+      p2p_node = std::make_unique< node::p2p::P2PNode >(
+        p2p_opts, &chain_adapter, &block_store_impl, &event_bus, std::move( transport ) );
+
+      registry.add(
+        "p2p",
+        [&]() { p2p_node->start(); },
+        [&]() { p2p_node->stop(); }
+      );
 #endif
     }
 

@@ -145,7 +145,9 @@ set(P2P_SOURCES
   p2p/gossip_toggle.hpp
   p2p/types.hpp
   p2p/libp2p_transport.hpp
-  p2p/libp2p_transport.cpp)
+  p2p/libp2p_transport.cpp
+  p2p/go_bridge_transport.hpp
+  p2p/go_bridge_transport.cpp)
 
 add_library(koinos_p2p_lib ${P2P_SOURCES})
 
@@ -160,13 +162,18 @@ target_link_libraries(koinos_p2p_lib PUBLIC
 option(KOINOS_ENABLE_LIBP2P "Enable cpp-libp2p transport for P2P networking" OFF)
 if(KOINOS_ENABLE_LIBP2P)
   include(FetchContent)
-  FetchContent_Declare(
-    cpp_libp2p
-    GIT_REPOSITORY https://github.com/libp2p/cpp-libp2p.git
-    GIT_TAG        28e4abcea0bf3fb1b04e51febfea38305f101fe7)
-  FetchContent_MakeAvailable(cpp_libp2p)
-
-  target_link_libraries(koinos_p2p_lib PUBLIC libp2p)
+  # cpp-libp2p is complex to integrate via FetchContent due to its own Hunter deps.
+  # It must be built separately and installed, then found via find_package.
+  #
+  # Build cpp-libp2p separately:
+  #   git clone https://github.com/libp2p/cpp-libp2p.git -b v0.1.37
+  #   cd cpp-libp2p
+  #   cmake -B build -DTESTING=OFF -DEXAMPLES=OFF -DCMAKE_INSTALL_PREFIX=/usr/local
+  #   cmake --build build --parallel && cmake --install build
+  #
+  # Then pass: -DCMAKE_PREFIX_PATH="/usr/local;..."
+  find_package(libp2p REQUIRED)
+  target_link_libraries(koinos_p2p_lib PUBLIC libp2p::p2p)
   target_compile_definitions(koinos_p2p_lib PUBLIC KOINOS_HAS_LIBP2P)
   message(STATUS "koinos_node: cpp-libp2p enabled")
 else()
