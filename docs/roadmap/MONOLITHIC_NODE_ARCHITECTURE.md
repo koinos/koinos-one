@@ -1156,19 +1156,105 @@ function filterLogsByComponent(logs: string, component: string): string {
 | Phase | Scope | Status | Notes |
 |---|---|---|---|
 | Phase 0: Foundation | CMake skeleton, EventBus, interfaces | **DONE** | `vendor/koinos/koinos-node/src/core/` |
-| Phase 1: C++ Services Integration | chain + vm_manager internalized, AMQP → IRpcClient | **DONE** | 38 source files from koinos-chain, MonolithRpcClient |
+| Phase 1: C++ Services Integration | chain + vm_manager + mempool internalized, AMQP → IRpcClient | **DONE** | 44 source files, MonolithRpcClient, MempoolAdapter |
 | Phase 2: Block Store C++ | RocksDB block store, skip-list O(log n) | **DONE** | `block_store/`, 4 RPC methods, EventBus wired |
 | Phase 3: JSON-RPC C++ | Boost.Beast HTTP server, 21 methods | **DONE** | `jsonrpc/`, all 6 services dispatched, batch support |
 | Phase 4: Meta + Tx Store | Contract ABI indexer + tx index | **DONE** | `contract_meta_store/`, `transaction_store/` |
-| Phase 5: P2P C++ | Sync protocol, error scoring, gossip toggle | **DONE** | `p2p/`, ITransport abstracted (cpp-libp2p pending) |
-| Phase 6: gRPC + Account History | Health endpoint + address history indexer | **DONE** | `grpc_server/`, `account_history/`, 6 RocksDB CFs |
-| Phase 7: Knodel Integration | Electron app adaptation | **DONE** | Types, IPC, UI, i18n, mode detection, process mgmt |
-| Phase 8: Performance Validation | Benchmarks, tuning, optimization | **PENDING** | Blocked on cpp-libp2p for full sync benchmarks |
+| Phase 5: P2P C++ | Sync protocol, error scoring, gossip toggle, cpp-libp2p transport | **DONE** | `p2p/`, Libp2pTransport with gorpc framing, `-DKOINOS_ENABLE_LIBP2P=ON` |
+| Phase 6: gRPC + Account History | AsyncGenericService + address history indexer | **DONE** | `grpc_server/`, `account_history/`, 6 RocksDB CFs |
+| Phase 7: Knodel Integration | Electron app adaptation | **DONE** | Types, IPC, UI, i18n, mode detection, process mgmt, log filtering |
+| Phase 8: Performance Validation | Benchmarks, tuning, optimization | **PENDING** | See remaining work below |
 
-### Remaining Work
+### What Works Now
 
-- **P2P transport**: Integrate cpp-libp2p as ITransport implementation for real network connectivity
-- **Mempool**: Port mempool state management (currently forwarded via MonolithRpcClient)
-- **gRPC service methods**: Wire full koinos-grpc macro-based service definitions
-- **Data migration tool**: Badger DB → RocksDB import for existing block_store data
-- **Performance benchmarks**: Indexing speed, RPC latency, memory usage comparisons
+- 18MB arm64 binary compiles and runs on macOS
+- Chain initializes with 3,761 Koinos mainnet genesis objects
+- Chain ID calculated: `0x1220592bf18654fd07fdf5d500cde3e8402ecf7f81fa5dde8f14527b08bba8805f48`
+- JSON-RPC serves 21 methods on port 8080 (chain, block_store, mempool, contract_meta, tx_store, account_history)
+- gRPC serves chain/block_store/mempool via AsyncGenericService on port 50051
+- RocksDB with 6 column families
+- EventBus connects all services (block_accepted, block_irreversible, transaction events)
+- Chain indexer syncs from block_store on startup
+- Block producer loop (optional, 3s interval)
+- SIGTERM triggers clean ordered shutdown
+- Knodel detects monolith binary and auto-switches from multi-service mode
+
+### Remaining Work for Production
+
+#### 1. P2P Networking Validation
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| cpp-libp2p build | High | Compile with `-DKOINOS_ENABLE_LIBP2P=ON` — validate that FetchContent resolves all cpp-libp2p deps |
+| gorpc wire compatibility | High | Capture wire traces from a Go koinos-p2p node and validate byte-for-byte compatibility of the varint-length-prefixed framing in `libp2p_transport.cpp` |
+| GossipSub interop | High | Connect C++ monolith to a Go peer, verify blocks and transactions propagate via `koinos.blocks` and `koinos.transactions` topics |
+| NAT traversal | Medium | Test UPnP, AutoRelay, and hole punching against Go libp2p — may differ in behavior |
+| Peer RPC methods | High | Validate `GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, `GetBlocks` responses match Go format exactly |
+
+#### 2. Block Sync End-to-End
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| P2P sync from mainnet | High | Connect to seed peers, handshake, batch fetch 500 blocks, apply sequentially — full sync to chain head |
+| Indexer + MonolithRpcClient | Medium | Validate indexer handles edge cases: timeouts, partial block responses, block_store gaps |
+| Backup restore | Medium | Restore from `.tar.gz` backup, verify chain re-indexes correctly with `verify-blocks: true` |
+
+#### 3. Block Producer
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Private key loading | High | Read `block_producer.private-key-file` from config.yml and pass to controller |
+| VHP check | Medium | Verify `propose_block()` correctly checks VHP balance before producing |
+| Production E2E | High | Full cycle: configure producer address + key → propose_block → submit_block → broadcast via EventBus → P2P gossip |
+
+#### 4. Mempool Integration
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| submit_transaction E2E | High | JSON-RPC `chain.submit_transaction` → mempool → block production → block_accepted |
+| Resource checking | Medium | Verify `check_pending_account_resources` correctly validates RC limits |
+| Nonce handling | Medium | Validate nonce conflict detection and pending nonce tracking |
+| Expiration pruning | Low | Verify mempool prunes expired transactions (120s default) |
+
+#### 5. gRPC Validation
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Client compatibility | Medium | Test with `koinos-cli`, `koinosctl`, and other gRPC clients against the AsyncGenericService |
+| Method coverage | Medium | Validate all dispatched methods return correct protobuf envelopes |
+| Error propagation | Low | Verify gRPC error codes match original koinos-grpc behavior |
+
+#### 6. Data Migration
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Badger → RocksDB tool | Medium | Create a Go utility that reads existing `block_store/db/` (Badger) and writes to RocksDB `blocks` + `block_meta` column families, preserving skip-list pointers |
+| Chain state_db | Low | Already RocksDB — can be reused directly (just needs path mapping) |
+| Checksum verification | Medium | Verify imported data integrity with SHA-256 checksums |
+| Rollback support | Low | Keep Badger DB as backup until verification passes |
+
+#### 7. Performance (Phase 8)
+
+| Metric | Current (Multi-Service) | Target (Monolith) | How to Measure |
+|--------|------------------------|-------------------|----------------|
+| Indexing speed (verify-blocks=false) | ~3,600 blocks/sec | ~10,000-15,000 blocks/sec | Time full sync from block 0 to head |
+| JSON-RPC `get_head_info` latency | ~2-5 ms | ~0.05-0.2 ms | `wrk` or `hey` benchmark tool |
+| Transaction submission latency | ~5-15 ms | ~0.5-2 ms | Submit tx via JSON-RPC, measure round-trip |
+| Block production latency | ~50-200 ms | ~10-50 ms | Time from propose_block to block_accepted |
+| Memory usage | ~500-800 MB (12 processes) | ~200-400 MB (1 process) | `ps` RSS monitoring |
+| Startup time | 10-30s (sequential services) | 2-5s (single process) | Time from spawn to JSON-RPC responsive |
+| RocksDB tuning | N/A | Per-CF optimization | Tune block sizes, bloom filters, compression per column family |
+
+#### 8. Testing
+
+| Test Type | Coverage | Description |
+|-----------|----------|-------------|
+| Unit: skip-list | `block_store/skip_list.hpp` | Verify `get_previous_heights()` and `get_previous_height_index()` for edge cases (height 0, 1, powers of 2, large heights) |
+| Unit: error scoring | `p2p/error_handler.hpp` | Verify exponential decay, threshold disconnect, reconnect blocking |
+| Unit: fork watchdog | `p2p/fork_watchdog.hpp` | Verify max 3 forks, purge below LIB |
+| Integration: block pipeline | main.cpp | submit_block → EventBus → block_store + contract_meta + tx_store + account_history |
+| Integration: tx pipeline | main.cpp | submit_transaction → mempool → propose_block → submit_block → broadcast |
+| Wire compat: gorpc | `p2p/libp2p_transport.cpp` | Capture Go gorpc frames, verify C++ encode/decode produces identical bytes |
+| Wire compat: JSON-RPC | `jsonrpc/jsonrpc_server.cpp` | Compare responses against running Go koinos-jsonrpc for all 21 methods |
+| Stress: concurrent RPC | `jsonrpc/` | 1000 concurrent JSON-RPC requests, verify no crashes or deadlocks |
+| Stress: P2P connections | `p2p/` | 50+ concurrent peers, verify connection manager stability |
