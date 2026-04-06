@@ -96,6 +96,30 @@ target_link_libraries(chain PUBLIC
   Koinos::state_db Koinos::exception Koinos::crypto Koinos::log
   Koinos::util Koinos::proto vm_manager)
 
+# ── Account History library (Phase 6) ──
+add_library(koinos_account_history_lib
+  account_history/account_history.cpp
+  account_history/account_history.hpp)
+
+target_include_directories(koinos_account_history_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(koinos_account_history_lib PUBLIC
+  Koinos::log Koinos::proto RocksDB::rocksdb)
+
+# ── gRPC server library (Phase 6) ──
+add_library(koinos_grpc_server_lib
+  grpc_server/grpc_server.cpp
+  grpc_server/grpc_server.hpp)
+
+target_include_directories(koinos_grpc_server_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(koinos_grpc_server_lib PUBLIC
+  koinos_node_interfaces
+  Koinos::log Koinos::proto
+  gRPC::grpc++ protobuf::libprotobuf)
+
 # ── P2P library (Phase 5: sync, gossip, error scoring — transport abstracted) ──
 add_library(koinos_p2p_lib
   p2p/p2p_node.cpp
@@ -174,6 +198,8 @@ target_link_libraries(
       koinos_node_interfaces
       koinos_block_store_lib
       koinos_p2p_lib
+      koinos_account_history_lib
+      koinos_grpc_server_lib
       koinos_contract_meta_store_lib
       koinos_transaction_store_lib
       koinos_jsonrpc_lib

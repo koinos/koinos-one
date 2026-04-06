@@ -48,6 +48,10 @@
 // Phase 5: P2P
 #include "p2p/p2p_node.hpp"
 
+// Phase 6: gRPC + Account History
+#include "grpc_server/grpc_server.hpp"
+#include "account_history/account_history.hpp"
+
 // Phase 4: Contract meta store + Transaction store
 #include "contract_meta_store/contract_meta_store.hpp"
 #include "transaction_store/transaction_store.hpp"
@@ -313,7 +317,8 @@ int main( int argc, char** argv )
       { "blocks",         rocksdb::ColumnFamilyOptions() },                  // 1: block store
       { "block_meta",     rocksdb::ColumnFamilyOptions() },                  // 2: block metadata
       { "contract_meta",  rocksdb::ColumnFamilyOptions() },                  // 3: contract ABI
-      { "transaction_index", rocksdb::ColumnFamilyOptions() }                // 4: tx index
+      { "transaction_index", rocksdb::ColumnFamilyOptions() },               // 4: tx index
+      { "account_history",   rocksdb::ColumnFamilyOptions() }                // 5: account history
     };
 
     auto db_status = rocksdb::DB::Open( db_options, db_path.string(), cf_descriptors, &cf_handles, &raw_db );
@@ -332,6 +337,7 @@ int main( int argc, char** argv )
     // Phase 4: Contract meta store + Transaction store
     node::contract_meta_store::ContractMetaStore contract_meta_impl( raw_db, cf_handles[ 3 ] );
     node::transaction_store::TransactionStore transaction_store_impl( raw_db, cf_handles[ 4 ] );
+    node::account_history::AccountHistory account_history_impl( raw_db, cf_handles[ 5 ] );
 
     // Chain adapter implements IChain
     ChainAdapter chain_adapter( controller );
@@ -396,6 +402,16 @@ int main( int argc, char** argv )
       );
     }
 
+    // Account history subscribes to block events
+    if( cfg.is_enabled( "account_history" ) )
+    {
+      event_bus.on_block_accepted.connect(
+        [&account_history_impl]( const broadcast::block_accepted& ba ) {
+          account_history_impl.handle_block_accepted( ba );
+        }
+      );
+    }
+
     event_bus.on_block_accepted.connect(
       [&]( const broadcast::block_accepted& ba ) {
         LOG( debug ) << "[event_bus] block_accepted height="
@@ -420,6 +436,19 @@ int main( int argc, char** argv )
     //   registry.add("p2p", [&]() { p2p_node->start(); }, [&]() { p2p_node->stop(); });
     if( cfg.is_enabled( "p2p" ) )
       LOG( info ) << "[p2p] Component ready (transport layer pending cpp-libp2p integration)";
+
+    // ── Phase 6: gRPC server ──
+    std::unique_ptr< node::grpc_server::GRPCServer > grpc_srv;
+    if( cfg.is_enabled( "grpc" ) )
+    {
+      grpc_srv = std::make_unique< node::grpc_server::GRPCServer >(
+        &chain_adapter, nullptr, &block_store_impl, "0.0.0.0:50051", 2 );
+      registry.add(
+        "grpc",
+        [&]() { grpc_srv->start(); },
+        [&]() { grpc_srv->stop(); }
+      );
+    }
 
     // ── Phase 3: JSON-RPC server ──
     // Parse listen address: "host:port" or just "port"
