@@ -18,7 +18,10 @@ project(koinos_node
 
 koinos_define_version()
 
-# ── Dependencies (same as koinos-chain, minus rabbitmq-c/koinos_mq) ──
+# ── Dependencies ──
+# Mirrors koinos-chain deps exactly so that Hunter reuses the same config hash
+# and pre-built packages. rabbitmq-c/koinos_mq are included for cache
+# compatibility but NOT linked into the monolith binary.
 
 koinos_add_package(Boost CONFIG REQUIRED
   ADD_COMPONENTS system log thread date_time filesystem chrono test program_options exception
@@ -28,6 +31,7 @@ koinos_add_package(ethash CONFIG REQUIRED)
 koinos_add_package(libsecp256k1-vrf CONFIG REQUIRED)
 koinos_add_package(nlohmann_json CONFIG REQUIRED)
 koinos_add_package(OpenSSL REQUIRED)
+koinos_add_package(rabbitmq-c CONFIG REQUIRED)
 koinos_add_package(rocksdb NAME RocksDB CONFIG REQUIRED)
 koinos_add_package(yaml-cpp CONFIG REQUIRED)
 koinos_add_package(Protobuf CONFIG REQUIRED)
@@ -43,8 +47,10 @@ koinos_add_package(koinos_util CONFIG REQUIRED)
 koinos_add_package(koinos_proto CONFIG REQUIRED)
 koinos_add_package(koinos_exception CONFIG REQUIRED)
 koinos_add_package(koinos_crypto CONFIG REQUIRED)
+koinos_add_package(koinos_mq CONFIG REQUIRED)
 koinos_add_package(koinos_state_db CONFIG REQUIRED)
 
-# koinos_mq intentionally NOT included — replaced by direct calls + EventBus
+# NOTE: koinos_mq and rabbitmq-c are fetched by Hunter for cache compatibility
+# but the monolith binary does NOT link them — direct calls + EventBus replace AMQP.
 
 add_subdirectory(src)
