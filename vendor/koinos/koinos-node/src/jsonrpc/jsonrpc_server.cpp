@@ -119,6 +119,20 @@ void JSONRPCServer::handle_session( tcp::socket socket )
       return;
     }
 
+    // GET /health — simple health check for load balancers and Knodel
+    if( req.method() == http::verb::get )
+    {
+      auto target = req.target();
+      if( target == "/health" || target == "/healthz" || target == "/" )
+      {
+        res.result( http::status::ok );
+        res.body() = R"({"status":"ok","node":"koinos_node","version":"0.1.0"})";
+        res.prepare_payload();
+        http::write( socket, res );
+        return;
+      }
+    }
+
     if( req.method() != http::verb::post )
     {
       res.result( http::status::method_not_allowed );
@@ -256,6 +270,39 @@ nlohmann::json JSONRPCServer::dispatch( const std::string& service,
     return dispatch_transaction_store( method, params );
   if( service == "account_history" )
     return dispatch_account_history( method, params );
+
+  // Health / status endpoint
+  if( service == "node" && method == "get_status" )
+  {
+    nlohmann::json status;
+    status[ "node" ]    = "koinos_node";
+    status[ "version" ] = "0.1.0";
+    status[ "mode" ]    = "monolith";
+
+    if( _chain )
+    {
+      try
+      {
+        auto head = _chain->get_head_info();
+        status[ "head_height" ] = head.head_topology().height();
+        status[ "last_irreversible_block" ] = head.last_irreversible_block();
+      }
+      catch( ... )
+      {
+        status[ "head_height" ] = nullptr;
+      }
+    }
+
+    status[ "services" ] = nlohmann::json::object();
+    status[ "services" ][ "chain" ]       = _chain != nullptr;
+    status[ "services" ][ "block_store" ] = _block_store != nullptr;
+    status[ "services" ][ "mempool" ]     = _mempool != nullptr;
+    status[ "services" ][ "contract_meta_store" ] = _contract_meta != nullptr;
+    status[ "services" ][ "transaction_store" ]   = _tx_store != nullptr;
+    status[ "services" ][ "account_history" ]     = _acct_history != nullptr;
+
+    return status;
+  }
 
   throw std::runtime_error( "Unknown service: " + service );
 }

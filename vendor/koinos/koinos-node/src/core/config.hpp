@@ -41,6 +41,10 @@ struct NodeConfig
 
   // ── Block Producer ──
   std::string block_producer_algorithm = "pob";
+  std::string block_producer_private_key_file;
+  std::string block_producer_address;
+  uint64_t block_producer_resources_lower_bound = 75;
+  uint64_t block_producer_resources_upper_bound = 90;
 
   // ── Mempool ──
   uint64_t mempool_transaction_expiration = 120;

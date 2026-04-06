@@ -100,7 +100,11 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     // ── Block Producer ──
     if( auto bp = root[ "block_producer" ] )
     {
-      cfg.block_producer_algorithm = yaml_get< std::string >( bp, "algorithm", cfg.block_producer_algorithm );
+      cfg.block_producer_algorithm         = yaml_get< std::string >( bp, "algorithm", cfg.block_producer_algorithm );
+      cfg.block_producer_private_key_file  = yaml_get< std::string >( bp, "private-key-file", cfg.block_producer_private_key_file );
+      cfg.block_producer_address           = yaml_get< std::string >( bp, "producer", cfg.block_producer_address );
+      cfg.block_producer_resources_lower_bound = yaml_get< uint64_t >( bp, "resources-lower-bound", cfg.block_producer_resources_lower_bound );
+      cfg.block_producer_resources_upper_bound = yaml_get< uint64_t >( bp, "resources-upper-bound", cfg.block_producer_resources_upper_bound );
     }
 
     // ── Mempool ──

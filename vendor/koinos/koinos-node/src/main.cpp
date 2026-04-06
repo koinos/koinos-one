@@ -368,8 +368,19 @@ int main( int argc, char** argv )
       );
     }
 
-    // Register chain component with indexer
+    // Backup restore detection — temporarily force verify-blocks
+    auto backup_marker = basedir / ".backup-just-restored";
+    bool force_verify  = false;
+    if( std::filesystem::exists( backup_marker ) )
+    {
+      LOG( info ) << "[chain] Backup restore detected — enabling verify-blocks for merkle correction";
+      force_verify = true;
+      std::filesystem::remove( backup_marker );
+    }
 
+    bool effective_verify = cfg.verify_blocks || force_verify;
+
+    // Register chain component
     if( cfg.is_enabled( "chain" ) )
     {
       registry.add(
@@ -377,11 +388,6 @@ int main( int argc, char** argv )
         [&]() {
           controller.open( state_dir, genesis, fork_algo, cfg.reset );
           LOG( info ) << "[chain] State DB opened at " << state_dir.string();
-
-          // Run indexer to sync chain state from block_store.
-          // monolith_client is declared below — capture a reference to the shared_ptr.
-          // Note: indexer runs synchronously during startup, before other services start.
-          // This is safe because block_store is already initialized at this point.
         },
         [&]() {
           controller.close();
@@ -397,43 +403,60 @@ int main( int argc, char** argv )
 
     if( cfg.is_enabled( "block_producer" ) )
     {
-      registry.add(
-        "block_producer",
-        [&]() {
-          producer_running = true;
-          producer_thread  = std::thread( [&]() {
-            LOG( info ) << "[block_producer] Production loop started";
-            while( producer_running )
-            {
-              try
-              {
-                rpc::chain::propose_block_request req;
-                auto resp = controller.propose_block( req );
+      // Validate producer config
+      auto key_file = cfg.block_producer_private_key_file;
+      if( key_file.empty() )
+        key_file = ( basedir / "block_producer" / "private.key" ).string();
 
-                // If receipt present, the block was produced successfully
-                if( resp.has_receipt() )
+      if( !std::filesystem::exists( key_file ) )
+      {
+        LOG( warning ) << "[block_producer] Private key not found at " << key_file
+                       << " — production disabled. Set block_producer.private-key-file in config.yml";
+      }
+      else
+      {
+        LOG( info ) << "[block_producer] Private key: " << key_file;
+        if( !cfg.block_producer_address.empty() )
+          LOG( info ) << "[block_producer] Producer address: " << cfg.block_producer_address;
+
+        registry.add(
+          "block_producer",
+          [&]() {
+            producer_running = true;
+            producer_thread  = std::thread( [&]() {
+              LOG( info ) << "[block_producer] Production loop started (3s interval)";
+              uint64_t blocks_produced = 0;
+              while( producer_running )
+              {
+                try
                 {
-                  LOG( info ) << "[block_producer] Produced block";
-                }
-              }
-              catch( const std::exception& e )
-              {
-                // Production failures are normal (not our turn, no VHP, etc.)
-                LOG( debug ) << "[block_producer] " << e.what();
-              }
+                  rpc::chain::propose_block_request req;
+                  auto resp = controller.propose_block( req );
 
-              // Sleep between production attempts (3s default)
-              for( int i = 0; i < 30 && producer_running; ++i )
-                std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
-            }
-          } );
-        },
-        [&]() {
-          producer_running = false;
-          if( producer_thread.joinable() )
-            producer_thread.join();
-        }
-      );
+                  if( resp.has_receipt() )
+                  {
+                    ++blocks_produced;
+                    LOG( info ) << "[block_producer] Produced block #" << blocks_produced;
+                  }
+                }
+                catch( const std::exception& e )
+                {
+                  LOG( debug ) << "[block_producer] " << e.what();
+                }
+
+                for( int i = 0; i < 30 && producer_running; ++i )
+                  std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+              }
+              LOG( info ) << "[block_producer] Stopped (produced " << blocks_produced << " blocks)";
+            } );
+          },
+          [&]() {
+            producer_running = false;
+            if( producer_thread.joinable() )
+              producer_thread.join();
+          }
+        );
+      }
     }
 
     // ── EventBus wiring ──
@@ -567,23 +590,7 @@ int main( int argc, char** argv )
       &block_store_impl, &mempool_adapter, &event_bus );
     controller.set_client( monolith_client );
 
-    // Run chain indexer after client is set — syncs chain from block_store
-    if( cfg.is_enabled( "chain" ) && cfg.is_enabled( "block_store" ) )
-    {
-      try
-      {
-        chain::indexer idx( chain_ioc, controller, monolith_client, cfg.verify_blocks );
-        auto future = idx.index();
-        if( future.get() )
-          LOG( info ) << "[chain] Indexing complete";
-        else
-          LOG( warning ) << "[chain] Indexing returned false";
-      }
-      catch( const std::exception& e )
-      {
-        LOG( warning ) << "[chain] Indexer: " << e.what();
-      }
-    }
+    // Indexer will run after registry.start_all() — see below
 
     std::unique_ptr< node::jsonrpc::JSONRPCServer > jsonrpc_server;
     if( cfg.is_enabled( "jsonrpc" ) )
@@ -621,7 +628,49 @@ int main( int argc, char** argv )
     // ── Start all registered components ──
     registry.start_all();
 
+    // Run chain indexer AFTER all components are started (chain + block_store must be open)
+    if( cfg.is_enabled( "chain" ) && cfg.is_enabled( "block_store" ) )
+    {
+      try
+      {
+        chain::indexer idx( chain_ioc, controller, monolith_client, effective_verify );
+        auto future = idx.index();
+        if( future.get() )
+          LOG( info ) << "[chain] Indexing complete";
+        else
+          LOG( warning ) << "[chain] Indexing returned false";
+      }
+      catch( const std::exception& e )
+      {
+        LOG( warning ) << "[chain] Indexer: " << e.what();
+      }
+    }
+
     LOG( info ) << "koinos_node ready";
+
+    // ── Periodic metrics (every 60s) ──
+    boost::asio::steady_timer metrics_timer( main_ioc );
+    std::function< void( const boost::system::error_code& ) > metrics_tick;
+    metrics_tick = [&]( const boost::system::error_code& ec ) {
+      if( ec )
+        return;
+
+      try
+      {
+        auto head = controller.get_head_info();
+        LOG( info ) << "[metrics] head_height=" << head.head_topology().height()
+                    << " lib=" << head.last_irreversible_block()
+                    << " pending_txs=" << mempool_impl.get_pending_transactions( 0 ).size()
+                    << " components=" << registry.components().size();
+      }
+      catch( ... )
+      {}
+
+      metrics_timer.expires_after( std::chrono::seconds( 60 ) );
+      metrics_timer.async_wait( metrics_tick );
+    };
+    metrics_timer.expires_after( std::chrono::seconds( 60 ) );
+    metrics_timer.async_wait( metrics_tick );
 
     // ── Run main event loop ──
     main_ioc.run();
