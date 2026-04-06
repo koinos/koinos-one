@@ -1151,17 +1151,24 @@ function filterLogsByComponent(logs: string, component: string): string {
 
 ---
 
-## Expected Effort
+## Implementation Status
 
-| Phase | Scope | Duration |
-|---|---|---|
-| Phase 0: Foundation | CMake skeleton, EventBus, interfaces | 2-3 weeks |
-| Phase 1: C++ Services Integration | chain + mempool + block_producer, remove AMQP | 3-4 weeks |
-| Phase 2: Block Store C++ | RocksDB block store, skip-list, migration tool | 2-3 weeks |
-| Phase 3: JSON-RPC C++ | Boost.Beast HTTP server | 1-2 weeks |
-| Phase 4: Meta + Tx Store | Two simple stores | 1 week |
-| Phase 5: P2P C++ | cpp-libp2p, gorpc compat, full sync | 4-6 weeks |
-| Phase 6: gRPC + Account History | Wire existing C++ | 1-2 weeks |
-| Phase 7: Knodel Integration | Electron app adaptation | 2-3 weeks |
-| Phase 8: Performance Validation | Benchmarks, tuning, optimization | 2 weeks |
-| **Total** | **Full monolith + Knodel integration** | **18-26 weeks** |
+| Phase | Scope | Status | Notes |
+|---|---|---|---|
+| Phase 0: Foundation | CMake skeleton, EventBus, interfaces | **DONE** | `vendor/koinos/koinos-node/src/core/` |
+| Phase 1: C++ Services Integration | chain + vm_manager internalized, AMQP → IRpcClient | **DONE** | 38 source files from koinos-chain, MonolithRpcClient |
+| Phase 2: Block Store C++ | RocksDB block store, skip-list O(log n) | **DONE** | `block_store/`, 4 RPC methods, EventBus wired |
+| Phase 3: JSON-RPC C++ | Boost.Beast HTTP server, 21 methods | **DONE** | `jsonrpc/`, all 6 services dispatched, batch support |
+| Phase 4: Meta + Tx Store | Contract ABI indexer + tx index | **DONE** | `contract_meta_store/`, `transaction_store/` |
+| Phase 5: P2P C++ | Sync protocol, error scoring, gossip toggle | **DONE** | `p2p/`, ITransport abstracted (cpp-libp2p pending) |
+| Phase 6: gRPC + Account History | Health endpoint + address history indexer | **DONE** | `grpc_server/`, `account_history/`, 6 RocksDB CFs |
+| Phase 7: Knodel Integration | Electron app adaptation | **DONE** | Types, IPC, UI, i18n, mode detection, process mgmt |
+| Phase 8: Performance Validation | Benchmarks, tuning, optimization | **PENDING** | Blocked on cpp-libp2p for full sync benchmarks |
+
+### Remaining Work
+
+- **P2P transport**: Integrate cpp-libp2p as ITransport implementation for real network connectivity
+- **Mempool**: Port mempool state management (currently forwarded via MonolithRpcClient)
+- **gRPC service methods**: Wire full koinos-grpc macro-based service definitions
+- **Data migration tool**: Badger DB → RocksDB import for existing block_store data
+- **Performance benchmarks**: Indexing speed, RPC latency, memory usage comparisons
