@@ -30,6 +30,26 @@ target_link_libraries(
     INTERFACE
       Koinos::proto)
 
+# ── Block Store library (Phase 2: C++ port of Go block_store) ──
+add_library(koinos_block_store_lib
+  block_store/block_store.cpp
+  block_store/block_store.hpp
+  block_store/skip_list.hpp)
+
+target_include_directories(
+  koinos_block_store_lib
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(
+  koinos_block_store_lib
+    PUBLIC
+      koinos_node_interfaces
+      Koinos::log
+      Koinos::proto
+      Koinos::exception
+      RocksDB::rocksdb)
+
 # ── Main executable ──
 #
 # Phase 1: Links the existing chain library directly.
@@ -46,12 +66,14 @@ target_link_libraries(
     PRIVATE
       koinos_node_core
       koinos_node_interfaces
+      koinos_block_store_lib
       Koinos::log
       Koinos::proto
       Koinos::util
       Koinos::exception
       Koinos::crypto
       Koinos::state_db
+      RocksDB::rocksdb
       Boost::program_options
       Boost::thread
       yaml-cpp::yaml-cpp)

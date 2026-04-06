@@ -36,6 +36,12 @@
 #include <koinos/chain/controller.hpp>
 #include <koinos/chain/indexer.hpp>
 
+// Phase 2: C++ block store
+#include "block_store/block_store.hpp"
+
+#include <rocksdb/db.h>
+#include <rocksdb/options.h>
+
 // Protobuf
 #include <koinos/broadcast/broadcast.pb.h>
 #include <koinos/rpc/chain/chain_rpc.pb.h>
@@ -57,37 +63,6 @@
 
 namespace po = boost::program_options;
 using namespace koinos;
-
-// ---------------------------------------------------------------------------
-// Stub IBlockStore — placeholder until Phase 2 (C++ block store)
-// ---------------------------------------------------------------------------
-class StubBlockStore final : public node::IBlockStore
-{
-public:
-  rpc::block_store::get_blocks_by_height_response
-  get_blocks_by_height( const rpc::block_store::get_blocks_by_height_request& ) override
-  {
-    return {};
-  }
-
-  rpc::block_store::get_blocks_by_id_response
-  get_blocks_by_id( const rpc::block_store::get_blocks_by_id_request& ) override
-  {
-    return {};
-  }
-
-  rpc::block_store::get_highest_block_response
-  get_highest_block( const rpc::block_store::get_highest_block_request& ) override
-  {
-    return {};
-  }
-
-  rpc::block_store::add_block_response
-  add_block( const rpc::block_store::add_block_request& ) override
-  {
-    return {};
-  }
-};
 
 // ---------------------------------------------------------------------------
 // ChainAdapter — wraps chain::controller to implement IChain
@@ -310,11 +285,54 @@ int main( int argc, char** argv )
     // NOTE: controller.set_client() is NOT called — no AMQP client needed.
     // In monolith mode, the chain calls IBlockStore directly via the adapter.
 
-    // Stub block store for Phase 1 (replaced by C++ implementation in Phase 2)
-    StubBlockStore stub_block_store;
+    // ── Phase 2: RocksDB + Block Store ──
+    rocksdb::DB* raw_db = nullptr;
+    std::vector< rocksdb::ColumnFamilyHandle* > cf_handles;
+
+    rocksdb::Options db_options;
+    db_options.create_if_missing          = true;
+    db_options.create_missing_column_families = true;
+
+    auto db_path = basedir / "db";
+    std::filesystem::create_directories( db_path );
+
+    // Column families: default (chain state), blocks, block_meta
+    std::vector< rocksdb::ColumnFamilyDescriptor > cf_descriptors = {
+      { rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions() },
+      { "blocks",     rocksdb::ColumnFamilyOptions() },
+      { "block_meta", rocksdb::ColumnFamilyOptions() }
+    };
+
+    auto db_status = rocksdb::DB::Open( db_options, db_path.string(), cf_descriptors, &cf_handles, &raw_db );
+    if( !db_status.ok() )
+    {
+      LOG( error ) << "Failed to open RocksDB at " << db_path.string() << ": " << db_status.ToString();
+      return EXIT_FAILURE;
+    }
+    std::unique_ptr< rocksdb::DB > db( raw_db );
+    LOG( info ) << "[db] RocksDB opened at " << db_path.string()
+                << " with " << cf_handles.size() << " column families";
+
+    // Block store using RocksDB column families
+    block_store::BlockStore block_store_impl( raw_db, cf_handles[ 1 ], cf_handles[ 2 ] );
 
     // Chain adapter implements IChain
     ChainAdapter chain_adapter( controller );
+
+    // Register block store component
+    if( cfg.is_enabled( "block_store" ) )
+    {
+      registry.add(
+        "block_store",
+        [&]() {
+          block_store_impl.initialize();
+          LOG( info ) << "[block_store] Initialized";
+        },
+        [&]() {
+          LOG( info ) << "[block_store] Stopped";
+        }
+      );
+    }
 
     // Register chain component
     if( cfg.is_enabled( "chain" ) )
@@ -332,7 +350,14 @@ int main( int argc, char** argv )
     }
 
     // ── EventBus wiring ──
-    // When a block is accepted, notify all subscribers
+
+    // Block accepted → block store, mempool (future), p2p (future)
+    event_bus.on_block_accepted.connect(
+      [&block_store_impl]( const broadcast::block_accepted& ba ) {
+        block_store_impl.handle_block_accepted( ba );
+      }
+    );
+
     event_bus.on_block_accepted.connect(
       [&]( const broadcast::block_accepted& ba ) {
         LOG( debug ) << "[event_bus] block_accepted height="
@@ -365,6 +390,10 @@ int main( int argc, char** argv )
 
     // ── Run main event loop ──
     main_ioc.run();
+
+    // Clean up RocksDB column family handles
+    for( auto* h: cf_handles )
+      delete h;
 
     LOG( info ) << "koinos_node shutdown complete";
     return EXIT_SUCCESS;
