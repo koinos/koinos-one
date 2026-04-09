@@ -161,19 +161,29 @@ target_link_libraries(koinos_p2p_lib PUBLIC
 # cpp-libp2p integration (optional — enable with -DKOINOS_ENABLE_LIBP2P=ON)
 option(KOINOS_ENABLE_LIBP2P "Enable cpp-libp2p transport for P2P networking" OFF)
 if(KOINOS_ENABLE_LIBP2P)
-  include(FetchContent)
-  # cpp-libp2p is complex to integrate via FetchContent due to its own Hunter deps.
-  # It must be built separately and installed, then found via find_package.
+  # cpp-libp2p must be built separately and installed, then found via find_package.
   #
   # Build cpp-libp2p separately:
   #   git clone https://github.com/libp2p/cpp-libp2p.git -b v0.1.37
   #   cd cpp-libp2p
-  #   cmake -B build -DTESTING=OFF -DEXAMPLES=OFF -DCMAKE_INSTALL_PREFIX=/usr/local
+  #   CMAKE_POLICY_VERSION_MINIMUM=3.5 cmake -B build -DTESTING=OFF -DEXAMPLES=OFF \
+  #     -DHUNTER_ROOT=/Volumes/external/.hunter -DCMAKE_INSTALL_PREFIX=./install
   #   cmake --build build --parallel && cmake --install build
   #
-  # Then pass: -DCMAKE_PREFIX_PATH="/usr/local;..."
+  # Then pass: -DCMAKE_PREFIX_PATH="<install-path>;..."
+  # libp2p's cmake config omits some transitive find_dependency calls
+  find_package(libsecp256k1 CONFIG REQUIRED)
   find_package(libp2p REQUIRED)
-  target_link_libraries(koinos_p2p_lib PUBLIC libp2p::p2p)
+  target_link_libraries(koinos_p2p_lib PUBLIC
+    p2p::p2p_default_host
+    p2p::p2p_default_network
+    p2p::p2p_gossip
+    p2p::p2p_kademlia
+    p2p::p2p_noise
+    p2p::p2p_yamux
+    p2p::p2p_peer_id
+    p2p::p2p_multiaddress
+    p2p::p2p_identify)
   target_compile_definitions(koinos_p2p_lib PUBLIC KOINOS_HAS_LIBP2P)
   message(STATUS "koinos_node: cpp-libp2p enabled")
 else()
@@ -259,10 +269,15 @@ target_link_libraries(
       RocksDB::rocksdb
       Boost::program_options
       Boost::thread
+      Boost::filesystem
       yaml-cpp::yaml-cpp)
 
 # Chain library is now built internally — always available
 target_link_libraries(koinos_node PRIVATE chain)
 target_compile_definitions(koinos_node PRIVATE KOINOS_HAS_CHAIN)
 
-koinos_install(TARGETS koinos_node)
+if(COMMAND koinos_install)
+  koinos_install(TARGETS koinos_node)
+else()
+  install(TARGETS koinos_node RUNTIME DESTINATION bin)
+endif()

@@ -30,8 +30,8 @@
 
 // cpp-libp2p headers
 #include <libp2p/host/host.hpp>
-#include <libp2p/injector/host_injector.hpp>
 #include <libp2p/protocol/gossip/gossip.hpp>
+#include <libp2p/protocol/common/subscription.hpp>
 #include <libp2p/peer/peer_id.hpp>
 #include <libp2p/multi/multiaddress.hpp>
 
@@ -124,9 +124,9 @@ private:
   std::shared_ptr< libp2p::Host > _host;
   std::shared_ptr< libp2p::protocol::gossip::Gossip > _gossip;
 
-  // GossipSub topic handles
-  std::shared_ptr< libp2p::protocol::gossip::TopicSubscription > _block_sub;
-  std::shared_ptr< libp2p::protocol::gossip::TopicSubscription > _tx_sub;
+  // GossipSub subscriptions (RAII handles — cancel on destruction)
+  std::optional< libp2p::protocol::Subscription > _block_sub;
+  std::optional< libp2p::protocol::Subscription > _tx_sub;
 
   // Callbacks
   PeerConnectedCallback _on_connected;
