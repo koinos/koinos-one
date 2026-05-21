@@ -22,6 +22,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -91,21 +92,11 @@ private:
   // ── Peer RPC protocol ID ──
   static constexpr const char* PEER_RPC_PROTOCOL = "/koinos/peerrpc/1.0.0";
 
-  /**
-   * gorpc framing: varint-length-prefixed protobuf messages.
-   * Matches the Go libp2p-gorpc framing exactly for wire compatibility.
-   */
-  std::string encode_rpc_request( const std::string& service,
-                                   const std::string& method,
-                                   const std::string& payload );
-
-  std::string decode_rpc_response( const std::string& raw );
-
   /** Send an RPC request to a peer over a libp2p stream. */
   std::string send_peer_rpc( const PeerID& peer,
                               const std::string& service,
                               const std::string& method,
-                              const std::string& payload );
+                              const std::string& msgpack_args );
 
   /** Handle incoming peer RPC requests (server side). */
   void handle_incoming_rpc( std::shared_ptr< libp2p::connection::Stream > stream );

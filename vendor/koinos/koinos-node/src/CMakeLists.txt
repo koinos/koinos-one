@@ -137,6 +137,8 @@ target_link_libraries(koinos_grpc_server_lib PUBLIC
 
 # ── P2P library (Phase 5: sync, gossip, error scoring — transport abstracted) ──
 set(P2P_SOURCES
+  p2p/gorpc_codec.cpp
+  p2p/gorpc_codec.hpp
   p2p/p2p_node.cpp
   p2p/p2p_node.hpp
   p2p/transport.hpp
@@ -174,6 +176,66 @@ if(KOINOS_ENABLE_LIBP2P)
   # libp2p's cmake config omits some transitive find_dependency calls
   find_package(libsecp256k1 CONFIG REQUIRED)
   find_package(libp2p REQUIRED)
+
+  set(CPP_LIBP2P_THIRDPARTY_INCLUDE_DIR "" CACHE PATH
+    "Isolated include directory for cpp-libp2p dependencies")
+  if(NOT CPP_LIBP2P_THIRDPARTY_INCLUDE_DIR)
+    set(_cpp_libp2p_default_thirdparty_include
+      "${CMAKE_CURRENT_SOURCE_DIR}/../.deps/cpp-libp2p-thirdparty-include")
+    if(IS_DIRECTORY "${_cpp_libp2p_default_thirdparty_include}")
+      set(CPP_LIBP2P_THIRDPARTY_INCLUDE_DIR
+        "${_cpp_libp2p_default_thirdparty_include}")
+    endif()
+  endif()
+
+  if(CPP_LIBP2P_THIRDPARTY_INCLUDE_DIR)
+    set(_cpp_libp2p_thirdparty_targets
+      Boost::Boost.DI
+      fmt::fmt
+      fmt::fmt-header-only
+      libsecp256k1::secp256k1
+      qtils::qtils
+      soralog::configurator
+      soralog::configurator_yaml
+      soralog::fallback_configurator
+      soralog::group
+      soralog::logger
+      soralog::logging_system
+      soralog::multisink
+      soralog::sink
+      soralog::sink_to_console
+      soralog::sink_to_file
+      soralog::sink_to_nowhere
+      soralog::sink_to_syslog
+      soralog::soralog
+      tsl::tsl_hat_trie)
+    foreach(_cpp_libp2p_thirdparty_target IN LISTS _cpp_libp2p_thirdparty_targets)
+      if(TARGET "${_cpp_libp2p_thirdparty_target}")
+        set_property(TARGET "${_cpp_libp2p_thirdparty_target}" PROPERTY
+          INTERFACE_INCLUDE_DIRECTORIES "${CPP_LIBP2P_THIRDPARTY_INCLUDE_DIR}")
+      endif()
+    endforeach()
+  endif()
+
+  if(TARGET libsecp256k1::secp256k1 AND TARGET secp256k1-vrf::secp256k1-vrf)
+    get_target_property(_cpp_libp2p_vrf_configs
+      secp256k1-vrf::secp256k1-vrf IMPORTED_CONFIGURATIONS)
+    if(_cpp_libp2p_vrf_configs)
+      set_property(TARGET libsecp256k1::secp256k1 PROPERTY
+        IMPORTED_CONFIGURATIONS "${_cpp_libp2p_vrf_configs}")
+      foreach(_cpp_libp2p_vrf_config IN LISTS _cpp_libp2p_vrf_configs)
+        get_target_property(_cpp_libp2p_vrf_location
+          secp256k1-vrf::secp256k1-vrf
+          "IMPORTED_LOCATION_${_cpp_libp2p_vrf_config}")
+        if(_cpp_libp2p_vrf_location)
+          set_property(TARGET libsecp256k1::secp256k1 PROPERTY
+            "IMPORTED_LOCATION_${_cpp_libp2p_vrf_config}"
+            "${_cpp_libp2p_vrf_location}")
+        endif()
+      endforeach()
+    endif()
+  endif()
+
   target_link_libraries(koinos_p2p_lib PUBLIC
     p2p::p2p_default_host
     p2p::p2p_default_network
@@ -188,6 +250,18 @@ if(KOINOS_ENABLE_LIBP2P)
   message(STATUS "koinos_node: cpp-libp2p enabled")
 else()
   message(STATUS "koinos_node: cpp-libp2p disabled (use -DKOINOS_ENABLE_LIBP2P=ON to enable)")
+endif()
+
+if(KOINOS_BUILD_TESTS)
+  add_executable(koinos_gorpc_codec_test
+    ../tests/p2p/gorpc_codec_test.cpp
+    p2p/gorpc_codec.cpp
+    p2p/gorpc_codec.hpp)
+
+  target_include_directories(koinos_gorpc_codec_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+  add_test(NAME koinos_gorpc_codec_test COMMAND koinos_gorpc_codec_test)
 endif()
 
 # ── Contract Meta Store library (Phase 4) ──

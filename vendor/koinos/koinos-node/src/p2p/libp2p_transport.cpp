@@ -4,7 +4,7 @@
  * Wire-compatible with Go koinos-p2p:
  * - GossipSub topics: koinos.blocks, koinos.transactions
  * - Peer RPC protocol: /koinos/peerrpc/1.0.0 with gorpc framing
- *   (varint-length-prefixed protobuf, service+method header)
+ *   (two MessagePack objects: ServiceID header followed by args/body)
  * - Noise encryption, mplex/yamux muxing
  * - Ed25519 identity keys
  *
@@ -13,6 +13,7 @@
 
 #ifdef KOINOS_HAS_LIBP2P
 
+#include "p2p/gorpc_codec.hpp"
 #include "libp2p_transport.hpp"
 
 #include <future>
@@ -27,43 +28,6 @@
 #include <libp2p/injector/host_injector.hpp>
 
 namespace koinos::node::p2p {
-
-// ---------------------------------------------------------------------------
-// gorpc framing helpers
-// ---------------------------------------------------------------------------
-
-namespace {
-
-/** Encode a varint (protobuf-style LEB128). */
-std::string encode_varint( uint64_t value )
-{
-  std::string result;
-  while( value > 0x7F )
-  {
-    result.push_back( static_cast< char >( ( value & 0x7F ) | 0x80 ) );
-    value >>= 7;
-  }
-  result.push_back( static_cast< char >( value ) );
-  return result;
-}
-
-/** Decode a varint from a buffer, advancing pos. */
-uint64_t decode_varint( const std::string& buf, size_t& pos )
-{
-  uint64_t result = 0;
-  int shift       = 0;
-  while( pos < buf.size() )
-  {
-    uint8_t b = static_cast< uint8_t >( buf[ pos++ ] );
-    result |= static_cast< uint64_t >( b & 0x7F ) << shift;
-    if( ( b & 0x80 ) == 0 )
-      return result;
-    shift += 7;
-  }
-  throw std::runtime_error( "truncated varint" );
-}
-
-} // anonymous namespace
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -87,8 +51,10 @@ void Libp2pTransport::start()
 {
   _running = true;
 
-  // Create libp2p host via injector
-  auto injector = libp2p::injector::makeHostInjector();
+  // Create libp2p host via injector. QUIC is disabled in the Koinos-compatible
+  // cpp-libp2p build, so bind the transport stack to TCP only.
+  auto injector = libp2p::injector::makeHostInjector(
+    libp2p::injector::useTransportAdaptors< libp2p::transport::TcpTransport >() );
 
   _host = injector.create< std::shared_ptr< libp2p::Host > >();
 
@@ -324,38 +290,10 @@ void Libp2pTransport::setup_gossipsub()
 // Peer RPC (gorpc-compatible framing over libp2p streams)
 // ---------------------------------------------------------------------------
 
-std::string Libp2pTransport::encode_rpc_request( const std::string& service,
-                                                   const std::string& method,
-                                                   const std::string& payload )
-{
-  std::string frame;
-  frame += encode_varint( service.size() );
-  frame += service;
-  frame += encode_varint( method.size() );
-  frame += method;
-  frame += encode_varint( payload.size() );
-  frame += payload;
-  return frame;
-}
-
-std::string Libp2pTransport::decode_rpc_response( const std::string& raw )
-{
-  size_t pos   = 0;
-  auto err_len = decode_varint( raw, pos );
-  if( err_len > 0 )
-  {
-    std::string error_msg = raw.substr( pos, err_len );
-    throw std::runtime_error( "Peer RPC error: " + error_msg );
-  }
-
-  auto payload_len = decode_varint( raw, pos );
-  return raw.substr( pos, payload_len );
-}
-
 std::string Libp2pTransport::send_peer_rpc( const PeerID& peer,
                                               const std::string& service,
                                               const std::string& method,
-                                              const std::string& payload )
+                                              const std::string& msgpack_args )
 {
   auto pid = libp2p::peer::PeerId::fromBase58( peer.id );
   if( !pid.has_value() )
@@ -380,7 +318,7 @@ std::string Libp2pTransport::send_peer_rpc( const PeerID& peer,
   auto stream = std::move( stream_result.value().stream );
 
   // Write request
-  auto request = encode_rpc_request( service, method, payload );
+  auto request = gorpc::encode_request( service, method, msgpack_args );
   libp2p::Bytes req_bytes( request.begin(), request.end() );
 
   std::promise< outcome::result< size_t > > write_promise;
@@ -397,26 +335,53 @@ std::string Libp2pTransport::send_peer_rpc( const PeerID& peer,
     throw std::runtime_error( "Failed to write RPC request" );
 
   // Read response
-  auto response_buf = std::make_shared< libp2p::Bytes >( 64 * 1024 );
-  std::promise< outcome::result< size_t > > read_promise;
-  auto read_future = read_promise.get_future();
+  std::string response_raw;
+  constexpr size_t read_chunk_size = 64 * 1024;
+  constexpr size_t max_response_size = 64 * 1024 * 1024;
+  gorpc::Response decoded_response;
 
-  stream->readSome( *response_buf, response_buf->size(),
-    [&read_promise]( outcome::result< size_t > result ) {
-      read_promise.set_value( std::move( result ) );
+  while( true )
+  {
+    auto response_buf = std::make_shared< libp2p::Bytes >( read_chunk_size );
+    std::promise< outcome::result< size_t > > read_promise;
+    auto read_future = read_promise.get_future();
+
+    stream->readSome( *response_buf, response_buf->size(),
+      [&read_promise]( outcome::result< size_t > result ) {
+        read_promise.set_value( std::move( result ) );
+      }
+    );
+
+    auto read_result = read_future.get();
+    if( !read_result.has_value() )
+      throw std::runtime_error( "Failed to read RPC response" );
+
+    auto bytes_read = read_result.value();
+    if( bytes_read == 0 )
+      throw std::runtime_error( "Peer RPC stream closed before complete response" );
+
+    response_raw.append( response_buf->begin(), response_buf->begin() + bytes_read );
+
+    try
+    {
+      decoded_response = gorpc::decode_response( response_raw );
+      break;
     }
-  );
-
-  auto read_result = read_future.get();
-  if( !read_result.has_value() )
-    throw std::runtime_error( "Failed to read RPC response" );
-
-  auto bytes_read = read_result.value();
-  std::string response_raw( response_buf->begin(), response_buf->begin() + bytes_read );
+    catch( const gorpc::DecodeError& e )
+    {
+      if( !e.truncated() )
+        throw;
+      if( response_raw.size() >= max_response_size )
+        throw std::runtime_error( "Peer RPC response exceeds maximum size" );
+    }
+  }
 
   stream->close( []( auto&& ) {} );
 
-  return decode_rpc_response( response_raw );
+  if( !decoded_response.header.error.empty() )
+    throw std::runtime_error( "Peer RPC error: " + decoded_response.header.error );
+
+  return decoded_response.payload;
 }
 
 void Libp2pTransport::handle_incoming_rpc(
@@ -429,22 +394,31 @@ void Libp2pTransport::handle_incoming_rpc(
         return;
 
       std::string raw( buf->begin(), buf->begin() + read_result.value() );
-      size_t pos = 0;
+      gorpc::DecodedRequest request;
+      try
+      {
+        request = gorpc::decode_request( raw );
+      }
+      catch( const std::exception& e )
+      {
+        gorpc::ServiceID unknown{ "unknown", "unknown" };
+        auto error = gorpc::encode_error_response( unknown, e.what(), gorpc::ErrorType::server );
+        auto error_bytes = std::make_shared< libp2p::Bytes >( error.begin(), error.end() );
+        stream->writeSome( *error_bytes, error_bytes->size(),
+          [stream, error_bytes]( auto&& ) {
+            stream->close( []( auto&& ) {} );
+          }
+        );
+        return;
+      }
 
-      auto svc_len = decode_varint( raw, pos );
-      std::string service_name = raw.substr( pos, svc_len );
-      pos += svc_len;
-
-      auto method_len = decode_varint( raw, pos );
-      std::string method_name = raw.substr( pos, method_len );
-      pos += method_len;
-
-      LOG( debug ) << "[p2p/transport] Incoming RPC: " << service_name << "." << method_name;
+      LOG( debug ) << "[p2p/transport] Incoming RPC: "
+                   << request.service.name << "." << request.service.method;
 
       // Respond with empty success (P2PNode will provide real routing later)
-      std::string response;
-      response += encode_varint( 0 ); // no error
-      response += encode_varint( 0 ); // empty payload
+      auto response = gorpc::encode_success_response(
+        request.service,
+        gorpc::encode_empty_request() );
 
       auto resp_bytes = std::make_shared< libp2p::Bytes >( response.begin(), response.end() );
 
@@ -463,14 +437,18 @@ void Libp2pTransport::handle_incoming_rpc(
 
 std::string Libp2pTransport::peer_get_chain_id( const PeerID& peer )
 {
-  return send_peer_rpc( peer, "PeerRPCService", "GetChainID", "" );
+  auto payload = send_peer_rpc( peer, "PeerRPCService", "GetChainID", gorpc::encode_empty_request() );
+  return gorpc::decode_id_response( payload );
 }
 
 PeerHeadInfo Libp2pTransport::peer_get_head_block( const PeerID& peer )
 {
-  send_peer_rpc( peer, "PeerRPCService", "GetHeadBlock", "" );
+  auto payload = send_peer_rpc( peer, "PeerRPCService", "GetHeadBlock", gorpc::encode_empty_request() );
+  auto decoded = gorpc::decode_head_block_response( payload );
+
   PeerHeadInfo info;
-  // TODO: deserialize response
+  info.block_id = std::move( decoded.id );
+  info.height = decoded.height;
   return info;
 }
 
@@ -478,8 +456,9 @@ std::string Libp2pTransport::peer_get_ancestor_block_id( const PeerID& peer,
                                                           const std::string& head_id,
                                                           uint64_t height )
 {
-  std::string request;
-  return send_peer_rpc( peer, "PeerRPCService", "GetAncestorBlockID", request );
+  auto request = gorpc::encode_get_ancestor_block_id_request( head_id, height );
+  auto payload = send_peer_rpc( peer, "PeerRPCService", "GetAncestorBlockID", request );
+  return gorpc::decode_id_response( payload );
 }
 
 std::vector< ::koinos::protocol::block >
@@ -488,10 +467,21 @@ Libp2pTransport::peer_get_blocks( const PeerID& peer,
                                    uint64_t start_height,
                                    uint32_t count )
 {
-  std::string request;
-  send_peer_rpc( peer, "PeerRPCService", "GetBlocks", request );
+  auto request = gorpc::encode_get_blocks_request( head_id, start_height, count );
+  auto payload = send_peer_rpc( peer, "PeerRPCService", "GetBlocks", request );
+  auto block_payloads = gorpc::decode_blocks_response( payload );
+  if( block_payloads.size() != count )
+    throw std::runtime_error( "Peer returned unexpected number of blocks" );
+
   std::vector< ::koinos::protocol::block > blocks;
-  // TODO: parse response
+  blocks.reserve( block_payloads.size() );
+  for( const auto& block_payload: block_payloads )
+  {
+    ::koinos::protocol::block block;
+    if( !block.ParseFromString( block_payload ) )
+      throw std::runtime_error( "Failed to deserialize peer RPC block response" );
+    blocks.push_back( std::move( block ) );
+  }
   return blocks;
 }
 

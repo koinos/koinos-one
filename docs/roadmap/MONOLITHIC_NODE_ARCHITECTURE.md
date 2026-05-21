@@ -297,7 +297,7 @@ Background io_context (1-2 threads)
 **Rewrite scope:**
 - **Networking:** go-libp2p → **cpp-libp2p** (libp2p/cpp-libp2p). Uses boost::asio internally, aligns with chain architecture
 - **GossipSub:** cpp-libp2p includes GossipSub. Topics `koinos.blocks` and `koinos.transactions`
-- **Peer RPC:** Replace `go-libp2p-gorpc` with custom protocol `/koinos/rpc/1.0.0` over libp2p streams. Must replicate gorpc framing exactly (varint-length-prefixed protobuf messages)
+- **Peer RPC:** Replace `go-libp2p-gorpc` with custom protocol `/koinos/peerrpc/1.0.0` over libp2p streams. Must replicate gorpc framing exactly: MessagePack `ServiceID` followed by MessagePack args for requests, and MessagePack `Response` followed by MessagePack data for responses.
 - **Connection manager:** Port peer lifecycle state machine (handshake, sync loop, reconnection)
 - **Applicator:** Port block/transaction application queue with concurrency control
 - **Error handler:** Port peer error scoring with exponential decay
@@ -548,7 +548,7 @@ The monolith must participate in the existing Koinos P2P network alongside Docke
 
 1. **GossipSub topics:** `koinos.blocks` and `koinos.transactions` use protobuf encoding. Both Go and C++ use the same `koinos_proto` definitions → byte-identical encoding.
 
-2. **Peer RPC protocol (gorpc framing):** The Go P2P service uses `go-libp2p-gorpc` with protocol ID `/p2p/rpc/koinos`. Framing: varint-length-prefixed protobuf messages with service name + method name in the stream header. **The C++ implementation must replicate this exact framing — this is the highest-risk compatibility area.** Approach: capture wire traces from Go nodes and validate C++ output byte-for-byte.
+2. **Peer RPC protocol (gorpc framing):** The Go P2P service uses `go-libp2p-gorpc` with protocol ID `/koinos/peerrpc/1.0.0`. Framing: MessagePack `ServiceID{Name, Method}` followed by a MessagePack args struct. Responses are MessagePack `Response{Service, Error, ErrType}` followed by a MessagePack data struct. **The C++ implementation must replicate this exact framing — this is the highest-risk compatibility area.** Offline fixtures now validate the C++ codec byte-for-byte; next step is live Go↔C++ interop.
 
 3. **Peer ID format:** Both Go and C++ libp2p use the same derivation (multihash of public key) → compatible.
 
@@ -1185,11 +1185,11 @@ function filterLogsByComponent(logs: string, component: string): string {
 
 | Task | Priority | Description |
 |------|----------|-------------|
-| cpp-libp2p build | High | Compile with `-DKOINOS_ENABLE_LIBP2P=ON` — validate that FetchContent resolves all cpp-libp2p deps |
-| gorpc wire compatibility | High | Capture wire traces from a Go koinos-p2p node and validate byte-for-byte compatibility of the varint-length-prefixed framing in `libp2p_transport.cpp` |
+| cpp-libp2p build | Done | Compile with `-DKOINOS_ENABLE_LIBP2P=ON`; current build links against Koinos-compatible cpp-libp2p install |
+| gorpc wire compatibility | High | Offline MessagePack fixtures from the Go codec pass in `koinos_gorpc_codec_test`; next capture wire traces from a Go koinos-p2p node and validate live interop for protocol `/koinos/peerrpc/1.0.0`, service `PeerRPCService` |
 | GossipSub interop | High | Connect C++ monolith to a Go peer, verify blocks and transactions propagate via `koinos.blocks` and `koinos.transactions` topics |
 | NAT traversal | Medium | Test UPnP, AutoRelay, and hole punching against Go libp2p — may differ in behavior |
-| Peer RPC methods | High | Validate `GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, `GetBlocks` responses match Go format exactly |
+| Peer RPC methods | High | Validate `GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, `GetBlocks` request/response structs match `vendor/koinos/koinos-p2p/internal/rpc/peer_rpc_service.go` exactly |
 
 #### 2. Block Sync End-to-End
 
@@ -1254,7 +1254,7 @@ function filterLogsByComponent(logs: string, component: string): string {
 | Unit: fork watchdog | `p2p/fork_watchdog.hpp` | Verify max 3 forks, purge below LIB |
 | Integration: block pipeline | main.cpp | submit_block → EventBus → block_store + contract_meta + tx_store + account_history |
 | Integration: tx pipeline | main.cpp | submit_transaction → mempool → propose_block → submit_block → broadcast |
-| Wire compat: gorpc | `p2p/libp2p_transport.cpp` | Capture Go gorpc frames, verify C++ encode/decode produces identical bytes |
+| Wire compat: gorpc | `p2p/gorpc_codec.cpp`, `p2p/libp2p_transport.cpp` | Fixtures verify C++ encode/decode produces Go-identical MessagePack bytes; live Go peer interop remains |
 | Wire compat: JSON-RPC | `jsonrpc/jsonrpc_server.cpp` | Compare responses against running Go koinos-jsonrpc for all 21 methods |
 | Stress: concurrent RPC | `jsonrpc/` | 1000 concurrent JSON-RPC requests, verify no crashes or deadlocks |
 | Stress: P2P connections | `p2p/` | 50+ concurrent peers, verify connection manager stability |

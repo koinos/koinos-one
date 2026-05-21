@@ -4,11 +4,29 @@ Plan secuencial para llevar el monolito desde su estado actual (compila y arranc
 
 ## Estado actual
 
-- Binario de 18MB arm64 que compila, arranca, inicializa chain con genesis, sirve JSON-RPC
+- Binario arm64 que compila, arranca, inicializa chain con genesis, sirve JSON-RPC
 - 7 servicios internalizados, 6 column families RocksDB, 21 métodos JSON-RPC
-- P2P lógica completa pero transport layer (cpp-libp2p) no compilado aún
-- Block producer loop implementado pero sin carga de private key
-- Mempool wired pero no validado end-to-end
+- P2P C++ compila y enlaza con `cpp-libp2p` usando `-DKOINOS_ENABLE_LIBP2P=ON`
+- Peer RPC usa el framing real de `go-libp2p-gorpc` (MessagePack) y pasa fixtures offline generados desde Go; falta interop live contra un Go peer y sync contra peers reales
+- Block producer loop implementado con carga de private key; falta validar bloque producido contra chain/testnet
+- Mempool acepta `chain.submit_transaction`; faltan recursos reales, expiración y producción end-to-end
+
+---
+
+## Ruta crítica actual
+
+Este es el orden de trabajo que minimiza riesgo técnico antes de invertir tiempo en UX, packaging o optimización.
+
+| Gate | Objetivo | Criterio de salida |
+|------|----------|--------------------|
+| A. Build reproducible | `koinos_node` se puede compilar con libp2p desde una workspace limpia | Script o documentación exacta produce el binario y `koinos_node --help` pasa |
+| B. Peer RPC wire compatibility | El framing gorpc C++ coincide con Go byte-for-byte | Fixtures capturados desde Go pasan en tests C++ y un Go peer acepta llamadas C++ |
+| C. One-peer sync | El monolito conecta a un peer y aplica bloques por RPC | `GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, `GetBlocks` funcionan contra Go |
+| D. Gossip interop | Bloques y transacciones cruzan entre Go y C++ | Mensajes en `koinos.blocks` y `koinos.transactions` se reciben y se validan |
+| E. Knodel local mode | Knodel arranca el monolito como reemplazo del stack multi-servicio | UI muestra health/logs y JSON-RPC funciona contra el proceso monolítico |
+| F. Mainnet soak | El nodo permanece estable sincronizado | 48h con peers reales sin leaks, forks falsos, deadlocks ni drift de head |
+
+La prioridad inmediata sigue siendo cerrar Gate B con interop live. La parte offline ya valida bytes contra fixtures Go; falta probar un peer Go real aceptando llamadas C++ antes de avanzar a sync completo.
 
 ---
 
@@ -32,10 +50,20 @@ Plan secuencial para llevar el monolito desde su estado actual (compila y arranc
 - [ ] Verificar expiración de transacciones (120s)
 
 ### 1.4 Knodel integración local
-- [ ] Copiar el binario compilado a la ruta que Knodel espera (`resolveMonolithBinaryPath()`)
+- [ ] Mover el build temporal desde `/private/tmp/koinos-node-libp2p-build` a la ruta esperada por Knodel: `vendor/koinos/koinos-node/build/koinos_node`
+- [ ] Actualizar `monolithBuildDefinition()` para pasar las flags CMake requeridas por cpp-libp2p (`KOINOS_ENABLE_LIBP2P`, prelude, shims, prefixes)
+- [ ] Verificar que `resolveMonolithBinaryPath()` encuentra el binario en dev y en packaged app
 - [ ] Verificar que Knodel detecta el monolito y lo arranca en vez de los 12 servicios
-- [ ] Verificar que el panel Node Components muestra health de los componentes
-- [ ] Verificar logs con filtrado por `[component]`
+- [ ] Verificar que start/stop/restart usan un solo proceso `koinos-node` y no dejan procesos legacy vivos
+- [ ] Verificar que el panel Node Components muestra health de los componentes derivados del log o de endpoint de health
+- [ ] Verificar logs con filtrado por `[component]` para `chain`, `mempool`, `block_store`, `p2p`, `jsonrpc`, `grpc`, `block_producer`
+- [ ] Validar presets: cambios de feature flags escriben config y reinician el monolito
+- [ ] Definir fallback UX: si el binario monolítico falta o falla al arrancar, Knodel muestra causa y permite volver al modo multi-servicio
+
+**Entregables 1.4:**
+- Build local reproducible desde Knodel
+- Start/stop/status monolítico funcionando por IPC
+- Capturas o logs que prueben detección de componentes y filtrado por logs
 
 **Entregable Sprint 1:** Nodo local que restaura backup, sirve queries, y Knodel lo gestiona.
 
@@ -73,33 +101,75 @@ Plan secuencial para llevar el monolito desde su estado actual (compila y arranc
 **Objetivo:** El monolito sincroniza con peers reales de mainnet.
 
 ### 3.1 cpp-libp2p compilation
-- [ ] Resolver build con `-DKOINOS_ENABLE_LIBP2P=ON` (puede requerir ajustar deps de cpp-libp2p)
-- [ ] Si cpp-libp2p da problemas, evaluar alternativa: mantener Go P2P como proceso separado con thin bridge
-- [ ] Verificar que el binario con libp2p arranca sin crash
+- [x] Resolver build con `-DKOINOS_ENABLE_LIBP2P=ON` (cpp-libp2p reconstruido contra deps compatibles de Koinos)
+- [x] Descartar fallback de Go P2P para esta etapa: el binario C++ ya compila con libp2p enlazado
+- [x] Verificar que el binario con libp2p arranca sin crash (`koinos_node --help`)
 
 ### 3.2 gorpc wire compatibility
-- [ ] Capturar tráfico de red de un nodo Go con tcpdump/Wireshark
-- [ ] Extraer frames gorpc (varint + service + method + payload)
-- [ ] Validar que `encode_rpc_request()` y `decode_rpc_response()` producen bytes idénticos
-- [ ] Si hay discrepancias, ajustar el framing
+- [x] Confirmar contrato real desde Go: `PeerRPCID = "/koinos/peerrpc/1.0.0"`, service `PeerRPCService`, methods `GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, `GetBlocks`
+- [x] Confirmar framing real: `go-libp2p-gorpc` escribe dos objetos MessagePack consecutivos en el stream (`ServiceID`, args) y responde con (`Response`, data)
+- [x] Crear fixtures offline desde el codec Go para requests/responses/error de Peer RPC
+- [ ] Capturar tráfico de un nodo Go con un peer Go controlado y guardar `.pcap` + frames decodificados
+- [x] Extraer frames gorpc: header `ServiceID`, nombre de servicio, método, payload, respuesta y error
+- [x] Convertir los helpers privados de `libp2p_transport.cpp` en una unidad testeable (`p2p/gorpc_codec.*`)
+- [x] Validar que el encoder C++ genera bytes idénticos a Go para requests vacíos y requests con payload
+- [x] Validar que el decoder C++ interpreta respuestas Go con éxito y respuestas con error
+- [x] Conectar `peer_get_chain_id`, `peer_get_head_block`, `peer_get_ancestor_block_id` y `peer_get_blocks` al codec MessagePack
+- [ ] Probar interop live: Go peer responde a llamadas C++ para los 4 métodos
+- [ ] Si hay discrepancias, ajustar el framing antes de tocar sync
+
+**Entregables 3.2:**
+- Fixtures binarios versionados en el test C++ para cada método Peer RPC
+- Test C++ `koinos_gorpc_codec_test` de encode/decode que falla ante cualquier cambio de bytes
+- Log de interop Go↔C++ con peer ID, protocolo, método, tamaño de request, tamaño de response
+- Decisión documentada: el framing vive fuera de `Libp2pTransport`, en `p2p/gorpc_codec.*`
 
 ### 3.3 Handshake + sync
-- [ ] Conectar a un seed peer de mainnet
-- [ ] Completar handshake (chain ID verification)
-- [ ] Batch fetch 500 bloques y aplicarlos
-- [ ] Verificar que el indexer progresa correctamente
-- [ ] Medir velocidad de sync (blocks/sec)
+- [ ] Replicar handshake Go en orden: local `GetChainID` → remote `GetChainID` → remote `GetHeadBlock` → checkpoints via `GetAncestorBlockID`
+- [ ] Mapear errores Go a scoring C++: `chain_id_mismatch`, `checkpoint_mismatch`, `chain_not_connected`, `peer_rpc_timeout`
+- [ ] Validar timeouts: local RPC 6s, remote RPC 6s, block request timeout proporcional al batch
+- [ ] Conectar a un seed peer de mainnet con base dir temporal y gossip deshabilitado al inicio
+- [ ] Completar chain ID verification contra un peer Go conocido
+- [ ] Pedir `GetHeadBlock` y comprobar que height/head no son cero
+- [ ] Pedir `GetAncestorBlockID(peer_head, local_lib_height)` y confirmar continuidad de chain
+- [ ] Batch fetch 500 bloques con `GetBlocks(head, lib+1, 500)`
+- [ ] Aplicar bloques secuencialmente y confirmar que block_store, chain, contract_meta, tx_store y account_history reciben eventos
+- [ ] Verificar que el indexer progresa correctamente después de reiniciar el proceso
+- [ ] Medir velocidad de sync: blocks/sec, RPC latency p50/p95, apply latency p50/p95, error score por peer
+
+**Entregables 3.3:**
+- Script de smoke test `one-peer-sync` o procedimiento documentado reproducible
+- Log con primer handshake exitoso C++↔Go
+- Métricas de un batch de 500 bloques y resultado de re-arranque
 
 ### 3.4 GossipSub
-- [ ] Verificar que bloques llegan via gossip (`koinos.blocks` topic)
-- [ ] Verificar que transacciones llegan via gossip (`koinos.transactions` topic)
-- [ ] Verificar gossip toggle: se activa cuando head < 45s de wall clock
+- [ ] Confirmar nombres exactos de topics Go para bloques y transacciones antes de publicar
+- [ ] Verificar que bloques llegan via gossip (`koinos.blocks` topic) y se deserializan como `protocol::block`
+- [ ] Verificar que transacciones llegan via gossip (`koinos.transactions` topic) y se deserializan como `protocol::transaction`
+- [ ] Verificar deduplicación: el mismo block/tx recibido por RPC y gossip no se aplica dos veces
+- [ ] Verificar gossip toggle: se activa cuando head < 45s de wall clock y no publica mientras el nodo está atrasado
+- [ ] Probar C++ publica bloque/tx y Go peer lo recibe
+- [ ] Probar Go publica bloque/tx y C++ lo recibe
+
+**Entregables 3.4:**
+- Interop log de publish/receive en ambos sentidos
+- Conteo de mensajes aceptados/rechazados por validator
+- Lista de errores de deserialización con peer ID y topic
 
 ### 3.5 Stability
-- [ ] Correr el nodo 48h con 20+ peers conectados
-- [ ] Monitorizar: memory leaks, connection drops, error scoring
-- [ ] Verificar que fork watchdog detecta fork bombs correctamente
-- [ ] Verificar reconnect a seed peers después de disconnects
+- [ ] Correr 2h con 1 peer Go controlado y ASAN/TSAN cuando sea viable
+- [ ] Correr 12h con 5-10 peers reales, sin block production
+- [ ] Correr 48h con 20+ peers conectados
+- [ ] Monitorizar: RSS, heap growth, open file descriptors, peer count, RPC timeouts, connection drops, error scoring
+- [ ] Verificar que fork watchdog detecta fork bombs correctamente y no dispara en sync normal
+- [ ] Verificar reconnect a seed peers después de disconnects y network blips
+- [ ] Verificar shutdown limpio: SIGTERM cierra libp2p, RocksDB y threads sin colgar
+- [ ] Documentar umbrales de alerta para Knodel: peer count bajo, sync estancado, RPC timeout rate, memory growth
+
+**Entregables 3.5:**
+- Reporte de soak test con timestamp, commit, build flags, peers, RSS inicial/final
+- Lista de issues bloqueantes antes de mainnet canary
+- Config recomendada para peers, batch size y timeouts
 
 **Entregable Sprint 3:** Monolito sincronizado con mainnet via P2P.
 
@@ -208,8 +278,10 @@ Plan secuencial para llevar el monolito desde su estado actual (compila y arranc
 
 | Riesgo | Impacto | Mitigación |
 |--------|---------|------------|
-| cpp-libp2p no compila o tiene bugs | Sprint 3 bloqueado | Fallback: mantener Go P2P como proceso externo, comunica con monolito via IPC local |
-| gorpc framing incompatible | Peers rechazan el nodo | Wire traces + test harness con Go peer + C++ peer lado a lado |
+| Build libp2p no es reproducible desde Knodel | Usuarios no pueden probar monolito local | Convertir el build temporal en flags CMake documentadas + integración en `monolithBuildDefinition()` |
+| cpp-libp2p tiene bugs runtime | Sprint 3 bloqueado aunque compile | Soak tests, fallback temporal a Go P2P sidecar via IPC local |
+| gorpc framing incompatible | Peers rechazan el nodo | Wire traces + fixtures binarios + test harness con Go peer + C++ peer lado a lado |
+| Peer RPC responde pero payload struct difiere | Sync falla al parsear respuestas | Validar structs Go exactos: multihash, heights, `[][]byte` para blocks |
 | RocksDB corruption durante migración | Pérdida de datos | Mantener Badger DB como backup hasta verificación completa |
 | Xcode/toolchain incompatibilidad | Build roto | Usar CI con Xcode estable (16/17), no beta |
 | Memory leaks en operación prolongada | Crash después de horas/días | ASAN/TSAN durante desarrollo, 48h soak tests |

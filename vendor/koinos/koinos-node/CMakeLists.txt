@@ -22,6 +22,11 @@ project(koinos_node
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(KOINOS_BUILD_TESTS "Build koinos-node tests" ON)
+if(KOINOS_BUILD_TESTS)
+  enable_testing()
+endif()
+
 # /usr/local/include has Boost 1.78 headers that shadow Hunter's Boost 1.83.
 # CMake marks imported-target includes as -isystem, but Clang resolves an
 # -I/-isystem conflict on the same path by keeping only -isystem, which lets
