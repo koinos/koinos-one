@@ -37,21 +37,23 @@ docs/roadmap/       → Optimization plans and future ideas
 
 ## Current State & Recent Work
 
-### Backup System (Settings > Backup tab)
-- **Create local backup:** Stops services, tar.gz of chain/ + block_store/, disk space check, SHA-256 checksum
-- **Cancel support:** Button toggles Create/Cancel, kills tar process via SIGTERM
-- **Progress bar:** Visible in Backup tab for both create and restore, polls file size every 2-3s
-- **Restore from local file:** Opens dialog defaulting to last backup dir, extracts, restores to BASEDIR
-- Files: `backup-service.ts` (spawnTar with progress polling), `ipc-handlers.ts`, `preload.ts`, `SettingsPanel.tsx`
+### Monolithic Node Migration (Primary Focus)
+- **Gate A build reproducibility:** Local monolith build is wired into Knodel tooling (`monolithBuildDefinition`, CMake flags for `KOINOS_ENABLE_LIBP2P`, cpp-libp2p prelude/prefix setup). Binary output target is `vendor/koinos/koinos-node/build/koinos_node`.
+- **Electron runtime mode:** Knodel runs a single `koinos_node` process in monolith mode and maps service actions (`start`/`stop`/`restart`) through `koinosNodeServiceAction` for `koinos-node`.
+- **Current safety gate:** `p2p` is disabled by default at launcher level until Gate B is closed. With `p2p` enabled, current build still crashes after genesis; with `--disable=p2p`, chain/block_store/jsonrpc run and JSON-RPC responds.
+- **Status + health model:** `nativeComposeStatus` returns one managed service (`koinos-node`) plus component health derived from monolith logs. Health parsing accepts real log format (timestamp + `[component]`).
+- **Component logs:** Log endpoints now accept component targets (`jsonrpc`, `chain`, etc.) and filter monolith output by `[component]`, including follow streams.
+- **Preset reconcile (monolith):** Applying a preset writes `features.*` to active `BASEDIR/config.yml`, translates flags to CLI `--enable/--disable`, restarts monolith, and preserves `p2p=false` during Gate B.
 
-### GarageMQ
-- Binary at `vendor/amqp-broker/garagemq`, config at `vendor/amqp-broker/etc/config.yaml`
-- Takes priority over Homebrew RabbitMQ (fixed in `nativeAmqpUsesBrewService()`)
+### End-to-End Validation Completed
+- Electron bridge smoke for `serviceStart`/`serviceStop`/`serviceRestart` against monolith runtime.
+- JSON-RPC probe (`chain.get_head_info`) successful while monolith is running with `p2p` disabled.
+- Component logs smoke successful for `jsonrpc` (snapshot + follow stream).
+- Preset smoke successful for `profile:jsonrpc` (config write + restart + RPC response).
 
-### Chain State
-- BASEDIR: `/Volumes/external/.koinos/` (external drive)
-- Chain ~1GB (state DB), block_store ~38GB (blocks + receipts)
-- Merkle mismatch fix: toggle `verify-blocks: true` in config.yml, restart chain to re-index
+### Supporting Status Docs
+- `docs/roadmap/MONOLITH_PRODUCTION_PLAN.md` tracks checklist progress for Sprint 1.4 and critical path.
+- `docs/roadmap/CPP_LIBP2P_INTEGRATION_STATUS.md` tracks cpp-libp2p integration details and current Gate B blockers.
 
 ## Build & Dev
 
@@ -74,7 +76,10 @@ npm run package:mac  # electron-builder → DMG
 
 ## Roadmap / Pending
 
-- **Backup compression optimization:** pigz/zstd support (see `docs/roadmap/BACKUP_COMPRESSION_OPTIMIZATION.md`)
-- **Service status sync during backup:** UI should reflect stopped services during backup/restore
-- **Post-packaging smoke tests:** Plan in `docs/roadmap/POST_PACKAGING_SMOKE_TESTS_PLAN.md`
-- **Docs tab in UI:** Render markdown docs from repo inside the app
+- **Monolith critical path (now):**
+- `resolveMonolithBinaryPath()` packaged-app verification is still pending.
+- Fallback UX is still pending: when monolith binary is missing or startup fails, UI should expose clear cause and allow multi-service fallback.
+- Gate B remains open: live libp2p Peer RPC interop + stable P2P runtime in C++ monolith.
+- **Existing non-monolith items (secondary):**
+- Backup compression optimization (`docs/roadmap/BACKUP_COMPRESSION_OPTIMIZATION.md`).
+- Docs tab in UI for markdown browsing.
