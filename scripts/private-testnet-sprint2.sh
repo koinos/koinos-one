@@ -41,9 +41,14 @@ die() {
 
 safe_clean_root() {
   case "$RUN_ROOT" in
-    /private/tmp/knodel-private-testnet*) rm -rf "$RUN_ROOT" ;;
-    *) die "refusing to clean unsafe PRIVATE_TESTNET_ROOT=$RUN_ROOT" ;;
+    ""|"/"|"/tmp"|"/private/tmp"|"/mnt"|"/mnt/") die "refusing to clean unsafe PRIVATE_TESTNET_ROOT=$RUN_ROOT" ;;
   esac
+
+  case "$RUN_ROOT" in
+    /private/tmp/knodel-private-testnet*|/tmp/knodel-private-testnet*|*/knodel-private-testnet*) rm -rf "$RUN_ROOT" ;;
+    *) die "refusing to clean unsafe PRIVATE_TESTNET_ROOT=$RUN_ROOT; path basename must start with knodel-private-testnet" ;;
+  esac
+
   mkdir -p "$RUN_ROOT"
 }
 
