@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -62,6 +63,9 @@ private:
   // ── Peer lifecycle ──
   void on_peer_connected( const PeerID& peer );
   void on_peer_disconnected( const PeerID& peer );
+  std::string handle_peer_rpc_request( const std::string& service,
+                                       const std::string& method,
+                                       const std::string& args );
 
   // ── Sync protocol (runs per peer in dedicated thread) ──
   void peer_sync_loop( PeerID peer );
@@ -77,7 +81,9 @@ private:
   void on_block_irreversible( const broadcast::block_irreversible& bi );
 
   // ── Helpers ──
-  void report_peer_error( const PeerID& peer, const std::string& error, uint64_t score );
+  void log_peer_snapshot();
+  bool report_peer_error( const PeerID& peer, const std::string& error, uint64_t score );
+  uint64_t score_for_error( const std::string& error ) const;
 
   P2POptions _opts;
   IChain* _chain;
@@ -91,6 +97,10 @@ private:
 
   std::mutex _peers_mutex;
   std::map< std::string, std::unique_ptr< PeerState > > _peers; // peer.id → state
+  std::mutex _sync_mutex;
+  std::mutex _seen_mutex;
+  std::set< std::string > _seen_blocks;
+  std::set< std::string > _seen_transactions;
 
   std::atomic< bool > _running{ false };
   std::atomic< uint64_t > _lib_height{ 0 };

@@ -16,16 +16,50 @@
 #include "p2p/gorpc_codec.hpp"
 #include "libp2p_transport.hpp"
 
+#include <chrono>
+#include <cstdlib>
 #include <future>
+#include <iostream>
+#include <mutex>
 
+#include <boost/asio/post.hpp>
 #include <koinos/log.hpp>
 #include <koinos/protocol/protocol.pb.h>
 
 // cpp-libp2p
+#include <boost/di.hpp>
+#include <boost/di/extension/scopes/shared.hpp>
 #include <libp2p/common/literals.hpp>
 #include <libp2p/common/types.hpp>
 #include <libp2p/crypto/key_marshaller/key_marshaller_impl.hpp>
 #include <libp2p/injector/host_injector.hpp>
+#include <libp2p/log/logger.hpp>
+#include <libp2p/muxer/yamux/yamux.hpp>
+#include <soralog/impl/fallback_configurator.hpp>
+
+namespace {
+
+void prepare_libp2p_logging()
+{
+  static std::once_flag initialized;
+  std::call_once( initialized, [] {
+    auto logging_system = std::make_shared< soralog::LoggingSystem >(
+      std::make_shared< soralog::FallbackConfigurator >( soralog::Level::ERROR ) );
+    auto result = logging_system->configure();
+    if( result.has_error )
+      throw std::runtime_error( "Failed to configure cpp-libp2p logging: " + result.message );
+    if( !result.message.empty() )
+      std::cerr << result.message << std::endl;
+
+    libp2p::log::setLoggingSystem( logging_system );
+  } );
+
+  libp2p::log::setLevelOfGroup(
+    libp2p::log::defaultGroupName,
+    std::getenv( "KOINOS_LIBP2P_TRACE" ) ? soralog::Level::TRACE : soralog::Level::ERROR );
+}
+
+} // namespace
 
 namespace koinos::node::p2p {
 
@@ -50,13 +84,21 @@ Libp2pTransport::~Libp2pTransport()
 void Libp2pTransport::start()
 {
   _running = true;
+  prepare_libp2p_logging();
 
   // Create libp2p host via injector. QUIC is disabled in the Koinos-compatible
   // cpp-libp2p build, so bind the transport stack to TCP only.
-  auto injector = libp2p::injector::makeHostInjector(
+  auto injector = libp2p::injector::makeHostInjector< boost::di::extension::shared_config >(
+    boost::di::bind< boost::asio::io_context >.to( _io )[ boost::di::override ],
+    libp2p::injector::useLibp2pClientVersion( libp2p::Libp2pClientVersion{ _config.protocol_version } ),
+    libp2p::injector::useLayerAdaptors<>(),
+    libp2p::injector::useMuxerAdaptors< libp2p::muxer::Yamux >(),
     libp2p::injector::useTransportAdaptors< libp2p::transport::TcpTransport >() );
 
   _host = injector.create< std::shared_ptr< libp2p::Host > >();
+
+  LOG( info ) << "[p2p/transport] Host peer ID: " << _host->getId().toBase58();
+  LOG( info ) << "[p2p/transport] Advertised protocol version: " << _config.protocol_version;
 
   // Parse listen address
   auto listen_ma = libp2p::multi::Multiaddress::create( _config.listen_address );
@@ -78,17 +120,22 @@ void Libp2pTransport::start()
   _host->setOnNewConnectionHandler(
     [this]( libp2p::peer::PeerInfo&& peer_info ) {
       auto id_str = peer_info.id.toBase58();
+      std::string address;
+      if( !peer_info.addresses.empty() )
+        address = std::string( peer_info.addresses.front().getStringAddress() );
+      PeerID peer{ id_str, address };
       {
         std::lock_guard lock( _peers_mutex );
-        _connected.emplace( id_str, peer_info.id );
+        _connected[ id_str ] = peer;
       }
       if( _on_connected )
-        _on_connected( PeerID{ id_str, "" } );
+        _on_connected( peer );
     }
   );
 
   // Create GossipSub
   auto gossip_config = libp2p::protocol::gossip::Config{};
+  gossip_config.sign_messages = true;
 
   _gossip = libp2p::protocol::gossip::create(
     injector.create< std::shared_ptr< libp2p::basic::Scheduler > >(),
@@ -152,16 +199,27 @@ void Libp2pTransport::start()
 
     libp2p::peer::PeerInfo peer_info{ peer_id.value(), { ma.value() } };
 
-    _host->connect( peer_info, [seed]( auto&& result ) {
+    _host->connect( peer_info, [this, seed, id = peer_id_str.value()]( auto&& result ) {
       if( result.has_value() )
+      {
+        PeerID peer{ id, seed };
+        {
+          std::lock_guard lock( _peers_mutex );
+          _connected[ id ] = peer;
+        }
+        if( _on_connected )
+          _on_connected( peer );
         LOG( info ) << "[p2p/transport] Connected to seed: " << seed;
+      }
       else
-        LOG( warning ) << "[p2p/transport] Failed to connect to seed: " << seed;
+        LOG( warning ) << "[p2p/transport] Failed to connect to seed: " << seed
+                       << " error=" << result.error().message();
     } );
   }
 
-  // Run IO threads
-  unsigned int thread_count = std::max( 2u, std::thread::hardware_concurrency() / 2 );
+  // cpp-libp2p connection and muxer state is not safe to drive from multiple
+  // io_context runners; keep all libp2p callbacks serialized on one thread.
+  unsigned int thread_count = 1;
   for( unsigned int i = 0; i < thread_count; ++i )
     _io_threads.emplace_back( [this]() { _io->run(); } );
 
@@ -195,20 +253,57 @@ void Libp2pTransport::stop()
 
 void Libp2pTransport::connect_peer( const PeerID& peer )
 {
+  {
+    std::lock_guard lock( _peers_mutex );
+    if( _connected.count( peer.id ) || _connecting.count( peer.id ) )
+      return;
+    _connecting.insert( peer.id );
+  }
+
   auto ma = libp2p::multi::Multiaddress::create( peer.address );
   if( !ma.has_value() )
+  {
+    std::lock_guard lock( _peers_mutex );
+    _connecting.erase( peer.id );
     throw std::runtime_error( "Invalid multiaddr: " + peer.address );
+  }
 
   auto peer_id_str = ma.value().getPeerId();
   if( !peer_id_str.has_value() )
+  {
+    std::lock_guard lock( _peers_mutex );
+    _connecting.erase( peer.id );
     throw std::runtime_error( "Multiaddr has no peer ID: " + peer.address );
+  }
 
   auto peer_id = libp2p::peer::PeerId::fromBase58( peer_id_str.value() );
   if( !peer_id.has_value() )
+  {
+    std::lock_guard lock( _peers_mutex );
+    _connecting.erase( peer.id );
     throw std::runtime_error( "Invalid peer ID in multiaddr: " + peer.address );
+  }
 
   libp2p::peer::PeerInfo peer_info{ peer_id.value(), { ma.value() } };
-  _host->connect( peer_info, []( auto&& ) {} );
+  _host->connect( peer_info, [this, peer]( auto&& result ) {
+    {
+      std::lock_guard lock( _peers_mutex );
+      _connecting.erase( peer.id );
+    }
+
+    if( result.has_value() )
+    {
+      {
+        std::lock_guard lock( _peers_mutex );
+        _connected[ peer.id ] = peer;
+      }
+      if( _on_connected )
+        _on_connected( peer );
+    }
+    else
+      LOG( warning ) << "[p2p/transport] Failed to connect to peer: " << peer.address
+                     << " error=" << result.error().message();
+  } );
 }
 
 void Libp2pTransport::disconnect_peer( const PeerID& peer )
@@ -216,6 +311,22 @@ void Libp2pTransport::disconnect_peer( const PeerID& peer )
   auto pid = libp2p::peer::PeerId::fromBase58( peer.id );
   if( pid.has_value() )
     _host->disconnect( pid.value() );
+
+  PeerID disconnected_peer = peer;
+  bool was_connected       = false;
+  {
+    std::lock_guard lock( _peers_mutex );
+    auto it = _connected.find( peer.id );
+    if( it != _connected.end() )
+    {
+      disconnected_peer = it->second;
+      _connected.erase( it );
+      was_connected = true;
+    }
+  }
+
+  if( was_connected && _on_disconnected )
+    _on_disconnected( disconnected_peer );
 }
 
 uint32_t Libp2pTransport::connected_peer_count() const
@@ -228,8 +339,8 @@ std::vector< PeerID > Libp2pTransport::connected_peers() const
 {
   std::lock_guard lock( _peers_mutex );
   std::vector< PeerID > result;
-  for( const auto& [id, pid]: _connected )
-    result.push_back( { id, "" } );
+  for( const auto& [id, peer]: _connected )
+    result.push_back( peer );
   return result;
 }
 
@@ -299,36 +410,55 @@ std::string Libp2pTransport::send_peer_rpc( const PeerID& peer,
   if( !pid.has_value() )
     throw std::runtime_error( "Invalid peer ID: " + peer.id );
 
-  // Open stream (async — block via promise)
-  std::promise< libp2p::StreamAndProtocolOrError > stream_promise;
-  auto stream_future = stream_promise.get_future();
+  auto ma = libp2p::multi::Multiaddress::create( peer.address );
+  if( !ma.has_value() )
+    throw std::runtime_error( "Invalid multiaddr: " + peer.address );
 
-  _host->newStream(
-    pid.value(),
-    { PEER_RPC_PROTOCOL },
-    [&stream_promise]( libp2p::StreamAndProtocolOrError result ) {
-      stream_promise.set_value( std::move( result ) );
-    }
-  );
+  libp2p::peer::PeerInfo peer_info{ pid.value(), { ma.value() } };
+
+  const auto timeout = std::chrono::seconds( 6 );
+
+  // Open stream (async — block via promise)
+  auto stream_promise = std::make_shared< std::promise< libp2p::StreamAndProtocolOrError > >();
+  auto stream_future = stream_promise->get_future();
+
+  boost::asio::post( *_io, [host = _host, peer_info, stream_promise]() {
+    host->newStream(
+      peer_info,
+      { PEER_RPC_PROTOCOL },
+      [stream_promise]( libp2p::StreamAndProtocolOrError result ) {
+        stream_promise->set_value( std::move( result ) );
+      }
+    );
+  } );
+
+  if( stream_future.wait_for( timeout ) != std::future_status::ready )
+    throw std::runtime_error( "Timed out opening Peer RPC stream to peer: " + peer.id );
 
   auto stream_result = stream_future.get();
   if( !stream_result.has_value() )
-    throw std::runtime_error( "Failed to open stream to peer: " + peer.id );
+    throw std::runtime_error( "Failed to open stream to peer " + peer.id + ": "
+                              + stream_result.error().message() );
 
   auto stream = std::move( stream_result.value().stream );
 
   // Write request
   auto request = gorpc::encode_request( service, method, msgpack_args );
-  libp2p::Bytes req_bytes( request.begin(), request.end() );
+  auto req_bytes = std::make_shared< libp2p::Bytes >( request.begin(), request.end() );
 
-  std::promise< outcome::result< size_t > > write_promise;
-  auto write_future = write_promise.get_future();
+  auto write_promise = std::make_shared< std::promise< outcome::result< size_t > > >();
+  auto write_future = write_promise->get_future();
 
-  stream->writeSome( req_bytes, req_bytes.size(),
-    [&write_promise]( outcome::result< size_t > result ) {
-      write_promise.set_value( std::move( result ) );
-    }
-  );
+  boost::asio::post( *_io, [stream, req_bytes, write_promise]() {
+    stream->writeSome( *req_bytes, req_bytes->size(),
+      [req_bytes, write_promise]( outcome::result< size_t > result ) {
+        write_promise->set_value( std::move( result ) );
+      }
+    );
+  } );
+
+  if( write_future.wait_for( timeout ) != std::future_status::ready )
+    throw std::runtime_error( "Timed out writing Peer RPC request" );
 
   auto write_result = write_future.get();
   if( !write_result.has_value() )
@@ -343,14 +473,19 @@ std::string Libp2pTransport::send_peer_rpc( const PeerID& peer,
   while( true )
   {
     auto response_buf = std::make_shared< libp2p::Bytes >( read_chunk_size );
-    std::promise< outcome::result< size_t > > read_promise;
-    auto read_future = read_promise.get_future();
+    auto read_promise = std::make_shared< std::promise< outcome::result< size_t > > >();
+    auto read_future = read_promise->get_future();
 
-    stream->readSome( *response_buf, response_buf->size(),
-      [&read_promise]( outcome::result< size_t > result ) {
-        read_promise.set_value( std::move( result ) );
-      }
-    );
+    boost::asio::post( *_io, [stream, response_buf, read_promise]() {
+      stream->readSome( *response_buf, response_buf->size(),
+        [response_buf, read_promise]( outcome::result< size_t > result ) {
+          read_promise->set_value( std::move( result ) );
+        }
+      );
+    } );
+
+    if( read_future.wait_for( timeout ) != std::future_status::ready )
+      throw std::runtime_error( "Timed out reading Peer RPC response" );
 
     auto read_result = read_future.get();
     if( !read_result.has_value() )
@@ -376,7 +511,9 @@ std::string Libp2pTransport::send_peer_rpc( const PeerID& peer,
     }
   }
 
-  stream->close( []( auto&& ) {} );
+  boost::asio::post( *_io, [stream]() {
+    stream->close( []( auto&& ) {} );
+  } );
 
   if( !decoded_response.header.error.empty() )
     throw std::runtime_error( "Peer RPC error: " + decoded_response.header.error );
@@ -415,10 +552,19 @@ void Libp2pTransport::handle_incoming_rpc(
       LOG( debug ) << "[p2p/transport] Incoming RPC: "
                    << request.service.name << "." << request.service.method;
 
-      // Respond with empty success (P2PNode will provide real routing later)
-      auto response = gorpc::encode_success_response(
-        request.service,
-        gorpc::encode_empty_request() );
+      std::string response;
+      try
+      {
+        if( !_on_peer_rpc_request )
+          throw std::runtime_error( "peer RPC handler is not configured" );
+
+        auto payload = _on_peer_rpc_request( request.service.name, request.service.method, request.args );
+        response = gorpc::encode_success_response( request.service, payload );
+      }
+      catch( const std::exception& e )
+      {
+        response = gorpc::encode_error_response( request.service, e.what(), gorpc::ErrorType::server );
+      }
 
       auto resp_bytes = std::make_shared< libp2p::Bytes >( response.begin(), response.end() );
 
@@ -493,6 +639,7 @@ void Libp2pTransport::on_peer_connected( PeerConnectedCallback cb ) { _on_connec
 void Libp2pTransport::on_peer_disconnected( PeerDisconnectedCallback cb ) { _on_disconnected = std::move( cb ); }
 void Libp2pTransport::on_block_received( BlockReceivedCallback cb ) { _on_block = std::move( cb ); }
 void Libp2pTransport::on_transaction_received( TxReceivedCallback cb ) { _on_tx = std::move( cb ); }
+void Libp2pTransport::on_peer_rpc_request( PeerRpcRequestCallback cb ) { _on_peer_rpc_request = std::move( cb ); }
 
 // ---------------------------------------------------------------------------
 // Helpers

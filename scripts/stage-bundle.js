@@ -119,6 +119,11 @@ for (const svc of CPP_SERVICES) {
   copyFileChecked(src, dest, svc.repo);
 }
 
+// --- Monolithic koinos_node ---
+console.log('\n=== Monolithic Node ===');
+const monolithSrc = path.join(VENDOR, 'koinos-node', CPP_BUILD_DIR, 'koinos_node' + EXT);
+copyFileChecked(monolithSrc, path.join(BIN_DIR, 'koinos_node' + EXT), 'koinos_node');
+
 // --- GarageMQ (AMQP broker) ---
 console.log('\n=== AMQP Broker ===');
 const garagemqSrc = path.join(ROOT, 'vendor', 'amqp-broker', `garagemq${EXT}`);

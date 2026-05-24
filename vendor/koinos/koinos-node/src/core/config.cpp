@@ -80,6 +80,10 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     {
       cfg.p2p_listen = yaml_get< std::string >( p, "listen", cfg.p2p_listen );
       cfg.p2p_jobs   = yaml_get< uint64_t >( p, "jobs", cfg.p2p_jobs );
+      cfg.p2p_seed_reconnect_interval_seconds =
+        yaml_get< uint64_t >( p, "seed-reconnect-interval-seconds", cfg.p2p_seed_reconnect_interval_seconds );
+      cfg.p2p_force_gossip = yaml_get< bool >( p, "force-gossip", cfg.p2p_force_gossip );
+      cfg.p2p_disable_gossip = yaml_get< bool >( p, "disable-gossip", cfg.p2p_disable_gossip );
 
       auto seeds = yaml_get_string_list( p, "seed" );
       if( !seeds.empty() )
@@ -105,6 +109,11 @@ NodeConfig load_config( const std::filesystem::path& config_path,
       cfg.block_producer_address           = yaml_get< std::string >( bp, "producer", cfg.block_producer_address );
       cfg.block_producer_resources_lower_bound = yaml_get< uint64_t >( bp, "resources-lower-bound", cfg.block_producer_resources_lower_bound );
       cfg.block_producer_resources_upper_bound = yaml_get< uint64_t >( bp, "resources-upper-bound", cfg.block_producer_resources_upper_bound );
+      cfg.block_producer_max_inclusion_attempts =
+        yaml_get< uint64_t >( bp, "max-inclusion-attempts", cfg.block_producer_max_inclusion_attempts );
+      cfg.block_producer_gossip_production =
+        yaml_get< bool >( bp, "gossip-production", cfg.block_producer_gossip_production );
+      cfg.block_producer_approved_proposals = yaml_get_string_list( bp, "approve-proposals" );
     }
 
     // ── Mempool ──

@@ -1,0 +1,31 @@
+{
+  "sourceRepository": "https://github.com/koinos/koinos-contracts-as",
+  "sourceCommit": "aef57bdb8a5960ec2b799ee0f17bf7a25bb5de85",
+  "generatedAt": "2026-05-24T11:21:16Z",
+  "contracts": {
+    "koin": {
+      "wasm": "koin/contract.wasm",
+      "abi": "koin/koin.abi",
+      "wasmBytes": 61550,
+      "wasmSha256": "6223aaf01394b3c64b8744c06d2efba9edb6918cae58f819a85807eba49a14c8"
+    },
+    "name_service": {
+      "wasm": "name_service/contract.wasm",
+      "abi": "name_service/name_service.abi",
+      "wasmBytes": 25446,
+      "wasmSha256": "236f3c2f89febd7625d8a1f381bb2e0ca7b4e541cbbe6683a63869ccfb959fe8"
+    },
+    "pob": {
+      "wasm": "pob/contract.wasm",
+      "abi": "pob/pob.abi",
+      "wasmBytes": 46488,
+      "wasmSha256": "23ccb50796c8b08de4d6721c7df81dbde530c502cad8e555f2b54406b349b18b"
+    },
+    "vhp": {
+      "wasm": "vhp/contract.wasm",
+      "abi": "vhp/vhp.abi",
+      "wasmBytes": 61715,
+      "wasmSha256": "e873ebebdac92f43f8d97e8cb406c97c1026b9a8080f7a7b8fe3870bd9362388"
+    }
+  }
+}

@@ -20,9 +20,11 @@
 #include "types.hpp"
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -83,6 +85,7 @@ public:
   void on_peer_disconnected( PeerDisconnectedCallback cb ) override;
   void on_block_received( BlockReceivedCallback cb ) override;
   void on_transaction_received( TxReceivedCallback cb ) override;
+  void on_peer_rpc_request( PeerRpcRequestCallback cb ) override;
 
 private:
   // ── GossipSub topic names ──
@@ -124,6 +127,7 @@ private:
   PeerDisconnectedCallback _on_disconnected;
   BlockReceivedCallback _on_block;
   TxReceivedCallback _on_tx;
+  PeerRpcRequestCallback _on_peer_rpc_request;
 
   // IO
   std::shared_ptr< boost::asio::io_context > _io;
@@ -131,7 +135,8 @@ private:
   std::atomic< bool > _running{ false };
 
   mutable std::mutex _peers_mutex;
-  std::map< std::string, libp2p::peer::PeerId > _connected;
+  std::map< std::string, PeerID > _connected;
+  std::set< std::string > _connecting;
 };
 
 } // namespace koinos::node::p2p

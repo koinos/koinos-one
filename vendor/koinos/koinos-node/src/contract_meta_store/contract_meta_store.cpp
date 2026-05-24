@@ -3,6 +3,8 @@
 #include <koinos/log.hpp>
 #include <koinos/protocol/protocol.pb.h>
 
+#include <stdexcept>
+
 namespace koinos::node::contract_meta_store {
 
 ContractMetaStore::ContractMetaStore( rocksdb::DB* db, rocksdb::ColumnFamilyHandle* cf )
@@ -16,6 +18,9 @@ ContractMetaStore::get_contract_meta( const rpc::contract_meta_store::get_contra
   std::shared_lock lock( _mutex );
 
   rpc::contract_meta_store::get_contract_meta_response resp;
+
+  if( req.contract_id().empty() )
+    throw std::runtime_error( "expected field contract_id was nil" );
 
   std::string value;
   auto s = _db->Get( rocksdb::ReadOptions(), _cf, req.contract_id(), &value );

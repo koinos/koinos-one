@@ -58,11 +58,27 @@ struct HeadBlockResponse
   uint64_t height = 0;
 };
 
+struct AncestorBlockIDRequest
+{
+  std::string parent_id;
+  uint64_t child_height = 0;
+};
+
+struct BlocksRequest
+{
+  std::string head_block_id;
+  uint64_t start_block_height = 0;
+  uint32_t num_blocks = 0;
+};
+
 std::string encode_empty_request();
 std::string encode_get_ancestor_block_id_request( std::string_view parent_id, uint64_t child_height );
 std::string encode_get_blocks_request( std::string_view head_block_id,
                                         uint64_t start_block_height,
                                         uint32_t num_blocks );
+std::string encode_id_response( std::string_view id );
+std::string encode_head_block_response( std::string_view id, uint64_t height );
+std::string encode_blocks_response( const std::vector< std::string >& block_payloads );
 
 std::string encode_request( std::string_view service,
                              std::string_view method,
@@ -76,6 +92,8 @@ std::string encode_error_response( const ServiceID& service,
 DecodedRequest decode_request( std::string_view raw );
 Response decode_response( std::string_view raw );
 
+AncestorBlockIDRequest decode_get_ancestor_block_id_request( std::string_view payload );
+BlocksRequest decode_get_blocks_request( std::string_view payload );
 std::string decode_id_response( std::string_view payload );
 HeadBlockResponse decode_head_block_response( std::string_view payload );
 std::vector< std::string > decode_blocks_response( std::string_view payload );

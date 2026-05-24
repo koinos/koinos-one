@@ -30,12 +30,15 @@ struct PeerHeadInfo
 
 struct P2POptions
 {
+  std::vector< PeerID > seed_peers;
+
   // Sync
   uint32_t block_request_batch_size = 500;
   uint32_t synced_block_delta       = 5;
   std::chrono::seconds sync_check_interval{ 10 };
   std::chrono::seconds syncing_check_interval{ 1 };
   std::chrono::seconds handshake_retry_interval{ 6 };
+  std::chrono::seconds seed_reconnect_interval{ 10 };
 
   // Gossip toggle
   std::chrono::seconds gossip_head_threshold{ 45 };

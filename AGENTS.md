@@ -1,0 +1,71 @@
+# Knodel Codex Project Memory
+
+Last updated: 2026-05-24
+
+This file is the local project memory for Codex work in this repo. Codex Desktop does not guarantee that arbitrary repo files are always read automatically in every thread, so explicitly ask to read `AGENTS.md` when resuming if the context was compacted or lost.
+
+## Project Mission
+
+Act as an expert blockchain engineer for this project. The goal is to build an optimized Koinos block-producing node that is easy for end users to launch and operate. The current primary target is macOS; Windows optimization will follow. All implementation decisions must preserve compatibility with the Koinos protocol and avoid shortcuts that would diverge from mainnet behavior.
+
+All project documentation must be written in English, even when discussion with the user happens in Spanish.
+
+## Current Monolith Status
+
+- Gates A, B, C and D are complete for the monolithic migration roadmap.
+- Gate E is implemented in code: Knodel no longer forces monolith `p2p` off by default, presets keep core monolith components enabled, and the monolith can be smoked locally with `p2p` plus `jsonrpc`.
+- Gate F has an executable soak harness and report generator. A 5h production-style soak was attempted on 2026-05-24, but it was aborted as invalid because the node stayed at `0` connected peers and head height `0`. Follow-up runs proved cpp-libp2p can connect to mainnet peers, complete Koinos handshake, and apply the first `500` blocks when a public peer accepts Peer RPC, but sustained sync is not signed off yet. The local C++ side now advertises `koinos/p2p/1.0.0`, runs libp2p on one IO runner, owns seed dialing in `P2PNode` with paced attempts, avoids duplicate in-flight dials, serves incoming Peer RPC (`GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, `GetBlocks`) from local `chain`/`block_store`, disconnects stale EOF/reset peers without score-threshold escalation, serializes sync block application, and ignores local "prior to irreversibility" races from competing peers. `scripts/mainnet-peer-candidates.txt` now prioritizes the legacy `config-example` seeds and keeps production-log peers as fallbacks. Latest Go probe from this machine failed against all five official seeds during security negotiation/timeout/refused, and the only peers accepting raw libp2p returned `protocol_version=unknown` and rejected Koinos Peer RPC. Treat the latest failure as peer availability/backoff until a fresh Go probe finds a Peer RPC-capable target.
+- Sprint 1.1 real backup restore validation now passes on the external SSD path `/Volumes/external/knodel-monolith-restore`: the seed backup is legacy, `chain/blockchain` is reused, and `block_store/db` is converted from Badger to monolith RocksDB `basedir/db`.
+- Sprint 1.2 JSON-RPC parity now passes against the local legacy Go stack on the restored dataset: 21/21 cases matched after canonicalizing byte encodings.
+- Sprint 2 backend implementation is complete in the monolith: the block producer loads WIF keys, writes `block_producer/public.key`, assembles resource-bounded blocks, signs `federated` and PoB blocks, resolves PoB/VHP chain data, prunes failed transactions and retries, and gates production on P2P gossip readiness by default. Local build and CTest coverage pass. Private three-node federated validation passes: `producer-1` produced a signed block, `observer-1` synced it over P2P from the producer, and observer block store, transaction store, and contract meta store health checks passed. Private three-node PoB validation also passes with `PRIVATE_TESTNET_MODE=pob`: the deterministic runtime genesis includes staged `koin`, `name_service`, `pob`, and `vhp` system-contract bytecode, exact system-call dispatch keys, name-service records, producer hot-key registration, KOIN/RC balance, effective VHP, canonical PoB metadata difficulty, and the producer-to-PoB VHP burn allowance. The 30-minute private PoB soak passed on 2026-05-24: 31 samples, zero stalled samples, zero severe log matches, final producer head `74362`, final observer head `73842`, and final observer block-store height `73842`. Shared/external testnet signoff tooling now exists in `scripts/external-pob-testnet-signoff.sh`. The GitHub deploy key on `seed.koinosfoundation.org` can clone `pgarciagon/knodel` into `/mnt/HC_Volume_105581636/knodel-external-signoff`, but the pushed `feat/monolithic-node-migration` branch is still behind this local working tree and does not include the Sprint 2/private-testnet harness yet. Next unblock is to publish a scoped commit/branch with the native monolith producer, private PoB tools, contracts, and signoff harness, then pull that branch on the seed host for isolated validation.
+- The roadmap source of truth is `docs/roadmap/MONOLITH_PRODUCTION_PLAN.md`.
+- The latest detailed Gate E/F report is `docs/roadmap/MONOLITH_GATE_EF_REPORT.md`.
+- The latest backup restore report is `docs/roadmap/MONOLITH_BACKUP_RESTORE_REPORT.md`.
+- The latest JSON-RPC parity report is `docs/roadmap/MONOLITH_JSONRPC_PARITY_REPORT.md`.
+- The latest private testnet report is `docs/roadmap/MONOLITH_PRIVATE_TESTNET_REPORT.md`.
+- The latest external/shared testnet report is `docs/roadmap/MONOLITH_EXTERNAL_TESTNET_REPORT.md`.
+
+## What Works Now
+
+- `vendor/koinos/koinos-node/build/koinos_node` builds with `cpp-libp2p`.
+- JSON-RPC responds from the monolith with local config data.
+- Peer RPC compatibility is covered by Go-generated fixtures and live Go peer interop.
+- One-peer sync is covered by controlled C++/Go live tests and applies blocks by RPC.
+- GossipSub interop is covered both directions for blocks and transactions against a controlled Go peer.
+- Knodel monolith mode starts one `koinos_node` process, derives component health from monolith logs, filters component logs, supports presets/restart, and has visible fallback when monolith startup fails.
+- P2P peer snapshots are logged by the monolith as `[p2p] Connected peers:` rows so Knodel dashboard parsing can consume them.
+- Real seed backup restore works through the monolith layout: converted import result was `records=40278912 blocks=40278911 meta=1 bytes=83883179053`; `chain.get_head_info` returned height `36180898` from the restored data.
+- JSON-RPC parity harness covers 21 methods across chain, block_store, mempool, contract_meta_store, transaction_store, and account_history. It captures legacy baseline from `http://127.0.0.1:18084/` and compares monolith `http://127.0.0.1:18083/`.
+- Mainnet P2P no longer has a pure local timing blocker: seed dialing is paced like legacy, duplicate dials are suppressed, and the monolith can answer remote Peer RPC. The latest validation proves local build/tests pass and Go itself cannot currently find a Peer RPC-capable public target from this host. `scripts/probe-mainnet-seeds.sh` now treats raw libp2p dial success as insufficient by default: `OK` requires Koinos Peer RPC `GetChainID` and `GetHeadBlock`.
+- Block producer backend now submits real populated blocks instead of empty proposals. `koinos_block_producer_test` verifies local federated block assembly, resource-bounded transaction inclusion, accepted receipt handling, and chain-reported failed transaction prune/retry behavior.
+- Private Sprint 2 federated and PoB smokes work with three local monolith nodes. The harness patches a temporary Harbinger genesis for federated mode and generates a deterministic system-contract PoB genesis for PoB mode, forces gossip for private bootstrap, starts seed/producer/observer, connects the observer directly to both seed and producer, verifies observer head/block-store height, checks transaction/contract-meta service health, and supports duration-based private PoB soaks through `SOAK_DURATION_SECONDS`.
+
+## Important Commands
+
+- Build monolith: `cmake --build vendor/koinos/koinos-node/build --target koinos_node --parallel`
+- Gate D gossip smoke: `scripts/smoke-gossip-interop.sh`
+- Gate E local smoke: `scripts/smoke-monolith-p2p-local.sh`
+- Gate F short preflight: `SOAK_DURATION_SECONDS=20 SOAK_INTERVAL_SECONDS=5 JSONRPC_PORT=18082 P2P_LISTEN=/ip4/127.0.0.1/tcp/0 scripts/soak-mainnet-p2p.sh`
+- Gate F production soak: `SOAK_DURATION_SECONDS=172800 scripts/soak-mainnet-p2p.sh`
+- Gate F corrected mainnet preflight: `SOAK_DURATION_SECONDS=360 SOAK_INTERVAL_SECONDS=15 SOAK_STARTUP_GRACE_SECONDS=300 SOAK_REQUIRE_PROGRESS=1 SOAK_REQUIRE_HEAD_PROGRESS=1 SOAK_MIN_HEAD_HEIGHT=1000 JSONRPC_PORT=18082 P2P_LISTEN=/ip4/0.0.0.0/tcp/8888 P2P_PEERS_FILE=scripts/mainnet-peer-candidates.txt scripts/soak-mainnet-p2p.sh`
+- Gate F seed probe: `GOCACHE=/private/tmp/knodel-go-cache SEED_PROBE_ATTEMPTS=5 SEED_PROBE_TIMEOUT=8s SEED_PROBE_DELAY=10s SEED_PROBE_OUTPUT=scripts/mainnet-peer-validated.txt scripts/probe-mainnet-seeds.sh`
+- Gate F fail-fast soak preflight: `SOAK_DURATION_SECONDS=180 SOAK_INTERVAL_SECONDS=10 SOAK_STARTUP_GRACE_SECONDS=120 SOAK_REQUIRE_PROGRESS=1 SOAK_REQUIRE_HEAD_PROGRESS=1 JSONRPC_PORT=18082 P2P_LISTEN=/ip4/127.0.0.1/tcp/0 scripts/soak-mainnet-p2p.sh`
+- Gate F validated-peer soak: `SOAK_DURATION_SECONDS=300 SOAK_INTERVAL_SECONDS=15 SOAK_STARTUP_GRACE_SECONDS=240 SOAK_REQUIRE_PROGRESS=1 SOAK_REQUIRE_HEAD_PROGRESS=1 SOAK_MIN_HEAD_HEIGHT=1000 JSONRPC_PORT=18082 P2P_LISTEN=/ip4/127.0.0.1/tcp/0 P2P_PEERS_FILE=scripts/mainnet-peer-validated.txt scripts/soak-mainnet-p2p.sh`
+- Sprint 2 producer build/test: `cmake --build vendor/koinos/koinos-node/build --target koinos_node koinos_block_producer_test --parallel && ctest --test-dir vendor/koinos/koinos-node/build --output-on-failure -R koinos_block_producer_test`
+- Sprint 2 private federated smoke: `PRIVATE_TESTNET_BUILD=0 scripts/private-testnet-sprint2.sh`
+- Sprint 2 private PoB genesis readiness probe: `scripts/probe-private-pob-genesis.js --require-ready /private/tmp/knodel-private-testnet/genesis_data.json`
+- Sprint 2 private PoB smoke: `PRIVATE_TESTNET_MODE=pob PRIVATE_TESTNET_BUILD=0 scripts/private-testnet-sprint2.sh`
+- Sprint 2 private PoB 30-minute soak: `PRIVATE_TESTNET_MODE=pob PRIVATE_TESTNET_BUILD=0 SOAK_DURATION_SECONDS=1800 SOAK_INTERVAL_SECONDS=60 scripts/private-testnet-sprint2.sh`
+- Sprint 2 shared/external PoB signoff: `PRODUCER_RPC_URL=http://producer:port/ OBSERVER_RPC_URL=http://observer:port/ EXTERNAL_TESTNET_DURATION_SECONDS=1800 scripts/external-pob-testnet-signoff.sh`
+- Gate F 5h soak request attempted before seed fix: `SOAK_DURATION_SECONDS=18000 SOAK_INTERVAL_SECONDS=60 JSONRPC_PORT=18082 scripts/soak-mainnet-p2p.sh`; aborted because it produced no real peers.
+- Sprint 1.1 backup restore dry-run: `scripts/verify-monolith-backup-restore.sh --dry-run --workdir /Volumes/external/knodel-monolith-restore`
+- Sprint 1.1 full backup restore: `scripts/verify-monolith-backup-restore.sh --download --workdir /Volumes/external/knodel-monolith-restore`
+- Sprint 1.2 capture legacy baseline: `python3 scripts/compare-jsonrpc-parity.py write-baseline --url http://127.0.0.1:18084/ --flavor legacy --output /private/tmp/knodel-jsonrpc-legacy-baseline.json`
+- Sprint 1.2 compare monolith: `python3 scripts/compare-jsonrpc-parity.py compare-baseline --baseline /private/tmp/knodel-jsonrpc-legacy-baseline.json --url http://127.0.0.1:18083/ --flavor monolith --output /private/tmp/knodel-jsonrpc-parity-comparison.json`
+- Frontend/Electron build: `npm run build`
+
+## Next Critical Path
+
+Immediate critical path is live validation, split by dependency. Sprint 2 Phase A private federated validation, Phase B private PoB validation, and the 30-minute private PoB soak are complete. The next Sprint 2 action is isolated external signoff on `seed.koinosfoundation.org`: publish the scoped local Sprint 2 changes, pull them into `/mnt/HC_Volume_105581636/knodel-external-signoff/knodel`, build there without touching the production Docker stack, then run a three-node private PoB validation on high localhost ports from the external volume. Gate F mainnet networking signoff still blocks a mainnet canary: first run `scripts/probe-mainnet-seeds.sh` with `SEED_PROBE_OUTPUT=scripts/mainnet-peer-validated.txt`; if Go cannot find a Peer RPC-capable peer, do not spend time on a C++ soak.
+
+After Gate F is stable, return to Sprint 1.3 mempool end-to-end: verify `check_pending_account_resources` with real accounts and transaction expiration around the 120s default.

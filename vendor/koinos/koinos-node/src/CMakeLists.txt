@@ -111,6 +111,22 @@ target_link_libraries(chain PUBLIC
   Koinos::state_db Koinos::exception Koinos::crypto Koinos::log
   Koinos::util Koinos::proto vm_manager)
 
+# ── Block Producer library (monolith-native producer loop) ──
+add_library(koinos_block_producer_lib
+  block_production/block_producer.cpp
+  block_production/block_producer.hpp)
+
+target_include_directories(koinos_block_producer_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(koinos_block_producer_lib PUBLIC
+  koinos_node_interfaces
+  Koinos::crypto
+  Koinos::exception
+  Koinos::log
+  Koinos::proto
+  Koinos::util)
+
 # ── Account History library (Phase 6) ──
 add_library(koinos_account_history_lib
   account_history/account_history.cpp
@@ -236,6 +252,11 @@ if(KOINOS_ENABLE_LIBP2P)
     endif()
   endif()
 
+  find_library(GMP_LIBRARY NAMES gmp)
+  if(GMP_LIBRARY)
+    target_link_libraries(koinos_p2p_lib PUBLIC "${GMP_LIBRARY}")
+  endif()
+
   target_link_libraries(koinos_p2p_lib PUBLIC
     p2p::p2p_default_host
     p2p::p2p_default_network
@@ -262,6 +283,42 @@ if(KOINOS_BUILD_TESTS)
     ${CMAKE_CURRENT_SOURCE_DIR})
 
   add_test(NAME koinos_gorpc_codec_test COMMAND koinos_gorpc_codec_test)
+
+  add_executable(koinos_p2p_one_peer_sync_test
+    ../tests/p2p/p2p_one_peer_sync_test.cpp)
+
+  target_link_libraries(koinos_p2p_one_peer_sync_test PRIVATE
+    koinos_p2p_lib)
+
+  add_test(NAME koinos_p2p_one_peer_sync_test COMMAND koinos_p2p_one_peer_sync_test)
+
+  add_executable(koinos_block_producer_test
+    ../tests/block_production/block_producer_test.cpp)
+
+  target_link_libraries(koinos_block_producer_test PRIVATE
+    koinos_block_producer_lib)
+
+  add_test(NAME koinos_block_producer_test COMMAND koinos_block_producer_test)
+
+  if(KOINOS_ENABLE_LIBP2P)
+    add_executable(koinos_libp2p_peer_rpc_live_test
+      ../tests/p2p/libp2p_peer_rpc_live_test.cpp)
+
+    target_link_libraries(koinos_libp2p_peer_rpc_live_test PRIVATE
+      koinos_p2p_lib)
+
+    add_executable(koinos_libp2p_one_peer_sync_live_test
+      ../tests/p2p/libp2p_one_peer_sync_live_test.cpp)
+
+    target_link_libraries(koinos_libp2p_one_peer_sync_live_test PRIVATE
+      koinos_p2p_lib)
+
+    add_executable(koinos_libp2p_gossip_live_test
+      ../tests/p2p/libp2p_gossip_live_test.cpp)
+
+    target_link_libraries(koinos_libp2p_gossip_live_test PRIVATE
+      koinos_p2p_lib)
+  endif()
 endif()
 
 # ── Contract Meta Store library (Phase 4) ──
@@ -329,6 +386,7 @@ target_link_libraries(
       koinos_block_store_lib
       mempool_lib
       koinos_p2p_lib
+      koinos_block_producer_lib
       koinos_account_history_lib
       koinos_grpc_server_lib
       koinos_contract_meta_store_lib
@@ -349,6 +407,15 @@ target_link_libraries(
 # Chain library is now built internally — always available
 target_link_libraries(koinos_node PRIVATE chain)
 target_compile_definitions(koinos_node PRIVATE KOINOS_HAS_CHAIN)
+
+add_executable(koinos_private_testnet_keygen
+  ../tools/private_testnet_keygen.cpp)
+
+target_link_libraries(
+  koinos_private_testnet_keygen
+    PRIVATE
+      Koinos::crypto
+      Koinos::util)
 
 if(COMMAND koinos_install)
   koinos_install(TARGETS koinos_node)

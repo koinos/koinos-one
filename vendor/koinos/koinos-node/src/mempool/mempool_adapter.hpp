@@ -1,7 +1,11 @@
 #pragma once
 
 #include "interfaces/i_mempool.hpp"
+#include <koinos/crypto/multihash.hpp>
 #include <koinos/mempool/mempool.hpp>
+#include <koinos/util/conversion.hpp>
+
+#include <optional>
 
 namespace koinos::node {
 
@@ -20,7 +24,11 @@ public:
     rpc::mempool::get_pending_transactions_response resp;
 
     auto limit = req.limit() > 0 ? req.limit() : koinos::mempool::constants::max_request_limit;
-    auto txns  = _impl.get_pending_transactions( limit );
+    std::optional< koinos::crypto::multihash > block_id;
+    if( !req.block_id().empty() )
+      block_id = koinos::util::converter::to< koinos::crypto::multihash >( req.block_id() );
+
+    auto txns  = _impl.get_pending_transactions( limit, block_id );
 
     for( auto& ptx: txns )
       *resp.add_pending_transactions() = std::move( ptx );

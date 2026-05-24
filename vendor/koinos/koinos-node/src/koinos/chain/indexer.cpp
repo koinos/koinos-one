@@ -130,8 +130,10 @@ void indexer::send_requests( uint64_t last_height, uint64_t batch_size )
       rpc::block_store::block_store_request req;
       auto* by_height_req = req.mutable_get_blocks_by_height();
       by_height_req->set_head_block_id( _target_head.id() );
-      by_height_req->set_ancestor_start_height( last_height + 1 );
-      by_height_req->set_num_blocks( uint32_t( batch_size ) );
+      const auto start_height = last_height + 1;
+      const auto remaining    = _target_head.height() - last_height;
+      by_height_req->set_ancestor_start_height( start_height );
+      by_height_req->set_num_blocks( uint32_t( std::min( batch_size, remaining ) ) );
       by_height_req->set_return_block( true );
       by_height_req->set_return_receipt( true );
 

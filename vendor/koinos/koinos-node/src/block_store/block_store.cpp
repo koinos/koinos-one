@@ -4,6 +4,8 @@
 #include <koinos/exception.hpp>
 #include <koinos/log.hpp>
 
+#include <stdexcept>
+
 namespace koinos::node::block_store {
 
 // Metadata key: single byte 0x01 (same as Go implementation)
@@ -304,7 +306,7 @@ BlockStore::add_block( const rpc::block_store::add_block_request& req )
   rpc::block_store::add_block_response resp;
 
   if( !req.has_block_to_add() || !req.block_to_add().has_header() )
-    return resp;
+    throw std::runtime_error( "expected field block_to_add was nil" );
 
   const auto& block  = req.block_to_add();
   const auto& header = block.header();

@@ -50,11 +50,15 @@ public:
   using PeerDisconnectedCallback = std::function< void( const PeerID& ) >;
   using BlockReceivedCallback    = std::function< void( const PeerID&, const protocol::block& ) >;
   using TxReceivedCallback       = std::function< void( const PeerID&, const protocol::transaction& ) >;
+  using PeerRpcRequestCallback   = std::function< std::string( const std::string&,
+                                                               const std::string&,
+                                                               const std::string& ) >;
 
   virtual void on_peer_connected( PeerConnectedCallback cb )       = 0;
   virtual void on_peer_disconnected( PeerDisconnectedCallback cb ) = 0;
   virtual void on_block_received( BlockReceivedCallback cb )       = 0;
   virtual void on_transaction_received( TxReceivedCallback cb )    = 0;
+  virtual void on_peer_rpc_request( PeerRpcRequestCallback cb )    = 0;
 };
 
 } // namespace koinos::node::p2p

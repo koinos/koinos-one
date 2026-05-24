@@ -11,11 +11,13 @@
 
 #include <csignal>
 #include <cstdlib>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <boost/asio.hpp>
@@ -64,6 +66,8 @@
 #include "contract_meta_store/contract_meta_store.hpp"
 #include "transaction_store/transaction_store.hpp"
 
+#include "block_production/block_producer.hpp"
+
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/options.h>
@@ -75,6 +79,7 @@
 #include <koinos/rpc/chain/chain_rpc.pb.h>
 #include <koinos/rpc/block_store/block_store_rpc.pb.h>
 #include <koinos/rpc/mempool/mempool_rpc.pb.h>
+#include <koinos/util/hex.hpp>
 
 #include <google/protobuf/util/json_util.h>
 
@@ -91,6 +96,44 @@
 
 namespace po = boost::program_options;
 using namespace koinos;
+
+namespace {
+
+std::pair< std::string, uint16_t > parse_jsonrpc_listen( const std::string& listen )
+{
+  if( listen.empty() )
+    return { "0.0.0.0", 8080 };
+
+  auto tcp_pos = listen.rfind( "/tcp/" );
+  if( tcp_pos != std::string::npos )
+  {
+    auto host = std::string( "0.0.0.0" );
+    auto ip4_pos = listen.find( "/ip4/" );
+    if( ip4_pos != std::string::npos && ip4_pos < tcp_pos )
+    {
+      auto host_begin = ip4_pos + 5;
+      host = listen.substr( host_begin, tcp_pos - host_begin );
+    }
+
+    return {
+      host,
+      static_cast< uint16_t >( std::stoi( listen.substr( tcp_pos + 5 ) ) )
+    };
+  }
+
+  auto colon = listen.rfind( ':' );
+  if( colon != std::string::npos )
+  {
+    return {
+      listen.substr( 0, colon ),
+      static_cast< uint16_t >( std::stoi( listen.substr( colon + 1 ) ) )
+    };
+  }
+
+  return { "0.0.0.0", static_cast< uint16_t >( std::stoi( listen ) ) };
+}
+
+} // anonymous namespace
 
 // ---------------------------------------------------------------------------
 // ChainAdapter — wraps chain::controller to implement IChain
@@ -435,10 +478,13 @@ int main( int argc, char** argv )
     }
 
     // Register block producer (optional)
-    // The block producer uses chain.propose_block() to create new blocks.
-    // It runs as a background timer checking if it's the producer's turn.
+    // The monolith assembles and signs blocks locally, then submits them
+    // through chain.propose_block(), which applies the block and broadcasts
+    // block acceptance through the in-process EventBus.
     std::atomic< bool > producer_running{ false };
+    std::atomic< bool > producer_gossip_enabled{ false };
     std::thread producer_thread;
+    std::unique_ptr< node::block_production::BlockProducer > block_producer;
 
     if( cfg.is_enabled( "block_producer" ) )
     {
@@ -450,41 +496,87 @@ int main( int argc, char** argv )
       if( !std::filesystem::exists( key_file ) )
       {
         LOG( warning ) << "[block_producer] Private key not found at " << key_file
-                       << " — production disabled. Set block_producer.private-key-file in config.yml";
+                       << " - production disabled. Set block_producer.private-key-file in config.yml";
       }
       else
       {
+        node::block_production::ProducerConfig producer_cfg;
+        producer_cfg.algorithm                = cfg.block_producer_algorithm;
+        producer_cfg.producer_address         = cfg.block_producer_address;
+        producer_cfg.resources_lower_bound    = cfg.block_producer_resources_lower_bound;
+        producer_cfg.resources_upper_bound    = cfg.block_producer_resources_upper_bound;
+        producer_cfg.max_inclusion_attempts   = cfg.block_producer_max_inclusion_attempts;
+
+        for( const auto& proposal: cfg.block_producer_approved_proposals )
+          producer_cfg.approved_proposals.push_back( util::from_hex< std::string >( proposal ) );
+
+        auto signing_key = node::block_production::load_private_key_file( key_file );
+        block_producer = std::make_unique< node::block_production::BlockProducer >(
+          chain_adapter, mempool_adapter, std::move( signing_key ), producer_cfg );
+        block_producer->write_public_key_file( basedir / "block_producer" / "public.key" );
+
         LOG( info ) << "[block_producer] Private key: " << key_file;
+        LOG( info ) << "[block_producer] Public address: " << block_producer->public_address();
         if( !cfg.block_producer_address.empty() )
           LOG( info ) << "[block_producer] Producer address: " << cfg.block_producer_address;
+        LOG( info ) << "[block_producer] Algorithm: " << cfg.block_producer_algorithm;
+        LOG( info ) << "[block_producer] Resource utilization lower/upper bounds: "
+                    << cfg.block_producer_resources_lower_bound << "%/"
+                    << cfg.block_producer_resources_upper_bound << "%";
+        LOG( info ) << "[block_producer] Max inclusion attempts: "
+                    << cfg.block_producer_max_inclusion_attempts;
+        LOG( info ) << "[block_producer] Gossip production gate: "
+                    << ( cfg.block_producer_gossip_production ? "enabled" : "disabled" );
 
         registry.add(
           "block_producer",
           [&]() {
             producer_running = true;
+            producer_gossip_enabled = !cfg.block_producer_gossip_production;
             producer_thread  = std::thread( [&]() {
-              LOG( info ) << "[block_producer] Production loop started (3s interval)";
+              LOG( info ) << "[block_producer] Production loop started";
               uint64_t blocks_produced = 0;
               while( producer_running )
               {
+                std::chrono::milliseconds retry_after{ 5000 };
+
+                if( cfg.block_producer_gossip_production && !producer_gossip_enabled )
+                {
+                  std::this_thread::sleep_for( std::chrono::seconds( 1 ) );
+                  continue;
+                }
+
                 try
                 {
-                  rpc::chain::propose_block_request req;
-                  auto resp = controller.propose_block( req );
+                  auto result = block_producer->produce_once();
+                  retry_after = result.retry_after;
 
-                  if( resp.has_receipt() )
+                  if( result.removed_failed_transactions > 0 )
+                  {
+                    LOG( info ) << "[block_producer] Removed "
+                                << result.removed_failed_transactions
+                                << " failed transaction(s) before acceptance";
+                  }
+
+                  if( result.status == node::block_production::ProductionResult::Status::produced )
                   {
                     ++blocks_produced;
-                    LOG( info ) << "[block_producer] Produced block #" << blocks_produced;
+                    LOG( info ) << "[block_producer] Produced block #" << blocks_produced
+                                << " at height " << result.height;
                   }
                 }
                 catch( const std::exception& e )
                 {
-                  LOG( debug ) << "[block_producer] " << e.what();
+                  retry_after = std::chrono::seconds( 5 );
+                  LOG( warning ) << "[block_producer] " << e.what();
                 }
 
-                for( int i = 0; i < 30 && producer_running; ++i )
-                  std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+                auto sleep_ms = std::max< int64_t >( 10, retry_after.count() );
+                for( int64_t slept = 0; slept < sleep_ms && producer_running; slept += 100 )
+                {
+                  auto chunk = std::min< int64_t >( 100, sleep_ms - slept );
+                  std::this_thread::sleep_for( std::chrono::milliseconds( chunk ) );
+                }
               }
               LOG( info ) << "[block_producer] Stopped (produced " << blocks_produced << " blocks)";
             } );
@@ -566,6 +658,14 @@ int main( int argc, char** argv )
       }
     );
 
+    event_bus.on_gossip_status.connect(
+      [&]( bool enabled ) {
+        producer_gossip_enabled = enabled;
+        LOG( info ) << "[block_producer] Gossip production gate "
+                    << ( enabled ? "opened" : "closed" );
+      }
+    );
+
     // ── Phase 5: P2P ──
     std::unique_ptr< node::p2p::P2PNode > p2p_node;
     if( cfg.is_enabled( "p2p" ) )
@@ -574,11 +674,19 @@ int main( int argc, char** argv )
       // cpp-libp2p transport available — create real P2P node
       node::p2p::Libp2pTransport::Config transport_cfg;
       transport_cfg.listen_address = cfg.p2p_listen;
-      transport_cfg.seed_peers     = cfg.p2p_seeds;
 
       auto transport = std::make_unique< node::p2p::Libp2pTransport >( transport_cfg );
 
       node::p2p::P2POptions p2p_opts;
+      p2p_opts.seed_reconnect_interval = std::chrono::seconds( cfg.p2p_seed_reconnect_interval_seconds );
+      p2p_opts.always_enable_gossip    = cfg.p2p_force_gossip;
+      p2p_opts.always_disable_gossip   = cfg.p2p_disable_gossip;
+      for( const auto& seed: cfg.p2p_seeds )
+      {
+        auto marker = seed.rfind( "/p2p/" );
+        if( marker != std::string::npos )
+          p2p_opts.seed_peers.push_back( { seed.substr( marker + 5 ), seed } );
+      }
       p2p_node = std::make_unique< node::p2p::P2PNode >(
         p2p_opts, &chain_adapter, &block_store_impl, &event_bus, std::move( transport ) );
 
@@ -603,6 +711,15 @@ int main( int argc, char** argv )
       auto transport = std::make_unique< node::p2p::GoBridgeTransport >( go_cfg );
 
       node::p2p::P2POptions p2p_opts;
+      p2p_opts.seed_reconnect_interval = std::chrono::seconds( cfg.p2p_seed_reconnect_interval_seconds );
+      p2p_opts.always_enable_gossip    = cfg.p2p_force_gossip;
+      p2p_opts.always_disable_gossip   = cfg.p2p_disable_gossip;
+      for( const auto& seed: cfg.p2p_seeds )
+      {
+        auto marker = seed.rfind( "/p2p/" );
+        if( marker != std::string::npos )
+          p2p_opts.seed_peers.push_back( { seed.substr( marker + 5 ), seed } );
+      }
       p2p_node = std::make_unique< node::p2p::P2PNode >(
         p2p_opts, &chain_adapter, &block_store_impl, &event_bus, std::move( transport ) );
 
@@ -628,22 +745,9 @@ int main( int argc, char** argv )
     }
 
     // ── Phase 3: JSON-RPC server ──
-    // Parse listen address: "host:port" or just "port"
-    std::string jsonrpc_host = "0.0.0.0";
-    uint16_t jsonrpc_port    = 8080;
-    {
-      auto& listen = cfg.jsonrpc_listen;
-      auto colon   = listen.rfind( ':' );
-      if( colon != std::string::npos )
-      {
-        jsonrpc_host = listen.substr( 0, colon );
-        jsonrpc_port = static_cast< uint16_t >( std::stoi( listen.substr( colon + 1 ) ) );
-      }
-      else if( !listen.empty() )
-      {
-        jsonrpc_port = static_cast< uint16_t >( std::stoi( listen ) );
-      }
-    }
+    // Parse listen address: "host:port", "port", or legacy multiaddr
+    // values such as "/tcp/8080" and "/ip4/0.0.0.0/tcp/8080".
+    auto [jsonrpc_host, jsonrpc_port] = parse_jsonrpc_listen( cfg.jsonrpc_listen );
 
     // Wire MonolithClient so the chain controller routes RPC/broadcast
     // through IBlockStore + EventBus instead of AMQP

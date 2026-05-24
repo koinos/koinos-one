@@ -516,6 +516,37 @@ std::string encode_get_blocks_request( std::string_view head_block_id,
   return out;
 }
 
+std::string encode_id_response( std::string_view id )
+{
+  std::string out;
+  append_map_header( out, 1 );
+  append_raw( out, "ID" );
+  append_raw( out, id );
+  return out;
+}
+
+std::string encode_head_block_response( std::string_view id, uint64_t height )
+{
+  std::string out;
+  append_map_header( out, 2 );
+  append_raw( out, "ID" );
+  append_raw( out, id );
+  append_raw( out, "Height" );
+  append_uint( out, height );
+  return out;
+}
+
+std::string encode_blocks_response( const std::vector< std::string >& block_payloads )
+{
+  std::string out;
+  append_map_header( out, 1 );
+  append_raw( out, "Blocks" );
+  append_array_header( out, block_payloads.size() );
+  for( const auto& block_payload: block_payloads )
+    append_raw( out, block_payload );
+  return out;
+}
+
 std::string encode_request( std::string_view service,
                              std::string_view method,
                              std::string_view msgpack_args )
@@ -576,6 +607,65 @@ Response decode_response( std::string_view raw )
   response.payload = std::string( reader.slice( payload_begin, reader.position() ) );
 
   return response;
+}
+
+AncestorBlockIDRequest decode_get_ancestor_block_id_request( std::string_view payload )
+{
+  Reader reader( payload );
+  AncestorBlockIDRequest request;
+  size_t map_size = reader.read_map_size();
+
+  for( size_t i = 0; i < map_size; ++i )
+  {
+    auto key = reader.read_raw();
+    if( key == "ParentID" )
+      request.parent_id = reader.read_raw();
+    else if( key == "ChildHeight" )
+      request.child_height = reader.read_uint();
+    else
+      reader.skip();
+  }
+
+  if( !reader.done() )
+    throw DecodeError( "trailing bytes after GetAncestorBlockID request", false );
+
+  return request;
+}
+
+BlocksRequest decode_get_blocks_request( std::string_view payload )
+{
+  Reader reader( payload );
+  BlocksRequest request;
+  size_t map_size = reader.read_map_size();
+
+  for( size_t i = 0; i < map_size; ++i )
+  {
+    auto key = reader.read_raw();
+    if( key == "HeadBlockID" )
+    {
+      request.head_block_id = reader.read_raw();
+    }
+    else if( key == "StartBlockHeight" )
+    {
+      request.start_block_height = reader.read_uint();
+    }
+    else if( key == "NumBlocks" )
+    {
+      auto num_blocks = reader.read_uint();
+      if( num_blocks > std::numeric_limits< uint32_t >::max() )
+        throw DecodeError( "GetBlocks NumBlocks exceeds uint32", false );
+      request.num_blocks = static_cast< uint32_t >( num_blocks );
+    }
+    else
+    {
+      reader.skip();
+    }
+  }
+
+  if( !reader.done() )
+    throw DecodeError( "trailing bytes after GetBlocks request", false );
+
+  return request;
 }
 
 std::string decode_id_response( std::string_view payload )

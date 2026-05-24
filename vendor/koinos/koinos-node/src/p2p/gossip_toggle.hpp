@@ -57,10 +57,10 @@ public:
   }
 
   /** Called by the node when a new head block is received. */
-  void update_head_time( uint64_t block_timestamp_us )
+  void update_head_time( uint64_t block_timestamp_ms )
   {
     std::lock_guard lock( _head_mutex );
-    _head_time_us = block_timestamp_us;
+    _head_time_ms = block_timestamp_ms;
   }
 
   bool is_enabled() const { return _enabled; }
@@ -82,18 +82,17 @@ private:
         continue;
       }
 
-      uint64_t head_us;
+      uint64_t head_ms;
       {
         std::lock_guard lock( _head_mutex );
-        head_us = _head_time_us;
+        head_ms = _head_time_ms;
       }
 
-      if( head_us == 0 )
+      if( head_ms == 0 )
         continue;
 
-      // Convert microseconds to seconds
       auto head_time = std::chrono::system_clock::time_point(
-        std::chrono::microseconds( head_us ) );
+        std::chrono::milliseconds( head_ms ) );
       auto now = std::chrono::system_clock::now();
       auto lag = std::chrono::duration_cast< std::chrono::seconds >( now - head_time );
 
@@ -127,7 +126,7 @@ private:
   std::thread _thread;
 
   std::mutex _head_mutex;
-  uint64_t _head_time_us = 0;
+  uint64_t _head_time_ms = 0;
 };
 
 } // namespace koinos::node::p2p

@@ -1,0 +1,7 @@
+# Mainnet peers validated by cmd/mainnet-seed-probe.
+# Criteria: libp2p dial + Koinos Peer RPC GetChainID/GetHeadBlock.
+# Current status: no public peers passed the stricter validation from this
+# machine in the latest 2026-05-24 run.
+#
+# Refresh this file before a Gate F soak with:
+#   SEED_PROBE_OUTPUT=scripts/mainnet-peer-validated.txt scripts/probe-mainnet-seeds.sh

@@ -173,6 +173,7 @@ void GoBridgeTransport::on_peer_connected( PeerConnectedCallback cb ) { _on_conn
 void GoBridgeTransport::on_peer_disconnected( PeerDisconnectedCallback cb ) { _on_disconnected = std::move( cb ); }
 void GoBridgeTransport::on_block_received( BlockReceivedCallback cb ) { _on_block = std::move( cb ); }
 void GoBridgeTransport::on_transaction_received( TxReceivedCallback cb ) { _on_tx = std::move( cb ); }
+void GoBridgeTransport::on_peer_rpc_request( PeerRpcRequestCallback cb ) { _on_peer_rpc_request = std::move( cb ); }
 
 std::string GoBridgeTransport::bridge_call( const std::string&, const std::string& ) { return ""; }
 

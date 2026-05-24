@@ -75,6 +75,7 @@ public:
   void on_peer_disconnected( PeerDisconnectedCallback cb ) override;
   void on_block_received( BlockReceivedCallback cb ) override;
   void on_transaction_received( TxReceivedCallback cb ) override;
+  void on_peer_rpc_request( PeerRpcRequestCallback cb ) override;
 
 private:
   /** Spawn the Go P2P binary as a child process. */
@@ -98,6 +99,7 @@ private:
   PeerDisconnectedCallback _on_disconnected;
   BlockReceivedCallback _on_block;
   TxReceivedCallback _on_tx;
+  PeerRpcRequestCallback _on_peer_rpc_request;
 
   // Bridge IO
   std::shared_ptr< boost::asio::io_context > _io;

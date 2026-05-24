@@ -34,6 +34,9 @@ struct NodeConfig
   std::string p2p_listen   = "/ip4/0.0.0.0/tcp/8888";
   std::vector< std::string > p2p_seeds;
   uint64_t p2p_jobs        = 4;
+  uint64_t p2p_seed_reconnect_interval_seconds = 10;
+  bool p2p_force_gossip   = false;
+  bool p2p_disable_gossip = false;
 
   // ── JSON-RPC ──
   std::string jsonrpc_listen = "0.0.0.0:8080";
@@ -45,6 +48,9 @@ struct NodeConfig
   std::string block_producer_address;
   uint64_t block_producer_resources_lower_bound = 75;
   uint64_t block_producer_resources_upper_bound = 90;
+  uint64_t block_producer_max_inclusion_attempts = 2'000;
+  bool block_producer_gossip_production = true;
+  std::vector< std::string > block_producer_approved_proposals;
 
   // ── Mempool ──
   uint64_t mempool_transaction_expiration = 120;

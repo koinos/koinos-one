@@ -1,0 +1,32 @@
+# Mainnet seed peers and production peers observed on 2026-05-24.
+# Blank lines and comments are ignored by scripts/probe-mainnet-seeds.sh and
+# scripts/soak-mainnet-p2p.sh.
+
+# Legacy config-example seeds first. Keep these peer IDs aligned with
+# vendor/koinos/koinos/config-example/config.yml.
+/dns4/seed.koinosblocks.com/tcp/8888/p2p/QmUNURuZxSu5wLnmBNJdwGtwjLmV5JxGhu4uNSAS8ZNcze
+/dns4/seed.koinosfoundation.org/tcp/8888/p2p/QmQVBuhg2j2BV1hvMMNoLVrZ9T9gPb8F9bRgifCspBz6WW
+/dns4/seed-east.burnkoin.com/tcp/8888/p2p/QmYAC9nxqgVt2p8NvmxNFsoMpQS7c4zEBmsZndEBTRHNu4
+/ip4/37.27.7.221/tcp/11394/p2p/QmY8NBHwoVrxBvrjS3wQoeTmWG4UUKMxmYHss7QYRXktrs
+/ip4/46.62.245.240/tcp/8888/p2p/QmWmxqE6WhcMWZEKwqUAbu87Qgm6JroZLdM4Xmxouu1Mmi
+
+# Additional peers observed in the production seed p2p.log. These are useful
+# fallbacks, but some are residential/NAT addresses and may not accept RPC
+# sessions reliably.
+/ip4/46.62.204.73/tcp/8888/p2p/QmTCgDNrPDYVNmZNt58jixgtVjTveSpWsEbqPqGuEzZhWF
+/ip4/111.83.81.199/tcp/32422/p2p/12D3KooWDdVEWJJa3caBpafCUU5UxriTzCqw3hakAULgW2f1CsWW
+/ip4/188.95.145.34/tcp/37027/p2p/12D3KooWBb9FeJ1sd4b4kkH2ASYse53TNEuWAt5MuLyJVQZ5Eob2
+/ip4/95.216.68.185/tcp/8888/p2p/QmeTy5SE79ksZruNZ1DJJqR6UCe1oZvWcYaUnn6MuYE8Ea
+/ip4/49.149.196.156/tcp/44080/p2p/QmaEAnBpqGi2bnUxpEoqH7VbPbfw7fXk8cPhPAjMC1sTvn
+/ip4/46.19.92.132/tcp/64389/p2p/QmbG8LQogAG3CeXqZquf3BajvwZrdjJXkZtVF9oeeqNJa4
+/ip4/78.141.167.151/tcp/2443/p2p/Qmf87NBfrVMwcsvaAc8afPvkL3EMzeqgsqnwVTEYmvZU8U
+/ip4/82.121.133.93/tcp/4001/p2p/12D3KooWStKQDsuSjRHhKFPqGJJE4hhBpPXKamw2H1cA74g6KuEk
+/ip4/13.113.242.42/tcp/8888/p2p/QmUEfw71aEnfibTZ7MvugkaN37gFUX18dEwMKeoSV3BCZf
+/ip4/95.163.251.114/tcp/4001/p2p/12D3KooWPt4arjvDbenc6FJiBs63nxMDBQyRJVVzHgk4hThY1bJP
+/ip4/91.97.226.251/tcp/64278/p2p/QmTqcaNqVmJtdSjXvNR4hdAyPB9pUfxnj8qntKb8BPajko
+/ip4/94.130.148.114/tcp/8888/p2p/QmQ841mUuYeCtbZXdEMeKcYCx4CZydgz84zSDqWVCeJ4H8
+/ip4/84.153.78.83/tcp/64006/p2p/Qmas9DMDz6qPTfZv7cNnJfkXLxMkgZ2c6EoYEzXFyqtUvL
+/ip4/198.46.235.18/tcp/24368/p2p/12D3KooWPjpSFch7bkVkdGvxi3bLcB8jPzVnabD8QaecwArE8GRG
+/ip4/99.127.157.110/tcp/4001/p2p/12D3KooWKdDzqbNukgHQJdASUnBP88FQXN62XEWETs9fSToXSYbN
+/ip4/86.167.88.140/tcp/4001/p2p/12D3KooWECdUFk56YqJhRH3DuK1b2QZS8LKN1S9Zs8raoeNNfVHj
+/ip4/79.165.207.165/tcp/49001/p2p/12D3KooWMrofGxDaXzyfi6Pk93snTzCggvCnBZPNwwjqqLDZMnZ1

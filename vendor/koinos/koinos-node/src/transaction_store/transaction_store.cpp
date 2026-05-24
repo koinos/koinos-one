@@ -2,6 +2,8 @@
 
 #include <koinos/log.hpp>
 
+#include <stdexcept>
+
 namespace koinos::node::transaction_store {
 
 TransactionStore::TransactionStore( rocksdb::DB* db, rocksdb::ColumnFamilyHandle* cf )
@@ -15,6 +17,9 @@ TransactionStore::get_transactions_by_id( const rpc::transaction_store::get_tran
   std::shared_lock lock( _mutex );
 
   rpc::transaction_store::get_transactions_by_id_response resp;
+
+  if( req.transaction_ids_size() == 0 )
+    throw std::runtime_error( "expected field transaction_ids was nil" );
 
   for( const auto& tx_id: req.transaction_ids() )
   {
