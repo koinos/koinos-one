@@ -553,6 +553,9 @@ fi
 if [[ ! -x "$KEYGEN" && -x "$NODE_DIR/build/src/koinos_private_testnet_keygen" ]]; then
   KEYGEN="$NODE_DIR/build/src/koinos_private_testnet_keygen"
 fi
+if [[ ! -x "$BIN" && -x "$NODE_DIR/build/src/koinos_node" ]]; then
+  BIN="$NODE_DIR/build/src/koinos_node"
+fi
 
 [[ -x "$BIN" ]] || die "missing koinos_node binary: $BIN"
 [[ -x "$KEYGEN" ]] || die "missing keygen binary: $KEYGEN"

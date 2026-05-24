@@ -9,10 +9,6 @@ const rootDir = path.resolve(__dirname, '..')
 const defaultSource = path.join(rootDir, 'vendor/koinos/koinos/harbinger/config-example/genesis_data.json')
 const defaultContracts = path.join(rootDir, 'tools/private-testnet/contracts')
 const defaultOutput = '/private/tmp/knodel-private-pob/genesis_data.json'
-const protoModulePath = path.join(
-  rootDir,
-  'vendor/koinos/koinos-contracts-as/contracts/koin/node_modules/koinos-proto-js'
-)
 
 function usage() {
   console.error(`usage: ${path.basename(process.argv[1])} [options]
@@ -98,17 +94,12 @@ if (!fs.existsSync(options.source)) die(`missing source genesis: ${options.sourc
 if (!fs.existsSync(path.join(options.contractsDir, 'manifest.json'))) {
   die(`missing contract manifest: ${path.join(options.contractsDir, 'manifest.json')}`)
 }
-if (!fs.existsSync(protoModulePath)) {
-  die(`missing koinos-proto-js dependency: ${protoModulePath}; run scripts/build-private-testnet-contracts.sh first`)
-}
 if (!options.producerAddress && !options.producerAddressBase64) {
   die('producer address is required')
 }
 if (!options.producerPublicKeyBase64) {
   die('producer public key is required')
 }
-
-const { koinos } = require(protoModulePath)
 
 const base58Alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 const base58Map = new Map([...base58Alphabet].map((char, index) => [char, BigInt(index)]))
@@ -217,11 +208,19 @@ function uint128BigEndian(value) {
 
 function fieldVarint(number, value) {
   if (BigInt(value) === 0n) return Buffer.alloc(0)
+  return fieldVarintAlways(number, value)
+}
+
+function fieldVarintAlways(number, value) {
   return Buffer.concat([varint((BigInt(number) << 3n) | 0n), varint(value)])
 }
 
 function fieldBytes(number, bytes) {
   if (!bytes || bytes.length === 0) return Buffer.alloc(0)
+  return fieldBytesAlways(number, bytes)
+}
+
+function fieldBytesAlways(number, bytes) {
   return Buffer.concat([varint((BigInt(number) << 3n) | 2n), varint(bytes.length), Buffer.from(bytes)])
 }
 
@@ -275,38 +274,53 @@ function allowanceKey(owner, spender) {
 }
 
 function encodeKoinManaBalance(amount) {
-  return Buffer.from(
-    koinos.contracts.token.mana_balance_object
-      .encode({ balance: amount, mana: amount, last_mana_update: 0 })
-      .finish()
-  )
+  return Buffer.concat([
+    fieldVarint(1, amount),
+    fieldVarint(2, amount),
+    fieldVarintAlways(3, 0)
+  ])
+}
+
+function encodeContractCallBundle(contractId, entryPoint) {
+  return Buffer.concat([
+    fieldBytes(1, contractId),
+    fieldVarint(2, entryPoint)
+  ])
 }
 
 function encodeSystemCallTarget(contractId, entryPoint) {
-  return Buffer.from(
-    koinos.protocol.system_call_target
-      .encode({
-        system_call_bundle: {
-          contract_id: contractId,
-          entry_point: entryPoint
-        }
-      })
-      .finish()
-  )
+  return fieldMessage(2, encodeContractCallBundle(contractId, entryPoint))
 }
 
 function encodeContractMetadata(wasm) {
-  return Buffer.from(
-    koinos.chain.contract_metadata_object
-      .encode({
-        hash: multihashSha256(wasm),
-        system: true,
-        authorizes_call_contract: false,
-        authorizes_transaction_application: false,
-        authorizes_upload_contract: false
-      })
-      .finish()
-  )
+  return Buffer.concat([
+    fieldBytes(1, multihashSha256(wasm)),
+    fieldVarintAlways(2, 1),
+    fieldVarintAlways(3, 0),
+    fieldVarintAlways(4, 0),
+    fieldVarintAlways(5, 0)
+  ])
+}
+
+function encodeObjectSpace(objectSpace = {}) {
+  const zone = objectSpace.zone ? Buffer.from(objectSpace.zone, 'base64') : Buffer.alloc(0)
+  return Buffer.concat([
+    fieldVarintAlways(1, objectSpace.system ? 1 : 0),
+    fieldBytesAlways(2, zone),
+    fieldVarintAlways(3, Number(objectSpace.id || 0))
+  ])
+}
+
+function encodeGenesisEntry(item) {
+  return Buffer.concat([
+    fieldMessage(1, encodeObjectSpace(item.space)),
+    fieldBytesAlways(2, Buffer.from(item.key, 'base64')),
+    fieldBytesAlways(3, Buffer.from(item.value, 'base64'))
+  ])
+}
+
+function encodeGenesisData(entries) {
+  return Buffer.concat(entries.map((item) => fieldMessage(1, encodeGenesisEntry(item))))
 }
 
 function space(system, zone, id) {
@@ -443,21 +457,10 @@ upsertEntry(genesis.entries, entry(space(true, contractIds.pob, 1), Buffer.alloc
 fs.mkdirSync(path.dirname(options.output), { recursive: true })
 fs.writeFileSync(options.output, `${JSON.stringify(genesis, null, 2)}\n`)
 
-const genesisDataMessage = koinos.chain.genesis_data.create({
-  entries: genesis.entries.map((item) => ({
-    space: {
-      system: Boolean(item.space && item.space.system),
-      zone: item.space && item.space.zone ? Buffer.from(item.space.zone, 'base64') : Buffer.alloc(0),
-      id: Number(item.space && item.space.id ? item.space.id : 0)
-    },
-    key: Buffer.from(item.key, 'base64'),
-    value: Buffer.from(item.value, 'base64')
-  }))
-})
 // This is an offline digest of the JS-encoded genesis protobuf. The running
 // chain's JSON-RPC chain.get_chain_id value is authoritative because it is
 // produced after the C++ JSON parser materializes the genesis_data message.
-const offlineGenesisDigest = multihashSha256(Buffer.from(koinos.chain.genesis_data.encode(genesisDataMessage).finish()))
+const offlineGenesisDigest = multihashSha256(encodeGenesisData(genesis.entries))
 
 const summary = {
   generatedAt: new Date().toISOString(),
