@@ -31,13 +31,22 @@ index 6549e8f..438d6b7 100644
 +      CMAKE_C_FLAGS=-fvisibility=hidden
 +)
 diff --git a/cmake/dependencies.cmake b/cmake/dependencies.cmake
-index 9eab5ce..05cf682 100644
+index 9eab5ce..9f61013 100644
 --- a/cmake/dependencies.cmake
 +++ b/cmake/dependencies.cmake
-@@ -22,15 +22,15 @@ else ()
-   find_package(Boost CONFIG REQUIRED filesystem random beast program_options)
+@@ -16,21 +16,21 @@ if (TESTING)
+ endif()
+ 
+ if (PACKAGE_MANAGER STREQUAL "hunter")
+-  hunter_add_package(Boost COMPONENTS random filesystem program_options)
+-  find_package(Boost CONFIG REQUIRED filesystem random program_options)
++  hunter_add_package(Boost COMPONENTS filesystem program_options)
++  find_package(Boost CONFIG REQUIRED filesystem program_options)
+ else ()
+-  find_package(Boost CONFIG REQUIRED filesystem random beast program_options)
++  find_package(Boost CONFIG REQUIRED filesystem beast program_options)
  endif ()
-
+ 
 -# https://www.openssl.org/
 -hunter_add_package(BoringSSL)
 -find_package(OpenSSL CONFIG REQUIRED)
@@ -82,13 +91,14 @@ index 9eab5ce..05cf682 100644
  find_package(Threads)
 
 diff --git a/cmake/libp2pConfig.cmake.in b/cmake/libp2pConfig.cmake.in
-index 7cb13f7..b0490ec 100644
+index 7cb13f7..c44ab1d 100644
 --- a/cmake/libp2pConfig.cmake.in
 +++ b/cmake/libp2pConfig.cmake.in
 @@ -3,8 +3,7 @@
  include(CMakeFindDependencyMacro)
 
- find_dependency(Boost CONFIG REQUIRED random filesystem program_options)
+-find_dependency(Boost CONFIG REQUIRED random filesystem program_options)
++find_dependency(Boost CONFIG REQUIRED filesystem program_options)
 -find_dependency(lsquic CONFIG REQUIRED)
 -find_dependency(OpenSSL CONFIG REQUIRED)
 +find_dependency(OpenSSL REQUIRED)
@@ -102,6 +112,84 @@ index 7cb13f7..b0490ec 100644
 -check_required_components(libp2p)
 \ No newline at end of file
 +check_required_components(libp2p)
+diff --git a/include/libp2p/crypto/random_generator/boost_generator.hpp b/include/libp2p/crypto/random_generator/boost_generator.hpp
+index 045bb28..bec5074 100644
+--- a/include/libp2p/crypto/random_generator/boost_generator.hpp
++++ b/include/libp2p/crypto/random_generator/boost_generator.hpp
+@@ -6,8 +6,6 @@
+ 
+ #pragma once
+ 
+-#include <boost/nondet_random.hpp>
+-#include <boost/random/uniform_int_distribution.hpp>
+ #include <libp2p/crypto/random_generator.hpp>
+ 
+ namespace libp2p::crypto::random {
+@@ -34,11 +32,5 @@ namespace libp2p::crypto::random {
+      * @return buffer containing random bytes
+      */
+     std::vector<uint8_t> randomBytes(size_t len) override;
+-
+-   private:
+-    /// boost cryptographic-secure random generator
+-    boost::random_device generator_;
+-    /// uniform distribution tool
+-    boost::random::uniform_int_distribution<uint8_t> distribution_;
+   };
+ }  // namespace libp2p::crypto::random
+diff --git a/src/crypto/random_generator/CMakeLists.txt b/src/crypto/random_generator/CMakeLists.txt
+index 924ad9a..46b0dd3 100644
+--- a/src/crypto/random_generator/CMakeLists.txt
++++ b/src/crypto/random_generator/CMakeLists.txt
+@@ -9,5 +9,5 @@ libp2p_add_library(p2p_random_generator
+     )
+ 
+ target_link_libraries(p2p_random_generator
+-    Boost::random
++    OpenSSL::Crypto
+     )
+diff --git a/src/crypto/random_generator/boost_generator.cpp b/src/crypto/random_generator/boost_generator.cpp
+index 90c4888..2122dbd 100644
+--- a/src/crypto/random_generator/boost_generator.cpp
++++ b/src/crypto/random_generator/boost_generator.cpp
+@@ -4,20 +4,32 @@
+  * SPDX-License-Identifier: Apache-2.0
+  */
+ 
++#include <openssl/rand.h>
+ #include <libp2p/crypto/random_generator/boost_generator.hpp>
+ 
++#include <limits>
++#include <stdexcept>
++
+ namespace libp2p::crypto::random {
+ 
+   uint8_t BoostRandomGenerator::randomByte() {
+-    return distribution_(generator_);  // NOLINT
++    return randomBytes(1).front();
+   }
+ 
+   std::vector<uint8_t> BoostRandomGenerator::randomBytes(size_t len) {
+-    std::vector<uint8_t> buffer(len, 0);
+-    for (size_t i = 0; i < len; ++i) {
+-      unsigned char byte = BoostRandomGenerator::randomByte();
+-      buffer[i] = byte;  // NOLINT
++    if (len > static_cast<size_t>(std::numeric_limits<int>::max())) {
++      throw std::runtime_error("OpenSSL RAND_bytes request is too large");
++    }
++
++    std::vector<uint8_t> buffer(len);
++    if (buffer.empty()) {
++      return buffer;
++    }
++
++    if (RAND_bytes(buffer.data(), static_cast<int>(buffer.size())) != 1) {
++      throw std::runtime_error("OpenSSL RAND_bytes failed");
+     }
++
+     return buffer;
+   }
+ }  // namespace libp2p::crypto::random
 diff --git a/include/libp2p/crypto/chachapoly/chachapoly_impl.hpp b/include/libp2p/crypto/chachapoly/chachapoly_impl.hpp
 index 465909e..9286cea 100644
 --- a/include/libp2p/crypto/chachapoly/chachapoly_impl.hpp
