@@ -10,6 +10,14 @@ PEER_RPC="${SEED_PROBE_PEER_RPC:-1}"
 VALIDATED_OUTPUT="${SEED_PROBE_OUTPUT:-}"
 P2P_PEERS_FILE="${P2P_PEERS_FILE:-$ROOT_DIR/scripts/mainnet-peer-candidates.txt}"
 
+if [[ -n "$P2P_PEERS_FILE" && "$P2P_PEERS_FILE" != /* ]]; then
+  P2P_PEERS_FILE="$ROOT_DIR/$P2P_PEERS_FILE"
+fi
+
+if [[ -n "$VALIDATED_OUTPUT" && "$VALIDATED_OUTPUT" != /* ]]; then
+  VALIDATED_OUTPUT="$ROOT_DIR/$VALIDATED_OUTPUT"
+fi
+
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'USAGE'
 usage: scripts/probe-mainnet-seeds.sh
