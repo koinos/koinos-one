@@ -28,15 +28,20 @@ BASEDIR=""
 LEGACY_DB=""
 MONOLITH_DB=""
 IMPORTER_BIN="${MONOLITH_BLOCK_STORE_IMPORTER:-$NODE_DIR/build/import_block_store_stream}"
+NODE_BIN="${MONOLITH_NODE_BIN:-$NODE_DIR/build/koinos_node}"
 EXPORTER_DIR="${LEGACY_BLOCK_STORE_EXPORTER_DIR:-$ROOT_DIR/tools/legacy-block-store-exporter}"
 HUNTER_INSTALL_DIR="${HUNTER_INSTALL_DIR:-}"
 PROGRESS_EVERY="${PROGRESS_EVERY:-100000}"
 VERIFY_MODE="${MIGRATION_VERIFY:-none}"
 VERIFY_EVERY="${MIGRATION_VERIFY_EVERY:-100000}"
 VERIFY_LIMIT="${MIGRATION_VERIFY_LIMIT:-100}"
+JSONRPC_PORT="${MIGRATION_JSONRPC_PORT:-18083}"
+NODE_VERIFY_TIMEOUT="${MIGRATION_NODE_VERIFY_TIMEOUT:-120}"
 DRY_RUN=0
 FORCE=0
 SKIP_CONFIG=0
+VERIFY_NODE=0
+VERIFY_NODE_ONLY=0
 SOURCE_HASH_ARGS=()
 TARGET_HASH_ARGS=()
 
@@ -51,11 +56,16 @@ Options:
   --legacy-db PATH        Legacy Badger DB path. Default: BASEDIR/block_store/db.
   --monolith-db PATH      Target monolith RocksDB path. Default: BASEDIR/db.
   --importer PATH         C++ stream importer path. Default: vendor/koinos/koinos-node/build/import_block_store_stream.
+  --node-bin PATH         koinos_node binary for --verify-node. Default: vendor/koinos/koinos-node/build/koinos_node.
   --hunter-install PATH   Hunter install containing RocksDB headers/libs. Inferred from build/CMakeCache.txt when possible.
   --progress-every N      Export/import progress interval. Default: 100000.
   --verify MODE           SHA-256 verification mode: none, sample, or full. Default: none.
   --verify-every N        In sample mode, hash every Nth block record. Default: 100000.
   --verify-limit N        In sample mode, max sampled block records. 0 means unlimited. Default: 100.
+  --verify-node           After migration, start koinos_node with P2P disabled and verify chain.get_head_info.
+  --verify-node-only      Skip migration and only run the migrated-basedir node smoke.
+  --jsonrpc-port PORT     JSON-RPC port for node verification. Default: 18083.
+  --node-timeout SECONDS  Timeout for node verification. Default: 120.
   --dry-run               Validate paths and capacity only; do not write RocksDB.
   --force                 Replace an existing non-empty target RocksDB directory.
   --skip-config           Do not update config.yml feature flags.
@@ -65,10 +75,13 @@ Environment:
   MONOLITH_BLOCK_STORE_IMPORTER
   LEGACY_BLOCK_STORE_EXPORTER_DIR
   HUNTER_INSTALL_DIR
+  MONOLITH_NODE_BIN
   PROGRESS_EVERY
   MIGRATION_VERIFY
   MIGRATION_VERIFY_EVERY
   MIGRATION_VERIFY_LIMIT
+  MIGRATION_JSONRPC_PORT
+  MIGRATION_NODE_VERIFY_TIMEOUT
 
 Output:
   Migration logs and a .monolith-migrated marker are written under BASEDIR/.monolith-migration/.
@@ -218,6 +231,101 @@ parse_stat() {
   sed -nE "s/.*${pattern}.*${field}=([0-9]+).*/\\1/p" "$log_file" | tail -1
 }
 
+jsonrpc_head_info() {
+  require_cmd node
+  node - "$JSONRPC_PORT" <<'NODE'
+const http = require('node:http')
+const port = Number(process.argv[2])
+const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'chain.get_head_info', params: {} })
+const req = http.request({
+  host: '127.0.0.1',
+  port,
+  path: '/',
+  method: 'POST',
+  timeout: 5000,
+  headers: {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(body)
+  }
+}, (res) => {
+  let data = ''
+  res.on('data', (chunk) => { data += chunk })
+  res.on('end', () => {
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed.error) {
+        console.error(parsed.error.message || JSON.stringify(parsed.error))
+        process.exit(2)
+      }
+      const topology = parsed.result?.head_topology || parsed.result?.headTopology
+      if (!topology?.id) {
+        console.error(`missing head topology in ${data}`)
+        process.exit(3)
+      }
+      process.stdout.write(JSON.stringify({
+        height: topology.height ?? '',
+        id: topology.id
+      }))
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error))
+      process.exit(4)
+    }
+  })
+})
+req.on('timeout', () => req.destroy(new Error('timeout')))
+req.on('error', (error) => {
+  console.error(error.message)
+  process.exit(1)
+})
+req.write(body)
+req.end()
+NODE
+}
+
+verify_node_smoke() {
+  [[ -x "$NODE_BIN" ]] || fail "koinos_node binary not found or not executable: $NODE_BIN"
+  [[ -d "$MONOLITH_DB" ]] || fail "monolith RocksDB directory not found: $MONOLITH_DB"
+  require_cmd node
+
+  local run_dir="$BASEDIR/.monolith-migration"
+  mkdir -p "$run_dir"
+  local log_file="$run_dir/node-verify.log"
+  local result_file="$run_dir/node-verify-head.json"
+
+  "$NODE_BIN" \
+    --basedir="$BASEDIR" \
+    --log-level=info \
+    --disable=p2p \
+    --enable=jsonrpc \
+    --jsonrpc-listen="127.0.0.1:${JSONRPC_PORT}" \
+    >"$log_file" 2>&1 &
+  local node_pid=$!
+  log "started koinos_node pid=$node_pid for migrated-basedir verification"
+
+  local started_at
+  started_at="$(date +%s)"
+  local head_json=""
+  while [[ $(( $(date +%s) - started_at )) -lt "$NODE_VERIFY_TIMEOUT" ]]; do
+    if ! kill -0 "$node_pid" 2>/dev/null; then
+      cat "$log_file" >&2 || true
+      fail "koinos_node exited before migrated-basedir JSON-RPC verification"
+    fi
+    if head_json="$(jsonrpc_head_info 2>"$run_dir/node-verify-rpc.err")"; then
+      printf '%s\n' "$head_json" >"$result_file"
+      kill "$node_pid" 2>/dev/null || true
+      wait "$node_pid" 2>/dev/null || true
+      log "migrated-basedir JSON-RPC verification passed: $head_json"
+      return 0
+    fi
+    sleep 2
+  done
+
+  kill "$node_pid" 2>/dev/null || true
+  wait "$node_pid" 2>/dev/null || true
+  cat "$log_file" >&2 || true
+  fail "chain.get_head_info did not verify within ${NODE_VERIFY_TIMEOUT}s: $(cat "$run_dir/node-verify-rpc.err" 2>/dev/null || true)"
+}
+
 write_marker() {
   local run_dir="$1"
   local export_records="$2"
@@ -363,6 +471,10 @@ run_migration() {
 
   log "migration complete: records=$import_records blocks=$import_blocks meta=$import_meta bytes=$import_bytes"
   log "marker: $BASEDIR/.monolith-migrated"
+
+  if [[ "$VERIFY_NODE" -eq 1 ]]; then
+    verify_node_smoke
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -371,11 +483,16 @@ while [[ $# -gt 0 ]]; do
     --legacy-db) LEGACY_DB="${2:?missing value for --legacy-db}"; shift 2 ;;
     --monolith-db) MONOLITH_DB="${2:?missing value for --monolith-db}"; shift 2 ;;
     --importer) IMPORTER_BIN="${2:?missing value for --importer}"; shift 2 ;;
+    --node-bin) NODE_BIN="${2:?missing value for --node-bin}"; shift 2 ;;
     --hunter-install) HUNTER_INSTALL_DIR="${2:?missing value for --hunter-install}"; shift 2 ;;
     --progress-every) PROGRESS_EVERY="${2:?missing value for --progress-every}"; shift 2 ;;
     --verify) VERIFY_MODE="${2:?missing value for --verify}"; shift 2 ;;
     --verify-every) VERIFY_EVERY="${2:?missing value for --verify-every}"; shift 2 ;;
     --verify-limit) VERIFY_LIMIT="${2:?missing value for --verify-limit}"; shift 2 ;;
+    --verify-node) VERIFY_NODE=1; shift ;;
+    --verify-node-only) VERIFY_NODE_ONLY=1; shift ;;
+    --jsonrpc-port) JSONRPC_PORT="${2:?missing value for --jsonrpc-port}"; shift 2 ;;
+    --node-timeout) NODE_VERIFY_TIMEOUT="${2:?missing value for --node-timeout}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --force) FORCE=1; shift ;;
     --skip-config) SKIP_CONFIG=1; shift ;;
@@ -398,7 +515,9 @@ BASEDIR="$(cd "$BASEDIR" && pwd)"
 LEGACY_DB="${LEGACY_DB:-$BASEDIR/block_store/db}"
 MONOLITH_DB="${MONOLITH_DB:-$BASEDIR/db}"
 
-if [[ "$DRY_RUN" -eq 1 ]]; then
+if [[ "$VERIFY_NODE_ONLY" -eq 1 ]]; then
+  verify_node_smoke
+elif [[ "$DRY_RUN" -eq 1 ]]; then
   run_dry_run
 else
   run_migration
