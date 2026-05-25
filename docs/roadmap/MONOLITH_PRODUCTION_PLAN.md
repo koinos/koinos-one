@@ -12,7 +12,7 @@ Sequential plan to take the monolith from its current state (builds and starts l
 - Sprint 1.3 mempool end-to-end is implemented and locally verified: `chain.submit_transaction` has the in-process mempool RPCs it depends on, accepted transactions are inserted into the real mempool implementation through the monolith event bus, account RC/nonce/count checks are covered, and the 120s expiration boundary is tested.
 - Sprint 4 migration tooling can now run an offline legacy Badger block-store migration, optional sampled/full SHA-256 source-vs-target verification, and a migrated-basedir node smoke that starts `koinos_node` with P2P disabled and verifies `chain.get_head_info` over JSON-RPC.
 - A live external Koinos Foundation testnet is available and documented in `pgarciagon/koinos_testnet`: JSON-RPC `https://testnet.koinosfoundation.org/jsonrpc`, public P2P `testnet.koinosfoundation.org:8888`, chain ID `EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==`. The public endpoint was verified on 2026-05-25 with `/health` returning `ok` and `chain.get_head_info` returning an advancing head.
-- `kcli` is installed locally and is the wallet/client tool for live testnet operations. Use it with `--network testnet` or configure `kcli config --network testnet --rpc https://testnet.koinosfoundation.org/jsonrpc` before funding, VHP burn, producer-key registration, and producer dashboard checks.
+- `kcli` is installed locally and configured as the wallet/client tool for live testnet operations. The local config now uses network `testnet` and RPC `https://testnet.koinosfoundation.org/jsonrpc` before funding, VHP burn, producer-key registration, and producer dashboard checks.
 
 ---
 
@@ -124,7 +124,7 @@ Latest validation after those fixes proved build/test health and showed that thi
 - [x] Add shared/external PoB signoff harness for independent producer/observer RPC endpoints.
 - [x] Run isolated seed-host private PoB external validation from `/mnt/HC_Volume_105581636/knodel-external-signoff` without touching production services.
 - [x] Identify and verify the live external Koinos Foundation testnet: `https://testnet.koinosfoundation.org/jsonrpc`, public P2P `testnet.koinosfoundation.org:8888`, chain ID `EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==`.
-- [ ] Configure locally installed `kcli` for the live testnet RPC and verify `kcli testnet-info`, `kcli chain-info`, and `kcli faucet-info`.
+- [x] Configure locally installed `kcli` for the live testnet RPC and verify `kcli testnet-info`, `kcli chain-info`, and `kcli faucet-info`.
 - [ ] Use `kcli` as the testnet wallet: generate or import a producer-control wallet, request faucet vKOIN, and verify KOIN/VHP/Mana with `kcli balance`.
 - [ ] Run the monolith as a non-producing observer on the live external testnet and verify chain ID, peer handshake, head progress, and stable sync.
 - [ ] Use `kcli burn --dry-run` and then `kcli burn` to convert testnet KOIN into VHP for the producer account.
@@ -138,6 +138,8 @@ Latest validation after those fixes proved build/test health and showed that thi
 **2026-05-25 status:** The live public testnet documented in `pgarciagon/koinos_testnet` is reachable. Verified endpoints: `/health` returned `ok`, and `chain.get_head_info` over `https://testnet.koinosfoundation.org/jsonrpc` returned a live head. This shifts Sprint 2.4 from "find/create an external testnet" to "join the existing testnet first as a monolith observer, then as a VHP-staked producer."
 
 **2026-05-25 kcli update:** `kcli` is available locally at `/opt/homebrew/bin/kcli`. The plan now uses `kcli` as the Koinos wallet/client for the live testnet: configure the RPC, create or import the producer-control wallet, request faucet funds, verify balances, burn KOIN to VHP, register the monolith producer public key, and monitor producer visibility.
+
+**2026-05-25 kcli configuration:** `kcli` version `1.2.0` was configured through `/Users/pgarcgo/.kcli/config.json` with default network `testnet` and RPC `https://testnet.koinosfoundation.org/jsonrpc`. Verification passed: `kcli testnet-info` returned the expected chain ID and contract IDs, `kcli faucet-info` returned the Telegram faucet command, and `kcli chain-info` returned head block `5247425` with last irreversible block `5247365`.
 
 Private-testnet signoff plan: `docs/roadmap/MONOLITH_PRIVATE_TESTNET_PLAN.md`.
 Latest private-testnet report: `docs/roadmap/MONOLITH_PRIVATE_TESTNET_REPORT.md`.
