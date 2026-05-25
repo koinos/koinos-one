@@ -34,6 +34,8 @@ Latest validation after those fixes proved build/test health and showed that thi
 
 **2026-05-25 Gate F retry:** A fast Go sweep found one transient Peer RPC-capable mainnet peer, `/ip4/94.130.148.114/tcp/8888/p2p/QmQ841mUuYeCtbZXdEMeKcYCx4CZydgz84zSDqWVCeJ4H8`, at head height `36232881`. Immediate repeat probes against that same peer failed with EOF/reset during security negotiation, and the C++ `300s` short soak against it was invalid: the node started cleanly, JSON-RPC stayed up, but no peer session, handshake, sync rows, or head progress were observed before the `240s` startup grace expired. Treat this as a closed/unstable public peer window, not a successful Gate F signoff. During this retry, `scripts/probe-mainnet-seeds.sh` was fixed so relative `SEED_PROBE_OUTPUT` paths resolve from the repo root before the script changes into the `koinos-p2p` submodule.
 
+**2026-05-25 plan update:** Gate F no longer blocks monolith implementation work. It remains a mainnet readiness gate. The next networking diagnostic is an A/B harness that runs legacy Go p2p and the C++ monolith under the same clean peer list, listen mode, and observation window. If legacy connects while C++ does not, continue C++ compatibility debugging; if both fail, treat the result as public peer availability/backoff and continue implementation or real testnet producer validation.
+
 ---
 
 ## Sprint 1: Functional Local Node (1-2 weeks)
@@ -207,6 +209,8 @@ Latest external-testnet report: `docs/roadmap/MONOLITH_EXTERNAL_TESTNET_REPORT.m
 - [x] Serialize sync application and ignore already-irreversible local catch-up races from overlapping peers
 - [x] Confirm latest invalid soak/probe state is also reproduced by Go libp2p in the same peer window, pointing to peer availability/backoff rather than a proven C++ wire mismatch
 - [x] Harden `scripts/probe-mainnet-seeds.sh` so validated peers must support Koinos Peer RPC, not just raw libp2p dial
+- [ ] Add A/B legacy-vs-monolith peer acquisition harness: same peer list, clean basedirs, same listen mode, same observation window, and comparable output for peer count, Peer RPC readiness, head progress, errors, and logs
+- [ ] Run A/B harness against the current mainnet candidate list before spending more time on C++-only Gate F soaks
 - [ ] Run 2h with 1 controlled Go peer and ASAN/TSAN when viable
 - [ ] Run 12h with 5-10 real peers, without block production
 - [ ] Run 48h with 20+ connected peers
