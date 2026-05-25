@@ -124,6 +124,13 @@ private:
     else if( req.has_check_pending_account_resources() )
       *resp.mutable_check_pending_account_resources() =
         _mempool->check_pending_account_resources( req.check_pending_account_resources() );
+    else if( req.has_check_account_nonce() )
+      *resp.mutable_check_account_nonce() = _mempool->check_account_nonce( req.check_account_nonce() );
+    else if( req.has_get_pending_nonce() )
+      *resp.mutable_get_pending_nonce() = _mempool->get_pending_nonce( req.get_pending_nonce() );
+    else if( req.has_get_pending_transaction_count() )
+      *resp.mutable_get_pending_transaction_count() =
+        _mempool->get_pending_transaction_count( req.get_pending_transaction_count() );
     else if( req.has_get_reserved_account_rc() )
       *resp.mutable_get_reserved_account_rc() = _mempool->get_reserved_account_rc( req.get_reserved_account_rc() );
 

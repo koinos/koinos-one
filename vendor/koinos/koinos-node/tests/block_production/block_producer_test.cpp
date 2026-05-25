@@ -70,6 +70,24 @@ public:
     return {};
   }
 
+  rpc::mempool::check_account_nonce_response
+  check_account_nonce( const rpc::mempool::check_account_nonce_request& ) override
+  {
+    return {};
+  }
+
+  rpc::mempool::get_pending_nonce_response
+  get_pending_nonce( const rpc::mempool::get_pending_nonce_request& ) override
+  {
+    return {};
+  }
+
+  rpc::mempool::get_pending_transaction_count_response
+  get_pending_transaction_count( const rpc::mempool::get_pending_transaction_count_request& ) override
+  {
+    return {};
+  }
+
   rpc::mempool::get_reserved_account_rc_response
   get_reserved_account_rc( const rpc::mempool::get_reserved_account_rc_request& ) override
   {

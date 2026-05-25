@@ -629,9 +629,26 @@ int main( int argc, char** argv )
       );
     }
 
-    // Mempool subscribes to block events
+    // Mempool subscribes to accepted transactions, block events, and local expiry.
+    boost::asio::steady_timer mempool_prune_timer( main_ioc );
+    std::function< void( const boost::system::error_code& ) > mempool_prune_tick;
     if( cfg.is_enabled( "mempool" ) )
     {
+      event_bus.on_transaction_accepted.connect(
+        [&mempool_adapter]( const broadcast::transaction_accepted& ta ) {
+          try
+          {
+            auto rc_used = mempool_adapter.add_transaction_accepted( ta );
+            LOG( debug ) << "[mempool] accepted transaction id="
+                         << util::to_hex( ta.transaction().id() )
+                         << " reserved_rc=" << rc_used;
+          }
+          catch( const std::exception& e )
+          {
+            LOG( warning ) << "[mempool] failed to add accepted transaction: " << e.what();
+          }
+        }
+      );
       event_bus.on_block_accepted.connect(
         [&mempool_impl]( const broadcast::block_accepted& ba ) {
           mempool_impl.handle_block( ba );
@@ -642,6 +659,27 @@ int main( int argc, char** argv )
           mempool_impl.handle_irreversibility( bi );
         }
       );
+
+      mempool_prune_tick = [&]( const boost::system::error_code& ec ) {
+        if( ec )
+          return;
+
+        try
+        {
+          auto pruned = mempool_adapter.prune( std::chrono::seconds( cfg.mempool_transaction_expiration ) );
+          if( pruned )
+            LOG( debug ) << "[mempool] pruned expired pending transactions count=" << pruned;
+        }
+        catch( const std::exception& e )
+        {
+          LOG( warning ) << "[mempool] prune failed: " << e.what();
+        }
+
+        mempool_prune_timer.expires_after( std::chrono::seconds( 1 ) );
+        mempool_prune_timer.async_wait( mempool_prune_tick );
+      };
+      mempool_prune_timer.expires_after( std::chrono::seconds( 1 ) );
+      mempool_prune_timer.async_wait( mempool_prune_tick );
     }
 
     event_bus.on_block_accepted.connect(

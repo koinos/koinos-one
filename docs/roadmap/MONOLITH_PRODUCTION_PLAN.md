@@ -9,7 +9,7 @@ Sequential plan to take the monolith from its current state (builds and starts l
 - C++ P2P builds and links with `cpp-libp2p` using `-DKOINOS_ENABLE_LIBP2P=ON`.
 - Peer RPC uses the real `go-libp2p-gorpc` MessagePack framing, passes offline fixtures generated from Go, passes live interop against a controlled Go peer, and controlled one-peer sync applies blocks by RPC. GossipSub crosses blocks/transactions in both directions against a controlled Go peer. Knodel local mode no longer forces `p2p` off. The 48h soak against real peers is still pending.
 - Block producer backend is implemented: it loads WIF keys, assembles resource-bounded blocks, signs `federated` and PoB blocks, prunes failed transactions, gates production on gossip readiness, and submits populated `propose_block_request` messages. Local build and unit validation pass. Private three-node federated validation passes with observer P2P sync and store health checks. Private three-node PoB validation also passes with a deterministic generated genesis that includes system-contract bytecode, system-call dispatch, name-service records, producer hot-key registration, KOIN/RC, VHP, and VHP burn allowance. A 30-minute private PoB soak passed with continuous producer/observer progress and no severe log matches. Isolated seed-host external validation passed on `seed.koinosfoundation.org` without touching the production Docker stack: the branch was built on `/mnt/HC_Volume_105581636`, then a three-node private PoB soak ran for `300s` on high localhost ports with final producer head `8736`, observer head `8384`, observer block-store height `8384`, `0` stalled samples, and clean shutdown. Shared/external testnet validation tooling remains available in `scripts/external-pob-testnet-signoff.sh` for future independently reachable producer/observer RPC endpoints.
-- Mempool accepts `chain.submit_transaction`; real resource checks, expiration, and end-to-end production are still pending.
+- Sprint 1.3 mempool end-to-end is implemented and locally verified: `chain.submit_transaction` has the in-process mempool RPCs it depends on, accepted transactions are inserted into the real mempool implementation through the monolith event bus, account RC/nonce/count checks are covered, and the 120s expiration boundary is tested.
 
 ---
 
@@ -34,9 +34,9 @@ Latest validation after those fixes proved build/test health and showed that thi
 
 ---
 
-## Sprint 1: Nodo local funcional (1-2 semanas)
+## Sprint 1: Functional Local Node (1-2 weeks)
 
-**Objetivo:** Un nodo que restaura un backup y sirve queries correctamente.
+**Objective:** A node that restores a backup and serves queries correctly.
 
 ### 1.1 Backup restore flow
 - [x] Adaptar flujo de restore para leer un backup `.tar.gz` legacy, extraerlo en un `basedir` externo y convertir `block_store/db` Badger a RocksDB monolítico
@@ -53,9 +53,12 @@ Latest validation after those fixes proved build/test health and showed that thi
 **Nota 2026-05-24:** Sprint 1.2 completado con `scripts/compare-jsonrpc-parity.py`. Se levantó el stack legacy local con RabbitMQ en `127.0.0.1:5673` y JSON-RPC en `127.0.0.1:18084`, se capturó baseline de 21 métodos y se comparó contra el monolito en `127.0.0.1:18083`. Resultado final: `failures=0 cases=21`. Las diferencias observadas fueron de encoding de bytes (`0x` hex / base64 URL-safe legacy frente a base64 estándar/hex monolito), normalizadas semánticamente. Durante la validación se corrigió el batch cap del indexer monolítico para no pedir bloques más allá del highest block y se alinearon errores para requests inválidos vacíos en block store, contract meta store y transaction store.
 
 ### 1.3 Mempool end-to-end
-- [x] `chain.submit_transaction` → mempool acepta → verificar con `mempool.get_pending_transactions`
-- [ ] Verificar `check_pending_account_resources` con cuentas reales
-- [ ] Verificar expiración de transacciones (120s)
+- [x] `chain.submit_transaction` can use in-process mempool RPCs for RC, nonce, pending nonce, and pending transaction count checks.
+- [x] `koinos.transaction.accept` is wired through the monolith event bus into the real mempool implementation and is verified with `mempool.get_pending_transactions`.
+- [x] Verify `check_pending_account_resources` with concrete payer/payee accounts and real pending RC reservations.
+- [x] Verify transaction expiration at the 120s default boundary.
+
+**2026-05-25 status:** Sprint 1.3 is locally complete. `IMempool`, `MempoolAdapter`, and `MonolithRpcClient` now cover `check_account_nonce`, `get_pending_nonce`, and `get_pending_transaction_count`, which are required by `chain.submit_transaction` when broadcasting transactions. The monolith subscribes mempool to `koinos.transaction.accept`, inserts the accepted transaction plus receipt resource usage into the real mempool implementation, and runs a 1s prune loop using `mempool.transaction-expiration` (default `120s`). `koinos_mempool_adapter_test` verifies accepted transaction insertion, `get_pending_transactions`, reserved RC accounting, `check_pending_account_resources`, duplicate/next nonce behavior, pending nonce/count, and the 119s/120s expiration boundary. The focused build and CTest set passed for `koinos_node`, `koinos_mempool_adapter_test`, `koinos_block_producer_test`, `koinos_gorpc_codec_test`, and `koinos_p2p_one_peer_sync_test`.
 
 ### 1.4 Knodel integración local
 - [x] Mover el build temporal desde `/private/tmp/koinos-node-libp2p-build` a la ruta esperada por Knodel: `vendor/koinos/koinos-node/build/koinos_node`

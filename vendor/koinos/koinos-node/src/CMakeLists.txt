@@ -300,6 +300,16 @@ if(KOINOS_BUILD_TESTS)
 
   add_test(NAME koinos_block_producer_test COMMAND koinos_block_producer_test)
 
+  add_executable(koinos_mempool_adapter_test
+    ../tests/mempool/mempool_adapter_test.cpp)
+
+  target_link_libraries(koinos_mempool_adapter_test PRIVATE
+    koinos_node_core
+    koinos_node_interfaces
+    mempool_lib)
+
+  add_test(NAME koinos_mempool_adapter_test COMMAND koinos_mempool_adapter_test)
+
   if(KOINOS_ENABLE_LIBP2P)
     add_executable(koinos_libp2p_peer_rpc_live_test
       ../tests/p2p/libp2p_peer_rpc_live_test.cpp)
