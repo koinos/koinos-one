@@ -240,7 +240,7 @@ Latest external-testnet report: `docs/roadmap/MONOLITH_EXTERNAL_TESTNET_REPORT.m
 - [x] Reuse the proven restore pipeline: Go Badger exporter streams byte-for-byte records into the C++ RocksDB importer for the monolith `blocks` and `block_meta` column families.
 - [x] Preserve embedded skip-list pointers by copying legacy `block_record` values without protobuf re-encoding.
 - [x] Verify migration pipeline integrity by comparing exported/imported record and byte counts and requiring at least one imported block-store metadata record.
-- [ ] Add optional per-block SHA-256 sampling/full verification mode for large migrations.
+- [x] Add optional SHA-256 sampling/full verification mode for large migrations: `--verify sample` hashes sampled source Badger records and target RocksDB readback records; `--verify full` hashes every block-store record.
 - [ ] Measure full migration time on a large block store (~350GB target class).
 
 ### 4.2 Chain state_db migration
@@ -253,7 +253,7 @@ Latest external-testnet report: `docs/roadmap/MONOLITH_EXTERNAL_TESTNET_REPORT.m
 - [ ] Verify that AsyncGenericService handles protobuf envelope routing correctly.
 - [ ] Test error propagation: service unavailable and invalid request.
 
-**2026-05-25 status:** The migration wrapper has replaced the old placeholder script that claimed Badger data could not be imported. A dry run against `/Volumes/external/knodel-monolith-restore/basedir` passed path/tool checks and correctly reported that the existing target RocksDB is non-empty and the external volume only has `28.3 GiB` free for a `41.3 GiB` legacy Badger source. The full migration was not rerun because that basedir already contains a verified converted RocksDB from Sprint 1.1 and the current free space is below the conservative `2x` recommendation.
+**2026-05-25 status:** The migration wrapper has replaced the old placeholder script that claimed Badger data could not be imported. A dry run against `/Volumes/external/knodel-monolith-restore/basedir` passed path/tool checks and correctly reported that the existing target RocksDB is non-empty and the external volume only has `28.3 GiB` free for a `41.3 GiB` legacy Badger source. The full migration was not rerun because that basedir already contains a verified converted RocksDB from Sprint 1.1 and the current free space is below the conservative `2x` recommendation. SHA-256 verification now supports sampled and full modes: the source Badger exporter writes selected record hashes, the C++ importer hashes the corresponding RocksDB readback values, and the wrapper fails if the manifests differ.
 
 **Sprint 4 Deliverable:** Functional migration tool and validated gRPC compatibility.
 

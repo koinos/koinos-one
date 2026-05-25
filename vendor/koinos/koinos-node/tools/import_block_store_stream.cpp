@@ -1,11 +1,15 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
+#include <openssl/sha.h>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 
@@ -38,7 +42,83 @@ bool read_exact( std::istream& in, char* data, std::size_t size )
 
 void usage( const char* argv0 )
 {
-  std::cerr << "Usage: " << argv0 << " --db /path/to/monolith/basedir/db [--progress-every N]\n";
+  std::cerr << "Usage: " << argv0
+            << " --db /path/to/monolith/basedir/db [--progress-every N]"
+            << " [--hash-manifest PATH --hash-every N [--hash-limit N]]\n";
+}
+
+std::string sha256_hex( const std::string& data )
+{
+  unsigned char digest[ SHA256_DIGEST_LENGTH ];
+  SHA256( reinterpret_cast< const unsigned char* >( data.data() ), data.size(), digest );
+
+  std::ostringstream out;
+  out << std::hex << std::setfill( '0' );
+  for( unsigned char byte: digest )
+    out << std::setw( 2 ) << static_cast< int >( byte );
+  return out.str();
+}
+
+class HashManifest
+{
+public:
+  HashManifest( std::filesystem::path path, uint64_t every, uint64_t limit )
+      : _path( std::move( path ) ), _every( every ), _limit( limit )
+  {
+    if( !_path.empty() && _every == 0 )
+      throw std::runtime_error( "--hash-every must be greater than 0 when --hash-manifest is set" );
+
+    if( !_path.empty() )
+    {
+      _out.open( _path );
+      if( !_out )
+        throw std::runtime_error( "could not open hash manifest: " + _path.string() );
+    }
+  }
+
+  void maybe_write( uint64_t record_index,
+                    uint64_t block_index,
+                    const std::string& column_family,
+                    const std::string& key,
+                    const std::string& value )
+  {
+    if( !_out )
+      return;
+
+    if( column_family != "block_meta" )
+    {
+      if( block_index == 0 || block_index % _every != 0 )
+        return;
+      if( _limit > 0 && _selected_blocks >= _limit )
+        return;
+      ++_selected_blocks;
+    }
+
+    _out << record_index << '\t'
+         << column_family << '\t'
+         << key.size() << '\t'
+         << value.size() << '\t'
+         << sha256_hex( key ) << '\t'
+         << sha256_hex( value ) << '\n';
+  }
+
+private:
+  std::filesystem::path _path;
+  std::ofstream _out;
+  uint64_t _every = 0;
+  uint64_t _limit = 0;
+  uint64_t _selected_blocks = 0;
+};
+
+std::string read_back_value( rocksdb::DB& db,
+                             rocksdb::ColumnFamilyHandle* cf,
+                             const std::string& key )
+{
+  std::string value;
+  auto status = db.Get( rocksdb::ReadOptions(), cf, key, &value );
+  if( !status.ok() )
+    throw std::runtime_error( "rocksdb readback: " + status.ToString() );
+  return value;
 }
 
 } // namespace
@@ -46,7 +126,10 @@ void usage( const char* argv0 )
 int main( int argc, char** argv )
 {
   std::filesystem::path db_path;
+  std::filesystem::path hash_manifest_path;
   uint64_t progress_every = 100000;
+  uint64_t hash_every = 0;
+  uint64_t hash_limit = 0;
 
   for( int i = 1; i < argc; ++i )
   {
@@ -58,6 +141,18 @@ int main( int argc, char** argv )
     else if( arg == "--progress-every" && i + 1 < argc )
     {
       progress_every = std::stoull( argv[ ++i ] );
+    }
+    else if( arg == "--hash-manifest" && i + 1 < argc )
+    {
+      hash_manifest_path = argv[ ++i ];
+    }
+    else if( arg == "--hash-every" && i + 1 < argc )
+    {
+      hash_every = std::stoull( argv[ ++i ] );
+    }
+    else if( arg == "--hash-limit" && i + 1 < argc )
+    {
+      hash_limit = std::stoull( argv[ ++i ] );
     }
     else if( arg == "-h" || arg == "--help" )
     {
@@ -74,6 +169,17 @@ int main( int argc, char** argv )
   if( db_path.empty() )
   {
     usage( argv[ 0 ] );
+    return 2;
+  }
+
+  std::unique_ptr< HashManifest > hash_manifest;
+  try
+  {
+    hash_manifest = std::make_unique< HashManifest >( hash_manifest_path, hash_every, hash_limit );
+  }
+  catch( const std::exception& e )
+  {
+    std::cerr << e.what() << "\n";
     return 2;
   }
 
@@ -142,7 +248,8 @@ int main( int argc, char** argv )
       return 1;
     }
 
-    auto* cf = key == meta_key ? handles[ 2 ] : handles[ 1 ];
+    const bool is_meta = key == meta_key;
+    auto* cf = is_meta ? handles[ 2 ] : handles[ 1 ];
     status = db->Put( write_options, cf, key, value );
     if( !status.ok() )
     {
@@ -152,10 +259,26 @@ int main( int argc, char** argv )
 
     records++;
     bytes += key.size() + value.size();
-    if( key == meta_key )
+    if( is_meta )
       meta_records++;
     else
       block_records++;
+
+    try
+    {
+      if( hash_manifest )
+        hash_manifest->maybe_write(
+          records,
+          block_records,
+          is_meta ? "block_meta" : "blocks",
+          key,
+          read_back_value( *db, cf, key ) );
+    }
+    catch( const std::exception& e )
+    {
+      std::cerr << e.what() << "\n";
+      return 1;
+    }
 
     if( progress_every > 0 && records % progress_every == 0 )
     {

@@ -31,9 +31,14 @@ IMPORTER_BIN="${MONOLITH_BLOCK_STORE_IMPORTER:-$NODE_DIR/build/import_block_stor
 EXPORTER_DIR="${LEGACY_BLOCK_STORE_EXPORTER_DIR:-$ROOT_DIR/tools/legacy-block-store-exporter}"
 HUNTER_INSTALL_DIR="${HUNTER_INSTALL_DIR:-}"
 PROGRESS_EVERY="${PROGRESS_EVERY:-100000}"
+VERIFY_MODE="${MIGRATION_VERIFY:-none}"
+VERIFY_EVERY="${MIGRATION_VERIFY_EVERY:-100000}"
+VERIFY_LIMIT="${MIGRATION_VERIFY_LIMIT:-100}"
 DRY_RUN=0
 FORCE=0
 SKIP_CONFIG=0
+SOURCE_HASH_ARGS=()
+TARGET_HASH_ARGS=()
 
 usage() {
   cat <<EOF
@@ -48,6 +53,9 @@ Options:
   --importer PATH         C++ stream importer path. Default: vendor/koinos/koinos-node/build/import_block_store_stream.
   --hunter-install PATH   Hunter install containing RocksDB headers/libs. Inferred from build/CMakeCache.txt when possible.
   --progress-every N      Export/import progress interval. Default: 100000.
+  --verify MODE           SHA-256 verification mode: none, sample, or full. Default: none.
+  --verify-every N        In sample mode, hash every Nth block record. Default: 100000.
+  --verify-limit N        In sample mode, max sampled block records. 0 means unlimited. Default: 100.
   --dry-run               Validate paths and capacity only; do not write RocksDB.
   --force                 Replace an existing non-empty target RocksDB directory.
   --skip-config           Do not update config.yml feature flags.
@@ -58,6 +66,9 @@ Environment:
   LEGACY_BLOCK_STORE_EXPORTER_DIR
   HUNTER_INSTALL_DIR
   PROGRESS_EVERY
+  MIGRATION_VERIFY
+  MIGRATION_VERIFY_EVERY
+  MIGRATION_VERIFY_LIMIT
 
 Output:
   Migration logs and a .monolith-migrated marker are written under BASEDIR/.monolith-migration/.
@@ -145,8 +156,10 @@ build_block_store_importer() {
   hunter_install="$(infer_hunter_install_dir)"
 
   [[ -f "$hunter_install/include/rocksdb/db.h" ]] || fail "RocksDB headers not found under $hunter_install"
+  [[ -f "$hunter_install/include/openssl/sha.h" ]] || fail "OpenSSL headers not found under $hunter_install"
   [[ -f "$hunter_install/lib/librocksdb.a" ]] || fail "RocksDB library not found under $hunter_install"
   [[ -f "$hunter_install/lib/libz.a" ]] || fail "zlib library not found under $hunter_install"
+  [[ -f "$hunter_install/lib/libcrypto.a" ]] || fail "OpenSSL crypto library not found under $hunter_install"
 
   mkdir -p "$(dirname "$IMPORTER_BIN")"
   log "building block-store stream importer"
@@ -161,6 +174,7 @@ build_block_store_importer() {
     "$NODE_DIR/tools/import_block_store_stream.cpp" \
     "$hunter_install/lib/librocksdb.a" \
     "$hunter_install/lib/libz.a" \
+    "$hunter_install/lib/libcrypto.a" \
     -pthread \
     "${extra_libs[@]}" \
     -o "$IMPORTER_BIN"
@@ -212,6 +226,8 @@ write_marker() {
   local import_blocks="$5"
   local import_meta="$6"
   local import_bytes="$7"
+  local verify_mode="$8"
+  local verify_hashes="$9"
 
   cat >"$run_dir/.monolith-migrated" <<EOF
 {
@@ -223,10 +239,39 @@ write_marker() {
   "importRecords": $import_records,
   "importBlockRecords": $import_blocks,
   "importMetaRecords": $import_meta,
-  "importBytes": $import_bytes
+  "importBytes": $import_bytes,
+  "verificationMode": "$verify_mode",
+  "verificationHashes": $verify_hashes
 }
 EOF
   cp "$run_dir/.monolith-migrated" "$BASEDIR/.monolith-migrated"
+}
+
+configure_verify_args() {
+  local source_manifest="$1"
+  local target_manifest="$2"
+
+  SOURCE_HASH_ARGS=()
+  TARGET_HASH_ARGS=()
+
+  case "$VERIFY_MODE" in
+    none)
+      return
+      ;;
+    sample)
+      [[ "$VERIFY_EVERY" =~ ^[0-9]+$ && "$VERIFY_EVERY" -gt 0 ]] || fail "--verify-every must be a positive integer"
+      [[ "$VERIFY_LIMIT" =~ ^[0-9]+$ ]] || fail "--verify-limit must be a non-negative integer"
+      SOURCE_HASH_ARGS=( --hash-manifest "$source_manifest" --hash-every "$VERIFY_EVERY" --hash-limit "$VERIFY_LIMIT" )
+      TARGET_HASH_ARGS=( --hash-manifest "$target_manifest" --hash-every "$VERIFY_EVERY" --hash-limit "$VERIFY_LIMIT" )
+      ;;
+    full)
+      SOURCE_HASH_ARGS=( --hash-manifest "$source_manifest" --hash-every 1 --hash-limit 0 )
+      TARGET_HASH_ARGS=( --hash-manifest "$target_manifest" --hash-every 1 --hash-limit 0 )
+      ;;
+    *)
+      fail "--verify must be one of: none, sample, full"
+      ;;
+  esac
 }
 
 run_dry_run() {
@@ -246,6 +291,7 @@ run_dry_run() {
   log "legacy DB size: $(bytes_to_gib "$legacy_size")"
   log "target volume free: $(bytes_to_gib "$free_bytes")"
   log "recommended free space: $(bytes_to_gib "$recommended_bytes")"
+  log "verification mode: $VERIFY_MODE"
 
   if is_dir_nonempty "$MONOLITH_DB"; then
     warn "target RocksDB directory is not empty; use --force for a destructive replacement"
@@ -276,12 +322,15 @@ run_migration() {
   mkdir -p "$run_dir"
   local export_log="$run_dir/export.log"
   local import_log="$run_dir/import.log"
+  local source_manifest="$run_dir/source-hashes.tsv"
+  local target_manifest="$run_dir/target-hashes.tsv"
+  configure_verify_args "$source_manifest" "$target_manifest"
 
   log "exporting Badger and importing RocksDB"
   (
     cd "$EXPORTER_DIR"
-    go run . --db "$LEGACY_DB" --progress-every "$PROGRESS_EVERY" 2> >(tee "$export_log" >&2)
-  ) | "$IMPORTER_BIN" --db "$MONOLITH_DB" --progress-every "$PROGRESS_EVERY" 2> >(tee "$import_log" >&2)
+    go run . --db "$LEGACY_DB" --progress-every "$PROGRESS_EVERY" "${SOURCE_HASH_ARGS[@]}" 2> >(tee "$export_log" >&2)
+  ) | "$IMPORTER_BIN" --db "$MONOLITH_DB" --progress-every "$PROGRESS_EVERY" "${TARGET_HASH_ARGS[@]}" 2> >(tee "$import_log" >&2)
 
   local export_records export_bytes import_records import_blocks import_meta import_bytes
   export_records="$(parse_stat "$export_log" 'export complete' 'records')"
@@ -297,8 +346,20 @@ run_migration() {
   [[ "$export_bytes" == "$import_bytes" ]] || fail "byte count mismatch: exported=$export_bytes imported=$import_bytes"
   [[ "$import_meta" -ge 1 ]] || fail "import did not include block_store metadata record"
 
+  local verify_hashes=0
+  if [[ "$VERIFY_MODE" != "none" ]]; then
+    [[ -f "$source_manifest" ]] || fail "source hash manifest was not created"
+    [[ -f "$target_manifest" ]] || fail "target hash manifest was not created"
+    if ! cmp -s "$source_manifest" "$target_manifest"; then
+      fail "SHA-256 verification manifest mismatch: $source_manifest vs $target_manifest"
+    fi
+    verify_hashes="$(wc -l <"$source_manifest" | tr -d ' ')"
+    [[ "$verify_hashes" -gt 0 ]] || fail "SHA-256 verification produced no manifest rows"
+    log "SHA-256 verification matched $verify_hashes records"
+  fi
+
   update_config_for_monolith
-  write_marker "$run_dir" "$export_records" "$export_bytes" "$import_records" "$import_blocks" "$import_meta" "$import_bytes"
+  write_marker "$run_dir" "$export_records" "$export_bytes" "$import_records" "$import_blocks" "$import_meta" "$import_bytes" "$VERIFY_MODE" "$verify_hashes"
 
   log "migration complete: records=$import_records blocks=$import_blocks meta=$import_meta bytes=$import_bytes"
   log "marker: $BASEDIR/.monolith-migrated"
@@ -312,6 +373,9 @@ while [[ $# -gt 0 ]]; do
     --importer) IMPORTER_BIN="${2:?missing value for --importer}"; shift 2 ;;
     --hunter-install) HUNTER_INSTALL_DIR="${2:?missing value for --hunter-install}"; shift 2 ;;
     --progress-every) PROGRESS_EVERY="${2:?missing value for --progress-every}"; shift 2 ;;
+    --verify) VERIFY_MODE="${2:?missing value for --verify}"; shift 2 ;;
+    --verify-every) VERIFY_EVERY="${2:?missing value for --verify-every}"; shift 2 ;;
+    --verify-limit) VERIFY_LIMIT="${2:?missing value for --verify-limit}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --force) FORCE=1; shift ;;
     --skip-config) SKIP_CONFIG=1; shift ;;
