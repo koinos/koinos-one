@@ -231,27 +231,31 @@ Latest external-testnet report: `docs/roadmap/MONOLITH_EXTERNAL_TESTNET_REPORT.m
 
 ---
 
-## Sprint 4: Data migration + gRPC (1 semana)
+## Sprint 4: Data migration + gRPC (1 week)
 
-**Objetivo:** Usuarios existentes pueden migrar sin re-sync completo.
+**Objective:** Existing users can migrate without a full resync.
 
 ### 4.1 Badger → RocksDB migration tool
-- [ ] Crear utilidad Go que lee `block_store/db/` (Badger) y escribe en RocksDB
-- [ ] Preservar skip-list pointers durante la migración
-- [ ] Verificar integridad con checksums (SHA-256 de cada bloque)
-- [ ] Medir tiempo de migración (~350GB block_store)
+- [x] Add an offline migration entry point for legacy `block_store/db` Badger data: `vendor/koinos/koinos-node/tools/migrate_block_store.sh`
+- [x] Reuse the proven restore pipeline: Go Badger exporter streams byte-for-byte records into the C++ RocksDB importer for the monolith `blocks` and `block_meta` column families.
+- [x] Preserve embedded skip-list pointers by copying legacy `block_record` values without protobuf re-encoding.
+- [x] Verify migration pipeline integrity by comparing exported/imported record and byte counts and requiring at least one imported block-store metadata record.
+- [ ] Add optional per-block SHA-256 sampling/full verification mode for large migrations.
+- [ ] Measure full migration time on a large block store (~350GB target class).
 
 ### 4.2 Chain state_db migration
-- [ ] Verificar que el chain state_db (ya RocksDB) se puede reusar directamente
-- [ ] Mapear paths: `chain/blockchain/` → monolith puede leerlo in-place
-- [ ] Documentar el proceso completo de migración
+- [x] Verify path mapping: monolith opens chain state from `BASEDIR/chain/blockchain`, so the legacy chain state_db is reused in place.
+- [x] Document the migration tool behavior in `migrate_block_store.sh --help`.
+- [ ] Add an end-to-end migration smoke that starts `koinos_node` from a migrated basedir and verifies `chain.get_head_info`.
 
 ### 4.3 gRPC client compatibility
-- [ ] Testear con `koinos-cli` y `koinosctl`
-- [ ] Verificar que AsyncGenericService maneja correctamente el protobuf envelope routing
-- [ ] Testear error propagation (service unavailable, invalid request)
+- [ ] Test with `koinos-cli` and `koinosctl`.
+- [ ] Verify that AsyncGenericService handles protobuf envelope routing correctly.
+- [ ] Test error propagation: service unavailable and invalid request.
 
-**Entregable Sprint 4:** Herramienta de migración funcional, gRPC validado.
+**2026-05-25 status:** The migration wrapper has replaced the old placeholder script that claimed Badger data could not be imported. A dry run against `/Volumes/external/knodel-monolith-restore/basedir` passed path/tool checks and correctly reported that the existing target RocksDB is non-empty and the external volume only has `28.3 GiB` free for a `41.3 GiB` legacy Badger source. The full migration was not rerun because that basedir already contains a verified converted RocksDB from Sprint 1.1 and the current free space is below the conservative `2x` recommendation.
+
+**Sprint 4 Deliverable:** Functional migration tool and validated gRPC compatibility.
 
 ---
 
