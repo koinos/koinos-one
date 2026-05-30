@@ -83,6 +83,228 @@ Validation result:
 - Local and public `chain.get_head_info` matched at head `5380210` after the transfer.
 - Focused CTest passed after the JSON-RPC change: `koinos_p2p_one_peer_sync_test` and `koinos_block_producer_test`.
 
+## Transaction and Operation Regression Suite
+
+Purpose: move the live producer signoff beyond empty-block production and define a reusable regression suite for future monolith changes. Any feature that can affect JSON-RPC encoding, wallet/client compatibility, mempool behavior, block assembly, transaction execution, P2P propagation, producer timing, block-store/transaction-store writes, or contract state reads should run this suite, or a clearly justified subset, before being considered stable.
+
+These tests must use small testnet values, avoid exposing wallet passwords or key material, and keep the monolith producer running unless a safety condition is triggered.
+
+Run this suite for:
+
+- Changes to `jsonrpc_server.cpp`, protobuf JSON normalization, HTTP keep-alive handling, or public client compatibility.
+- Changes to mempool admission, pending nonce/resource accounting, transaction expiration, or transaction event routing.
+- Changes to block production, PoB timing, transaction selection, failed-transaction retry, Merkle root calculation, signing, or producer gating.
+- Changes to P2P sync, gossip, Peer RPC, fork/LIB handling, or peer scoring.
+- Changes to block store, transaction store, contract meta store, chain state indexing, or migration code that could affect produced block persistence.
+- Release candidates, packaging smoke tests, and any long-running soak intended to sign off a user-facing build.
+
+Minimum regression levels:
+
+- Level 1, client/read smoke: Phase 1 and Phase 2. Use for low-risk UI/packaging changes that should not alter chain behavior but still need to prove the running node remains reachable.
+- Level 2, transaction smoke: Phase 1 through Phase 3. Use for JSON-RPC, wallet/client, or small producer changes.
+- Level 3, transaction regression: Phase 1 through Phase 6. Use for mempool, block producer, chain, store, or P2P changes.
+- Level 4, external acceptance regression: Phase 1 through Phase 8. Use for release candidates, soak signoff, mainnet-readiness work, or any change that previously caused fork, checkpoint, score-threshold, or transaction-inclusion issues.
+- Level 5, performance regression: Phase 1 through Phase 9. Use for optimization work, producer/mempool/P2P changes, release candidates, and any change where throughput, latency, resource usage, or propagation behavior could regress.
+
+Each run should record:
+
+- Git commit, dirty worktree state, monolith binary path, config path, and basedir path.
+- Local head, public head, LIB, state merkle root, and produced block ids before and after the run.
+- Every submitted tx id, inclusion height, producing node evidence, public RPC evidence, and external observer evidence when available.
+- Warning count, score-threshold count, checkpoint mismatch count, peer snapshots, disk free space, and whether caffeinate/status reporter were active.
+- Performance metrics when Phase 9 is included: RPC latency samples, submit-to-inclusion latency, local-to-public propagation latency, observer propagation latency, produced-block transaction counts, CPU, memory, disk free space, data directory growth, and log growth.
+- A clear pass/fail result plus follow-up action for every failed phase.
+
+Safety limits for live testnet runs:
+
+- Use a dedicated low-value regression recipient when possible. The current monolith hot-key address can be used for smoke validation, but repeated regression transfers should prefer a separate sink address so producer/hot-key operational balances remain easy to reason about.
+- Keep the default single-transfer amount at or below `0.01` KOIN and the default batch total at or below `0.10` KOIN unless a larger resource test is explicitly required.
+- Never print, commit, or export wallet passwords, WIF keys, faucet secrets, Telegram tokens, or raw signed transactions containing sensitive local metadata.
+- Do not intentionally submit malformed or stale signed transactions on the live public testnet unless the transaction generator is deterministic, the expected failure mode is known, and wallet nonce state will not be corrupted.
+- Stop the suite immediately if the monolith disconnects from the seed, the gossip production gate closes, the local head lags monotonically, or warning/score-threshold/checkpoint rows appear.
+
+Implementation target:
+
+- Add a reusable runner, for example `scripts/live-producer-transaction-regression.sh`, that executes the safe levels of this suite against configurable RPC endpoints.
+- Suggested environment inputs: `LOCAL_RPC=http://127.0.0.1:18122`, `PUBLIC_RPC=https://testnet.koinosfoundation.org/jsonrpc`, `RUN_ROOT=/Users/pgarcgo/.kcli/knodel-testnet-producer`, `RECIPIENT_ADDRESS=<controlled test address>`, `TRANSFER_AMOUNT=0.001`, `TX_COUNT=5`, and `RESULT_DIR=/private/tmp/knodel-transaction-regression`.
+- The runner should write a machine-readable result file with tx ids, block ids, heights, before/after heads, warning counters, and pass/fail status. It must redact secrets and should not require secrets in environment variables.
+- The runner should be able to execute `--level 1`, `--level 2`, `--level 3`, `--level 4`, or `--level 5`, matching the regression levels above.
+- Negative transaction tests should default to dry-run/client-side validation on the live public testnet. Actual invalid signed transaction submission should be confined to a private testnet or a purpose-built harness.
+- Performance mode should support `--sample-seconds`, `--tx-count`, `--tx-interval`, and `--max-total-koin` so load remains bounded and repeatable.
+
+### Phase 1: Baseline Health Gate
+
+Run this before each transaction batch:
+
+- Compare local monolith head at `http://127.0.0.1:18122` with `https://testnet.koinosfoundation.org/jsonrpc`.
+- Verify `koinos_node` PID, caffeinate guard, external SSD free space, peer snapshots, recent produced rows, warnings, and score-threshold rows.
+- Abort transaction tests if the node is isolated, lagging, has recent `checkpoint mismatch`, has score-threshold rows, or is not producing accepted blocks.
+- Run the head comparison twice a few seconds apart when local/public heads differ by one or two blocks. The producer can be briefly ahead of public RPC during normal live propagation; this is not a failure if the public RPC converges to the same block id.
+
+Exit criteria:
+
+- Local and public heads are equal or within a normal short live-race window and converge on repeat.
+- Recent producer log has connected peer snapshots and produced blocks.
+- Warning and score-threshold counters are zero for the checked window.
+
+### Phase 2: Client Read Compatibility
+
+Use `kcli` against both the monolith JSON-RPC and the public testnet JSON-RPC:
+
+- `kcli -r http://127.0.0.1:18122 chain-info`
+- `kcli -r http://127.0.0.1:18122 balance`
+- `kcli -r http://127.0.0.1:18122 vhp 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
+- `kcli -r http://127.0.0.1:18122 get-producer-key 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
+- Read recent blocks produced by the monolith with `kcli -r http://127.0.0.1:18122 block <height> --full` and verify the signer, transaction count, and block id against public RPC.
+
+Exit criteria:
+
+- Monolith and public RPC return the same head/LIB after convergence.
+- Producer key and balances match public RPC.
+- Recent produced block ids match public RPC for the same heights.
+
+### Phase 3: Valid Transfer Smoke
+
+Submit one small transfer through the monolith JSON-RPC, using dry-run first:
+
+- Dry-run a small KOIN transfer from the producer-control wallet to a controlled regression recipient.
+- Submit the real transfer only if dry-run succeeds.
+- Record tx id, local inclusion block, public RPC inclusion block, and recipient balance delta.
+- Inspect the producer log for a produced block containing `1 transaction` or the expected transaction count.
+
+Exit criteria:
+
+- The transaction is accepted through `http://127.0.0.1:18122`.
+- It is included in a block produced locally by the monolith when this producer wins the relevant block. If another producer includes it first, record that separately as a propagation/client success but not as a monolith block-assembly success.
+- Public RPC returns the same transaction id in the same block.
+- Balance delta matches the transfer amount after fees/resource behavior expected by the client.
+
+### Phase 4: Mempool Burst
+
+Submit a small burst of valid transfers through the monolith JSON-RPC. There are two different submodes and they should not be conflated:
+
+- Functional batch: send `5` to `10` small transfers sequentially with `kcli`. This proves repeated wallet/client submission, repeated JSON-RPC keep-alive behavior, inclusion, and state updates. It may not create sustained mempool pressure if `kcli` waits for confirmation between transfers.
+- Real mempool pressure: use a purpose-built helper to sign and submit multiple transactions without waiting for block inclusion, or run against a private testnet where nonce control and transaction crafting are deterministic. This is required before claiming that the live monolith passed a true mempool pressure test.
+- Use conservative testnet amounts, for example `0.001` to `0.01` KOIN per transfer, and keep the default batch total under `0.10` KOIN.
+- Track every tx id, inclusion height, producing block id, and whether the including block was produced by the monolith.
+- Verify whether transactions are included in one produced block or spread across several produced blocks; both can be acceptable if no transaction is lost and inclusion latency is bounded.
+
+Exit criteria:
+
+- No accepted transaction is lost.
+- For functional batch mode, every submitted transaction is eventually included or rejected with a clear client/RPC error.
+- For real mempool pressure mode, `mempool.get_pending_transactions` shows pending transactions before inclusion and drains after inclusion.
+- Produced blocks include the expected transactions.
+- Local and public RPC agree on included transaction ids and block ids.
+- No warning, score-threshold, checkpoint mismatch, or producer retry loop appears.
+
+### Phase 5: Negative Transaction Handling
+
+Run non-destructive rejection checks. Keep live public-testnet negative tests conservative:
+
+- Client-side rejection: dry-run a deliberately invalid transfer amount that exceeds liquid KOIN and record the expected failure without submitting.
+- RPC/chain rejection: only run on live testnet if the failure is known to be safe and does not mutate wallet nonce state. Otherwise run it in a private testnet.
+- Duplicate/stale nonce rejection: do not attempt manually with the active wallet. Use a purpose-built transaction generator or private testnet harness that can control nonce and replay behavior safely.
+- Query `kcli nonce <address>` and, where available, pending nonce/account nonce before and after the negative case.
+
+Exit criteria:
+
+- Invalid operations are rejected at the expected layer: client dry-run, JSON-RPC, mempool, or chain. Record which layer rejected the operation.
+- Rejected submitted transactions are not included in produced blocks.
+- Mempool remains usable for a subsequent valid transfer.
+- Producer continues producing accepted blocks after the rejection.
+
+### Phase 6: Contract Reads and Producer State Reads
+
+Exercise read-only contract and chain paths through the monolith:
+
+- `kcli -r http://127.0.0.1:18122 balance 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
+- `kcli -r http://127.0.0.1:18122 balance <regression-recipient-address>`
+- `kcli -r http://127.0.0.1:18122 vhp 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
+- `kcli -r http://127.0.0.1:18122 get-producer-key 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
+- `kcli -r http://127.0.0.1:18122 nonce 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
+- `kcli -r http://127.0.0.1:18122 block <height-or-id> --full`
+
+Exit criteria:
+
+- Monolith read responses match public RPC after convergence.
+- Byte encodings remain compatible with `kcli`/koilib.
+- No keep-alive or repeated-request `ECONNRESET` appears during repeated reads.
+
+### Phase 7: Independent Observer Verification
+
+After VPS1 or VM2 catches up close to the public testnet head:
+
+- Query the external legacy observer JSON-RPC locally over SSH.
+- Verify that the observer height is at or beyond the transaction inclusion height before checking the block.
+- Verify that it sees the same transaction inclusion block and block id as the local monolith and public RPC.
+- Re-run Peer RPC probe against the observer if needed.
+
+Exit criteria:
+
+- At least one legacy observer independently reaches the same block containing a monolith-submitted transaction.
+- The observer stays connected and does not report fork or checkpoint errors.
+- This witness can be recorded as cross-implementation acceptance, not just public RPC acceptance.
+
+### Phase 8: Soak With Transaction Injection
+
+During the longer producer soak:
+
+- Inject one small valid transfer every `30` to `60` minutes for a limited window, or run a small fixed batch at the start and end of the soak.
+- Keep the hourly Telegram/status reporter active.
+- Track produced block continuity, transaction inclusion latency, warnings, score-threshold rows, peer snapshots, disk free space, and local/public head convergence.
+- Bound the test: define maximum number of transactions, maximum total KOIN spent, start/end time, and stop conditions before the soak begins.
+
+Exit criteria:
+
+- Producer remains up for the target soak window.
+- Transaction inclusion latency is bounded and explainable.
+- No accepted transaction disappears.
+- No checkpoint mismatch, score-threshold disconnect, or gossip production gate closure recurs.
+- Local monolith, public RPC, and at least one caught-up external legacy observer agree on transaction/block inclusion.
+
+### Phase 9: Performance Regression
+
+Measure bounded performance under controlled live-testnet load. This is not a maximum-throughput benchmark; it is a regression guard that should detect when a code change makes normal producer operation slower, less stable, or more resource intensive.
+
+Metrics to collect:
+
+- JSON-RPC latency: repeated samples for `chain.get_head_info`, `kcli chain-info`, `kcli balance`, `kcli vhp`, `kcli get-producer-key`, and `kcli block <height> --full`.
+- Transaction latency: time from `kcli transfer` submission to local JSON-RPC visibility, public RPC visibility, and external observer visibility when available.
+- Inclusion behavior: transaction count per produced block, number of produced blocks needed to include the batch, and whether any submitted transaction remains pending or disappears.
+- Producer continuity: produced blocks per minute, skipped opportunities if measurable, failed proposal rows, rejected proposal rows, and block producer retry rows.
+- Mempool behavior: pending transaction count before load, during load, and after inclusion when `mempool.get_pending_transactions` is available.
+- P2P propagation: delay from local produced block to public RPC visibility and, once caught up, VPS1/VM2 observer visibility.
+- Resource usage: `koinos_node` CPU and RSS samples, external SSD free space, basedir growth, log file growth, and RocksDB/write-related warnings.
+- Stability signals: warnings, score-threshold rows, checkpoint mismatch rows, gossip production gate closures, peer snapshot count, and local/public head convergence.
+
+Initial thresholds:
+
+- Health gate must pass before performance sampling starts.
+- Local/public head should converge within the same short live-race window used by Phase 1.
+- Valid transfers should be included within a bounded window defined by the run, initially `10` minutes for live testnet unless the network itself is stalled.
+- `p95` JSON-RPC read latency should not regress by more than `2x` against the previous successful baseline for the same machine and network conditions.
+- The run must not produce score-threshold rows, checkpoint mismatch rows, gossip production gate closures, uncaught exceptions, or monotonic head lag.
+- Disk free space must stay above the configured safety floor; for the current external SSD setup, alert below `15 GiB` free and stop below `10 GiB` free unless storage has been expanded.
+- CPU and memory are recorded as baselines first. Do not set hard fail thresholds until at least two successful runs establish normal ranges.
+
+Stop conditions:
+
+- Local producer process exits or caffeinate guard stops.
+- Public RPC and local RPC fail to converge after repeated checks.
+- Score-threshold, checkpoint mismatch, or gossip gate closure appears.
+- A submitted transaction is accepted but cannot be found locally or publicly within the configured inclusion window.
+- Disk free space crosses the stop floor.
+- RPC latency spikes enough to make the runner unreliable, for example repeated request timeouts across both local and public RPC.
+
+Exit criteria:
+
+- All configured performance samples are recorded with timestamps.
+- The transaction batch completes with bounded inclusion latency.
+- Local/public heads converge before and after the run.
+- No stability stop condition triggers.
+- Metrics are compared against the previous baseline, if one exists, and any regression is documented with likely cause or follow-up.
+
 Next external-testnet action: keep the running producer in a longer soak and track uptime, accepted-block continuity, transaction inclusion, rejected proposals, peer count, and errors.
 
 ## External Legacy Observer VPS1
