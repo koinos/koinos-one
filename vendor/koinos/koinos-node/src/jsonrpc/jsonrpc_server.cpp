@@ -2,11 +2,346 @@
 
 #include <sstream>
 
+#include <google/protobuf/descriptor.h>
 #include <google/protobuf/util/json_util.h>
 
 #include <koinos/log.hpp>
+#include <koinos/options.pb.h>
+#include <koinos/util/base58.hpp>
+#include <koinos/util/base64.hpp>
 
 namespace koinos::node::jsonrpc {
+
+namespace {
+
+bool has_hex_prefix( const std::string& value )
+{
+  return value.size() >= 2 && value[ 0 ] == '0' && ( value[ 1 ] == 'x' || value[ 1 ] == 'X' );
+}
+
+uint8_t hex_nibble( char c )
+{
+  if( c >= '0' && c <= '9' )
+    return static_cast< uint8_t >( c - '0' );
+  if( c >= 'a' && c <= 'f' )
+    return static_cast< uint8_t >( c - 'a' + 10 );
+  if( c >= 'A' && c <= 'F' )
+    return static_cast< uint8_t >( c - 'A' + 10 );
+  throw std::runtime_error( "invalid hex byte string" );
+}
+
+std::string hex_to_bytes( const std::string& value )
+{
+  const auto offset = has_hex_prefix( value ) ? 2 : 0;
+  if( ( value.size() - offset ) % 2 != 0 )
+    throw std::runtime_error( "hex byte string has odd length" );
+
+  std::string bytes;
+  bytes.reserve( ( value.size() - offset ) / 2 );
+  for( auto i = offset; i < value.size(); i += 2 )
+  {
+    const auto byte = static_cast< char >( ( hex_nibble( value[ i ] ) << 4 ) | hex_nibble( value[ i + 1 ] ) );
+    bytes.push_back( byte );
+  }
+  return bytes;
+}
+
+std::string bytes_to_hex( const std::string& bytes )
+{
+  static constexpr char hex[] = "0123456789abcdef";
+  std::string out = "0x";
+  out.reserve( 2 + bytes.size() * 2 );
+  for( unsigned char byte: bytes )
+  {
+    out.push_back( hex[ byte >> 4 ] );
+    out.push_back( hex[ byte & 0x0f ] );
+  }
+  return out;
+}
+
+std::string encode_koinos_bytes_field( const google::protobuf::FieldDescriptor* field,
+                                       const std::string& bytes )
+{
+  auto type = ::koinos::BASE64;
+  if( field && field->options().HasExtension( ::koinos::btype ) )
+    type = field->options().GetExtension( ::koinos::btype );
+
+  switch( type )
+  {
+    case ::koinos::HEX:
+    case ::koinos::BLOCK_ID:
+    case ::koinos::TRANSACTION_ID:
+      return bytes_to_hex( bytes );
+    case ::koinos::BASE58:
+    case ::koinos::CONTRACT_ID:
+    case ::koinos::ADDRESS:
+      return util::to_base58( bytes );
+    case ::koinos::BASE64:
+    default:
+      return util::to_base64( bytes );
+  }
+}
+
+void rewrite_koinos_json_bytes( const google::protobuf::Message& msg,
+                                nlohmann::json& json )
+{
+  if( !json.is_object() )
+    return;
+
+  const auto* descriptor = msg.GetDescriptor();
+  const auto* reflection = msg.GetReflection();
+  if( !descriptor || !reflection )
+    return;
+
+  std::vector< const google::protobuf::FieldDescriptor* > fields;
+  reflection->ListFields( msg, &fields );
+
+  for( const auto* field: fields )
+  {
+    const auto name = field->name();
+    if( !json.contains( name ) )
+      continue;
+
+    auto& value = json[ name ];
+    if( field->is_repeated() )
+    {
+      if( field->type() == google::protobuf::FieldDescriptor::TYPE_BYTES && value.is_array() )
+      {
+        for( int i = 0; i < reflection->FieldSize( msg, field ) && i < static_cast< int >( value.size() ); ++i )
+          value[ i ] = encode_koinos_bytes_field( field, reflection->GetRepeatedString( msg, field, i ) );
+      }
+      else if( field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE && value.is_array() )
+      {
+        for( int i = 0; i < reflection->FieldSize( msg, field ) && i < static_cast< int >( value.size() ); ++i )
+          rewrite_koinos_json_bytes( reflection->GetRepeatedMessage( msg, field, i ), value[ i ] );
+      }
+      continue;
+    }
+
+    if( field->type() == google::protobuf::FieldDescriptor::TYPE_BYTES && value.is_string() )
+    {
+      value = encode_koinos_bytes_field( field, reflection->GetString( msg, field ) );
+    }
+    else if( field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE && value.is_object() )
+    {
+      rewrite_koinos_json_bytes( reflection->GetMessage( msg, field ), value );
+    }
+  }
+}
+
+void normalize_json_bytes_field( nlohmann::json& object, const char* field )
+{
+  if( !object.is_object() || !object.contains( field ) || !object[ field ].is_string() )
+    return;
+
+  auto value = object[ field ].get< std::string >();
+  if( value.empty() )
+    return;
+
+  if( has_hex_prefix( value ) )
+    object[ field ] = util::to_base64( hex_to_bytes( value ) );
+}
+
+void normalize_json_base58_field( nlohmann::json& object, const char* field )
+{
+  if( !object.is_object() || !object.contains( field ) || !object[ field ].is_string() )
+    return;
+
+  auto value = object[ field ].get< std::string >();
+  if( value.empty() )
+    return;
+
+  try
+  {
+    object[ field ] = util::to_base64( util::from_base58< std::string >( value ) );
+  }
+  catch( const std::exception& )
+  {
+    // Keep already-base64 protobuf JSON values unchanged.
+  }
+}
+
+void normalize_json_hash_array( nlohmann::json& object, const char* field )
+{
+  if( !object.is_object() || !object.contains( field ) || !object[ field ].is_array() )
+    return;
+
+  for( auto& value: object[ field ] )
+  {
+    if( value.is_string() )
+    {
+      nlohmann::json wrapper = { { "value", value } };
+      normalize_json_bytes_field( wrapper, "value" );
+      value = wrapper[ "value" ];
+    }
+  }
+}
+
+void normalize_json_operation( nlohmann::json& op )
+{
+  if( !op.is_object() )
+    return;
+
+  if( op.contains( "call_contract" ) )
+  {
+    auto& call = op[ "call_contract" ];
+    normalize_json_base58_field( call, "contract_id" );
+    normalize_json_bytes_field( call, "args" );
+  }
+
+  if( op.contains( "upload_contract" ) )
+  {
+    auto& upload = op[ "upload_contract" ];
+    normalize_json_base58_field( upload, "contract_id" );
+    normalize_json_bytes_field( upload, "bytecode" );
+  }
+
+  if( op.contains( "set_system_call" ) )
+  {
+    auto& system_call = op[ "set_system_call" ];
+    if( system_call.contains( "target" ) && system_call[ "target" ].contains( "system_call_bundle" ) )
+    {
+      auto& bundle = system_call[ "target" ][ "system_call_bundle" ];
+      normalize_json_base58_field( bundle, "contract_id" );
+    }
+  }
+
+  if( op.contains( "set_system_contract" ) )
+    normalize_json_base58_field( op[ "set_system_contract" ], "contract_id" );
+}
+
+void normalize_json_transaction( nlohmann::json& tx )
+{
+  if( !tx.is_object() )
+    return;
+
+  normalize_json_bytes_field( tx, "id" );
+
+  if( tx.contains( "header" ) )
+  {
+    auto& header = tx[ "header" ];
+    normalize_json_bytes_field( header, "chain_id" );
+    normalize_json_bytes_field( header, "nonce" );
+    normalize_json_bytes_field( header, "operation_merkle_root" );
+    normalize_json_base58_field( header, "payer" );
+    normalize_json_base58_field( header, "payee" );
+  }
+
+  if( tx.contains( "operations" ) && tx[ "operations" ].is_array() )
+  {
+    for( auto& op: tx[ "operations" ] )
+      normalize_json_operation( op );
+  }
+
+  normalize_json_hash_array( tx, "signatures" );
+}
+
+void normalize_json_block( nlohmann::json& block )
+{
+  if( !block.is_object() )
+    return;
+
+  normalize_json_bytes_field( block, "id" );
+  normalize_json_bytes_field( block, "signature" );
+
+  if( block.contains( "header" ) )
+  {
+    auto& header = block[ "header" ];
+    normalize_json_bytes_field( header, "previous" );
+    normalize_json_bytes_field( header, "previous_state_merkle_root" );
+    normalize_json_bytes_field( header, "transaction_merkle_root" );
+    normalize_json_base58_field( header, "signer" );
+    normalize_json_hash_array( header, "approved_proposals" );
+  }
+
+  if( block.contains( "transactions" ) && block[ "transactions" ].is_array() )
+  {
+    for( auto& tx: block[ "transactions" ] )
+      normalize_json_transaction( tx );
+  }
+}
+
+nlohmann::json normalize_koinos_params( const std::string& service,
+                                        const std::string& method,
+                                        const nlohmann::json& params )
+{
+  auto normalized = params;
+
+  if( service == "chain" )
+  {
+    if( method == "get_account_nonce" || method == "get_account_rc" )
+      normalize_json_base58_field( normalized, "account" );
+    else if( method == "read_contract" )
+    {
+      normalize_json_base58_field( normalized, "contract_id" );
+      normalize_json_bytes_field( normalized, "args" );
+    }
+    else if( method == "submit_transaction" )
+    {
+      if( normalized.contains( "transaction" ) )
+        normalize_json_transaction( normalized[ "transaction" ] );
+    }
+    else if( method == "submit_block" || method == "propose_block" )
+    {
+      if( normalized.contains( "block" ) )
+        normalize_json_block( normalized[ "block" ] );
+    }
+  }
+  else if( service == "block_store" )
+  {
+    normalize_json_bytes_field( normalized, "head_block_id" );
+    normalize_json_hash_array( normalized, "block_ids" );
+  }
+  else if( service == "transaction_store" )
+  {
+    normalize_json_hash_array( normalized, "transaction_ids" );
+  }
+  else if( service == "contract_meta_store" )
+  {
+    normalize_json_base58_field( normalized, "contract_id" );
+  }
+
+  return normalized;
+}
+
+nlohmann::json chain_id_to_json( const rpc::chain::get_chain_id_response& resp )
+{
+  return { { "chain_id", util::to_base64( resp.chain_id() ) } };
+}
+
+nlohmann::json head_info_to_json( const rpc::chain::get_head_info_response& resp )
+{
+  return {
+    { "head_topology",
+      {
+        { "id", bytes_to_hex( resp.head_topology().id() ) },
+        { "height", std::to_string( resp.head_topology().height() ) },
+        { "previous", bytes_to_hex( resp.head_topology().previous() ) },
+      } },
+    { "last_irreversible_block", std::to_string( resp.last_irreversible_block() ) },
+    { "head_state_merkle_root", util::to_base64( resp.head_state_merkle_root() ) },
+    { "head_block_time", std::to_string( resp.head_block_time() ) },
+  };
+}
+
+nlohmann::json account_nonce_to_json( const rpc::chain::get_account_nonce_response& resp )
+{
+  return { { "nonce", util::to_base64( resp.nonce() ) } };
+}
+
+nlohmann::json read_contract_to_json( const rpc::chain::read_contract_response& resp )
+{
+  nlohmann::json logs = nlohmann::json::array();
+  for( const auto& log: resp.logs() )
+    logs.push_back( log );
+
+  nlohmann::json result = { { "result", util::to_base64( resp.result() ) } };
+  if( !logs.empty() )
+    result[ "logs" ] = std::move( logs );
+  return result;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Construction / destruction
@@ -100,52 +435,67 @@ void JSONRPCServer::handle_session( tcp::socket socket )
   try
   {
     beast::flat_buffer buffer;
-    http::request< http::string_body > req;
-    http::read( socket, buffer, req );
-
-    http::response< http::string_body > res;
-    res.version( req.version() );
-    res.set( http::field::content_type, "application/json" );
-    res.set( http::field::access_control_allow_origin, "*" );
-    res.set( http::field::access_control_allow_methods, "POST, OPTIONS" );
-    res.set( http::field::access_control_allow_headers, "Content-Type" );
-
-    // Handle CORS preflight
-    if( req.method() == http::verb::options )
+    for( ;; )
     {
-      res.result( http::status::no_content );
-      res.prepare_payload();
-      http::write( socket, res );
-      return;
-    }
+      http::request< http::string_body > req;
+      http::read( socket, buffer, req );
 
-    // GET /health — simple health check for load balancers and Knodel
-    if( req.method() == http::verb::get )
-    {
-      auto target = req.target();
-      if( target == "/health" || target == "/healthz" || target == "/" )
+      http::response< http::string_body > res;
+      res.version( req.version() );
+      res.keep_alive( req.keep_alive() );
+      res.set( http::field::content_type, "application/json" );
+      res.set( http::field::access_control_allow_origin, "*" );
+      res.set( http::field::access_control_allow_methods, "POST, OPTIONS" );
+      res.set( http::field::access_control_allow_headers, "Content-Type" );
+
+      // Handle CORS preflight
+      if( req.method() == http::verb::options )
       {
-        res.result( http::status::ok );
-        res.body() = R"({"status":"ok","node":"koinos_node","version":"0.1.0"})";
+        res.result( http::status::no_content );
         res.prepare_payload();
         http::write( socket, res );
-        return;
+        if( res.need_eof() )
+          break;
+        continue;
       }
-    }
 
-    if( req.method() != http::verb::post )
-    {
-      res.result( http::status::method_not_allowed );
-      res.body() = R"({"jsonrpc":"2.0","error":{"code":-32600,"message":"Only POST allowed"},"id":null})";
+      // GET /health — simple health check for load balancers and Knodel
+      if( req.method() == http::verb::get )
+      {
+        auto target = req.target();
+        if( target == "/health" || target == "/healthz" || target == "/" )
+        {
+          res.result( http::status::ok );
+          res.body() = R"({"status":"ok","node":"koinos_node","version":"0.1.0"})";
+          res.prepare_payload();
+          http::write( socket, res );
+          if( res.need_eof() )
+            break;
+          continue;
+        }
+      }
+
+      if( req.method() != http::verb::post )
+      {
+        res.result( http::status::method_not_allowed );
+        res.body() = R"({"jsonrpc":"2.0","error":{"code":-32600,"message":"Only POST allowed"},"id":null})";
+        res.prepare_payload();
+        http::write( socket, res );
+        if( res.need_eof() )
+          break;
+        continue;
+      }
+
+      res.result( http::status::ok );
+      res.body() = process_body( req.body() );
       res.prepare_payload();
       http::write( socket, res );
-      return;
+      if( res.need_eof() )
+        break;
     }
 
-    res.result( http::status::ok );
-    res.body() = process_body( req.body() );
-    res.prepare_payload();
-    http::write( socket, res );
+    beast::error_code ec;
+    socket.shutdown( tcp::socket::shutdown_send, ec );
   }
   catch( const beast::system_error& se )
   {
@@ -217,7 +567,7 @@ nlohmann::json JSONRPCServer::process_single_request( const nlohmann::json& requ
   // Dispatch to service
   try
   {
-    auto result = dispatch( service, method, params );
+    auto result = dispatch( service, method, normalize_koinos_params( service, method, params ) );
     return make_result( result, id );
   }
   catch( const std::exception& e )
@@ -322,14 +672,14 @@ nlohmann::json JSONRPCServer::dispatch_chain( const std::string& method,
     rpc::chain::get_head_info_request req;
     json_to_proto( params, req );
     auto resp = _chain->get_head_info( req );
-    return nlohmann::json::parse( proto_to_json( resp ) );
+    return head_info_to_json( resp );
   }
   if( method == "get_chain_id" )
   {
     rpc::chain::get_chain_id_request req;
     json_to_proto( params, req );
     auto resp = _chain->get_chain_id( req );
-    return nlohmann::json::parse( proto_to_json( resp ) );
+    return chain_id_to_json( resp );
   }
   if( method == "get_fork_heads" )
   {
@@ -343,7 +693,7 @@ nlohmann::json JSONRPCServer::dispatch_chain( const std::string& method,
     rpc::chain::get_account_nonce_request req;
     json_to_proto( params, req );
     auto resp = _chain->get_account_nonce( req );
-    return nlohmann::json::parse( proto_to_json( resp ) );
+    return account_nonce_to_json( resp );
   }
   if( method == "get_account_rc" )
   {
@@ -364,7 +714,7 @@ nlohmann::json JSONRPCServer::dispatch_chain( const std::string& method,
     rpc::chain::read_contract_request req;
     json_to_proto( params, req );
     auto resp = _chain->read_contract( req );
-    return nlohmann::json::parse( proto_to_json( resp ) );
+    return read_contract_to_json( resp );
   }
   if( method == "submit_block" )
   {
@@ -569,7 +919,17 @@ std::string JSONRPCServer::proto_to_json( const google::protobuf::Message& msg )
   auto status = google::protobuf::util::MessageToJsonString( msg, &json_str, opts );
   if( !status.ok() )
     return "{}";
-  return json_str;
+
+  try
+  {
+    auto json = nlohmann::json::parse( json_str );
+    rewrite_koinos_json_bytes( msg, json );
+    return json.dump();
+  }
+  catch( const std::exception& )
+  {
+    return json_str;
+  }
 }
 
 bool JSONRPCServer::json_to_proto( const nlohmann::json& params, google::protobuf::Message& msg )
