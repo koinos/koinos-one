@@ -12,9 +12,11 @@
 #include <csignal>
 #include <cstdlib>
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
 #include <utility>
@@ -69,6 +71,8 @@
 #include "block_production/block_producer.hpp"
 
 #include <rocksdb/db.h>
+#include <rocksdb/cache.h>
+#include <rocksdb/convenience.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/options.h>
 #include <rocksdb/slice_transform.h>
@@ -131,6 +135,95 @@ std::pair< std::string, uint16_t > parse_jsonrpc_listen( const std::string& list
   }
 
   return { "0.0.0.0", static_cast< uint16_t >( std::stoi( listen ) ) };
+}
+
+std::string lowercase( std::string value )
+{
+  std::transform( value.begin(), value.end(), value.begin(),
+                  []( unsigned char ch ) { return static_cast< char >( std::tolower( ch ) ); } );
+  return value;
+}
+
+std::string compression_name( rocksdb::CompressionType compression )
+{
+  switch( compression )
+  {
+    case rocksdb::kNoCompression:
+      return "none";
+    case rocksdb::kSnappyCompression:
+      return "snappy";
+    case rocksdb::kZSTD:
+      return "zstd";
+    default:
+      return std::to_string( static_cast< int >( compression ) );
+  }
+}
+
+rocksdb::CompressionType select_supported_compression( const std::string& requested,
+                                                       std::string& fallback_note )
+{
+  const auto token = lowercase( requested );
+  std::vector< rocksdb::CompressionType > preferences;
+
+  if( token == "none" || token == "no" || token == "disabled" || token == "off" )
+    preferences = { rocksdb::kNoCompression };
+  else if( token == "snappy" || token == "ksnappycompression" )
+    preferences = { rocksdb::kSnappyCompression, rocksdb::kNoCompression };
+  else
+    preferences = { rocksdb::kZSTD, rocksdb::kSnappyCompression, rocksdb::kNoCompression };
+
+  auto supported = rocksdb::GetSupportedCompressions();
+  supported.push_back( rocksdb::kNoCompression );
+
+  for( auto candidate: preferences )
+  {
+    if( std::find( supported.begin(), supported.end(), candidate ) != supported.end() )
+    {
+      if( !preferences.empty() && candidate != preferences.front() )
+      {
+        fallback_note = "requested " + requested + ", selected "
+                        + compression_name( candidate ) + " because the requested codec is unsupported";
+      }
+      return candidate;
+    }
+  }
+
+  fallback_note = "requested " + requested + ", selected none because no requested codec is supported";
+  return rocksdb::kNoCompression;
+}
+
+rocksdb::BlockBasedTableOptions make_table_options( uint64_t block_size,
+                                                    const std::shared_ptr< rocksdb::Cache >& block_cache,
+                                                    bool bloom_filter,
+                                                    bool whole_key_filtering = true )
+{
+  rocksdb::BlockBasedTableOptions opts;
+  opts.block_size                                  = static_cast< size_t >( block_size );
+  opts.block_cache                                 = block_cache;
+  opts.cache_index_and_filter_blocks               = true;
+  opts.cache_index_and_filter_blocks_with_high_priority = true;
+  opts.pin_l0_filter_and_index_blocks_in_cache     = true;
+  opts.whole_key_filtering                         = whole_key_filtering;
+
+  if( bloom_filter )
+    opts.filter_policy.reset( rocksdb::NewBloomFilterPolicy( 10 ) );
+
+  return opts;
+}
+
+void apply_point_lookup_cf_tuning( rocksdb::ColumnFamilyOptions& cf,
+                                   uint64_t write_buffer_size,
+                                   uint64_t max_write_buffer_number,
+                                   uint64_t target_file_size_base,
+                                   uint64_t max_bytes_for_level_base )
+{
+  cf.write_buffer_size                = static_cast< size_t >( write_buffer_size );
+  cf.max_write_buffer_number          = static_cast< int >( std::max< uint64_t >( 1, max_write_buffer_number ) );
+  cf.target_file_size_base            = target_file_size_base;
+  cf.max_bytes_for_level_base         = max_bytes_for_level_base;
+  cf.level_compaction_dynamic_level_bytes = true;
+  cf.optimize_filters_for_hits        = true;
+  cf.memtable_whole_key_filtering     = true;
 }
 
 } // anonymous namespace
@@ -304,6 +397,15 @@ int main( int argc, char** argv )
         LOG( info ) << "[features] " << name << ": enabled";
     }
 
+    LOG( info ) << "[runtime] Thread topology: main_ioc=1"
+                << " chain_jobs=" << std::max< uint64_t >( 1, cfg.chain_jobs )
+                << " jsonrpc_session_limit=" << std::max< uint64_t >( 1, cfg.jsonrpc_jobs )
+                << " grpc_pollers=" << std::max< uint64_t >( 1, cfg.grpc_jobs )
+                << " p2p_requested_io_threads=" << std::max< uint64_t >( 1, cfg.p2p_jobs )
+                << " p2p_effective_io_threads=1"
+                << " p2p_sync_threads=per-peer"
+                << " rocksdb_background_jobs=" << std::max< uint64_t >( 1, cfg.rocksdb_max_background_jobs );
+
     // ── Core objects ──
     node::EventBus event_bus;
     node::ServiceRegistry registry;
@@ -363,46 +465,114 @@ int main( int argc, char** argv )
     std::vector< rocksdb::ColumnFamilyHandle* > cf_handles;
 
     rocksdb::Options db_options;
-    db_options.create_if_missing          = true;
+    db_options.create_if_missing              = true;
     db_options.create_missing_column_families = true;
-    db_options.max_background_jobs        = 4;            // Compaction + flush threads
-    db_options.bytes_per_sync             = 1048576;      // 1MB fsync interval
+    db_options.max_background_jobs            = static_cast< int >( std::max< uint64_t >( 1, cfg.rocksdb_max_background_jobs ) );
+    db_options.max_subcompactions             = static_cast< uint32_t >( std::max< uint64_t >( 1, cfg.rocksdb_max_background_jobs / 2 ) );
+    db_options.bytes_per_sync                 = cfg.rocksdb_bytes_per_sync;
+    db_options.db_write_buffer_size           = static_cast< size_t >( cfg.rocksdb_db_write_buffer_size );
+    db_options.enable_pipelined_write         = true;
 
     auto db_path = basedir / "db";
     std::filesystem::create_directories( db_path );
 
     // ── Per-CF tuning (Phase 5/Sprint 5) ──
+    auto shared_block_cache = rocksdb::NewLRUCache(
+      static_cast< size_t >( cfg.rocksdb_block_cache_mb * 1024 * 1024 ),
+      -1,
+      false,
+      0.35
+    );
+
+    std::string compression_fallback_note;
+    auto blocks_compression = select_supported_compression( cfg.rocksdb_blocks_compression,
+                                                            compression_fallback_note );
 
     // Default CF (chain state): small blocks, point lookups + iterators
     rocksdb::ColumnFamilyOptions cf_default;
+    apply_point_lookup_cf_tuning( cf_default,
+                                  cfg.rocksdb_write_buffer_size,
+                                  cfg.rocksdb_max_write_buffer_number,
+                                  cfg.rocksdb_target_file_size_base,
+                                  cfg.rocksdb_max_bytes_for_level_base );
+    auto default_table_opts = make_table_options( cfg.rocksdb_default_block_size,
+                                                  shared_block_cache,
+                                                  true );
+    cf_default.table_factory.reset( rocksdb::NewBlockBasedTableFactory( default_table_opts ) );
 
     // Blocks CF: large values (full blocks), zstd compression, bloom filters
     rocksdb::ColumnFamilyOptions cf_blocks;
-    rocksdb::BlockBasedTableOptions blocks_table_opts;
-    blocks_table_opts.block_size          = 64 * 1024;    // 64KB blocks (large values)
-    blocks_table_opts.filter_policy.reset( rocksdb::NewBloomFilterPolicy( 10 ) );
+    apply_point_lookup_cf_tuning( cf_blocks,
+                                  cfg.rocksdb_write_buffer_size,
+                                  cfg.rocksdb_max_write_buffer_number,
+                                  cfg.rocksdb_target_file_size_base,
+                                  cfg.rocksdb_max_bytes_for_level_base );
+    auto blocks_table_opts = make_table_options( cfg.rocksdb_blocks_block_size,
+                                                 shared_block_cache,
+                                                 true );
     cf_blocks.table_factory.reset( rocksdb::NewBlockBasedTableFactory( blocks_table_opts ) );
-    cf_blocks.compression        = rocksdb::kNoCompression; // TODO: enable zstd/snappy when linked
-    cf_blocks.target_file_size_base = 64 * 1024 * 1024;  // 64MB SST files
+    cf_blocks.compression           = blocks_compression;
+    cf_blocks.bottommost_compression = blocks_compression;
 
     // Block meta CF: tiny (single key)
     rocksdb::ColumnFamilyOptions cf_block_meta;
+    apply_point_lookup_cf_tuning( cf_block_meta,
+                                  cfg.rocksdb_write_buffer_size,
+                                  cfg.rocksdb_max_write_buffer_number,
+                                  cfg.rocksdb_target_file_size_base,
+                                  cfg.rocksdb_max_bytes_for_level_base );
+    auto block_meta_table_opts = make_table_options( cfg.rocksdb_default_block_size,
+                                                     shared_block_cache,
+                                                     true );
+    cf_block_meta.table_factory.reset( rocksdb::NewBlockBasedTableFactory( block_meta_table_opts ) );
 
     // Contract meta CF: small values (ABI strings), bloom filters
     rocksdb::ColumnFamilyOptions cf_contract_meta;
-    rocksdb::BlockBasedTableOptions contract_meta_table_opts;
-    contract_meta_table_opts.filter_policy.reset( rocksdb::NewBloomFilterPolicy( 10 ) );
+    apply_point_lookup_cf_tuning( cf_contract_meta,
+                                  cfg.rocksdb_write_buffer_size,
+                                  cfg.rocksdb_max_write_buffer_number,
+                                  cfg.rocksdb_target_file_size_base,
+                                  cfg.rocksdb_max_bytes_for_level_base );
+    auto contract_meta_table_opts = make_table_options( cfg.rocksdb_default_block_size,
+                                                        shared_block_cache,
+                                                        true );
     cf_contract_meta.table_factory.reset( rocksdb::NewBlockBasedTableFactory( contract_meta_table_opts ) );
 
     // Transaction index CF: moderate, bloom filters for point lookups
     rocksdb::ColumnFamilyOptions cf_tx_index;
-    rocksdb::BlockBasedTableOptions tx_index_table_opts;
-    tx_index_table_opts.filter_policy.reset( rocksdb::NewBloomFilterPolicy( 10 ) );
+    apply_point_lookup_cf_tuning( cf_tx_index,
+                                  cfg.rocksdb_write_buffer_size,
+                                  cfg.rocksdb_max_write_buffer_number,
+                                  cfg.rocksdb_target_file_size_base,
+                                  cfg.rocksdb_max_bytes_for_level_base );
+    auto tx_index_table_opts = make_table_options( cfg.rocksdb_default_block_size,
+                                                   shared_block_cache,
+                                                   true );
     cf_tx_index.table_factory.reset( rocksdb::NewBlockBasedTableFactory( tx_index_table_opts ) );
 
-    // Account history CF: range scans, no bloom (prefix iteration)
+    // Account history CF: prefix range scans with prefix Bloom filters
     rocksdb::ColumnFamilyOptions cf_acct_history;
+    apply_point_lookup_cf_tuning( cf_acct_history,
+                                  cfg.rocksdb_write_buffer_size,
+                                  cfg.rocksdb_max_write_buffer_number,
+                                  cfg.rocksdb_target_file_size_base,
+                                  cfg.rocksdb_max_bytes_for_level_base );
     cf_acct_history.prefix_extractor.reset( rocksdb::NewFixedPrefixTransform( 34 ) ); // address length
+    cf_acct_history.memtable_whole_key_filtering = false;
+    auto acct_history_table_opts = make_table_options( cfg.rocksdb_default_block_size,
+                                                       shared_block_cache,
+                                                       true,
+                                                       false );
+    cf_acct_history.table_factory.reset( rocksdb::NewBlockBasedTableFactory( acct_history_table_opts ) );
+
+    LOG( info ) << "[db] RocksDB tuning: block_cache_mb=" << cfg.rocksdb_block_cache_mb
+                << " max_background_jobs=" << db_options.max_background_jobs
+                << " max_subcompactions=" << db_options.max_subcompactions
+                << " default_block_size=" << cfg.rocksdb_default_block_size
+                << " blocks_block_size=" << cfg.rocksdb_blocks_block_size
+                << " blocks_compression=" << compression_name( blocks_compression );
+    if( !compression_fallback_note.empty() )
+      LOG( info ) << "[db] RocksDB compression fallback: " << compression_fallback_note;
 
     // Column families
     std::vector< rocksdb::ColumnFamilyDescriptor > cf_descriptors = {
@@ -712,6 +882,7 @@ int main( int argc, char** argv )
       // cpp-libp2p transport available — create real P2P node
       node::p2p::Libp2pTransport::Config transport_cfg;
       transport_cfg.listen_address = cfg.p2p_listen;
+      transport_cfg.requested_io_threads = static_cast< unsigned int >( std::max< uint64_t >( 1, cfg.p2p_jobs ) );
 
       auto transport = std::make_unique< node::p2p::Libp2pTransport >( transport_cfg );
 
@@ -774,7 +945,15 @@ int main( int argc, char** argv )
     if( cfg.is_enabled( "grpc" ) )
     {
       grpc_srv = std::make_unique< node::grpc_server::GRPCServer >(
-        &chain_adapter, &mempool_adapter, &block_store_impl, "0.0.0.0:50051", 2 );
+        &chain_adapter,
+        &mempool_adapter,
+        &block_store_impl,
+        cfg.is_enabled( "contract_meta_store" ) ? &contract_meta_impl : nullptr,
+        cfg.is_enabled( "transaction_store" ) ? &transaction_store_impl : nullptr,
+        cfg.is_enabled( "account_history" ) ? &account_history_impl : nullptr,
+        cfg.grpc_listen,
+        static_cast< unsigned int >( cfg.grpc_jobs ),
+        &producer_gossip_enabled );
       registry.add(
         "grpc",
         [&]() { grpc_srv->start(); },

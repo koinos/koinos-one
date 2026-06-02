@@ -42,6 +42,10 @@ struct NodeConfig
   std::string jsonrpc_listen = "0.0.0.0:8080";
   uint64_t jsonrpc_jobs      = 4;
 
+  // ── gRPC ──
+  std::string grpc_listen = "0.0.0.0:50051";
+  uint64_t grpc_jobs      = 2;
+
   // ── Block Producer ──
   std::string block_producer_algorithm = "pob";
   std::string block_producer_private_key_file;
@@ -54,6 +58,19 @@ struct NodeConfig
 
   // ── Mempool ──
   uint64_t mempool_transaction_expiration = 120;
+
+  // ── RocksDB ──
+  uint64_t rocksdb_block_cache_mb                 = 256;
+  uint64_t rocksdb_max_background_jobs            = 4;
+  uint64_t rocksdb_bytes_per_sync                 = 1'048'576;
+  uint64_t rocksdb_default_block_size             = 4 * 1024;
+  uint64_t rocksdb_blocks_block_size              = 64 * 1024;
+  uint64_t rocksdb_target_file_size_base          = 64 * 1024 * 1024;
+  uint64_t rocksdb_max_bytes_for_level_base       = 512 * 1024 * 1024;
+  uint64_t rocksdb_write_buffer_size              = 64 * 1024 * 1024;
+  uint64_t rocksdb_db_write_buffer_size           = 256 * 1024 * 1024;
+  uint64_t rocksdb_max_write_buffer_number        = 3;
+  std::string rocksdb_blocks_compression          = "zstd";
 
   // ── Feature flags ──
   std::map< std::string, bool > features = {

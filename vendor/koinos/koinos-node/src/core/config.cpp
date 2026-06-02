@@ -101,6 +101,14 @@ NodeConfig load_config( const std::filesystem::path& config_path,
       cfg.jsonrpc_jobs   = yaml_get< uint64_t >( j, "jobs", cfg.jsonrpc_jobs );
     }
 
+    // ── gRPC ──
+    if( auto g = root[ "grpc" ] )
+    {
+      cfg.grpc_listen = yaml_get< std::string >( g, "listen", cfg.grpc_listen );
+      cfg.grpc_listen = yaml_get< std::string >( g, "endpoint", cfg.grpc_listen );
+      cfg.grpc_jobs   = yaml_get< uint64_t >( g, "jobs", cfg.grpc_jobs );
+    }
+
     // ── Block Producer ──
     if( auto bp = root[ "block_producer" ] )
     {
@@ -120,6 +128,22 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     if( auto m = root[ "mempool" ] )
     {
       cfg.mempool_transaction_expiration = yaml_get< uint64_t >( m, "transaction-expiration", cfg.mempool_transaction_expiration );
+    }
+
+    // ── RocksDB ──
+    if( auto r = root[ "rocksdb" ] )
+    {
+      cfg.rocksdb_block_cache_mb           = yaml_get< uint64_t >( r, "block-cache-mb", cfg.rocksdb_block_cache_mb );
+      cfg.rocksdb_max_background_jobs      = yaml_get< uint64_t >( r, "max-background-jobs", cfg.rocksdb_max_background_jobs );
+      cfg.rocksdb_bytes_per_sync           = yaml_get< uint64_t >( r, "bytes-per-sync", cfg.rocksdb_bytes_per_sync );
+      cfg.rocksdb_default_block_size       = yaml_get< uint64_t >( r, "default-block-size", cfg.rocksdb_default_block_size );
+      cfg.rocksdb_blocks_block_size        = yaml_get< uint64_t >( r, "blocks-block-size", cfg.rocksdb_blocks_block_size );
+      cfg.rocksdb_target_file_size_base    = yaml_get< uint64_t >( r, "target-file-size-base", cfg.rocksdb_target_file_size_base );
+      cfg.rocksdb_max_bytes_for_level_base = yaml_get< uint64_t >( r, "max-bytes-for-level-base", cfg.rocksdb_max_bytes_for_level_base );
+      cfg.rocksdb_write_buffer_size        = yaml_get< uint64_t >( r, "write-buffer-size", cfg.rocksdb_write_buffer_size );
+      cfg.rocksdb_db_write_buffer_size     = yaml_get< uint64_t >( r, "db-write-buffer-size", cfg.rocksdb_db_write_buffer_size );
+      cfg.rocksdb_max_write_buffer_number  = yaml_get< uint64_t >( r, "max-write-buffer-number", cfg.rocksdb_max_write_buffer_number );
+      cfg.rocksdb_blocks_compression       = yaml_get< std::string >( r, "blocks-compression", cfg.rocksdb_blocks_compression );
     }
 
     // ── Feature flags ──

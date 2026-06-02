@@ -127,6 +127,7 @@ private:
   tcp::acceptor _acceptor;
   std::vector< std::thread > _threads;
   std::atomic< bool > _running{ false };
+  std::atomic< unsigned int > _active_sessions{ 0 };
   unsigned int _thread_count;
 };
 

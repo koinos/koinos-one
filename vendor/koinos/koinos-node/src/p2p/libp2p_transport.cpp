@@ -220,6 +220,12 @@ void Libp2pTransport::start()
   // cpp-libp2p connection and muxer state is not safe to drive from multiple
   // io_context runners; keep all libp2p callbacks serialized on one thread.
   unsigned int thread_count = 1;
+  if( _config.requested_io_threads != thread_count )
+  {
+    LOG( info ) << "[p2p/transport] Requested " << _config.requested_io_threads
+                << " IO threads; using serialized cpp-libp2p runner count "
+                << thread_count;
+  }
   for( unsigned int i = 0; i < thread_count; ++i )
     _io_threads.emplace_back( [this]() { _io->run(); } );
 

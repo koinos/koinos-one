@@ -50,6 +50,7 @@ public:
     std::string identity_key_path; // Ed25519 key file
     bool enable_dht_local = false;
     std::string protocol_version = "koinos/p2p/1.0.0";
+    unsigned int requested_io_threads = 1;
   };
 
   explicit Libp2pTransport( const Config& config );

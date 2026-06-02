@@ -1,5 +1,6 @@
 #include "jsonrpc_server.hpp"
 
+#include <algorithm>
 #include <sstream>
 
 #include <google/protobuf/descriptor.h>
@@ -362,9 +363,9 @@ JSONRPCServer::JSONRPCServer( IChain* chain,
       _contract_meta( contract_meta ),
       _tx_store( tx_store ),
       _acct_history( acct_history ),
-      _ioc( threads ),
+      _ioc( std::max( threads, 1u ) ),
       _acceptor( _ioc, { net::ip::make_address( listen_address ), port } ),
-      _thread_count( threads )
+      _thread_count( std::max( threads, 1u ) )
 {
 }
 
@@ -417,8 +418,37 @@ void JSONRPCServer::do_accept()
   _acceptor.async_accept( [this]( beast::error_code ec, tcp::socket socket ) {
     if( !ec && _running )
     {
-      // Detach session to a strand (each connection handled independently)
-      std::thread( [this, s = std::move( socket )]() mutable { handle_session( std::move( s ) ); } ).detach();
+      bool accepted = false;
+      auto active = _active_sessions.load();
+      while( active < _thread_count )
+      {
+        if( _active_sessions.compare_exchange_weak( active, active + 1 ) )
+        {
+          accepted = true;
+          std::thread(
+            [this, s = std::move( socket )]() mutable {
+              struct SessionGuard
+              {
+                std::atomic< unsigned int >& active_sessions;
+                ~SessionGuard() { active_sessions.fetch_sub( 1 ); }
+              } guard{ _active_sessions };
+
+              handle_session( std::move( s ) );
+            }
+          ).detach();
+          break;
+        }
+      }
+
+      if( !accepted )
+      {
+        http::response< http::string_body > res{ http::status::service_unavailable, 11 };
+        res.set( http::field::content_type, "application/json" );
+        res.body() = R"({"jsonrpc":"2.0","error":{"code":-32001,"message":"JSON-RPC session limit reached"},"id":null})";
+        res.prepare_payload();
+        beast::error_code write_ec;
+        http::write( socket, res, write_ec );
+      }
     }
 
     if( _running )
