@@ -1,6 +1,6 @@
 # Monolith External Testnet Report
 
-Updated: 2026-05-30T13:13:02Z
+Updated: 2026-05-31T09:27:39Z
 
 ## Result
 
@@ -83,6 +83,26 @@ Validation result:
 - Local and public `chain.get_head_info` matched at head `5380210` after the transfer.
 - Focused CTest passed after the JSON-RPC change: `koinos_p2p_one_peer_sync_test` and `koinos_block_producer_test`.
 
+Follow-up producer soak check at `2026-05-30T15:19:04Z`: the live producer process was still running as PID `32977`, guarded by `caffeinate -dims -w 32977`, connected to `/dns4/testnet.koinosfoundation.org/tcp/8888/p2p/QmYV414G6xRzkSUytntEsBsCSjXrVGubfYJn4vpeER2s2W`, and local JSON-RPC matched public RPC at head `5382991` with the same block id, LIB, state merkle root, and block time. The recent log window contained `126` produced-block rows and `0` warning, score-threshold, checkpoint-mismatch, or gossip-gate rows. External SSD free space was about `19 GiB`, above the current `10 GiB` stop floor but close enough to keep monitoring during longer soaks.
+
+The first reusable regression runner implementation was added as `scripts/live-producer-transaction-regression.sh` with Python-backed result generation in `scripts/live-producer-transaction-regression.py`. A Level 1 run at `2026-05-30T15:38:46Z` passed: Phase 1 health gate and Phase 2 `kcli` read compatibility both passed, local/public heads matched at height `5383384`, recent log sampling found `774` produced-block rows, `0` warning rows, `0` score-threshold rows, and external SSD free space was `18.81 GiB`. The run wrote machine-readable output to `/private/tmp/knodel-transaction-regression/20260530T153846Z/result.json` and Markdown output to `/private/tmp/knodel-transaction-regression/20260530T153846Z/result.md`.
+
+Level 2 is executable end-to-end without exposing the wallet password. `kcli` gained `--password-file <path>` for `transfer`, `token-transfer`, `register-producer-key`, and `burn`, plus `--yes` for explicit non-interactive confirmation. `kcli transfer` and `kcli token-transfer` now also support `--no-wait` and `--nonce <base64url>` so higher regression levels can submit multiple signed transfers without waiting for block inclusion while controlling nonce values deterministically. The regression runner passes the password-file path without reading or printing the secret and uses `--yes` only for real submit phases. A Level 2 run at `2026-05-30T16:04:50Z` passed with `--submit-transfers`: tx `0x12200870e83d9d6f65c9f8e09f9686c945bea1a751787097b53d0e105c2f9978d769` transferred `0.001` KOIN to `1FFpnG9ev9ZsZ91uDWF19ro7zaKodcBtzX`, was confirmed in block `5383945`, appeared in the public block output, and the local producer log showed the monolith produced block `5383945` with `1 transaction`. Result files: `/private/tmp/knodel-transaction-regression/20260530T160450Z/result.json` and `/private/tmp/knodel-transaction-regression/20260530T160450Z/result.md`.
+
+Level 3 passed at `2026-05-31T06:31:56Z` with `--submit-transfers`: Phase 1 through Phase 6 all passed. The valid transfer smoke tx `0x1220c9031596e8960d0800cba757e68e38699af9bbf67446dd0502cfa621ed5995a4` was confirmed in locally produced public block `5400851`. The functional batch then submitted five additional `0.001` KOIN transfers, confirmed in public blocks `5400858`, `5400864`, `5400872`, `5400878`, and `5400882`. The negative dry-run check initially exposed a runner convention mismatch because `kcli --dry-run` returns exit code `0` while printing `Insufficient token balance`; the runner now treats that explicit rejection marker as a passing negative test. Contract reads and producer state reads passed after the batch. Result files: `/private/tmp/knodel-transaction-regression/20260531T063156Z/result.json` and `/private/tmp/knodel-transaction-regression/20260531T063156Z/result.md`.
+
+The practical-route Level 3 implementation now includes true mempool pressure and safe complex-operation checks. At `2026-05-31T09:07:17Z`, the runner read the producer account nonce from local `chain.get_account_nonce`, encoded explicit Koinos `value_type.uint64_value` nonces, submitted three signed `0.001` KOIN transfers through `http://127.0.0.1:18122` with `kcli --no-wait --nonce`, sampled `mempool.get_pending_transactions`, and then polled public blocks until every submitted tx id was found. Mempool samples showed counts `1`, `2`, and `3` after the submissions, followed by a final drain to `0`; public block `5403845` contained all three burst transactions. This is no longer just a sequential functional batch. The same run also executed PoB `burn --amount 0.001 --dry-run` and `register-producer-key --dry-run` using the currently registered producer key; both dry-runs passed. The overall result was `warn` because the rolling log window still contained one known transient `[block_producer] cannot retrieve pending transactions from an unknown block` warning, while severe warnings, score-threshold, checkpoint-mismatch, and gossip-gate rows were zero. Result files: `/private/tmp/knodel-transaction-regression/20260531T090717Z/result.json` and `/private/tmp/knodel-transaction-regression/20260531T090717Z/result.md`.
+
+Real system-contract mutation mode is now implemented behind explicit `--submit-system-ops`. The first real attempt confirmed a PoB burn but exposed that `kcli register-producer-key` could print `insufficient pending account resources` while returning process exit code `0`; the runner now detects printed CLI error markers, and `kcli register-producer-key` now uses a bounded 10% mana RC limit instead of allowing the transaction builder to reserve too much. After that fix, a Level 3 run at `2026-05-31T09:18:55Z` passed with both transfer load and real system operations. Transfer smoke tx `0x1220133750d4b183a83914f95f77c71373458fcef80f896474f0bca621555c8a119a` confirmed in block `5404089`. The non-waiting burst showed local mempool counts `1` and `2`, drained to `0`, and both burst txs appeared in public block `5404093`. Real PoB burn tx `0x1220f05585d81f302b9cfe600ea2acd14d7db63c49d3f4bb910687d557a5a91c97c9` confirmed in block `5404099`. Same-key producer registration tx `0x1220e0a72b37541a065a496fbc29a98a507b4770fb85e5401e1d51446b99ad3c4907` confirmed in block `5404105`, and `kcli get-producer-key` still returned `AjyRoy9QlZP-AuojYV-cBlHC64mP-ZliaibjmjVnHL97`. Re-registering the same key briefly refreshed the protocol activation window and produced `public key not yet active` rows, then the monolith producer resumed accepted own block production at heights `5404127` and `5404129`. The runner was tightened so future real key registration requires `--submit-producer-registration`; `--submit-system-ops` alone performs the real PoB burn and skips producer-key registration. The overall result remained `warn` only because of the known transient block-producer warning in the rolling log window; severe warnings, score-threshold, checkpoint-mismatch, and gossip-gate rows were zero. Result files: `/private/tmp/knodel-transaction-regression/20260531T091855Z/result.json` and `/private/tmp/knodel-transaction-regression/20260531T091855Z/result.md`.
+
+A bounded Level 5 run started at `2026-05-31T06:34:52Z` and finished at `2026-05-31T06:39:05Z`. It passed Phases 1 through 6, Phase 8 soak sampling, and Phase 9 performance sampling, but the overall result is intentionally `blocked` because Phase 7 has no configured near-head external observer RPC yet. The run included smoke tx `0x1220775cfa8d646cb5a580f3033973fea5b1a6274de61895d5f6285b45eafc65429d` in locally produced public block `5400903`, plus two functional batch transfers confirmed in blocks `5400906` and `5400912`. Performance sampling collected eight samples with local RPC latency p95/max `2.38ms`, heads matching in the sampled windows, disk free around `18.75 GiB`, and `0` warning, score-threshold, checkpoint-mismatch, or gossip-gate rows at the health gate. Result files: `/private/tmp/knodel-transaction-regression/20260531T063452Z/result.json` and `/private/tmp/knodel-transaction-regression/20260531T063452Z/result.md`.
+
+VPS1 later caught up and became a valid independent legacy observer witness. A first Level 5 rerun at `2026-06-02T16:24:58Z` used an SSH tunnel to the VPS1 localhost JSON-RPC and passed Phase 7 with observer/public head match and `observer_lag=0`, but the overall result was `warn` because the mempool burst was configured with the default `TX_INTERVAL=10`, so all transactions were included but no sampled block contained more than one burst transaction. The run still passed health, client reads, transfer smoke, negative dry-run rejection, contract/producer state reads, independent observer verification, soak sampling, and performance sampling. Result files: `/private/tmp/knodel-transaction-regression/20260602T162458Z/result.json` and `/private/tmp/knodel-transaction-regression/20260602T162458Z/result.md`.
+
+The Level 5 external-observer regression passed fully on `2026-06-02T16:36:36Z` after rerunning with `TX_INTERVAL=0`. Phase 1 through Phase 9 all passed while the live monolith producer stayed running. The valid transfer smoke tx `0x12208e5456da712437310fb617915f588a27576b6702acfa0023ea3a006d11d512f1` was confirmed in locally produced public block `5468691`. Phase 4 submitted five explicit-nonce `0.001` KOIN transfers without waiting; local mempool samples rose from `0` to `1`, `2`, `3`, `4`, and `5`, then drained to `0`, and public block `5468695` included all five burst transactions. Phase 7 passed with VPS1 observer head matching public RPC at height `5468696` and `observer_lag=0`. Phase 9 collected 20 bounded performance samples with local RPC latency p95 `3.45ms` and max `4.67ms`. The run did not submit system operations or producer-key registration. Result files: `/private/tmp/knodel-transaction-regression/20260602T163636Z/result.json` and `/private/tmp/knodel-transaction-regression/20260602T163636Z/result.md`.
+
+Longer live-producer soak checkpoint at `2026-05-30T23:19:05Z`: the producer keep-alive process had been running for more than `10h`, with `caffeinate -dims -w 32977` still active. Local JSON-RPC and public RPC matched at head `5392416` with the same block id and LIB. The checked rolling log window contained `778` produced-block rows and `552` public-seed peer rows, with `0` warning, score-threshold, checkpoint-mismatch, or gossip-gate rows. External SSD free space was `18.78 GiB`, still above the `10 GiB` stop floor.
+
 ## Transaction and Operation Regression Suite
 
 Purpose: move the live producer signoff beyond empty-block production and define a reusable regression suite for future monolith changes. Any feature that can affect JSON-RPC encoding, wallet/client compatibility, mempool behavior, block assembly, transaction execution, P2P propagation, producer timing, block-store/transaction-store writes, or contract state reads should run this suite, or a clearly justified subset, before being considered stable.
@@ -125,12 +145,13 @@ Safety limits for live testnet runs:
 
 Implementation target:
 
-- Add a reusable runner, for example `scripts/live-producer-transaction-regression.sh`, that executes the safe levels of this suite against configurable RPC endpoints.
+- Reusable runner implemented: `scripts/live-producer-transaction-regression.sh` executes the safe levels of this suite against configurable RPC endpoints and writes JSON plus Markdown result files.
 - Suggested environment inputs: `LOCAL_RPC=http://127.0.0.1:18122`, `PUBLIC_RPC=https://testnet.koinosfoundation.org/jsonrpc`, `RUN_ROOT=/Users/pgarcgo/.kcli/knodel-testnet-producer`, `RECIPIENT_ADDRESS=<controlled test address>`, `TRANSFER_AMOUNT=0.001`, `TX_COUNT=5`, and `RESULT_DIR=/private/tmp/knodel-transaction-regression`.
 - The runner should write a machine-readable result file with tx ids, block ids, heights, before/after heads, warning counters, and pass/fail status. It must redact secrets and should not require secrets in environment variables.
 - The runner should be able to execute `--level 1`, `--level 2`, `--level 3`, `--level 4`, or `--level 5`, matching the regression levels above.
 - Negative transaction tests should default to dry-run/client-side validation on the live public testnet. Actual invalid signed transaction submission should be confined to a private testnet or a purpose-built harness.
 - Performance mode should support `--sample-seconds`, `--tx-count`, `--tx-interval`, and `--max-total-koin` so load remains bounded and repeatable.
+- Transfer phases that use `kcli` can run unattended with `--kcli-password-file <0600-password-file>` or manually with `--interactive-kcli` so the wallet password prompt stays on the user's terminal. Do not pass wallet passwords directly through environment variables or logs.
 
 ### Phase 1: Baseline Health Gate
 
@@ -184,7 +205,7 @@ Exit criteria:
 Submit a small burst of valid transfers through the monolith JSON-RPC. There are two different submodes and they should not be conflated:
 
 - Functional batch: send `5` to `10` small transfers sequentially with `kcli`. This proves repeated wallet/client submission, repeated JSON-RPC keep-alive behavior, inclusion, and state updates. It may not create sustained mempool pressure if `kcli` waits for confirmation between transfers.
-- Real mempool pressure: use a purpose-built helper to sign and submit multiple transactions without waiting for block inclusion, or run against a private testnet where nonce control and transaction crafting are deterministic. This is required before claiming that the live monolith passed a true mempool pressure test.
+- Real mempool pressure: the runner uses `kcli --no-wait --nonce` with explicit Koinos nonce values derived from `chain.get_account_nonce`, submits multiple signed transactions without waiting for block inclusion, and then polls public blocks until every tx id appears. This is the required mode before claiming that the live monolith passed a true mempool pressure test.
 - Use conservative testnet amounts, for example `0.001` to `0.01` KOIN per transfer, and keep the default batch total under `0.10` KOIN.
 - Track every tx id, inclusion height, producing block id, and whether the including block was produced by the monolith.
 - Verify whether transactions are included in one produced block or spread across several produced blocks; both can be acceptable if no transaction is lost and inclusion latency is bounded.
@@ -222,6 +243,8 @@ Exercise read-only contract and chain paths through the monolith:
 - `kcli -r http://127.0.0.1:18122 balance <regression-recipient-address>`
 - `kcli -r http://127.0.0.1:18122 vhp 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
 - `kcli -r http://127.0.0.1:18122 get-producer-key 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
+- Safe mode runs PoB `burn --dry-run` and `register-producer-key --dry-run`.
+- Mutating testnet mode requires `--submit-system-ops`; it performs a small real PoB burn and re-registers the currently active producer public key, then verifies `get-producer-key`.
 - `kcli -r http://127.0.0.1:18122 nonce 1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`
 - `kcli -r http://127.0.0.1:18122 block <height-or-id> --full`
 
@@ -305,12 +328,12 @@ Exit criteria:
 - No stability stop condition triggers.
 - Metrics are compared against the previous baseline, if one exists, and any regression is documented with likely cause or follow-up.
 
-Next external-testnet action: keep the running producer in a longer soak and track uptime, accepted-block continuity, transaction inclusion, rejected proposals, peer count, and errors.
+Next external-testnet action: keep the running producer in a longer soak and track uptime, accepted-block continuity, transaction inclusion, rejected proposals, peer count, errors, and disk headroom. Level 5 is now passed with an independent VPS1 legacy observer witness; future release-candidate runs should repeat it with `TX_INTERVAL=0` when Phase 4 is intended to prove multi-transaction block assembly under real mempool pressure.
 
 ## External Legacy Observer VPS1
 
-- Status: running and syncing from genesis.
-- Updated: 2026-05-30T13:57:37Z
+- Status: caught up and usable as an independent legacy observer witness.
+- Updated: 2026-06-02T16:47:21Z
 - Host: `46.225.170.6`
 - Install path: `/opt/koinos-testnet-legacy-observer`
 - Runtime shape: legacy Docker microservice observer stack with `block_producer` disabled.
@@ -324,12 +347,12 @@ Validation performed from the Mac:
 - `nc -vz -w 5 46.225.170.6 28888` succeeded.
 - Raw libp2p probe succeeded with protocol `koinos/p2p/1.0.0`.
 - Full Peer RPC probe succeeded with the expected live-testnet chain ID `0x122008295be6ebe576aa6b2652f3c9cb4f6f0822dbb67f651c5a70ac96dc4c811645`.
-- Latest checked VPS observer head during setup: `12775`.
+- Latest checked VPS observer head: matched public testnet head at height `5468696` during Level 5 Phase 7.
 - VPS JSON-RPC returned head `7918` shortly before the full Peer RPC probe returned `8253`, then a follow-up JSON-RPC check returned `12775`, confirming active catch-up.
 - P2P logs show block ranges being requested from `/dns4/testnet.koinosfoundation.org/tcp/8888/p2p/QmYV414G6xRzkSUytntEsBsCSjXrVGubfYJn4vpeER2s2W`.
 - Disk at setup time: `109G` free on `/`; observer data was still only `115M`.
 
-Operational note: this node is useful immediately for external topology and Peer RPC compatibility checks, but it should not yet be used as an independent near-head witness for monolith-produced blocks. Wait until its local head catches up to the public testnet head before using it for acceptance signoff.
+Operational note: this node is now valid for external topology, Peer RPC compatibility checks, and independent near-head witness checks for monolith-produced blocks. Its JSON-RPC remains bound to remote localhost, so local validation from the Mac should use a temporary SSH tunnel such as `ssh -M -S /tmp/knodel-vps1-observer.sock -f -N -L 127.0.0.1:18091:127.0.0.1:18080 root@46.225.170.6`.
 
 ## External Legacy Observer VM2
 
