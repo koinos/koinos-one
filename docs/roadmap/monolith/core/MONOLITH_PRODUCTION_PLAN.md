@@ -358,39 +358,42 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 
 ---
 
-## Sprint 5: Performance + hardening (2 semanas)
+## Sprint 5: Performance + hardening (2 weeks)
 
-**Objetivo:** El monolito es más rápido que el multi-servicio y está listo para mainnet.
+**Goal:** Prove the monolith is faster than the legacy multi-service stack and harden it for mainnet canary operation.
 
 ### 5.1 Benchmarks
-- [ ] Indexing speed: medir blocks/sec durante sync (target: 10,000-15,000 vs 3,600)
-- [ ] JSON-RPC latency: `wrk` benchmark de `get_head_info` (target: <0.2ms vs 2-5ms)
+- [x] Add a repeatable benchmark harness for read-only JSON-RPC latency, head progress, RSS/CPU sampling, optional log-derived indexing speed, and opt-in startup measurement for a launched `koinos_node` process.
+- [ ] Indexing speed: measure blocks/sec during sync (target: 10,000-15,000 vs 3,600)
+- [ ] JSON-RPC latency: benchmark `chain.get_head_info` against the monolith and legacy stack (target: <0.2ms vs 2-5ms)
 - [ ] Transaction submission: round-trip time (target: <2ms vs 5-15ms)
 - [ ] Memory usage: RSS during operation (target: <400MB vs 500-800MB)
 - [ ] Startup time: spawn to JSON-RPC responsive (target: <5s vs 10-30s)
 
+**2026-06-01 status:** `scripts/benchmark-monolith.py` is now the Sprint 5 baseline runner. By default it is read-only and attaches to an existing node, so it can sample the live testnet producer without restarting it or mutating chain state. It writes both `result.json` and `result.md` under `/private/tmp/knodel-monolith-benchmarks/<timestamp>`. Launch mode is opt-in through `--launch-bin`, `--launch-basedir`, and `--jsonrpc-listen`; in that mode it measures startup until `chain.get_head_info` succeeds and then terminates the launched process unless `--keep-running` is supplied. A short attach-mode smoke against the live producer passed with `chain.get_head_info` at p50 `0.328 ms`, p95 `0.443 ms`, zero RPC errors, PID `32977` sampled through the live producer PID file, RSS around `30.8 MB`, and CPU around `5.6%`; result files were written to `/private/tmp/knodel-monolith-benchmarks/20260601T214350Z`. The first release-gate use should capture a longer local producer baseline, then a comparable legacy endpoint baseline before tuning RocksDB/thread pools.
+
 ### 5.2 RocksDB tuning
 - [ ] `blocks` CF: Large block sizes (64KB), zstd compression, bloom filters
 - [ ] `default` (chain state): Small blocks (4KB), point lookup optimization
-- [ ] Configurar block cache compartido entre CFs
-- [ ] Tunear compaction thread pool
+- [ ] Configure a shared block cache across column families
+- [ ] Tune the compaction thread pool
 
 ### 5.3 Thread pool optimization
-- [ ] Medir contención entre chain_ioc, jsonrpc threads, P2P threads
-- [ ] Ajustar número de threads por componente basado en CPU usage
-- [ ] Verificar que no hay deadlocks bajo carga
+- [ ] Measure contention between `chain_ioc`, JSON-RPC threads, and P2P threads
+- [ ] Adjust per-component thread counts based on CPU usage
+- [ ] Verify there are no deadlocks under load
 
 ### 5.4 Error handling hardening
-- [ ] Revisar todos los `catch(...)` — asegurar que no se tragan errores silenciosamente
-- [ ] Añadir graceful degradation: si un componente falla, los demás siguen
-- [ ] Verificar que SIGTERM siempre produce shutdown limpio bajo carga
+- [ ] Review every `catch(...)` path and ensure errors are not swallowed silently
+- [ ] Add graceful degradation so a component failure does not unnecessarily stop unrelated components
+- [ ] Verify SIGTERM always produces clean shutdown under load
 
 ### 5.5 Logging
-- [ ] Verificar que todos los componentes usan el prefijo `[component]` consistentemente
-- [ ] Añadir métricas periódicas: blocks/sec, pending txs, peer count, memory
-- [ ] Verificar que el log rotation funciona (512KB buffer en Knodel)
+- [ ] Verify every component consistently uses the `[component]` prefix
+- [ ] Add periodic metrics for blocks/sec, pending transactions, peer count, and memory
+- [ ] Verify log rotation works with the Knodel 512KB log buffer
 
-**Entregable Sprint 5:** Benchmarks documentados, RocksDB tuneado, nodo hardened.
+**Sprint 5 deliverable:** Documented benchmarks, tuned RocksDB, and a hardened node.
 
 ---
 
