@@ -178,6 +178,22 @@ void normalize_json_hash_array( nlohmann::json& object, const char* field )
   }
 }
 
+void normalize_json_base58_array( nlohmann::json& object, const char* field )
+{
+  if( !object.is_object() || !object.contains( field ) || !object[ field ].is_array() )
+    return;
+
+  for( auto& value: object[ field ] )
+  {
+    if( !value.is_string() )
+      continue;
+
+    nlohmann::json wrapper = { { "value", value } };
+    normalize_json_base58_field( wrapper, "value" );
+    value = wrapper[ "value" ];
+  }
+}
+
 void normalize_json_operation( nlohmann::json& op )
 {
   if( !op.is_object() )
@@ -262,6 +278,76 @@ void normalize_json_block( nlohmann::json& block )
   }
 }
 
+void normalize_json_event( nlohmann::json& event )
+{
+  if( !event.is_object() )
+    return;
+
+  normalize_json_base58_field( event, "source" );
+  normalize_json_bytes_field( event, "data" );
+  normalize_json_base58_array( event, "impacted" );
+}
+
+void normalize_json_state_delta_entry( nlohmann::json& entry )
+{
+  if( !entry.is_object() )
+    return;
+
+  if( entry.contains( "object_space" ) )
+    normalize_json_bytes_field( entry[ "object_space" ], "zone" );
+
+  normalize_json_bytes_field( entry, "key" );
+  normalize_json_bytes_field( entry, "value" );
+}
+
+void normalize_json_transaction_receipt( nlohmann::json& receipt )
+{
+  if( !receipt.is_object() )
+    return;
+
+  normalize_json_bytes_field( receipt, "id" );
+  normalize_json_base58_field( receipt, "payer" );
+
+  if( receipt.contains( "events" ) && receipt[ "events" ].is_array() )
+  {
+    for( auto& event: receipt[ "events" ] )
+      normalize_json_event( event );
+  }
+
+  if( receipt.contains( "state_delta_entries" ) && receipt[ "state_delta_entries" ].is_array() )
+  {
+    for( auto& entry: receipt[ "state_delta_entries" ] )
+      normalize_json_state_delta_entry( entry );
+  }
+}
+
+void normalize_json_block_receipt( nlohmann::json& receipt )
+{
+  if( !receipt.is_object() )
+    return;
+
+  normalize_json_bytes_field( receipt, "id" );
+  normalize_json_bytes_field( receipt, "state_merkle_root" );
+
+  if( receipt.contains( "events" ) && receipt[ "events" ].is_array() )
+  {
+    for( auto& event: receipt[ "events" ] )
+      normalize_json_event( event );
+  }
+
+  if( receipt.contains( "transaction_receipts" ) && receipt[ "transaction_receipts" ].is_array() )
+  {
+    for( auto& tx_receipt: receipt[ "transaction_receipts" ] )
+      normalize_json_transaction_receipt( tx_receipt );
+  }
+
+  if( receipt.contains( "state_delta_entries" ) && receipt[ "state_delta_entries" ].is_array() )
+  {
+    for( auto& entry: receipt[ "state_delta_entries" ] )
+      normalize_json_state_delta_entry( entry );
+  }
+}
+
 nlohmann::json normalize_koinos_params( const std::string& service,
                                         const std::string& method,
                                         const nlohmann::json& params )
@@ -292,6 +378,13 @@ nlohmann::json normalize_koinos_params( const std::string& service,
   {
     normalize_json_bytes_field( normalized, "head_block_id" );
     normalize_json_hash_array( normalized, "block_ids" );
+    if( method == "add_block" )
+    {
+      if( normalized.contains( "block_to_add" ) )
+        normalize_json_block( normalized[ "block_to_add" ] );
+      if( normalized.contains( "receipt_to_add" ) )
+        normalize_json_block_receipt( normalized[ "receipt_to_add" ] );
+    }
   }
   else if( service == "transaction_store" )
   {
