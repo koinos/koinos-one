@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { nativeServiceBuildDefinitionMap, nativeServiceBuildDefinitions, uniquePathValue } from './native-tooling'
+import { monolithBuildDefinition, nativeServiceBuildDefinitionMap, nativeServiceBuildDefinitions, uniquePathValue } from './native-tooling'
 
 const d = path.delimiter
 
@@ -17,5 +17,17 @@ describe('native tooling helpers', () => {
 
     const definitionMap = nativeServiceBuildDefinitionMap('/tmp/koinos-source')
     expect(definitionMap.get('block_producer')?.artifactPath).toContain('koinos-block-producer')
+  })
+
+  it('defines a reproducible libp2p-enabled monolith build', () => {
+    const definition = monolithBuildDefinition('/tmp/koinos-source')
+    const configureArgs = definition.cmakeConfigureArgs ?? []
+
+    expect(definition.serviceId).toBe('koinos-node')
+    expect(definition.artifactPath).toBe(path.join('/tmp/koinos-source', 'koinos-node', 'build', 'koinos_node'))
+    expect(configureArgs).toContain('KOINOS_ENABLE_LIBP2P=ON')
+    expect(configureArgs).toContain(`CMAKE_PROJECT_INCLUDE=${path.join('/tmp/koinos-source', 'koinos-node', 'cmake', 'cpp-libp2p-koinos-prelude.cmake')}`)
+    expect(configureArgs).toContain(`CMAKE_RUNTIME_OUTPUT_DIRECTORY=${path.join('/tmp/koinos-source', 'koinos-node', 'build')}`)
+    expect(definition.buildCommands.join('\n')).toContain('KOINOS_ENABLE_LIBP2P=ON')
   })
 })

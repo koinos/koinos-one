@@ -391,7 +391,7 @@ export function normalizeNodeBaseDirInput(value: string): string {
   const normalized = trimmed.replace(/[\\/]+$/, '')
   if (!normalized) return DEFAULT_NODE_SETTINGS.baseDir
   const segments = normalized.split(/[\\/]+/).filter(Boolean)
-  if (segments.at(-1) === '.koinos') return normalized
+  if (['.koinos', '.koinosgui'].includes(segments.at(-1) ?? '')) return normalized
   return `${normalized}/.koinos`
 }
 

@@ -1,12 +1,13 @@
 forceCodeSigning: false
-appId: io.knodel.desktop
-productName: Knodel
+appId: io.koinosgui.desktop
+productName: koinosGUI
 directories:
   buildResources: assets/branding
   output: release
 files:
   - dist/**
   - dist-electron/**
+  - assets/branding/**
   - package.json
 mac:
   artifactName: ${productName}-${version}-${arch}.${ext}

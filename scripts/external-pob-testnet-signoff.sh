@@ -7,7 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRODUCER_RPC_URL="${PRODUCER_RPC_URL:-}"
 OBSERVER_RPC_URL="${OBSERVER_RPC_URL:-}"
 SEED_RPC_URL="${SEED_RPC_URL:-}"
-REPORT="${REPORT:-$ROOT_DIR/docs/roadmap/MONOLITH_EXTERNAL_TESTNET_REPORT.md}"
+REPORT="${REPORT:-$ROOT_DIR/docs/roadmap/monolith/testnets/MONOLITH_EXTERNAL_TESTNET_REPORT.md}"
 SAMPLES_FILE="${EXTERNAL_TESTNET_SAMPLES_FILE:-/private/tmp/knodel-external-testnet-samples.tsv}"
 DURATION_SECONDS="${EXTERNAL_TESTNET_DURATION_SECONDS:-1800}"
 INTERVAL_SECONDS="${EXTERNAL_TESTNET_INTERVAL_SECONDS:-60}"
@@ -39,7 +39,7 @@ Environment:
   EXTERNAL_TESTNET_CHECK_STORES       Check observer block/transaction/contract stores. Default: 1.
   EXTERNAL_TESTNET_PRODUCER_LOG_FILE  Optional local producer log copy to scan.
   EXTERNAL_TESTNET_OBSERVER_LOG_FILE  Optional local observer log copy to scan.
-  REPORT                              Markdown report path. Default: docs/roadmap/MONOLITH_EXTERNAL_TESTNET_REPORT.md.
+  REPORT                              Markdown report path. Default: docs/roadmap/monolith/testnets/MONOLITH_EXTERNAL_TESTNET_REPORT.md.
 USAGE
 }
 

@@ -29,9 +29,10 @@ afterEach(() => {
 })
 
 describe('electron node paths', () => {
-  it('normalizes the base dir to end with .koinos', () => {
+  it('normalizes the base dir to end with .koinos while preserving .koinosgui', () => {
     expect(ensureKoinosBaseDir('~/node-data')).toMatch(/node-data[/\\]\.koinos$/)
     expect(ensureKoinosBaseDir('/tmp/example/.koinos')).toBe('/tmp/example/.koinos')
+    expect(ensureKoinosBaseDir('/tmp/example/.koinosgui')).toBe('/tmp/example/.koinosgui')
   })
 
   it('normalizes persisted node settings payloads', () => {

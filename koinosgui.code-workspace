@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../koinos_code"
+		},
+		{
+			"path": "../koinos_test_net"
+		},
+		{
+			"path": "../telegram_cleanup_tool"
+		},
+		{
+			"path": "../kcli"
+		}
+	]
+}

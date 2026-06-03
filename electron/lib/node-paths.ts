@@ -21,7 +21,7 @@ export function ensureKoinosBaseDir(inputPath: string): string {
   const normalized = expanded.trim() || DEFAULT_BASEDIR
   const trimmedTrailingSeparators = normalized.replace(/[\\/]+$/, '')
   if (!trimmedTrailingSeparators) return DEFAULT_BASEDIR
-  const withSuffix = trimmedTrailingSeparators.endsWith('.koinos')
+  const withSuffix = trimmedTrailingSeparators.endsWith('.koinos') || trimmedTrailingSeparators.endsWith('.koinosgui')
     ? trimmedTrailingSeparators
     : path.join(trimmedTrailingSeparators, '.koinos')
   // Always return an absolute path — relative paths cause failures in packaged builds

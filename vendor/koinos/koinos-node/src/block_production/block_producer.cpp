@@ -143,6 +143,12 @@ ProductionResult BlockProducer::produce_pob_once()
 
   if( !_pob_bundle )
     _pob_bundle = next_pob_bundle();
+  else
+  {
+    const auto head = _chain.get_head_info();
+    if( _pob_bundle->block.header().previous() != head.head_topology().id() )
+      _pob_bundle = next_pob_bundle();
+  }
 
   ProductionResult result;
   const auto quantum_length = std::chrono::milliseconds{ _pob_auxiliary_data->quantum_length };

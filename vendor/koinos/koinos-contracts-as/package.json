@@ -1,0 +1,45 @@
+{
+  "name": "koinos-contracts-as",
+  "version": "1.0.0",
+  "main": "assembly/index.ts",
+  "license": "MIT",
+  "author": "Koinos Group <contact@koinos.group>",
+  "repository": "https://github.com/koinos/koinos-contracts-as",
+  "dependencies": {
+    "koinos-proto-js": "^0.0.3",
+    "local-koinos": "^0.0.5"
+  },
+  "devDependencies": {
+    "@types/jest": "^27.5.1",
+    "@typescript-eslint/eslint-plugin": "^5.10.0",
+    "@typescript-eslint/parser": "^5.10.0",
+    "eslint": "^8.7.0",
+    "jest": "^28.1.0",
+    "ts-jest": "^28.0.2",
+    "ts-node": "^10.4.0",
+    "typescript": "^4.6.4",
+    "yaml": "^2.0.0-11"
+  },
+  "scripts": {
+    "lint": "eslint --max-warnings 0 --ext ts \"contracts/*/assembly/**/*.ts\"",
+    "buildClaim": "cd contracts/claim && yarn install && yarn build:release && yarn test",
+    "buildClaim:ubuntu": "cd contracts/claim && yarn install && yarn build:release && yarn test && yarn integration-tests",
+    "buildClaimDelegation": "cd contracts/claim_delegation && yarn install && yarn build:release && yarn test",
+    "buildClaimDelegation:ubuntu": "cd contracts/claim_delegation && yarn install && yarn build:release && yarn test && yarn integration-tests",
+    "buildGetContractMetadata": "cd contracts/get_contract_metadata && yarn install && yarn build:release && yarn test",
+    "buildGetContractMetadata:ubuntu": "cd contracts/get_contract_metadata && yarn install && yarn build:release && yarn test && yarn integration-tests",
+    "buildKoin": "cd contracts/koin && yarn install && yarn build:release && yarn test",
+    "buildKoin:ubuntu": "cd contracts/koin && yarn install && yarn build:release && yarn test && yarn integration-tests",
+    "buildGovernance": "cd contracts/governance && yarn install && yarn build:release && yarn test",
+    "buildGovernance:ubuntu": "cd contracts/governance && yarn install && yarn build:release && yarn test && yarn integration-tests",
+    "buildNameService": "cd contracts/name_service && yarn install && yarn build:release && yarn test",
+    "buildNameService:ubuntu": "cd contracts/name_service && yarn install && yarn build:release && yarn test && yarn integration-tests",
+    "buildPOB": "cd contracts/pob && yarn install && yarn build:release && yarn test",
+    "buildPOB:ubuntu": "cd contracts/pob && yarn install && yarn build:release && yarn test && yarn integration-tests",
+    "buildVHP": "cd contracts/vhp && yarn install && yarn build:release && yarn test",
+    "buildVHP:ubuntu": "cd contracts/vhp && yarn install && yarn build:release && yarn test && yarn integration-tests",
+    "buildAll": "yarn buildClaim && yarn buildClaimDelegation && yarn buildGovernance && yarn buildNameService && yarn buildPOB && yarn buildVHP && yarn buildGetContractMetadata && yarn buildKoin",
+    "buildAll:ubuntu": "yarn buildClaim:ubuntu && yarn buildClaimDelegation:ubuntu && yarn buildGovernance:ubuntu && yarn buildNameService:ubuntu && yarn buildPOB:ubuntu && yarn buildVHP:ubuntu && buildGetContractMetadata:ubuntu && yarn buildKoin:ubuntu",
+    "ci": "yarn buildAll && yarn lint"
+  }
+}

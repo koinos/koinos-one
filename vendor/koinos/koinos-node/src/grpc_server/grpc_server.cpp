@@ -4,184 +4,286 @@
 
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/health_check_service_interface.h>
-#include <grpcpp/generic/async_generic_service.h>
 
-#include <koinos/rpc/chain/chain_rpc.pb.h>
-#include <koinos/rpc/block_store/block_store_rpc.pb.h>
-#include <koinos/rpc/mempool/mempool_rpc.pb.h>
+#include <koinos/rpc/p2p/p2p_rpc.pb.h>
+#include <koinos/rpc/services.grpc.pb.h>
 
-#include <google/protobuf/util/json_util.h>
+#include <algorithm>
+#include <exception>
+#include <functional>
+#include <string>
 
 namespace koinos::node::grpc_server {
 
-// ---------------------------------------------------------------------------
-// gRPC generic service — routes serialized protobuf requests to interfaces
-//
-// The original koinos-grpc uses method names like:
-//   /koinos.rpc.chain/chain_request
-//   /koinos.rpc.block_store/block_store_request
-//
-// We use AsyncGenericService to handle any method, parse the protobuf
-// envelope, dispatch to the right service, and return the response.
-// ---------------------------------------------------------------------------
+namespace {
+
+grpc::Status service_unavailable( const std::string& service )
+{
+  return grpc::Status( grpc::StatusCode::UNAVAILABLE, service + " service is not enabled" );
+}
+
+grpc::Status unimplemented( const std::string& method )
+{
+  return grpc::Status( grpc::StatusCode::UNIMPLEMENTED, method + " is not implemented by the monolith gRPC server" );
+}
+
+grpc::StatusCode status_code_for_exception( const std::exception& e )
+{
+  const std::string message = e.what();
+  if( message.rfind( "expected field ", 0 ) == 0 )
+    return grpc::StatusCode::INVALID_ARGUMENT;
+  return grpc::StatusCode::INTERNAL;
+}
+
+template< typename Handler >
+grpc::Status invoke_service( const std::string& method, Handler&& handler )
+{
+  try
+  {
+    handler();
+    return grpc::Status::OK;
+  }
+  catch( const std::exception& e )
+  {
+    LOG( warning ) << "[grpc] Error handling " << method << ": " << e.what();
+    return grpc::Status( status_code_for_exception( e ), e.what() );
+  }
+  catch( ... )
+  {
+    LOG( warning ) << "[grpc] Unknown error handling " << method;
+    return grpc::Status( grpc::StatusCode::INTERNAL, "unknown gRPC service error" );
+  }
+}
+
+class KoinosService final : public services::koinos::Service
+{
+public:
+  KoinosService( IChain* chain,
+                 IMempool* mempool,
+                 IBlockStore* block_store,
+                 contract_meta_store::ContractMetaStore* contract_meta,
+                 transaction_store::TransactionStore* tx_store,
+                 account_history::AccountHistory* acct_history,
+                 const std::atomic< bool >* gossip_status )
+      : _chain( chain ),
+        _mempool( mempool ),
+        _block_store( block_store ),
+        _contract_meta( contract_meta ),
+        _tx_store( tx_store ),
+        _acct_history( acct_history ),
+        _gossip_status( gossip_status )
+  {
+  }
+
+  grpc::Status get_account_history( grpc::ServerContext*,
+                                    const rpc::account_history::get_account_history_request* request,
+                                    rpc::account_history::get_account_history_response* response ) override
+  {
+    if( !_acct_history )
+      return service_unavailable( "account_history" );
+    return invoke_service( "get_account_history", [&]() { *response = _acct_history->get_account_history( *request ); } );
+  }
+
+  grpc::Status get_blocks_by_id( grpc::ServerContext*,
+                                 const rpc::block_store::get_blocks_by_id_request* request,
+                                 rpc::block_store::get_blocks_by_id_response* response ) override
+  {
+    if( !_block_store )
+      return service_unavailable( "block_store" );
+    return invoke_service( "get_blocks_by_id", [&]() { *response = _block_store->get_blocks_by_id( *request ); } );
+  }
+
+  grpc::Status get_blocks_by_height( grpc::ServerContext*,
+                                     const rpc::block_store::get_blocks_by_height_request* request,
+                                     rpc::block_store::get_blocks_by_height_response* response ) override
+  {
+    if( !_block_store )
+      return service_unavailable( "block_store" );
+    return invoke_service( "get_blocks_by_height", [&]() { *response = _block_store->get_blocks_by_height( *request ); } );
+  }
+
+  grpc::Status get_highest_block( grpc::ServerContext*,
+                                  const rpc::block_store::get_highest_block_request* request,
+                                  rpc::block_store::get_highest_block_response* response ) override
+  {
+    if( !_block_store )
+      return service_unavailable( "block_store" );
+    return invoke_service( "get_highest_block", [&]() { *response = _block_store->get_highest_block( *request ); } );
+  }
+
+  grpc::Status submit_block( grpc::ServerContext*,
+                             const rpc::chain::submit_block_request* request,
+                             rpc::chain::submit_block_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "submit_block", [&]() { *response = _chain->submit_block( *request ); } );
+  }
+
+  grpc::Status submit_transaction( grpc::ServerContext*,
+                                   const rpc::chain::submit_transaction_request* request,
+                                   rpc::chain::submit_transaction_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "submit_transaction", [&]() { *response = _chain->submit_transaction( *request ); } );
+  }
+
+  grpc::Status get_head_info( grpc::ServerContext*,
+                              const rpc::chain::get_head_info_request* request,
+                              rpc::chain::get_head_info_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "get_head_info", [&]() { *response = _chain->get_head_info( *request ); } );
+  }
+
+  grpc::Status get_chain_id( grpc::ServerContext*,
+                             const rpc::chain::get_chain_id_request* request,
+                             rpc::chain::get_chain_id_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "get_chain_id", [&]() { *response = _chain->get_chain_id( *request ); } );
+  }
+
+  grpc::Status get_fork_heads( grpc::ServerContext*,
+                               const rpc::chain::get_fork_heads_request* request,
+                               rpc::chain::get_fork_heads_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "get_fork_heads", [&]() { *response = _chain->get_fork_heads( *request ); } );
+  }
+
+  grpc::Status read_contract( grpc::ServerContext*,
+                              const rpc::chain::read_contract_request* request,
+                              rpc::chain::read_contract_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "read_contract", [&]() { *response = _chain->read_contract( *request ); } );
+  }
+
+  grpc::Status get_account_nonce( grpc::ServerContext*,
+                                  const rpc::chain::get_account_nonce_request* request,
+                                  rpc::chain::get_account_nonce_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "get_account_nonce", [&]() { *response = _chain->get_account_nonce( *request ); } );
+  }
+
+  grpc::Status get_account_rc( grpc::ServerContext*,
+                               const rpc::chain::get_account_rc_request* request,
+                               rpc::chain::get_account_rc_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "get_account_rc", [&]() { *response = _chain->get_account_rc( *request ); } );
+  }
+
+  grpc::Status get_resource_limits( grpc::ServerContext*,
+                                    const rpc::chain::get_resource_limits_request* request,
+                                    rpc::chain::get_resource_limits_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "get_resource_limits", [&]() { *response = _chain->get_resource_limits( *request ); } );
+  }
+
+  grpc::Status invoke_system_call( grpc::ServerContext*,
+                                   const rpc::chain::invoke_system_call_request* request,
+                                   rpc::chain::invoke_system_call_response* response ) override
+  {
+    if( !_chain )
+      return service_unavailable( "chain" );
+    return invoke_service( "invoke_system_call", [&]() { *response = _chain->invoke_system_call( *request ); } );
+  }
+
+  grpc::Status get_contract_meta( grpc::ServerContext*,
+                                  const rpc::contract_meta_store::get_contract_meta_request* request,
+                                  rpc::contract_meta_store::get_contract_meta_response* response ) override
+  {
+    if( !_contract_meta )
+      return service_unavailable( "contract_meta_store" );
+    return invoke_service( "get_contract_meta", [&]() { *response = _contract_meta->get_contract_meta( *request ); } );
+  }
+
+  grpc::Status get_pending_transactions( grpc::ServerContext*,
+                                         const rpc::mempool::get_pending_transactions_request* request,
+                                         rpc::mempool::get_pending_transactions_response* response ) override
+  {
+    if( !_mempool )
+      return service_unavailable( "mempool" );
+    return invoke_service( "get_pending_transactions", [&]() { *response = _mempool->get_pending_transactions( *request ); } );
+  }
+
+  grpc::Status check_pending_account_resources(
+    grpc::ServerContext*,
+    const rpc::mempool::check_pending_account_resources_request* request,
+    rpc::mempool::check_pending_account_resources_response* response ) override
+  {
+    if( !_mempool )
+      return service_unavailable( "mempool" );
+    return invoke_service( "check_pending_account_resources",
+                           [&]() { *response = _mempool->check_pending_account_resources( *request ); } );
+  }
+
+  grpc::Status get_gossip_status( grpc::ServerContext*,
+                                  const rpc::p2p::get_gossip_status_request*,
+                                  rpc::p2p::get_gossip_status_response* response ) override
+  {
+    response->set_enabled( _gossip_status && _gossip_status->load() );
+    return grpc::Status::OK;
+  }
+
+  grpc::Status get_transactions_by_id( grpc::ServerContext*,
+                                       const rpc::transaction_store::get_transactions_by_id_request* request,
+                                       rpc::transaction_store::get_transactions_by_id_response* response ) override
+  {
+    if( !_tx_store )
+      return service_unavailable( "transaction_store" );
+    return invoke_service( "get_transactions_by_id", [&]() { *response = _tx_store->get_transactions_by_id( *request ); } );
+  }
+
+private:
+  IChain* _chain;
+  IMempool* _mempool;
+  IBlockStore* _block_store;
+  contract_meta_store::ContractMetaStore* _contract_meta;
+  transaction_store::TransactionStore* _tx_store;
+  account_history::AccountHistory* _acct_history;
+  const std::atomic< bool >* _gossip_status;
+};
+
+} // anonymous namespace
 
 struct GRPCServer::Impl
 {
   std::unique_ptr< grpc::Server > server;
-  grpc::AsyncGenericService generic_service;
-  std::unique_ptr< grpc::ServerCompletionQueue > cq;
-  std::vector< std::thread > threads;
-  std::atomic< bool > running{ true };
-
-  IChain* chain;
-  IMempool* mempool;
-  IBlockStore* block_store;
-
-  void handle_rpcs()
-  {
-    // Request a new generic call
-    grpc::GenericServerContext ctx;
-    grpc::GenericServerAsyncReaderWriter stream( &ctx );
-    generic_service.RequestCall( &ctx, &stream, cq.get(), cq.get(), reinterpret_cast< void* >( 1 ) );
-
-    while( running )
-    {
-      void* tag;
-      bool ok;
-      if( !cq->Next( &tag, &ok ) )
-        break;
-
-      if( !ok )
-        continue;
-
-      // Read the request
-      grpc::ByteBuffer request_buf;
-      stream.Read( &request_buf, reinterpret_cast< void* >( 2 ) );
-      cq->Next( &tag, &ok );
-
-      if( !ok )
-        continue;
-
-      // Deserialize request
-      std::vector< grpc::Slice > slices;
-      request_buf.Dump( &slices );
-      std::string request_bytes;
-      for( const auto& s: slices )
-        request_bytes.append( reinterpret_cast< const char* >( s.begin() ), s.size() );
-
-      // Route based on method path
-      std::string method = ctx.method();
-      std::string response_bytes;
-
-      try
-      {
-        response_bytes = dispatch_method( method, request_bytes );
-      }
-      catch( const std::exception& e )
-      {
-        LOG( warning ) << "[grpc] Error handling " << method << ": " << e.what();
-        stream.Finish( grpc::Status( grpc::StatusCode::INTERNAL, e.what() ),
-                       reinterpret_cast< void* >( 3 ) );
-        cq->Next( &tag, &ok );
-        // Request next call
-        generic_service.RequestCall( &ctx, &stream, cq.get(), cq.get(), reinterpret_cast< void* >( 1 ) );
-        continue;
-      }
-
-      // Send response
-      grpc::Slice response_slice( response_bytes.data(), response_bytes.size() );
-      grpc::ByteBuffer response_buf( &response_slice, 1 );
-      stream.WriteAndFinish( response_buf, grpc::WriteOptions(), grpc::Status::OK,
-                              reinterpret_cast< void* >( 3 ) );
-      cq->Next( &tag, &ok );
-
-      // Request next call
-      generic_service.RequestCall( &ctx, &stream, cq.get(), cq.get(), reinterpret_cast< void* >( 1 ) );
-    }
-  }
-
-  std::string dispatch_method( const std::string& method, const std::string& request_bytes )
-  {
-    // Method format: /koinos.rpc.chain/chain_request
-    // or: /koinos.rpc.block_store/block_store_request
-
-    if( method.find( "chain" ) != std::string::npos && chain )
-    {
-      rpc::chain::chain_request req;
-      req.ParseFromString( request_bytes );
-      rpc::chain::chain_response resp;
-
-      if( req.has_get_head_info() )
-        *resp.mutable_get_head_info() = chain->get_head_info( req.get_head_info() );
-      else if( req.has_get_chain_id() )
-        *resp.mutable_get_chain_id() = chain->get_chain_id( req.get_chain_id() );
-      else if( req.has_get_fork_heads() )
-        *resp.mutable_get_fork_heads() = chain->get_fork_heads( req.get_fork_heads() );
-      else if( req.has_submit_block() )
-        *resp.mutable_submit_block() = chain->submit_block( req.submit_block() );
-      else if( req.has_submit_transaction() )
-        *resp.mutable_submit_transaction() = chain->submit_transaction( req.submit_transaction() );
-      else if( req.has_read_contract() )
-        *resp.mutable_read_contract() = chain->read_contract( req.read_contract() );
-      else if( req.has_get_account_nonce() )
-        *resp.mutable_get_account_nonce() = chain->get_account_nonce( req.get_account_nonce() );
-      else if( req.has_get_account_rc() )
-        *resp.mutable_get_account_rc() = chain->get_account_rc( req.get_account_rc() );
-      else if( req.has_get_resource_limits() )
-        *resp.mutable_get_resource_limits() = chain->get_resource_limits( req.get_resource_limits() );
-
-      return resp.SerializeAsString();
-    }
-
-    if( method.find( "block_store" ) != std::string::npos && block_store )
-    {
-      rpc::block_store::block_store_request req;
-      req.ParseFromString( request_bytes );
-      rpc::block_store::block_store_response resp;
-
-      if( req.has_get_blocks_by_height() )
-        *resp.mutable_get_blocks_by_height() = block_store->get_blocks_by_height( req.get_blocks_by_height() );
-      else if( req.has_get_blocks_by_id() )
-        *resp.mutable_get_blocks_by_id() = block_store->get_blocks_by_id( req.get_blocks_by_id() );
-      else if( req.has_get_highest_block() )
-        *resp.mutable_get_highest_block() = block_store->get_highest_block( req.get_highest_block() );
-
-      return resp.SerializeAsString();
-    }
-
-    if( method.find( "mempool" ) != std::string::npos && mempool )
-    {
-      rpc::mempool::mempool_request req;
-      req.ParseFromString( request_bytes );
-      rpc::mempool::mempool_response resp;
-
-      if( req.has_get_pending_transactions() )
-        *resp.mutable_get_pending_transactions() = mempool->get_pending_transactions( req.get_pending_transactions() );
-      else if( req.has_check_pending_account_resources() )
-        *resp.mutable_check_pending_account_resources() =
-          mempool->check_pending_account_resources( req.check_pending_account_resources() );
-
-      return resp.SerializeAsString();
-    }
-
-    throw std::runtime_error( "Unknown gRPC method: " + method );
-  }
+  std::unique_ptr< KoinosService > service;
+  int bound_port = 0;
 };
-
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
 
 GRPCServer::GRPCServer( IChain* chain,
                         IMempool* mempool,
                         IBlockStore* block_store,
+                        contract_meta_store::ContractMetaStore* contract_meta,
+                        transaction_store::TransactionStore* tx_store,
+                        account_history::AccountHistory* acct_history,
                         const std::string& listen_address,
-                        unsigned int threads )
+                        unsigned int threads,
+                        const std::atomic< bool >* gossip_status )
     : _chain( chain ),
       _mempool( mempool ),
       _block_store( block_store ),
+      _contract_meta( contract_meta ),
+      _tx_store( tx_store ),
+      _acct_history( acct_history ),
+      _gossip_status( gossip_status ),
       _listen_address( listen_address ),
-      _thread_count( std::max( threads, 2u ) )
+      _thread_count( std::max( threads, 1u ) )
 {
 }
 
@@ -192,33 +294,33 @@ GRPCServer::~GRPCServer()
 
 void GRPCServer::start()
 {
-  _running = true;
-  _impl    = std::make_unique< Impl >();
+  if( _running.exchange( true ) )
+    return;
 
-  _impl->chain       = _chain;
-  _impl->mempool     = _mempool;
-  _impl->block_store = _block_store;
+  _impl          = std::make_unique< Impl >();
+  _impl->service = std::make_unique< KoinosService >(
+    _chain, _mempool, _block_store, _contract_meta, _tx_store, _acct_history, _gossip_status );
 
   grpc::EnableDefaultHealthCheckService( true );
 
   grpc::ServerBuilder builder;
-  builder.AddListeningPort( _listen_address, grpc::InsecureServerCredentials() );
-  builder.RegisterAsyncGenericService( &_impl->generic_service );
-  _impl->cq = builder.AddCompletionQueue();
+  builder.SetSyncServerOption( grpc::ServerBuilder::SyncServerOption::NUM_CQS, static_cast< int >( _thread_count ) );
+  builder.SetSyncServerOption( grpc::ServerBuilder::SyncServerOption::MIN_POLLERS, static_cast< int >( _thread_count ) );
+  builder.SetSyncServerOption( grpc::ServerBuilder::SyncServerOption::MAX_POLLERS, static_cast< int >( _thread_count ) );
+  builder.AddListeningPort(
+    _listen_address, grpc::InsecureServerCredentials(), &_impl->bound_port );
+  builder.RegisterService( _impl->service.get() );
 
   _impl->server = builder.BuildAndStart();
 
   if( _impl->server )
   {
-    // Start handler threads
-    for( unsigned int i = 0; i < _thread_count; ++i )
-      _impl->threads.emplace_back( [this]() { _impl->handle_rpcs(); } );
-
-    LOG( info ) << "[grpc] Listening on " << _listen_address
-                << " with " << _thread_count << " threads (chain + block_store + mempool)";
+    LOG( info ) << "[grpc] Listening on " << _listen_address << " (bound port " << _impl->bound_port
+                << ") with koinos.services.koinos";
   }
   else
   {
+    _running = false;
     LOG( error ) << "[grpc] Failed to start on " << _listen_address;
   }
 }
@@ -228,19 +330,15 @@ void GRPCServer::stop()
   if( !_running.exchange( false ) )
     return;
 
-  if( _impl )
-  {
-    _impl->running = false;
-    if( _impl->server )
-    {
-      _impl->server->Shutdown();
-      _impl->cq->Shutdown();
-    }
-    for( auto& t: _impl->threads )
-      if( t.joinable() )
-        t.join();
-  }
+  if( _impl && _impl->server )
+    _impl->server->Shutdown();
+
   _impl.reset();
+}
+
+int GRPCServer::bound_port() const
+{
+  return _impl ? _impl->bound_port : 0;
 }
 
 } // namespace koinos::node::grpc_server

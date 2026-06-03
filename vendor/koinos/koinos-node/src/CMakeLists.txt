@@ -318,6 +318,17 @@ if(KOINOS_BUILD_TESTS)
 
   add_test(NAME koinos_mempool_adapter_test COMMAND koinos_mempool_adapter_test)
 
+  add_executable(koinos_grpc_server_test
+    ../tests/grpc/grpc_server_test.cpp)
+
+  target_link_libraries(koinos_grpc_server_test PRIVATE
+    koinos_grpc_server_lib
+    koinos_contract_meta_store_lib
+    koinos_transaction_store_lib
+    koinos_account_history_lib)
+
+  add_test(NAME koinos_grpc_server_test COMMAND koinos_grpc_server_test)
+
   if(KOINOS_ENABLE_LIBP2P)
     add_executable(koinos_libp2p_peer_rpc_live_test
       ../tests/p2p/libp2p_peer_rpc_live_test.cpp)
@@ -434,6 +445,17 @@ target_link_libraries(
     PRIVATE
       Koinos::crypto
       Koinos::util)
+
+add_executable(koinos_grpc_parity_probe
+  ../tools/grpc_parity_probe.cpp)
+
+target_link_libraries(
+  koinos_grpc_parity_probe
+    PRIVATE
+      Koinos::proto
+      gRPC::grpc++
+      protobuf::libprotobuf
+      nlohmann_json::nlohmann_json)
 
 if(COMMAND koinos_install)
   koinos_install(TARGETS koinos_node)

@@ -75,7 +75,7 @@ function copyDirRecursive(src, dest) {
 // ============================================================================
 
 console.log('============================================================================');
-console.log('Staging Knodel bundle for Windows installer');
+console.log('Staging koinosGUI bundle for Windows installer');
 console.log(`  Vendor:  ${VENDOR}`);
 console.log(`  Staging: ${STAGING}`);
 console.log('============================================================================\n');

@@ -1,14 +1,21 @@
 #include "block_production/block_producer.hpp"
 
+#include <koinos/bigint.hpp>
+#include <koinos/contracts/name_service/name_service.pb.h>
+#include <koinos/contracts/pob/pob.pb.h>
+#include <koinos/contracts/token/token.pb.h>
+#include <koinos/contracts/vhp/vhp.pb.h>
 #include <koinos/crypto/elliptic.hpp>
 #include <koinos/crypto/multihash.hpp>
 #include <koinos/mempool/mempool.pb.h>
 #include <koinos/protocol/protocol.pb.h>
+#include <koinos/util/base58.hpp>
 #include <koinos/util/conversion.hpp>
 
 #include <cassert>
 #include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace koinos;
@@ -16,6 +23,16 @@ using namespace koinos::node;
 using namespace koinos::node::block_production;
 
 namespace {
+
+constexpr uint32_t get_metadata_entry_point             = 0xfcf7a68f;
+constexpr uint32_t get_consensus_parameters_entry_point = 0x5fd7ac0f;
+constexpr uint32_t effective_balance_of_entry_point     = 0x629f31e6;
+constexpr uint32_t decimals_entry_point                 = 0xee80fd2f;
+constexpr uint32_t symbol_entry_point                   = 0xb76a7ca1;
+
+const std::string test_producer_address = "1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi";
+const std::string pob_contract_id       = util::from_base58< std::string >( "1MAbK5pYkhp9yHnfhYamC3tfSLmVRTDjd9" );
+const std::string vhp_contract_id       = util::from_base58< std::string >( "17n12ktwN79sR6ia9DDgCfmw77EgpbTyBi" );
 
 uint64_t now_ms()
 {
@@ -135,7 +152,55 @@ public:
     return {};
   }
 
-  rpc::chain::read_contract_response read_contract( const rpc::chain::read_contract_request& ) override { return {}; }
+  rpc::chain::read_contract_response read_contract( const rpc::chain::read_contract_request& req ) override
+  {
+    rpc::chain::read_contract_response resp;
+
+    if( req.entry_point() == get_consensus_parameters_entry_point )
+    {
+      contracts::pob::get_consensus_parameters_result result;
+      auto* value = result.mutable_value();
+      value->set_target_block_interval( 3'000 );
+      value->set_quantum_length( 10 );
+      resp.set_result( result.SerializeAsString() );
+      return resp;
+    }
+
+    if( req.entry_point() == get_metadata_entry_point )
+    {
+      contracts::pob::get_metadata_result result;
+      result.mutable_value()->set_seed( "seed" );
+      result.mutable_value()->set_difficulty( util::converter::as< std::string >( uint128_t( 1 ) ) );
+      resp.set_result( result.SerializeAsString() );
+      return resp;
+    }
+
+    if( req.entry_point() == effective_balance_of_entry_point )
+    {
+      contracts::vhp::effective_balance_of_result result;
+      result.set_value( 100'000'000 );
+      resp.set_result( result.SerializeAsString() );
+      return resp;
+    }
+
+    if( req.entry_point() == decimals_entry_point )
+    {
+      contracts::token::decimals_result result;
+      result.set_value( 8 );
+      resp.set_result( result.SerializeAsString() );
+      return resp;
+    }
+
+    if( req.entry_point() == symbol_entry_point )
+    {
+      contracts::token::symbol_result result;
+      result.set_value( "VHP" );
+      resp.set_result( result.SerializeAsString() );
+      return resp;
+    }
+
+    return resp;
+  }
   rpc::chain::get_account_nonce_response get_account_nonce( const rpc::chain::get_account_nonce_request& ) override
   {
     return {};
@@ -152,9 +217,20 @@ public:
   }
 
   rpc::chain::invoke_system_call_response
-  invoke_system_call( const rpc::chain::invoke_system_call_request& ) override
+  invoke_system_call( const rpc::chain::invoke_system_call_request& req ) override
   {
-    return {};
+    contracts::name_service::get_address_arguments args;
+    args.ParseFromString( req.args() );
+
+    contracts::name_service::get_address_result result;
+    if( args.name() == "pob" )
+      result.mutable_value()->set_address( pob_contract_id );
+    else if( args.name() == "vhp" )
+      result.mutable_value()->set_address( vhp_contract_id );
+
+    rpc::chain::invoke_system_call_response resp;
+    resp.set_value( result.SerializeAsString() );
+    return resp;
   }
 
   rpc::chain::propose_block_response
@@ -254,11 +330,48 @@ void test_failed_transactions_are_pruned_and_retried()
   assert( chain.proposed_blocks[ 1 ].transactions( 1 ).id() == "c" );
 }
 
+void test_pob_candidate_refreshes_when_head_advances()
+{
+  FakeChain chain;
+  chain.head.set_head_block_time( now_ms() + 5'500 );
+
+  FakeMempool mempool;
+
+  ProducerConfig config;
+  config.algorithm        = "pob";
+  config.producer_address = test_producer_address;
+
+  BlockProducer producer( chain, mempool, test_private_key(), config );
+
+  auto waiting = producer.produce_once();
+  assert( waiting.status == ProductionResult::Status::not_our_turn );
+  assert( chain.proposed_blocks.empty() );
+
+  std::this_thread::sleep_for( std::chrono::milliseconds( 700 ) );
+  chain.head.mutable_head_topology()->set_id( "new-previous-block" );
+  chain.head.mutable_head_topology()->set_height( 42 );
+  chain.head.set_head_state_merkle_root( "new-previous-root" );
+  chain.head.set_head_block_time( now_ms() - 1'000 );
+
+  auto produced = producer.produce_once();
+
+  assert( produced.status == ProductionResult::Status::produced );
+  assert( produced.height == 43 );
+  assert( chain.proposed_blocks.size() == 1 );
+
+  const auto& block = chain.proposed_blocks.front();
+  assert( block.header().previous() == "new-previous-block" );
+  assert( block.header().height() == 43 );
+  assert( block.header().previous_state_merkle_root() == "new-previous-root" );
+  assert( block.header().signer() == util::from_base58< std::string >( test_producer_address ) );
+}
+
 } // anonymous namespace
 
 int main()
 {
   test_federated_block_assembly_and_acceptance();
   test_failed_transactions_are_pruned_and_retried();
+  test_pob_candidate_refreshes_when_head_advances();
   return 0;
 }

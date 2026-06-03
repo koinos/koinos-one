@@ -2,12 +2,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { executableExtension } from './platform'
 
-export const DEFAULT_BASEDIR = path.join(os.homedir(), '.koinos')
+export const DEFAULT_BASEDIR = path.join(os.homedir(), '.koinosgui')
 export const DEFAULT_BLOCKCHAIN_BACKUP_URL = 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
 export const PUBLIC_KOINOS_RPC_URL = 'https://api.koinos.io/'
 export const DEFAULT_PUBLIC_RPC_URLS = ['https://api.koinos.io/', 'https://api.koinosblocks.com/'] as const
-export const NODE_SETTINGS_STORAGE_KEY = 'knodel.koinos-node.settings.v1'
-export const LANGUAGE_STORAGE_KEY = 'knodel.ui.language.v1'
+export const NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
+export const LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
 export const KOIN_CONTRACT_ADDRESS = '19GYjDBVXU7keLbYvMLazsGQn3GTWHjHkK'
 export const VHP_CONTRACT_ADDRESS = '12Y5vW6gk8GceH53YfRkRre2Rrcsgw7Naq'
 export const POB_CONTRACT_ADDRESS = '159myq5YUhhoVWu3wsHKHiJYKPKGUrGiyv'
@@ -40,7 +40,8 @@ export function resolveDefaultKoinosRepoPath(): string {
 
 /** True when running from a packaged electron-builder .exe (not dev mode). */
 export function isPackagedBuild(): boolean {
-  return !(process as NodeJS.Process & { defaultApp?: boolean }).defaultApp
+  const electronProcess = process as NodeJS.Process & { defaultApp?: boolean; resourcesPath?: string }
+  return Boolean(electronProcess.resourcesPath && !electronProcess.defaultApp)
 }
 
 /** Root directory for bundled Koinos binaries (packaged) or vendor source (dev). */

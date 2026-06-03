@@ -1,8 +1,8 @@
 import type { ExplorerSettings, NodeManagerSettings } from './types'
 
-export const SETTINGS_STORAGE_KEY = 'knodel.explorer.settings.v1'
-export const NODE_SETTINGS_STORAGE_KEY = 'knodel.koinos-node.settings.v1'
-export const LANGUAGE_STORAGE_KEY = 'knodel.ui.language.v1'
+export const SETTINGS_STORAGE_KEY = 'koinosgui.explorer.settings.v1'
+export const NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
+export const LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
 export const LOCAL_RPC_SOURCE = 'local'
 export const DEFAULT_PUBLIC_RPC_URLS = ['https://api.koinos.io/', 'https://api.koinosblocks.com/'] as const
 export const LOCAL_NODE_RPC_FALLBACK_URL = 'http://127.0.0.1:8080/'
@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS = {
 
 export const DEFAULT_NODE_SETTINGS = {
   repoPath: '/Users/pgarcgo/code/koinos_code/koinos',
-  baseDir: '~/.koinos',
+  baseDir: '~/.koinosgui',
   profiles: 'block_producer,jsonrpc,contract_meta_store',
   blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
 } as const satisfies NodeManagerSettings

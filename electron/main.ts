@@ -217,6 +217,7 @@ import { createWalletService } from './lib/wallet-service'
 import { createWorkspaceService } from './lib/workspace-service'
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL
+app.setName('koinosGUI')
 let appShutdownInProgress = false
 let appShutdownApproved = false
 let mainWindow: BrowserWindow | null = null
@@ -231,9 +232,10 @@ const nativeServiceVersionCache = new Map<string, ServiceVersionCacheEntry>()
 let logsFollowSessionSeq = 0
 const MAX_NATIVE_SERVICE_LOG_BYTES = 512 * 1024
 const NATIVE_AMQP_STARTUP_TIMEOUT_MS = 90000
+const MONOLITH_DEFAULT_DISABLED_FEATURES: readonly string[] = []
 
 // ---------------------------------------------------------------------------
-// Monolith mode: single koinos_node binary replaces 12 microservices
+// Monolith mode: single koinos_node binary with in-process Koinos components
 // ---------------------------------------------------------------------------
 
 /** True when the monolith binary is available (built or bundled). */
@@ -247,6 +249,24 @@ function isMonolithAvailable(): boolean {
 
 /** Monolith process state — null when not started. */
 let monolithProcessState: NativeServiceProcessState | null = null
+let monolithDisabledFeatures = new Set<string>(MONOLITH_DEFAULT_DISABLED_FEATURES)
+let monolithFallbackReason: string | null = null
+
+function shouldUseMonolithMode(): boolean {
+  return true
+}
+
+function monolithFallbackMessage(reason: string): string {
+  return [
+    'Monolith startup failed. koinosGUI manages only the monolithic koinos_node runtime.',
+    reason
+  ].filter(Boolean).join('\n')
+}
+
+function activateMonolithFallback(reason: string): string {
+  monolithFallbackReason = reason.trim() || 'koinos_node failed to start'
+  return monolithFallbackMessage(monolithFallbackReason)
+}
 
 /** Start the monolithic koinos_node binary. */
 async function startMonolithProcess(
@@ -275,8 +295,14 @@ async function startMonolithProcess(
     `--basedir=${settings.baseDir}`,
     '--log-level=info'
   ]
-  for (const feat of enabledFeatures) args.push(`--enable=${feat}`)
-  for (const feat of disabledFeatures) args.push(`--disable=${feat}`)
+  const enabled = new Set(enabledFeatures)
+  const disabled = new Set<string>(disabledFeatures)
+  for (const feat of MONOLITH_DEFAULT_DISABLED_FEATURES) {
+    if (!enabled.has(feat)) disabled.add(feat)
+  }
+  monolithDisabledFeatures = new Set(disabled)
+  for (const feat of enabled) args.push(`--enable=${feat}`)
+  for (const feat of disabled) args.push(`--disable=${feat}`)
 
   const child = spawn(binaryPath, args, {
     cwd: settings.baseDir,
@@ -394,29 +420,28 @@ function parseMonolithComponentHealth(): ComponentHealth[] {
   const isRunning = monolithProcessState != null && !monolithProcessState.closed
 
   return [...MONOLITH_CORE_COMPONENTS, ...MONOLITH_OPTIONAL_COMPONENTS].map((name) => {
+    const enabled = !monolithDisabledFeatures.has(name)
     // A component is considered healthy if the monolith is running and
     // we've seen log output from it
-    const pattern = new RegExp(`^\\[${name}\\]`, 'm')
-    const hasOutput = pattern.test(output)
+    const hasOutput = output.includes(`[${name}]`)
     return {
       name,
-      enabled: true,
-      healthy: isRunning && hasOutput,
-      details: isRunning
-        ? hasOutput ? 'Running' : 'Waiting...'
-        : 'Stopped'
+      enabled,
+      healthy: enabled && isRunning && hasOutput,
+      details: !enabled
+        ? 'Disabled'
+        : isRunning
+          ? hasOutput ? 'Running' : 'Waiting...'
+          : 'Stopped'
     }
   })
 }
 
-/**
- * Build feature flags for a preset in monolith mode.
- * Core components (chain, mempool, block_store, p2p) are always on.
- */
+/** Build feature flags for a preset in monolith mode. */
 function presetToFeatureFlags(presetId: string): Record<string, boolean> {
   const flags: Record<string, boolean> = {}
 
-  // Core components always on
+  // Core components default on, including cpp-libp2p now that Gate D is closed.
   for (const comp of MONOLITH_CORE_COMPONENTS) flags[comp] = true
 
   // Optional components default off
@@ -445,6 +470,32 @@ function presetToFeatureFlags(presetId: string): Record<string, boolean> {
   }
 
   return flags
+}
+
+function monolithFeatureCliArgs(featureFlags: Record<string, boolean>): { enabled: string[]; disabled: string[] } {
+  const enabled: string[] = []
+  const disabled: string[] = []
+  for (const component of [...MONOLITH_CORE_COMPONENTS, ...MONOLITH_OPTIONAL_COMPONENTS]) {
+    if (!(component in featureFlags)) continue
+    if (featureFlags[component]) enabled.push(component)
+    else disabled.push(component)
+  }
+  return { enabled, disabled }
+}
+
+function writeMonolithFeatureConfig(settings: KoinosNodeSettings, featureFlags: Record<string, boolean>): string {
+  ensureKoinosConfigFiles(settings)
+  ensureBaseDirKoinosRuntimeFiles(settings)
+
+  const configPath = path.join(settings.baseDir, 'config.yml')
+  const yaml = require('yaml')
+  const doc = yaml.parseDocument(fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf-8') : '')
+  for (const [component, enabled] of Object.entries(featureFlags)) {
+    doc.setIn(['features', component], enabled)
+  }
+  fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  fs.writeFileSync(configPath, doc.toString(), 'utf-8')
+  return configPath
 }
 const BLOCKCHAIN_BACKUP_REQUIRED_DIRS = ['chain', 'block_store'] as const
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
@@ -1405,7 +1456,7 @@ function parseLatestP2pPeersSnapshot(logOutput: string): {
 async function fetchCoinMarketCapKoinPriceUsd(): Promise<number | null> {
   try {
     const response = await fetch('https://coinmarketcap.com/currencies/koinos/', {
-      headers: { 'user-agent': 'Mozilla/5.0 (Knodel Producer Panel)' }
+      headers: { 'user-agent': 'Mozilla/5.0 (koinosGUI Producer Panel)' }
     })
     if (!response.ok) return null
     const html = await response.text()
@@ -1552,11 +1603,11 @@ function buildProfilePresets(_settings: KoinosNodeSettings): KoinosNodePreset[] 
     presets.push({
       id: `profile:${profile}`,
       label,
-      source: isMonolithAvailable() ? 'features' : 'profile',
+      source: shouldUseMonolithMode() ? 'features' : 'profile',
       profiles,
       services: serviceIds,
       featureFlags: presetToFeatureFlags(profile),
-      description: `Profile "${profile}" (${serviceIds.length} servicios)`
+      description: `Profile "${profile}" (${serviceIds.length} components)`
     })
   }
 
@@ -1800,7 +1851,7 @@ function describeExternalNativeServiceConflict(
 ): string {
   const pidLabel = processes.length === 1 ? 'pid' : 'pids'
   const pidList = processes.map((entry) => String(entry.pid)).join(', ')
-  return `Se detecto otro proceso nativo para ${serviceId} usando el mismo baseDir ${settings.baseDir} (${pidLabel}: ${pidList}). Detenlo antes de arrancar este servicio.`
+  return `External native process detected for ${serviceId} using the same baseDir ${settings.baseDir} (${pidLabel}: ${pidList}). Stop it before starting this component.`
 }
 
 function nativeManagedProcessRegistryOutput(settings?: KoinosNodeSettings): string {
@@ -1948,15 +1999,19 @@ function tcpListenerOwnedByRabbitmq(listener: TcpListenerOwner): boolean {
 }
 
 async function nativeBuildStatus(): Promise<KoinosNodeNativeBuildsResult> {
-  return nativeBuildService.nativeBuildStatus()
+  return nativeBuildService.monolithBuildStatus()
 }
 
 async function nativeBuildAll(): Promise<KoinosNodeNativeBuildCommandResult> {
-  return nativeBuildService.nativeBuildAll()
+  const result = await nativeBuildService.monolithBuildAll()
+  if (result.ok && result.builds.ok) monolithFallbackReason = null
+  return result
 }
 
 async function nativeBuildServiceAction(input?: KoinosNodeNativeBuildCommandInput): Promise<KoinosNodeNativeBuildCommandResult> {
-  return nativeBuildService.nativeBuildServiceAction(input)
+  const result = await nativeBuildService.monolithBuildServiceAction(input)
+  if (result.ok && result.builds.ok) monolithFallbackReason = null
+  return result
 }
 
 function normalizeLogsTail(inputTail: unknown, fallback = 200): number {
@@ -2109,7 +2164,7 @@ function ensureNativeAmqpRuntimeFiles(
   const amqpAdminPort = composeServicePortByTarget(serviceDefinitions.get('amqp'), 15672)
   const configLines = [
     sourceConfig,
-    '# Generated by Knodel for native runtime',
+    '# Generated by koinosGUI for native runtime compatibility',
     `listeners.tcp.default = ${nativeRabbitmqListenerValue(amqpPort, 5672)}`,
     amqpAdminPort?.host && amqpAdminPort.host !== '0.0.0.0' ? `management.tcp.ip = ${amqpAdminPort.host}` : '',
     `management.tcp.port = ${amqpAdminPort?.publishedPort ?? 15672}`
@@ -2762,7 +2817,7 @@ async function startNativeServiceProcess(
   if (state.closed) {
     return {
       ok: false,
-      output: tailTextLines(state.output, 80) || state.lastError || `El servicio ${serviceId} salio al arrancar`
+      output: tailTextLines(state.output, 80) || state.lastError || `Component ${serviceId} exited during startup`
     }
   }
 
@@ -2858,7 +2913,7 @@ async function nativeServiceStatusFromProcessState(
       status: `Running with old BASEDIR (pid ${state.child.pid ?? 'n/a'})`,
       ports: serviceDefinition.ports,
       dependsOn: serviceDefinition.dependsOn.map(toManagedServiceId),
-      lastError: `El servicio sigue usando BASEDIR ${state.baseDir}. Reinicia para moverlo a ${settings.baseDir}.`,
+      lastError: `Component is still using BASEDIR ${state.baseDir}. Restart it to move it to ${settings.baseDir}.`,
       nativePid: state.child.pid ?? null,
       conflictPids: [],
       managedByKnodel: true
@@ -3080,7 +3135,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
   const configDir = configDirPath(settings)
 
   // Monolith mode: single process status with component health
-  if (isMonolithAvailable() || (monolithProcessState && !monolithProcessState.closed)) {
+  if (shouldUseMonolithMode() || (monolithProcessState && !monolithProcessState.closed)) {
     const isRunning = monolithProcessState != null && !monolithProcessState.closed
     const monolithService: ServiceStatus = {
       id: 'koinos-node',
@@ -3098,7 +3153,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
       ],
       dependsOn: [],
       lastError: monolithProcessState?.lastError ?? null,
-      nativePid: monolithProcessState?.child.pid ?? null,
+      nativePid: isRunning ? monolithProcessState?.child.pid ?? null : null,
       conflictPids: [],
       managedByKnodel: true
     }
@@ -3192,7 +3247,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
     components,
     runningServices,
     output: [
-      '',
+      monolithFallbackReason ? monolithFallbackMessage(monolithFallbackReason) : '',
       nativeManagedProcessRegistryOutput(settings),
       unavailableNativeServices.length > 0
         ? unavailableNativeServices.map((service) => service.lastError).filter(Boolean).join('\n')
@@ -3319,13 +3374,16 @@ async function koinosNodeAction(
 ): Promise<KoinosNodeCommandResult> {
   const settings = normalizeNodeSettings(input)
 
-  // Use monolith mode when the binary is available
-  if (isMonolithAvailable()) {
+  // Use monolith mode when the binary is available and not disabled by a startup fallback.
+  if (shouldUseMonolithMode()) {
     assertRepoReady(settings)
     const result =
       action === 'start'
         ? await startMonolithProcess(settings, [], [])
         : await stopMonolithProcess()
+    if (action === 'start' && !result.ok) {
+      monolithFallbackReason = result.output
+    }
     const status = await nativeComposeStatus(settings)
     return { ok: result.ok, action, output: result.output, status }
   }
@@ -3337,6 +3395,80 @@ async function koinosNodeServiceAction(
   action: 'start' | 'stop' | 'restart' | 'kill-conflict',
   input?: KoinosNodeServiceCommandInput
 ): Promise<KoinosNodeServiceCommandResult> {
+  if (shouldUseMonolithMode()) {
+    const settings = normalizeNodeSettings(input)
+    const service = input?.service?.trim() || 'koinos-node'
+
+    if (service !== 'koinos-node') {
+      const status = await nativeComposeStatus(settings)
+      return {
+        ok: false,
+        action,
+        service,
+        output: `Monolith mode manages a single koinos-node process; ${service} is a component, not a standalone service`,
+        status
+      }
+    }
+
+    let result: { ok: boolean; output: string }
+    if (action === 'start') {
+      result = await startMonolithProcess(settings, [], [])
+    } else if (action === 'stop') {
+      result = await stopMonolithProcess()
+    } else if (action === 'restart') {
+      const stopResult = await stopMonolithProcess()
+      const startResult = await startMonolithProcess(settings, [], [])
+      result = {
+        ok: stopResult.ok && startResult.ok,
+        output: [stopResult.output, startResult.output].filter(Boolean).join('\n')
+      }
+    } else {
+      result = {
+        ok: true,
+        output: 'Monolith mode has no per-service conflict process to kill'
+      }
+    }
+
+    if ((action === 'start' || action === 'restart') && !result.ok) {
+      monolithFallbackReason = result.output
+    }
+
+    return {
+      ok: result.ok,
+      action,
+      service,
+      output: result.output,
+      status: await nativeComposeStatus(settings)
+    }
+  }
+
+  const service = input?.service?.trim() || ''
+  if (service === 'koinos-node') {
+    const settings = normalizeNodeSettings(input)
+    let result: { ok: boolean; output: string }
+    if (action === 'stop') {
+      result = await nativeComposeAction('stop', settings)
+    } else if (action === 'restart') {
+      const stopResult = await nativeComposeAction('stop', settings)
+      const startResult = await nativeComposeAction('start', settings)
+      result = {
+        ok: stopResult.ok && startResult.ok,
+        output: [stopResult.output, startResult.output].filter(Boolean).join('\n')
+      }
+    } else if (action === 'kill-conflict') {
+      result = { ok: true, output: 'Native multi-service mode has no koinos-node process to kill' }
+    } else {
+      result = await nativeComposeAction('start', settings)
+    }
+    return {
+      ok: result.ok,
+      action,
+      service,
+      output: result.output,
+      status: await nativeComposeStatus(settings)
+    }
+  }
+
   return nativeComposeServiceAction(action, input)
 }
 
@@ -3358,15 +3490,9 @@ async function koinosNodeComponentToggle(
   }
 
   // Monolith mode: write feature flag to config.yml and restart
-  if (isMonolithAvailable()) {
+  if (shouldUseMonolithMode()) {
     try {
-      const configPath = path.join(settings.baseDir, 'config.yml')
-      if (fs.existsSync(configPath)) {
-        const yaml = require('yaml')
-        const doc = yaml.parseDocument(fs.readFileSync(configPath, 'utf-8'))
-        doc.setIn(['features', component], enabled)
-        fs.writeFileSync(configPath, doc.toString(), 'utf-8')
-      }
+      writeMonolithFeatureConfig(settings, { [component]: enabled })
     } catch (error) {
       return {
         ok: false,
@@ -3380,7 +3506,7 @@ async function koinosNodeComponentToggle(
     // Restart monolith if running
     if (monolithProcessState && !monolithProcessState.closed) {
       await stopMonolithProcess()
-      await startMonolithProcess(settings, [], [])
+      await startMonolithProcess(settings, enabled ? [component] : [], enabled ? [] : [component])
     }
 
     return {
@@ -3411,6 +3537,69 @@ async function koinosNodeComponentToggle(
 async function koinosNodePresetReconcile(
   input?: KoinosNodePresetCommandInput
 ): Promise<KoinosNodePresetCommandResult> {
+  if (shouldUseMonolithMode()) {
+    const initialSettings = normalizeNodeSettings(input)
+    const presetId = input?.presetId?.trim() || ''
+    if (!presetId) {
+      return {
+        ok: false,
+        action: 'reconcile',
+        presetId: '',
+        output: 'Parametro presetId invalido',
+        status: await nativeComposeStatus(initialSettings)
+      }
+    }
+
+    let presetSettings = initialSettings
+    let preset: KoinosNodePreset | null = null
+
+    try {
+      const resolved = await resolvePresetOrThrow(initialSettings, presetId)
+      preset = resolved.preset
+      presetSettings = resolved.settings
+    } catch (error) {
+      return {
+        ok: false,
+        action: 'reconcile',
+        presetId,
+        output: error instanceof Error ? error.message : 'No se pudo resolver el profile',
+        status: await nativeComposeStatus(initialSettings)
+      }
+    }
+
+    try {
+      assertRepoReady(presetSettings)
+      const featureFlags = preset.featureFlags ?? presetToFeatureFlags(presetId)
+      const configPath = writeMonolithFeatureConfig(presetSettings, featureFlags)
+      const { enabled, disabled } = monolithFeatureCliArgs(featureFlags)
+      const stopResult = monolithProcessState && !monolithProcessState.closed
+        ? await stopMonolithProcess()
+        : { ok: true, output: 'koinos_node ya estaba detenido' }
+      const startResult = await startMonolithProcess(presetSettings, enabled, disabled)
+      const output = [
+        `Updated monolith feature flags in ${configPath}`,
+        stopResult.output,
+        startResult.output
+      ].filter(Boolean).join('\n')
+
+      return {
+        ok: stopResult.ok && startResult.ok,
+        action: 'reconcile',
+        presetId,
+        output,
+        status: await nativeComposeStatus(presetSettings)
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        action: 'reconcile',
+        presetId,
+        output: error instanceof Error ? error.message : 'No se pudo aplicar el preset monolitico',
+        status: await nativeComposeStatus(presetSettings)
+      }
+    }
+  }
+
   return nativeComposePresetReconcile(input)
 }
 

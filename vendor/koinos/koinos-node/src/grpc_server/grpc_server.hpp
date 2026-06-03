@@ -9,6 +9,9 @@
 #include "interfaces/i_block_store.hpp"
 #include "interfaces/i_chain.hpp"
 #include "interfaces/i_mempool.hpp"
+#include "account_history/account_history.hpp"
+#include "contract_meta_store/contract_meta_store.hpp"
+#include "transaction_store/transaction_store.hpp"
 
 namespace koinos::node::grpc_server {
 
@@ -29,18 +32,27 @@ public:
   GRPCServer( IChain* chain,
               IMempool* mempool,
               IBlockStore* block_store,
+              contract_meta_store::ContractMetaStore* contract_meta = nullptr,
+              transaction_store::TransactionStore* tx_store         = nullptr,
+              account_history::AccountHistory* acct_history         = nullptr,
               const std::string& listen_address = "0.0.0.0:50051",
-              unsigned int threads               = 2 );
+              unsigned int threads               = 2,
+              const std::atomic< bool >* gossip_status = nullptr );
 
   ~GRPCServer();
 
   void start();
   void stop();
+  int bound_port() const;
 
 private:
   IChain* _chain;
   IMempool* _mempool;
   IBlockStore* _block_store;
+  contract_meta_store::ContractMetaStore* _contract_meta;
+  transaction_store::TransactionStore* _tx_store;
+  account_history::AccountHistory* _acct_history;
+  const std::atomic< bool >* _gossip_status;
 
   std::string _listen_address;
   unsigned int _thread_count;

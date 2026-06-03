@@ -15,6 +15,9 @@ export type NativeServiceBuildDefinition = {
   buildCommands: string[]
   buildTarget?: string
   goPackage?: string
+  cmakeConfigureArgs?: string[]
+  cmakeBuildArgs?: string[]
+  cmakeBuildDir?: string
 }
 
 /** Re-export for backwards compatibility */
@@ -178,6 +181,108 @@ export function nativeCmakeBuildCommand(buildDir = 'build'): string {
   return [nativeCmakeExecutable(), '--build', buildDir, '--config', 'Release', '--parallel'].join(' ')
 }
 
+function readCmakeCacheValue(cachePath: string, key: string): string | null {
+  if (!fs.existsSync(cachePath)) return null
+
+  try {
+    const pattern = new RegExp(`^${key}:[^=]*=(.+)$`, 'm')
+    const match = fs.readFileSync(cachePath, 'utf-8').match(pattern)
+    return match?.[1]?.trim() || null
+  } catch {
+    return null
+  }
+}
+
+function cmakePrefixFromPackageDir(packageDir: string | null): string | null {
+  if (!packageDir) return null
+  const marker = `${path.sep}lib${path.sep}cmake${path.sep}`
+  const index = packageDir.indexOf(marker)
+  if (index < 0) return null
+  const prefix = packageDir.slice(0, index)
+  return fs.existsSync(prefix) ? prefix : null
+}
+
+function existingPaths(paths: Array<string | null | undefined>): string[] {
+  return paths.filter((entry): entry is string => Boolean(entry && fs.existsSync(entry)))
+}
+
+function uniqueCmakePrefixPath(paths: string[]): string {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const prefix of paths) {
+    const trimmed = prefix.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    normalized.push(trimmed)
+  }
+  return normalized.join(';')
+}
+
+function formatCommand(command: string, args: string[]): string {
+  return [command, ...args]
+    .map((part) => (/[\s"'$`\\]/.test(part) ? `'${part.replace(/'/g, `'\\''`)}'` : part))
+    .join(' ')
+}
+
+export function monolithCmakeConfigureArgs(sourceRoot = resolveDefaultKoinosSourceRoot(), buildDir = 'build'): string[] {
+  const repoPath = path.join(sourceRoot, 'koinos-node')
+  const cachePath = path.join(repoPath, buildDir, 'CMakeCache.txt')
+  const koinosPrefix = cmakePrefixFromPackageDir(readCmakeCacheValue(cachePath, 'koinos_proto_DIR'))
+  const cppLibp2pAuxPrefix =
+    cmakePrefixFromPackageDir(readCmakeCacheValue(cachePath, 'soralog_DIR')) ??
+    cmakePrefixFromPackageDir(readCmakeCacheValue(cachePath, 'Boost.DI_DIR'))
+  const homebrew = homebrewPrefix()
+
+  const cppLibp2pPrefix = path.join(repoPath, '.deps', 'cpp-libp2p-koinos')
+  const thirdPartyInclude = path.join(repoPath, '.deps', 'cpp-libp2p-thirdparty-include')
+  const shimPrefix = path.join(repoPath, 'cmake', 'shims')
+  const preludePath = path.join(repoPath, 'cmake', 'cpp-libp2p-koinos-prelude.cmake')
+
+  const fallbackKoinosPrefixes = [
+    '/Volumes/external/.hunter/_Base/a20151e/caf7adb/26936b6/Install',
+    path.join(os.homedir(), '.hunter', '_Base', 'a20151e', 'caf7adb', '26936b6', 'Install')
+  ]
+  const fallbackCppLibp2pAuxPrefixes = [
+    '/Volumes/external/.hunter/_Base/15ca502/b7ec3c0/00f4bd3/Install',
+    path.join(os.homedir(), '.hunter', '_Base', '15ca502', 'b7ec3c0', '00f4bd3', 'Install')
+  ]
+
+  const prefixPaths = existingPaths([
+    shimPrefix,
+    cppLibp2pPrefix,
+    koinosPrefix,
+    ...fallbackKoinosPrefixes,
+    cppLibp2pAuxPrefix,
+    ...fallbackCppLibp2pAuxPrefixes,
+    homebrew
+  ])
+
+  const includePaths = existingPaths([koinosPrefix ? path.join(koinosPrefix, 'include') : null, thirdPartyInclude])
+  const args = nativeCmakeConfigureArgs(buildDir)
+
+  args.push('-D', 'KOINOS_ENABLE_LIBP2P=ON')
+  args.push('-D', `CMAKE_PROJECT_INCLUDE=${preludePath}`)
+  if (prefixPaths.length > 0) args.push('-D', `CMAKE_PREFIX_PATH=${uniqueCmakePrefixPath(prefixPaths)}`)
+
+  const opensslRoot = existingPaths([koinosPrefix, ...fallbackKoinosPrefixes]).find((prefix) =>
+    fs.existsSync(path.join(prefix, 'lib', 'cmake', 'OpenSSL'))
+  )
+  if (opensslRoot) args.push('-D', `OPENSSL_ROOT_DIR=${opensslRoot}`)
+
+  const zlibRoot = existingPaths([koinosPrefix, ...fallbackKoinosPrefixes]).find(
+    (prefix) => fs.existsSync(path.join(prefix, 'include', 'zlib.h')) && fs.existsSync(path.join(prefix, 'lib', 'libz.a'))
+  )
+  if (zlibRoot) {
+    args.push('-D', `ZLIB_INCLUDE_DIR=${path.join(zlibRoot, 'include')}`)
+    args.push('-D', `ZLIB_LIBRARY=${path.join(zlibRoot, 'lib', 'libz.a')}`)
+  }
+
+  if (includePaths.length > 0) args.push('-D', `CMAKE_CXX_FLAGS=${includePaths.map((includePath) => `-I${includePath}`).join(' ')}`)
+  args.push('-D', `CMAKE_RUNTIME_OUTPUT_DIRECTORY=${path.join(repoPath, buildDir)}`)
+
+  return args
+}
+
 export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosSourceRoot()): NativeServiceBuildDefinition[] {
   const ext = executableExtension()
 
@@ -313,11 +418,17 @@ export function monolithBuildDefinition(sourceRoot = resolveDefaultKoinosSourceR
   }
 
   const cmakeBuildDir = isWindows() ? 'build-win' : 'build'
+  const configureArgs = monolithCmakeConfigureArgs(sourceRoot, cmakeBuildDir)
+  const buildArgs = ['--build', cmakeBuildDir, '--config', 'Release', '--parallel']
+
   return {
     serviceId: 'koinos-node',
     repoPath: path.join(sourceRoot, 'koinos-node'),
     buildSystem: 'cmake',
     artifactPath: path.join(sourceRoot, 'koinos-node', cmakeBuildDir, 'koinos_node' + executableExtension()),
-    buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
+    buildCommands: [formatCommand(nativeCmakeExecutable(), configureArgs), formatCommand(nativeCmakeExecutable(), buildArgs)],
+    cmakeConfigureArgs: configureArgs,
+    cmakeBuildArgs: buildArgs,
+    cmakeBuildDir
   }
 }

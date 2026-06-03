@@ -76,6 +76,32 @@ export function filterLogsByComponent(logs: string, component: string): string {
 }
 
 export function createLogsService(deps: LogsServiceDeps) {
+  function resolveLogTarget(status: KoinosNodeStatus, service: string): { service: string; nativeServiceId: string; component: string | null } | null {
+    if (!service) return null
+
+    const serviceId = deps.toManagedServiceId(service)
+    const targetService = status.services.find((candidate) => candidate.service === service || candidate.id === serviceId)
+    if (targetService) {
+      return {
+        service: targetService.service,
+        nativeServiceId: targetService.id,
+        component: null
+      }
+    }
+
+    const monolithService = status.services.find((candidate) => candidate.id === 'koinos-node')
+    const targetComponent = status.components.find((candidate) => candidate.name === serviceId)
+    if (monolithService && targetComponent) {
+      return {
+        service: targetComponent.name,
+        nativeServiceId: monolithService.id,
+        component: targetComponent.name
+      }
+    }
+
+    return null
+  }
+
   function tailNativeAmqpHomebrewLogs(tail: number): string {
     return deps.nativeAmqpHomebrewLogFiles()
       .map((filePath) => {
@@ -119,10 +145,15 @@ export function createLogsService(deps: LogsServiceDeps) {
         continue
       }
 
+      const output = serviceId === 'koinos-node' && session.service && session.service !== serviceId
+        ? filterLogsByComponent(text, session.service)
+        : text
+      if (!output) continue
+
       sendLogsFollowEvent(session.sender, deps.logsFollowEventChannel, {
         streamId,
         type: 'chunk',
-        chunk: text
+        chunk: output
       })
     }
 
@@ -255,9 +286,8 @@ export function createLogsService(deps: LogsServiceDeps) {
     const status = await deps.nativeComposeStatus(settings)
 
     if (service) {
-      const serviceId = deps.toManagedServiceId(service)
-      const targetService = status.services.find((candidate) => candidate.service === service || candidate.id === serviceId)
-      if (!targetService) {
+      const logTarget = resolveLogTarget(status, service)
+      if (!logTarget) {
         return {
           ok: false,
           service: service || null,
@@ -266,35 +296,24 @@ export function createLogsService(deps: LogsServiceDeps) {
         }
       }
 
-      if (serviceId === 'amqp' && deps.nativeAmqpUsesBrewService()) {
+      if (logTarget.nativeServiceId === 'amqp' && deps.nativeAmqpUsesBrewService()) {
         return {
           ok: true,
-          service: targetService.service,
+          service: logTarget.service,
           tail,
           output: tailNativeAmqpHomebrewLogs(tail)
         }
       }
 
-      // In monolith mode, the single 'koinos-node' process contains all logs.
-      // Filter by [component] prefix when requesting a specific component.
-      const monolithState = deps.nativeServiceProcesses.get('koinos-node')
-      if (monolithState && !deps.nativeServiceProcesses.has(serviceId)) {
-        // serviceId is a component name within the monolith
-        const filtered = filterLogsByComponent(monolithState.output, serviceId)
-        return {
-          ok: true,
-          service: targetService.service,
-          tail,
-          output: tailTextLines(filtered, tail)
-        }
-      }
-
-      const state = deps.nativeServiceProcesses.get(serviceId)
+      const state = deps.nativeServiceProcesses.get(logTarget.nativeServiceId)
+      const output = logTarget.component
+        ? filterLogsByComponent(state?.output ?? '', logTarget.component)
+        : state?.output ?? ''
       return {
         ok: true,
-        service: targetService.service,
+        service: logTarget.service,
         tail,
-        output: tailTextLines(state?.output ?? '', tail)
+        output: tailTextLines(output, tail)
       }
     }
 
@@ -327,12 +346,9 @@ export function createLogsService(deps: LogsServiceDeps) {
     const status = await deps.nativeComposeStatus(settings)
 
     const streamId = deps.nextStreamId()
-    const serviceId = deps.toManagedServiceId(service)
-    const targetService = service
-      ? status.services.find((candidate) => candidate.service === service || candidate.id === serviceId) ?? null
-      : null
+    const logTarget = resolveLogTarget(status, service)
 
-    if (!targetService) {
+    if (!logTarget) {
       return {
         ok: false,
         streamId,
@@ -342,14 +358,14 @@ export function createLogsService(deps: LogsServiceDeps) {
       }
     }
 
-    if (targetService.id === 'amqp' && deps.nativeAmqpUsesBrewService()) {
-      return nativeAmqpHomebrewLogsFollowStart(sender, targetService.service, tail, streamId)
+    if (logTarget.nativeServiceId === 'amqp' && deps.nativeAmqpUsesBrewService()) {
+      return nativeAmqpHomebrewLogsFollowStart(sender, logTarget.service, tail, streamId)
     }
 
-    const nativeServiceId = targetService.id
+    const nativeServiceId = logTarget.nativeServiceId
     const session: LogsFollowSession = {
       sender,
-      service: targetService.service,
+      service: logTarget.service,
       tail,
       ended: false,
       stop: () => {
@@ -368,12 +384,15 @@ export function createLogsService(deps: LogsServiceDeps) {
     sendLogsFollowEvent(sender, deps.logsFollowEventChannel, {
       streamId,
       type: 'start',
-      service: targetService.service,
+      service: logTarget.service,
       tail
     })
 
     const state = deps.nativeServiceProcesses.get(nativeServiceId)
-    const initialChunk = tailTextLines(state?.output ?? '', tail)
+    const initialOutput = logTarget.component
+      ? filterLogsByComponent(state?.output ?? '', logTarget.component)
+      : state?.output ?? ''
+    const initialChunk = tailTextLines(initialOutput, tail)
     if (initialChunk) {
       sendLogsFollowEvent(sender, deps.logsFollowEventChannel, {
         streamId,
@@ -394,7 +413,7 @@ export function createLogsService(deps: LogsServiceDeps) {
     return {
       ok: true,
       streamId,
-      service: targetService.service,
+      service: logTarget.service,
       tail
     }
   }

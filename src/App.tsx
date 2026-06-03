@@ -1673,9 +1673,9 @@ export function App() {
       }
 
       if (nodeLogsModalOpen && nodeLogsService) {
-        const logsServiceStillRunning = result.status.services.some(
-          (service) => service.id === nodeLogsService && isNodeServiceRunning(service)
-        )
+        const logsServiceStillRunning =
+          result.status.services.some((service) => service.id === nodeLogsService && isNodeServiceRunning(service)) ||
+          result.status.components.some((component) => component.name === nodeLogsService && component.enabled)
 
         if (logsServiceStillRunning) {
           void refreshNodeLogs(nodeLogsService)

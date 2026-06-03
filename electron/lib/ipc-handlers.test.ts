@@ -6,13 +6,18 @@ type FakeHandler = (event: { sender: unknown }, input?: unknown) => Promise<unkn
 
 function createFakeIpcMain() {
   const handlers = new Map<string, FakeHandler>()
+  const syncHandlers = new Map<string, unknown>()
   return {
     handlers,
+    syncHandlers,
     removeHandler(channel: string) {
       handlers.delete(channel)
     },
     handle(channel: string, handler: FakeHandler) {
       handlers.set(channel, handler)
+    },
+    on(channel: string, handler: unknown) {
+      syncHandlers.set(channel, handler)
     }
   }
 }

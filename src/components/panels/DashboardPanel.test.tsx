@@ -10,16 +10,16 @@ const translations: Record<string, string> = {
   'dashboard.subtab.peers': 'Peers',
   'dashboard.subtab.forecast': 'Forecast',
   'dashboard.subtab.performance': 'Performance',
-  'dashboard.performance.knodelCpu': 'Knodel CPU',
-  'dashboard.performance.knodelRam': 'Knodel RAM',
-  'dashboard.performance.servicesCpu': 'Services CPU',
-  'dashboard.performance.servicesRam': 'Services RAM',
+  'dashboard.performance.knodelCpu': 'koinosGUI CPU',
+  'dashboard.performance.knodelRam': 'koinosGUI RAM',
+  'dashboard.performance.servicesCpu': 'Node CPU',
+  'dashboard.performance.servicesRam': 'Node RAM',
   'dashboard.performance.freeSystemRam': 'Free system RAM',
   'dashboard.performance.lastSample': 'Last sample',
   'dashboard.performance.hostUptime': 'Host uptime',
   'dashboard.performance.hostCpus': 'Host CPUs',
   'dashboard.performanceTitle': 'Performance',
-  'dashboard.performanceDescription': 'Real-time CPU and memory snapshots for Knodel and managed native services.',
+  'dashboard.performanceDescription': 'Real-time CPU and memory snapshots for koinosGUI and the managed node process.',
   'dashboard.performanceHostSummary': 'Host summary',
   'dashboard.noPerformance': 'No performance snapshot is available yet.',
   'dashboard.col.name': 'Name',
@@ -30,8 +30,8 @@ const translations: Record<string, string> = {
   'dashboard.col.virtual': 'Virtual',
   'dashboard.col.uptime': 'Uptime',
   'dashboard.col.state': 'State',
-  'dashboard.kind.knodel': 'Knodel',
-  'dashboard.kind.service': 'Service',
+  'dashboard.kind.knodel': 'koinosGUI',
+  'dashboard.kind.service': 'Component',
   'common.na': 'N/A',
   'common.loading': 'Loading...'
 }
@@ -76,7 +76,7 @@ describe('DashboardPanel', () => {
           rows: [
             {
               id: 'knodel:1',
-              label: 'Knodel Main',
+              label: 'koinosGUI Main',
               kind: 'knodel',
               serviceId: null,
               pid: 111,
@@ -85,7 +85,7 @@ describe('DashboardPanel', () => {
               virtualBytes: null,
               uptimeSeconds: 600,
               state: 'Browser',
-              command: '/Applications/Knodel.app',
+              command: '/Applications/koinosGUI.app',
               managedByKnodel: true
             },
             {
@@ -112,10 +112,10 @@ describe('DashboardPanel', () => {
       />
     )
 
-    expect(html).toContain('Knodel CPU')
+    expect(html).toContain('koinosGUI CPU')
     expect(html).toContain('Performance')
     expect(html).toContain('Indexer')
-    expect(html).toContain('Service')
+    expect(html).toContain('Component')
     expect(html).toContain('12.5%')
     expect(html).toContain('512 MB')
     expect(html).toContain('1 GB')

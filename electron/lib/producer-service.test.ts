@@ -110,6 +110,27 @@ describe('producer-service helpers', () => {
     expect(snapshot?.snapshotAt).toBe(Date.parse('2026-03-11T09:40:01.123'))
   })
 
+  it('parses monolith-prefixed p2p peer snapshots from logs', () => {
+    const snapshot = parseLatestP2pPeersSnapshot(`
+2026-05-23 10:10:00.123456 [p2p] My address:
+2026-05-23 10:10:00.123457 [p2p]   - /ip4/127.0.0.1/tcp/8888/p2p/SELF
+2026-05-23 10:10:10.123456 [p2p] Connected peers:
+2026-05-23 10:10:10.123457 [p2p]   - /ip4/10.0.0.5/tcp/8888/p2p/PEER5
+`)
+
+    expect(snapshot).not.toBeNull()
+    expect(snapshot?.selfAddress).toBe('/ip4/127.0.0.1/tcp/8888/p2p/SELF')
+    expect(snapshot?.rows).toEqual([
+      {
+        address: '/ip4/10.0.0.5/tcp/8888/p2p/PEER5',
+        peerId: 'PEER5',
+        host: '10.0.0.5',
+        port: 8888
+      }
+    ])
+    expect(snapshot?.snapshotAt).toBe(Date.parse('2026-05-23T10:10:10.123'))
+  })
+
   it('parses ps output rows for dashboard performance', () => {
     expect(
       parseDashboardPerformancePsRow('123 12.5 2048 8192 1-02:03:04 Ss /usr/bin/koinosd --config test.yml')

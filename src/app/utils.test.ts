@@ -82,9 +82,10 @@ describe('URL normalization', () => {
 })
 
 describe('node path and state helpers', () => {
-  it('normalizes base dir to end with .koinos', () => {
+  it('normalizes base dir to end with .koinos while preserving .koinosgui', () => {
     expect(normalizeNodeBaseDirInput('~/data')).toBe('~/data/.koinos')
     expect(normalizeNodeBaseDirInput('~/data/.koinos/')).toBe('~/data/.koinos')
+    expect(normalizeNodeBaseDirInput('~/.koinosgui/')).toBe('~/.koinosgui')
   })
 
   it('resolves relative managed file paths against repo path', () => {
@@ -97,12 +98,12 @@ describe('node path and state helpers', () => {
     expect(sameStringList(['jsonrpc'], ['jsonrpc', 'amqp'])).toBe(false)
   })
 
-  it('expands the block producer profile to include jsonrpc', () => {
-    expect(expandNodeProfiles(['block_producer'])).toEqual(['block_producer', 'contract_meta_store', 'jsonrpc'])
+  it('keeps monolith component profiles explicit', () => {
+    expect(expandNodeProfiles(['block_producer'])).toEqual(['block_producer'])
   })
 
-  it('treats block_producer and block_producer,jsonrpc as the same effective profile', () => {
-    expect(sameProfiles(['block_producer'], ['block_producer', 'jsonrpc', 'contract_meta_store'])).toBe(true)
+  it('compares monolith component profiles without legacy dependency expansion', () => {
+    expect(sameProfiles(['block_producer'], ['block_producer', 'jsonrpc', 'contract_meta_store'])).toBe(false)
   })
 
   it('builds local node RPC URL from published jsonrpc port', () => {

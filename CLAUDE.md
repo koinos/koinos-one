@@ -1,8 +1,8 @@
-# Knodel — Claude Code Project Memory
+# koinosGUI — Claude Code Project Memory
 
-## What is Knodel
+## What is koinosGUI
 
-Knodel is an Electron + React + TypeScript desktop app for operating Koinos blockchain nodes. It manages native C++ microservices, encrypted wallets, block producer operations, and blockchain backup/restore. See `docs/knodel/ARCHITECTURE.md` for full architecture details.
+koinosGUI is an Electron + React + TypeScript desktop app for operating the monolithic Koinos blockchain node. It was split from Knodel, which remains the microservice app. koinosGUI manages the single `koinos_node` process, encrypted wallets, block producer operations, and blockchain backup/restore.
 
 ## Project Layout
 
@@ -52,8 +52,8 @@ docs/roadmap/       → Optimization plans and future ideas
 - Preset smoke successful for `profile:jsonrpc` (config write + restart + RPC response).
 
 ### Supporting Status Docs
-- `docs/roadmap/MONOLITH_PRODUCTION_PLAN.md` tracks checklist progress for Sprint 1.4 and critical path.
-- `docs/roadmap/CPP_LIBP2P_INTEGRATION_STATUS.md` tracks cpp-libp2p integration details and current Gate B blockers.
+- `docs/roadmap/monolith/core/MONOLITH_PRODUCTION_PLAN.md` tracks checklist progress for Sprint 1.4 and critical path.
+- `docs/roadmap/monolith/networking/CPP_LIBP2P_INTEGRATION_STATUS.md` tracks cpp-libp2p integration details and current Gate B blockers.
 
 ## Build & Dev
 
@@ -81,5 +81,5 @@ npm run package:mac  # electron-builder → DMG
 - Fallback UX is still pending: when monolith binary is missing or startup fails, UI should expose clear cause and allow multi-service fallback.
 - Gate B remains open: live libp2p Peer RPC interop + stable P2P runtime in C++ monolith.
 - **Existing non-monolith items (secondary):**
-- Backup compression optimization (`docs/roadmap/BACKUP_COMPRESSION_OPTIMIZATION.md`).
+- Backup compression optimization (`docs/roadmap/backup-restore/BACKUP_COMPRESSION_OPTIMIZATION.md`).
 - Docs tab in UI for markdown browsing.

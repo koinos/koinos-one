@@ -82,6 +82,8 @@ private:
 
   // ── Helpers ──
   void log_peer_snapshot();
+  bool get_local_block_height( const std::string& block_id, uint64_t& height );
+  std::string get_local_ancestor_block_id( const std::string& head_block_id, uint64_t height );
   bool report_peer_error( const PeerID& peer, const std::string& error, uint64_t score );
   uint64_t score_for_error( const std::string& error ) const;
 

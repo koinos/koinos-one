@@ -85,7 +85,7 @@ function copyDirRecursive(src, dest) {
 const platformLabel = isWindows ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux';
 
 console.log('============================================================================');
-console.log(`Staging Knodel bundle for ${platformLabel} installer`);
+console.log(`Staging koinosGUI bundle for ${platformLabel} installer`);
 console.log(`  Platform: ${platformLabel} (ext: "${EXT}", cpp build dir: ${CPP_BUILD_DIR})`);
 console.log(`  Vendor:   ${VENDOR}`);
 console.log(`  Staging:  ${STAGING}`);

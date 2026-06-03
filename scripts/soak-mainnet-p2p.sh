@@ -16,7 +16,7 @@ P2P_LISTEN="${P2P_LISTEN:-/ip4/0.0.0.0/tcp/8888}"
 P2P_PEERS_FILE="${P2P_PEERS_FILE:-$ROOT_DIR/scripts/mainnet-peer-candidates.txt}"
 BASEDIR="${MONOLITH_SOAK_BASEDIR:-$(mktemp -d -t knodel-mainnet-soak.XXXXXX)}"
 LOG_FILE="${MONOLITH_SOAK_LOG:-$(mktemp -t knodel-mainnet-soak.XXXXXX.log)}"
-REPORT_FILE="${MONOLITH_SOAK_REPORT:-$ROOT_DIR/docs/roadmap/MONOLITH_GATE_F_SOAK_REPORT.md}"
+REPORT_FILE="${MONOLITH_SOAK_REPORT:-$ROOT_DIR/docs/roadmap/monolith/networking/MONOLITH_GATE_F_SOAK_REPORT.md}"
 OWN_BASEDIR=0
 
 DEFAULT_P2P_PEERS=(

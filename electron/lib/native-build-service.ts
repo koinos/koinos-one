@@ -170,14 +170,17 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
     }
 
     if (definition.buildSystem === 'cmake') {
-      let configureResult = await deps.runCommand(nativeCmakeExecutable(), nativeCmakeConfigureArgs(), {
+      const buildDir = definition.cmakeBuildDir ?? 'build'
+      const configureArgs = definition.cmakeConfigureArgs ?? nativeCmakeConfigureArgs(buildDir)
+      const buildArgs = definition.cmakeBuildArgs ?? ['--build', buildDir, '--config', 'Release', '--parallel']
+      let configureResult = await deps.runCommand(nativeCmakeExecutable(), configureArgs, {
         cwd: definition.repoPath
       })
       if (!configureResult.ok) {
         let workaroundNote: string | null = null
 
         try {
-          workaroundNote = await deps.applyKoinosDarwinHunterWorkaround(definition.repoPath)
+          workaroundNote = await deps.applyKoinosDarwinHunterWorkaround(definition.repoPath, buildDir)
         } catch (error) {
           workaroundNote = `No se pudo aplicar el workaround Darwin/Hunter: ${
             error instanceof Error ? error.message : String(error)
@@ -191,7 +194,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
           }
         }
 
-        const retryConfigureResult = await deps.runCommand(nativeCmakeExecutable(), nativeCmakeConfigureArgs(), {
+        const retryConfigureResult = await deps.runCommand(nativeCmakeExecutable(), configureArgs, {
           cwd: definition.repoPath
         })
 
@@ -209,7 +212,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
         }
       }
 
-      const buildResult = await deps.runCommand(nativeCmakeExecutable(), ['--build', 'build', '--config', 'Release', '--parallel'], {
+      const buildResult = await deps.runCommand(nativeCmakeExecutable(), buildArgs, {
         cwd: definition.repoPath
       })
       return {
@@ -344,9 +347,51 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
     }
   }
 
+  async function monolithBuildAll(): Promise<KoinosNodeNativeBuildCommandResult> {
+    const definition = monolithBuildDefinition(deps.defaultKoinosSourceRoot)
+    const result = await buildNativeService(definition)
+    const builds = await monolithBuildStatus()
+
+    return {
+      ok: result.ok,
+      action: 'build-all',
+      serviceId: 'koinos-node',
+      output: result.output,
+      builds
+    }
+  }
+
+  async function monolithBuildServiceAction(input?: KoinosNodeNativeBuildCommandInput): Promise<KoinosNodeNativeBuildCommandResult> {
+    const serviceId = input?.serviceId?.trim() || 'koinos-node'
+
+    if (serviceId !== 'koinos-node') {
+      const builds = await monolithBuildStatus()
+      return {
+        ok: false,
+        action: 'build-service',
+        serviceId,
+        output: `No hay build monolitico configurado para ${serviceId}`,
+        builds
+      }
+    }
+
+    const definition = monolithBuildDefinition(deps.defaultKoinosSourceRoot)
+    const result = await buildNativeService(definition)
+    const builds = await monolithBuildStatus()
+    return {
+      ok: result.ok,
+      action: 'build-service',
+      serviceId,
+      output: result.output,
+      builds
+    }
+  }
+
   return {
     nativeBuildStatus,
     monolithBuildStatus,
+    monolithBuildAll,
+    monolithBuildServiceAction,
     nativeBuildAll,
     nativeBuildServiceAction
   }

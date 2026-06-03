@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -45,13 +46,27 @@ public:
     const auto& block = req.block();
     if( !block.has_header() )
       throw std::runtime_error( "missing header" );
-    if( block.header().height() != _head_height + 1 )
-      throw std::runtime_error( "unexpected height" );
-    if( _head_height > 0 && block.header().previous() != _head_id )
-      throw std::runtime_error( "unexpected previous" );
+
+    if( _known_blocks.count( block.id() ) )
+      return {};
+
+    if( block.header().height() == 1 )
+    {
+      if( !block.header().previous().empty() )
+        throw std::runtime_error( "unexpected previous" );
+    }
+    else
+    {
+      auto itr = _known_blocks.find( block.header().previous() );
+      if( itr == _known_blocks.end() )
+        throw std::runtime_error( "unexpected previous" );
+      if( block.header().height() != itr->second + 1 )
+        throw std::runtime_error( "unexpected height" );
+    }
 
     _head_height = block.header().height();
     _head_id = block.id();
+    _known_blocks[ block.id() ] = block.header().height();
     _submitted.push_back( block );
     _cv.notify_all();
     return {};
@@ -72,6 +87,7 @@ public:
     rpc::chain::get_head_info_response resp;
     resp.mutable_head_topology()->set_id( _head_id );
     resp.mutable_head_topology()->set_height( _head_height );
+    resp.set_last_irreversible_block( _lib_height );
     return resp;
   }
 
@@ -131,6 +147,27 @@ public:
     return _cv.wait_for( lock, std::chrono::seconds( 5 ), [&] { return _head_height >= height; } );
   }
 
+  void add_known_block( const protocol::block& block )
+  {
+    std::lock_guard lock( _mutex );
+    _known_blocks[ block.id() ] = block.header().height();
+  }
+
+  void set_head( const protocol::block& block )
+  {
+    std::lock_guard lock( _mutex );
+    _head_height = block.header().height();
+    _head_id = block.id();
+    _known_blocks[ block.id() ] = block.header().height();
+    _cv.notify_all();
+  }
+
+  void set_last_irreversible_block( uint64_t height )
+  {
+    std::lock_guard lock( _mutex );
+    _lib_height = height;
+  }
+
   std::vector< protocol::block > submitted_blocks() const
   {
     std::lock_guard lock( _mutex );
@@ -148,7 +185,9 @@ private:
   mutable std::mutex _mutex;
   std::condition_variable _cv;
   uint64_t _head_height = 0;
+  uint64_t _lib_height = 0;
   std::string _head_id;
+  std::map< std::string, uint64_t > _known_blocks;
   std::vector< protocol::block > _submitted;
   std::vector< protocol::transaction > _submitted_transactions;
 };
@@ -156,16 +195,54 @@ private:
 class FakeBlockStore final : public IBlockStore
 {
 public:
-  rpc::block_store::get_blocks_by_height_response
-  get_blocks_by_height( const rpc::block_store::get_blocks_by_height_request& ) override
+  FakeBlockStore() = default;
+
+  explicit FakeBlockStore( std::vector< protocol::block > blocks )
   {
-    return {};
+    for( auto& block: blocks )
+      _blocks.emplace( block.id(), std::move( block ) );
+  }
+
+  rpc::block_store::get_blocks_by_height_response
+  get_blocks_by_height( const rpc::block_store::get_blocks_by_height_request& req ) override
+  {
+    rpc::block_store::get_blocks_by_height_response resp;
+    for( uint32_t i = 0; i < req.num_blocks(); ++i )
+    {
+      auto block_id = ancestor_at_height( req.head_block_id(), req.ancestor_start_height() + i );
+      if( block_id.empty() )
+        break;
+
+      auto itr = _blocks.find( block_id );
+      if( itr == _blocks.end() )
+        break;
+
+      auto* item = resp.add_block_items();
+      item->set_block_id( itr->second.id() );
+      item->set_block_height( itr->second.header().height() );
+      if( req.return_block() )
+        *item->mutable_block() = itr->second;
+    }
+    return resp;
   }
 
   rpc::block_store::get_blocks_by_id_response
-  get_blocks_by_id( const rpc::block_store::get_blocks_by_id_request& ) override
+  get_blocks_by_id( const rpc::block_store::get_blocks_by_id_request& req ) override
   {
-    return {};
+    rpc::block_store::get_blocks_by_id_response resp;
+    for( const auto& block_id: req.block_ids() )
+    {
+      auto itr = _blocks.find( block_id );
+      if( itr == _blocks.end() )
+        continue;
+
+      auto* item = resp.add_block_items();
+      item->set_block_id( itr->second.id() );
+      item->set_block_height( itr->second.header().height() );
+      if( req.return_block() )
+        *item->mutable_block() = itr->second;
+    }
+    return resp;
   }
 
   rpc::block_store::get_highest_block_response
@@ -179,6 +256,25 @@ public:
   {
     return {};
   }
+
+private:
+  std::string ancestor_at_height( std::string block_id, uint64_t height ) const
+  {
+    while( !block_id.empty() )
+    {
+      auto itr = _blocks.find( block_id );
+      if( itr == _blocks.end() )
+        return {};
+      if( itr->second.header().height() == height )
+        return block_id;
+      if( itr->second.header().height() < height )
+        return {};
+      block_id = itr->second.header().previous();
+    }
+    return {};
+  }
+
+  std::map< std::string, protocol::block > _blocks;
 };
 
 class FakeTransport final : public ITransport
@@ -339,6 +435,7 @@ int main()
 
   transport_ptr->emit_block( remote_blocks[ 1 ] );
   transport_ptr->emit_block( remote_blocks[ 1 ] );
+  transport_ptr->emit_block( make_block( 100, "unknown-future-parent" ) );
 
   protocol::transaction tx;
   tx.set_id( "tx-1" );
@@ -362,6 +459,50 @@ int main()
   auto submitted_transactions = chain.submitted_transactions();
   assert( submitted_transactions.size() == 1 );
   assert( submitted_transactions[ 0 ].id() == "tx-1" );
+
+  {
+    auto common_1 = make_block( 1, "" );
+    auto common_2 = make_block( 2, common_1.id() );
+    auto local_3 = make_block( 3, common_2.id() );
+    local_3.set_id( "local-3" );
+    auto remote_3 = make_block( 3, common_2.id() );
+    remote_3.set_id( "remote-3" );
+    auto remote_4 = make_block( 4, remote_3.id() );
+    remote_4.set_id( "remote-4" );
+
+    std::vector< protocol::block > remote_fork{ common_1, common_2, remote_3, remote_4 };
+    auto fork_transport = std::make_unique< FakeTransport >( "test-chain", remote_fork );
+    auto* fork_transport_ptr = fork_transport.get();
+
+    FakeChain fork_chain( "test-chain" );
+    fork_chain.add_known_block( common_1 );
+    fork_chain.add_known_block( common_2 );
+    fork_chain.set_head( local_3 );
+    fork_chain.set_last_irreversible_block( 2 );
+    FakeBlockStore fork_block_store( { common_1, common_2, local_3 } );
+
+    P2POptions fork_opts;
+    fork_opts.block_request_batch_size = 500;
+    fork_opts.synced_block_delta = 1;
+    fork_opts.sync_check_interval = std::chrono::seconds( 1 );
+    fork_opts.syncing_check_interval = std::chrono::seconds( 1 );
+
+    P2PNode fork_node( fork_opts, &fork_chain, &fork_block_store, &event_bus, std::move( fork_transport ) );
+    fork_node.start();
+
+    assert( fork_chain.wait_for_height( 4 ) );
+    std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+    fork_node.stop();
+
+    auto fork_submitted = fork_chain.submitted_blocks();
+    assert( fork_submitted.size() == 2 );
+    assert( fork_submitted[ 0 ].id() == "remote-3" );
+    assert( fork_submitted[ 1 ].id() == "remote-4" );
+    assert( fork_transport_ptr->ancestor_calls() >= 1 );
+    assert( fork_transport_ptr->blocks_calls() == 1 );
+    assert( fork_transport_ptr->last_start_height() == 3 );
+    assert( fork_transport_ptr->disconnects() == 0 );
+  }
 
   return 0;
 }

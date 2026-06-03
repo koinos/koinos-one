@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PEERS_FILE="${P2P_PEERS_FILE:-$ROOT_DIR/scripts/mainnet-peer-candidates.txt}"
 RUN_ROOT="${AB_RUN_ROOT:-/private/tmp/knodel-ab-peer-acquisition}"
-REPORT="${AB_REPORT:-$ROOT_DIR/docs/roadmap/MONOLITH_AB_PEER_ACQUISITION_REPORT.md}"
+REPORT="${AB_REPORT:-$ROOT_DIR/docs/roadmap/monolith/networking/MONOLITH_AB_PEER_ACQUISITION_REPORT.md}"
 GO_DISCOVERY_ATTEMPTS="${AB_GO_DISCOVERY_ATTEMPTS:-1}"
 GO_DISCOVERY_TIMEOUT="${AB_GO_DISCOVERY_TIMEOUT:-8s}"
 GO_STABILITY_ATTEMPTS="${AB_GO_STABILITY_ATTEMPTS:-3}"

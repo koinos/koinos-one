@@ -376,8 +376,6 @@ bool P2PNode::peer_handshake( const PeerID& peer )
   if( !_chain )
     return false;
 
-  auto local_head = _chain->get_head_info().head_topology();
-
   // Verify chain ID matches
   auto peer_chain_id = _transport->peer_get_chain_id( peer );
   if( peer_chain_id != _chain_id )
@@ -393,23 +391,6 @@ bool P2PNode::peer_handshake( const PeerID& peer )
     return false;
   }
 
-  if( peer_head.height < local_head.height() )
-  {
-    LOG( debug ) << "[p2p] Peer " << peer.id << " is behind local head (peer="
-                 << peer_head.height << ", local=" << local_head.height() << ")";
-    return true;
-  }
-
-  if( local_head.height() > 0 )
-  {
-    auto checkpoint = _transport->peer_get_ancestor_block_id( peer, peer_head.block_id, local_head.height() );
-    if( checkpoint != local_head.id() )
-    {
-      report_peer_error( peer, "checkpoint mismatch", _opts.score_checkpoint_mismatch );
-      return false;
-    }
-  }
-
   LOG( info ) << "[p2p] Handshake complete with " << peer.id;
   return true;
 }
@@ -421,41 +402,59 @@ bool P2PNode::request_sync_blocks( const PeerID& peer, bool& is_synced )
 
   std::lock_guard sync_lock( _sync_mutex );
 
-  auto local_head = _chain->get_head_info().head_topology();
+  auto local_head_info = _chain->get_head_info();
+  auto local_head = local_head_info.head_topology();
   uint64_t local_height = local_head.height();
+  uint64_t local_lib_height = std::min( local_head_info.last_irreversible_block(), local_height );
 
   // Get peer's head
   auto peer_head = _transport->peer_get_head_block( peer );
-  if( peer_head.height <= local_height )
+  if( peer_head.height <= local_lib_height )
   {
     is_synced = true;
     return true;
   }
 
-  // Verify chain connectivity
-  if( local_height > 0 )
+  uint64_t known_peer_head_height = 0;
+  if( get_local_block_height( peer_head.block_id, known_peer_head_height ) && known_peer_head_height != 0 )
   {
-    auto ancestor_id = _transport->peer_get_ancestor_block_id( peer, peer_head.block_id, local_height );
-    if( ancestor_id != local_head.id() )
+    is_synced = true;
+    return true;
+  }
+
+  std::string sync_anchor_id;
+  if( local_lib_height > 0 )
+  {
+    sync_anchor_id = get_local_ancestor_block_id( local_head.id(), local_lib_height );
+    if( sync_anchor_id.empty() )
     {
-      report_peer_error( peer, "checkpoint mismatch", _opts.score_checkpoint_mismatch );
+      LOG( warning ) << "[p2p] Could not resolve local LIB ancestor at height " << local_lib_height;
+      return false;
+    }
+
+    // Match legacy p2p behavior: live forks above LIB are normal. Only a peer
+    // that does not connect to our LIB is a chain-connectivity fault.
+    auto ancestor_id = _transport->peer_get_ancestor_block_id( peer, peer_head.block_id, local_lib_height );
+    if( ancestor_id != sync_anchor_id )
+    {
+      report_peer_error( peer, "chain not connected at LIB", _opts.score_chain_not_connected );
       return false;
     }
   }
 
   // Calculate batch
-  uint64_t blocks_needed = peer_head.height - local_height;
+  uint64_t blocks_needed = peer_head.height - local_lib_height;
   uint32_t batch = std::min( static_cast< uint64_t >( _opts.block_request_batch_size ), blocks_needed );
 
   // Fetch blocks
-  auto blocks = _transport->peer_get_blocks( peer, peer_head.block_id, local_height + 1, batch );
+  auto blocks = _transport->peer_get_blocks( peer, peer_head.block_id, local_lib_height + 1, batch );
 
   if( blocks.empty() )
     return true;
 
   // Apply sequentially
-  uint64_t expected_height = local_height + 1;
-  std::string expected_previous = local_head.id();
+  uint64_t expected_height = local_lib_height + 1;
+  std::string expected_previous = sync_anchor_id;
   for( const auto& block: blocks )
   {
     if( !_running )
@@ -520,7 +519,7 @@ bool P2PNode::request_sync_blocks( const PeerID& peer, bool& is_synced )
   {
     LOG( info ) << "[p2p] Syncing from " << peer.id << " — applied "
                 << blocks.size() << " blocks (height " << last_applied
-                << "/" << peer_head.height << ")";
+                << "/" << peer_head.height << ", anchor LIB " << local_lib_height << ")";
   }
 
   return true;
@@ -558,6 +557,23 @@ void P2PNode::on_gossip_block( const PeerID& from, const protocol::block& block 
   // Apply
   if( _chain )
   {
+    try
+    {
+      const auto local_head = _chain->get_head_info();
+      const auto local_height = local_head.head_topology().height();
+      if( block.header().height() > local_height && block.header().height() - local_height > 1 )
+      {
+        LOG( debug ) << "[p2p] Ignoring future gossiped block from " << from.id
+                     << " at height " << block.header().height()
+                     << " while local head is " << local_height;
+        return;
+      }
+    }
+    catch( const std::exception& e )
+    {
+      LOG( debug ) << "[p2p] Could not read local head before gossip block apply: " << e.what();
+    }
+
     try
     {
       rpc::chain::submit_block_request req;
@@ -635,6 +651,43 @@ void P2PNode::on_block_irreversible( const broadcast::block_irreversible& bi )
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+bool P2PNode::get_local_block_height( const std::string& block_id, uint64_t& height )
+{
+  if( !_block_store || block_id.empty() )
+    return false;
+
+  rpc::block_store::get_blocks_by_id_request request;
+  request.add_block_ids( block_id );
+  request.set_return_block( false );
+  request.set_return_receipt( false );
+
+  auto response = _block_store->get_blocks_by_id( request );
+  if( response.block_items_size() != 1 )
+    return false;
+
+  height = response.block_items( 0 ).block_height();
+  return true;
+}
+
+std::string P2PNode::get_local_ancestor_block_id( const std::string& head_block_id, uint64_t height )
+{
+  if( !_block_store || head_block_id.empty() || height == 0 )
+    return {};
+
+  rpc::block_store::get_blocks_by_height_request request;
+  request.set_head_block_id( head_block_id );
+  request.set_ancestor_start_height( height );
+  request.set_num_blocks( 1 );
+  request.set_return_block( false );
+  request.set_return_receipt( false );
+
+  auto response = _block_store->get_blocks_by_height( request );
+  if( response.block_items_size() != 1 )
+    return {};
+
+  return response.block_items( 0 ).block_id();
+}
 
 bool P2PNode::report_peer_error( const PeerID& peer, const std::string& error, uint64_t score )
 {

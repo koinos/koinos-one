@@ -454,28 +454,30 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 
 ---
 
-## Sprint 6: Mainnet deployment (1 semana)
+## Sprint 6: Mainnet deployment (1 week)
 
-**Objetivo:** Desplegar en mainnet con producción de bloques real.
+**Goal:** deploy the monolith on mainnet and prepare a Knodel release that can safely ship the native monolith runtime.
 
 ### 6.1 Mainnet canary
-- [ ] Desplegar monolito en un servidor de producción (sin producir bloques)
-- [ ] Sync completo desde peers
-- [ ] Comparar head height con un nodo multi-servicio en paralelo
-- [ ] Monitorizar 48h: stability, memory, CPU
+- [ ] Deploy the monolith on a production server without block production.
+- [ ] Complete sync from mainnet peers.
+- [ ] Compare head height and block IDs against a parallel legacy multi-service node.
+- [ ] Monitor 48h: stability, memory, CPU, peer churn, warning/error rows.
 
 ### 6.2 Mainnet producer
-- [ ] Activar block_producer en el monolito
-- [ ] Verificar que produce bloques aceptados por la red
-- [ ] Monitorizar 48h: bloques producidos, share %, errores
+- [ ] Enable `block_producer` in the monolith.
+- [ ] Verify produced blocks are accepted by the network.
+- [ ] Monitor 48h: produced blocks, expected share, missed slots, warning/error rows.
 
 ### 6.3 Knodel release
-- [ ] Empaquetar binario en electron-builder (DMG para macOS)
-- [ ] Actualizar UI para mostrar "Monolith mode" vs "Multi-service mode"
-- [ ] Documentar el proceso de migración para usuarios finales
-- [ ] Release como Knodel v0.11.0
+- [~] Package the native monolith through electron-builder. Unsigned macOS `.app` directory packaging passes; signed/notarized DMG remains pending.
+- [ ] Verify the UI clearly shows "Monolith mode" versus "Multi-service mode" and exposes fallback status.
+- [ ] Document the end-user migration process.
+- [ ] Release as Knodel v0.11.0.
 
-**Entregable Sprint 6:** Knodel con monolito en producción en mainnet.
+**2026-06-03 packaging readiness:** macOS packaging now has two automated gates. `npm run test:package-staging` runs `scripts/verify-package-staging.js` before electron-builder and verifies the staged native bundle under `build/bundle-staging/koinos`, including `koinos_node`, legacy service binaries, config templates, GarageMQ config, and REST standalone files. `npm run test:packaged` runs `scripts/verify-packaged-app.js` after electron-builder and verifies the final packaged app contains `app.asar`, `Resources/koinos/bin/koinos_node`, config templates, and REST server files. All macOS package scripts now use the existing `build:icon:mac` command, run `stage`, run the staging smoke, run electron-builder, and then run the packaged-app smoke. `package:mac:dir` is explicitly unsigned through `CSC_IDENTITY_AUTO_DISCOVERY=false`, making it the local release-candidate smoke command. Verification passed with `npm run package:mac:dir`: staging had `18` required files and `255.1 MB`; electron-builder produced `release/mac-arm64/Knodel.app`; post-package verification found `7` required files, app size `686.1 MB`, and bundled Koinos resources `255.1 MB`. Signed/notarized DMG verification remains pending because it depends on release credentials.
+
+**Sprint 6 deliverable:** Knodel with the monolith in production on mainnet.
 
 ---
 
