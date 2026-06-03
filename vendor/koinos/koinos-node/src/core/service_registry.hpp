@@ -1,5 +1,6 @@
 #pragma once
 
+#include <exception>
 #include <functional>
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@ public:
     std::string name;
     std::function< void() > start;
     std::function< void() > stop;
+    bool started = false;
   };
 
   void add( const std::string& name, std::function< void() > start_fn, std::function< void() > stop_fn )
@@ -31,8 +33,24 @@ public:
     for( auto& comp: _components )
     {
       LOG( info ) << "[" << comp.name << "] Starting...";
-      comp.start();
-      LOG( info ) << "[" << comp.name << "] Started";
+      try
+      {
+        comp.start();
+        comp.started = true;
+        LOG( info ) << "[" << comp.name << "] Started";
+      }
+      catch( const std::exception& e )
+      {
+        LOG( error ) << "[" << comp.name << "] Start failed: " << e.what();
+        stop_all();
+        throw;
+      }
+      catch( ... )
+      {
+        LOG( error ) << "[" << comp.name << "] Start failed: unknown exception";
+        stop_all();
+        throw;
+      }
     }
   }
 
@@ -40,16 +58,24 @@ public:
   {
     for( auto it = _components.rbegin(); it != _components.rend(); ++it )
     {
+      if( !it->started )
+        continue;
+
       LOG( info ) << "[" << it->name << "] Stopping...";
       try
       {
         it->stop();
+        it->started = false;
+        LOG( info ) << "[" << it->name << "] Stopped";
       }
       catch( const std::exception& e )
       {
         LOG( warning ) << "[" << it->name << "] Error during stop: " << e.what();
       }
-      LOG( info ) << "[" << it->name << "] Stopped";
+      catch( ... )
+      {
+        LOG( warning ) << "[" << it->name << "] Unknown error during stop";
+      }
     }
   }
 

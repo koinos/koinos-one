@@ -571,6 +571,11 @@ void Libp2pTransport::handle_incoming_rpc(
       {
         response = gorpc::encode_error_response( request.service, e.what(), gorpc::ErrorType::server );
       }
+      catch( ... )
+      {
+        response = gorpc::encode_error_response(
+          request.service, "unknown peer RPC handler exception", gorpc::ErrorType::server );
+      }
 
       auto resp_bytes = std::make_shared< libp2p::Bytes >( response.begin(), response.end() );
 

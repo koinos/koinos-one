@@ -274,6 +274,14 @@ else()
 endif()
 
 if(KOINOS_BUILD_TESTS)
+  add_executable(koinos_service_registry_test
+    ../tests/core/service_registry_test.cpp)
+
+  target_link_libraries(koinos_service_registry_test PRIVATE
+    koinos_node_core)
+
+  add_test(NAME koinos_service_registry_test COMMAND koinos_service_registry_test)
+
   add_executable(koinos_gorpc_codec_test
     ../tests/p2p/gorpc_codec_test.cpp
     p2p/gorpc_codec.cpp

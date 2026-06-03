@@ -13,8 +13,11 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -78,6 +81,13 @@
 #include <rocksdb/slice_transform.h>
 #include <rocksdb/table.h>
 
+#if defined( __APPLE__ )
+#include <mach/mach_init.h>
+#include <mach/task.h>
+#elif defined( __linux__ )
+#include <unistd.h>
+#endif
+
 // Protobuf
 #include <koinos/broadcast/broadcast.pb.h>
 #include <koinos/rpc/chain/chain_rpc.pb.h>
@@ -102,6 +112,26 @@ namespace po = boost::program_options;
 using namespace koinos;
 
 namespace {
+
+uint64_t current_process_rss_bytes()
+{
+#if defined( __APPLE__ )
+  task_basic_info_data_t info;
+  mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
+  if( task_info( mach_task_self(), TASK_BASIC_INFO, reinterpret_cast< task_info_t >( &info ), &count ) == KERN_SUCCESS )
+    return static_cast< uint64_t >( info.resident_size );
+#elif defined( __linux__ )
+  std::ifstream statm( "/proc/self/statm" );
+  uint64_t pages = 0;
+  if( statm >> pages )
+  {
+    const auto page_size = sysconf( _SC_PAGESIZE );
+    if( page_size > 0 )
+      return pages * static_cast< uint64_t >( page_size );
+  }
+#endif
+  return 0;
+}
 
 std::pair< std::string, uint16_t > parse_jsonrpc_listen( const std::string& listen )
 {
@@ -386,9 +416,9 @@ int main( int argc, char** argv )
 
     // ── Initialize logging ──
     koinos::initialize_logging( "koinos_node", {}, cfg.log_level );
-    LOG( info ) << "koinos_node v0.1.0 starting";
-    LOG( info ) << "basedir: " << basedir.string();
-    LOG( info ) << "config:  " << config_path.string();
+    LOG( info ) << "[node] koinos_node v0.1.0 starting";
+    LOG( info ) << "[node] basedir: " << basedir.string();
+    LOG( info ) << "[node] config: " << config_path.string();
 
     // Log enabled features
     for( const auto& [name, enabled]: cfg.features )
@@ -587,7 +617,7 @@ int main( int argc, char** argv )
     auto db_status = rocksdb::DB::Open( db_options, db_path.string(), cf_descriptors, &cf_handles, &raw_db );
     if( !db_status.ok() )
     {
-      LOG( error ) << "Failed to open RocksDB at " << db_path.string() << ": " << db_status.ToString();
+      LOG( error ) << "[db] Failed to open RocksDB at " << db_path.string() << ": " << db_status.ToString();
       return EXIT_FAILURE;
     }
     std::unique_ptr< rocksdb::DB > db( raw_db );
@@ -1001,7 +1031,7 @@ int main( int argc, char** argv )
     signals.async_wait( [&]( const boost::system::error_code& ec, int sig ) {
       if( !ec )
       {
-        LOG( info ) << "Received signal " << sig << ", shutting down...";
+        LOG( info ) << "[node] Received signal " << sig << ", shutting down...";
         registry.stop_all();
         main_ioc.stop();
       }
@@ -1028,31 +1058,61 @@ int main( int argc, char** argv )
       }
     }
 
-    LOG( info ) << "koinos_node ready";
+    LOG( info ) << "[node] koinos_node ready";
 
     // ── Periodic metrics (every 60s) ──
     boost::asio::steady_timer metrics_timer( main_ioc );
     std::function< void( const boost::system::error_code& ) > metrics_tick;
+    bool have_metrics_baseline = false;
+    uint64_t previous_metrics_height = 0;
+    auto previous_metrics_time = std::chrono::steady_clock::now();
     metrics_tick = [&]( const boost::system::error_code& ec ) {
       if( ec )
         return;
 
       try
       {
+        const auto now = std::chrono::steady_clock::now();
         auto head = controller.get_head_info();
+        const auto height = head.head_topology().height();
+        double blocks_per_sec = 0.0;
+        if( have_metrics_baseline )
+        {
+          const auto elapsed = std::chrono::duration< double >( now - previous_metrics_time ).count();
+          if( elapsed > 0.0 && height >= previous_metrics_height )
+            blocks_per_sec = static_cast< double >( height - previous_metrics_height ) / elapsed;
+        }
+
+        previous_metrics_height = height;
+        previous_metrics_time = now;
+        have_metrics_baseline = true;
+
+        const auto peer_count = p2p_node ? p2p_node->connected_peer_count() : 0;
+        const auto rss_bytes = current_process_rss_bytes();
+        const auto rss_mb = static_cast< double >( rss_bytes ) / ( 1024.0 * 1024.0 );
+
         LOG( info ) << "[metrics] head_height=" << head.head_topology().height()
                     << " lib=" << head.last_irreversible_block()
+                    << " blocks_per_sec=" << std::fixed << std::setprecision( 3 ) << blocks_per_sec
                     << " pending_txs=" << mempool_impl.get_pending_transactions( 0 ).size()
+                    << " peer_count=" << peer_count
+                    << " rss_bytes=" << rss_bytes
+                    << " rss_mb=" << std::fixed << std::setprecision( 3 ) << rss_mb
                     << " components=" << registry.components().size();
       }
+      catch( const std::exception& e )
+      {
+        LOG( warning ) << "[metrics] failed to collect metrics: " << e.what();
+      }
       catch( ... )
-      {}
+      {
+        LOG( warning ) << "[metrics] failed to collect metrics: unknown exception";
+      }
 
       metrics_timer.expires_after( std::chrono::seconds( 60 ) );
       metrics_timer.async_wait( metrics_tick );
     };
-    metrics_timer.expires_after( std::chrono::seconds( 60 ) );
-    metrics_timer.async_wait( metrics_tick );
+    metrics_tick( boost::system::error_code{} );
 
     // ── Run main event loop ──
     main_ioc.run();
@@ -1061,12 +1121,17 @@ int main( int argc, char** argv )
     for( auto* h: cf_handles )
       delete h;
 
-    LOG( info ) << "koinos_node shutdown complete";
+    LOG( info ) << "[node] koinos_node shutdown complete";
     return EXIT_SUCCESS;
   }
   catch( const std::exception& e )
   {
     std::cerr << "Fatal: " << e.what() << std::endl;
+    return EXIT_FAILURE;
+  }
+  catch( ... )
+  {
+    std::cerr << "Fatal: unknown exception" << std::endl;
     return EXIT_FAILURE;
   }
 }

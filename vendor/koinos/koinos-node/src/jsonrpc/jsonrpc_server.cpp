@@ -536,6 +536,10 @@ void JSONRPCServer::handle_session( tcp::socket socket )
   {
     LOG( warning ) << "[jsonrpc] Session exception: " << e.what();
   }
+  catch( ... )
+  {
+    LOG( warning ) << "[jsonrpc] Session exception: unknown exception";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -603,6 +607,10 @@ nlohmann::json JSONRPCServer::process_single_request( const nlohmann::json& requ
   catch( const std::exception& e )
   {
     return make_error( INTERNAL_ERROR, e.what(), id );
+  }
+  catch( ... )
+  {
+    return make_error( INTERNAL_ERROR, "Unknown service exception", id );
   }
 }
 
