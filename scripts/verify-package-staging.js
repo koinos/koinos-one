@@ -11,18 +11,7 @@ const isWindowsTarget = targetPlatform === 'win32' || targetPlatform === 'window
 const ext = isWindowsTarget ? '.exe' : '';
 
 const requiredBinaries = [
-  'koinos-block-store',
-  'koinos-p2p',
-  'koinos-jsonrpc',
-  'koinos-transaction-store',
-  'koinos-contract-meta-store',
-  'koinos_chain',
-  'koinos_mempool',
-  'koinos_grpc',
-  'koinos_block_producer',
-  'koinos_account_history',
   'koinos_node',
-  'garagemq',
 ].map((name) => path.join('bin', `${name}${ext}`));
 
 const requiredFiles = [
@@ -30,9 +19,6 @@ const requiredFiles = [
   path.join('config', 'config.yml'),
   path.join('config', 'genesis_data.json'),
   path.join('config', 'koinos_descriptors.pb'),
-  path.join('config', 'amqp', 'garagemq.yaml'),
-  path.join('rest', 'server.js'),
-  path.join('rest', 'package.json'),
 ];
 
 const optionalGroups = [

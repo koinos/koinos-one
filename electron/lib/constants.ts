@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { executableExtension } from './platform'
@@ -91,7 +92,12 @@ export function resolveMonolithBinaryPath(): string {
   if (isPackagedBuild()) {
     return path.join(process.resourcesPath!, 'koinos', 'bin', 'koinos_node' + ext)
   }
-  return path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', 'koinos_node' + ext)
+
+  const primaryPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', 'koinos_node' + ext)
+  if (fs.existsSync(primaryPath)) return primaryPath
+
+  const nestedPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', 'src', 'koinos_node' + ext)
+  return nestedPath
 }
 
 /** Known components within the monolith binary. */

@@ -18,6 +18,7 @@
 #include <boost/multiprecision/cpp_int.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
@@ -44,6 +45,32 @@ uint64_t to_ms( std::chrono::system_clock::time_point time )
 std::chrono::system_clock::time_point from_ms( uint64_t milliseconds )
 {
   return std::chrono::system_clock::time_point{ std::chrono::milliseconds{ milliseconds } };
+}
+
+template< typename Integer >
+Integer decode_big_endian_unsigned( const std::string& bytes )
+{
+  Integer value = 0;
+  for( auto byte: bytes )
+  {
+    value <<= 8;
+    value |= static_cast< unsigned char >( byte );
+  }
+
+  return value;
+}
+
+template< typename Integer >
+Integer decode_big_endian_unsigned( const crypto::digest_type& bytes )
+{
+  Integer value = 0;
+  for( auto byte: bytes )
+  {
+    value <<= 8;
+    value |= std::to_integer< unsigned int >( byte );
+  }
+
+  return value;
 }
 
 } // anonymous namespace
@@ -414,7 +441,7 @@ BlockProducer::PobBundle BlockProducer::next_pob_bundle()
   if( bundle.vhp_balance == 0 )
     throw std::runtime_error( "configured producer has no effective VHP balance" );
 
-  auto difficulty = util::converter::to< uint128_t >( bundle.difficulty );
+  auto difficulty = decode_big_endian_unsigned< uint128_t >( bundle.difficulty );
   if( difficulty == 0 )
     throw std::runtime_error( "PoB difficulty is zero" );
 
@@ -428,8 +455,13 @@ bool BlockProducer::difficulty_met( const crypto::multihash& proof_hash,
   if( vhp_balance == 0 )
     return false;
 
-  auto target = std::numeric_limits< uint128_t >::max() / util::converter::to< uint128_t >( difficulty );
-  return ( util::converter::to< uint256_t >( proof_hash.digest() ) >> 128 ) / vhp_balance < target;
+  auto difficulty_value = decode_big_endian_unsigned< uint128_t >( difficulty );
+  if( difficulty_value == 0 )
+    return false;
+
+  auto target      = std::numeric_limits< uint128_t >::max() / difficulty_value;
+  auto proof_value = decode_big_endian_unsigned< uint256_t >( proof_hash.digest() );
+  return ( proof_value >> 128 ) / vhp_balance < target;
 }
 
 std::string BlockProducer::get_contract_address( const std::string& name )

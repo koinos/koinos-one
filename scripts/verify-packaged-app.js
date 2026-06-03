@@ -33,7 +33,6 @@ const requiredFiles = [
   path.join(RESOURCES_DIR, 'koinos', 'config', 'config.yml'),
   path.join(RESOURCES_DIR, 'koinos', 'config', 'genesis_data.json'),
   path.join(RESOURCES_DIR, 'koinos', 'config', 'koinos_descriptors.pb'),
-  path.join(RESOURCES_DIR, 'koinos', 'rest', 'server.js'),
   APP_EXECUTABLE,
 ];
 

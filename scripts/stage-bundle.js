@@ -2,7 +2,7 @@
 // ============================================================================
 // Stage Bundle for Installer (Cross-Platform)
 // ============================================================================
-// Collects all built artifacts into build/bundle-staging/koinos/ for
+// Collects monolith release artifacts into build/bundle-staging/koinos/ for
 // electron-builder to bundle as extraResources.
 //
 // Supports Windows (.exe, build-win/) and macOS/Linux (no ext, build/).
@@ -17,31 +17,12 @@ const ROOT = path.resolve(__dirname, '..');
 const VENDOR = path.join(ROOT, 'vendor', 'koinos');
 const STAGING = path.join(ROOT, 'build', 'bundle-staging', 'koinos');
 const BIN_DIR = path.join(STAGING, 'bin');
-const REST_DIR = path.join(STAGING, 'rest');
 const CONFIG_DIR = path.join(STAGING, 'config');
 
 // Platform detection
 const isWindows = process.platform === 'win32';
 const EXT = isWindows ? '.exe' : '';
 const CPP_BUILD_DIR = isWindows ? 'build-win' : 'build';
-
-// Service definitions
-const GO_SERVICES = [
-  'koinos-block-store',
-  'koinos-p2p',
-  'koinos-jsonrpc',
-  'koinos-transaction-store',
-  'koinos-contract-meta-store',
-];
-
-// C++ service name mapping: repo name → binary name (underscore convention)
-const CPP_SERVICES = [
-  { repo: 'koinos-chain',           bin: 'koinos_chain' },
-  { repo: 'koinos-mempool',         bin: 'koinos_mempool' },
-  { repo: 'koinos-grpc',            bin: 'koinos_grpc' },
-  { repo: 'koinos-block-producer',  bin: 'koinos_block_producer' },
-  { repo: 'koinos-account-history', bin: 'koinos_account_history' },
-];
 
 let passed = 0;
 let failed = 0;
@@ -61,6 +42,21 @@ function copyFileChecked(src, dest, label) {
   console.log(`  OK:   ${label} (${sizeMB} MB)`);
   passed++;
   return true;
+}
+
+function copyFirstExistingChecked(sources, dest, label) {
+  for (const src of sources) {
+    if (fs.existsSync(src)) {
+      return copyFileChecked(src, dest, label);
+    }
+  }
+
+  console.error(`  MISS: ${label}`);
+  for (const src of sources) {
+    console.error(`        checked ${src}`);
+  }
+  failed++;
+  return false;
 }
 
 function copyDirRecursive(src, dest) {
@@ -85,7 +81,7 @@ function copyDirRecursive(src, dest) {
 const platformLabel = isWindows ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux';
 
 console.log('============================================================================');
-console.log(`Staging koinosGUI bundle for ${platformLabel} installer`);
+console.log(`Staging koinosGUI monolith bundle for ${platformLabel} installer`);
 console.log(`  Platform: ${platformLabel} (ext: "${EXT}", cpp build dir: ${CPP_BUILD_DIR})`);
 console.log(`  Vendor:   ${VENDOR}`);
 console.log(`  Staging:  ${STAGING}`);
@@ -96,70 +92,18 @@ if (fs.existsSync(STAGING)) {
   fs.rmSync(STAGING, { recursive: true });
 }
 ensureDir(BIN_DIR);
-ensureDir(REST_DIR);
 ensureDir(CONFIG_DIR);
 
-// --- Go services ---
-console.log('=== Go Services ===');
-for (const svc of GO_SERVICES) {
-  // On Windows: binary is at repo root (built by build-native-win.bat)
-  // On macOS/Linux: binary is at build/bin/ (built by build-native-mac.sh)
-  const src = isWindows
-    ? path.join(VENDOR, svc, `${svc}${EXT}`)
-    : path.join(VENDOR, svc, 'build', 'bin', `${svc}${EXT}`);
-  const dest = path.join(BIN_DIR, `${svc}${EXT}`);
-  copyFileChecked(src, dest, svc);
-}
-
-// --- C++ services ---
-console.log('\n=== C++ Services ===');
-for (const svc of CPP_SERVICES) {
-  const src = path.join(VENDOR, svc.repo, CPP_BUILD_DIR, 'src', `${svc.bin}${EXT}`);
-  const dest = path.join(BIN_DIR, `${svc.bin}${EXT}`);
-  copyFileChecked(src, dest, svc.repo);
-}
-
 // --- Monolithic koinos_node ---
-console.log('\n=== Monolithic Node ===');
-const monolithSrc = path.join(VENDOR, 'koinos-node', CPP_BUILD_DIR, 'koinos_node' + EXT);
-copyFileChecked(monolithSrc, path.join(BIN_DIR, 'koinos_node' + EXT), 'koinos_node');
-
-// --- GarageMQ (AMQP broker) ---
-console.log('\n=== AMQP Broker ===');
-const garagemqSrc = path.join(ROOT, 'vendor', 'amqp-broker', `garagemq${EXT}`);
-copyFileChecked(garagemqSrc, path.join(BIN_DIR, `garagemq${EXT}`), 'garagemq');
-// Also copy default config
-const garagemqConfigSrc = path.join(ROOT, 'vendor', 'amqp-broker', 'etc', 'config.yaml');
-if (fs.existsSync(garagemqConfigSrc)) {
-  const amqpConfigDir = path.join(STAGING, 'config', 'amqp');
-  ensureDir(amqpConfigDir);
-  fs.copyFileSync(garagemqConfigSrc, path.join(amqpConfigDir, 'garagemq.yaml'));
-  console.log('  OK:   garagemq.yaml config');
-  passed++;
-}
-
-// --- koinos-rest (standalone Next.js build) ---
-console.log('\n=== koinos-rest (standalone) ===');
-const restStandalone = path.join(VENDOR, 'koinos-rest', '.next', 'standalone');
-if (fs.existsSync(restStandalone)) {
-  copyDirRecursive(restStandalone, REST_DIR);
-  // Also copy the static assets (.next/static/) which standalone needs
-  const restStatic = path.join(VENDOR, 'koinos-rest', '.next', 'static');
-  if (fs.existsSync(restStatic)) {
-    copyDirRecursive(restStatic, path.join(REST_DIR, '.next', 'static'));
-  }
-  // Copy public/ directory if it exists
-  const restPublic = path.join(VENDOR, 'koinos-rest', 'public');
-  if (fs.existsSync(restPublic)) {
-    copyDirRecursive(restPublic, path.join(REST_DIR, 'public'));
-  }
-  console.log(`  OK:   koinos-rest standalone`);
-  passed++;
-} else {
-  console.error(`  MISS: koinos-rest standalone build — ${restStandalone}`);
-  console.error('        Run "yarn build" in vendor/koinos/koinos-rest first.');
-  failed++;
-}
+console.log('=== Monolithic Node ===');
+copyFirstExistingChecked(
+  [
+    path.join(VENDOR, 'koinos-node', CPP_BUILD_DIR, 'koinos_node' + EXT),
+    path.join(VENDOR, 'koinos-node', CPP_BUILD_DIR, 'src', 'koinos_node' + EXT),
+  ],
+  path.join(BIN_DIR, 'koinos_node' + EXT),
+  'koinos_node'
+);
 
 // --- Config templates ---
 console.log('\n=== Config Templates ===');
@@ -190,9 +134,9 @@ console.log(`Staging complete: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
   console.log(`\nWARNING: Some artifacts are missing. The installer will be incomplete.`);
   if (isWindows) {
-    console.log('Build all services first: scripts\\build-native-win.bat all');
+    console.log('Build koinos_node.exe into vendor\\koinos\\koinos-node\\build-win\\ before staging.');
   } else {
-    console.log('Build all services first: ./scripts/build-native-mac.sh all');
+    console.log('Build the monolith first: ./scripts/build-cpp-libp2p-koinos.sh');
   }
 }
 
