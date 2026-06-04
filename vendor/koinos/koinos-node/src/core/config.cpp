@@ -6,14 +6,34 @@ namespace koinos::node {
 
 namespace {
 
-template< typename T >
-T yaml_get( const YAML::Node& node, const std::string& key, const T& fallback )
+YAML::Node yaml_child( const YAML::Node& node, const std::string& key )
 {
-  if( node[ key ] )
+  if( node.Type() != YAML::NodeType::Map )
+    return {};
+
+  for( auto it = node.begin(); it != node.end(); ++it )
   {
     try
     {
-      return node[ key ].as< T >();
+      if( it->first.as< std::string >() == key )
+        return it->second;
+    }
+    catch( ... )
+    {}
+  }
+
+  return {};
+}
+
+template< typename T >
+T yaml_get( const YAML::Node& node, const std::string& key, const T& fallback )
+{
+  auto value = yaml_child( node, key );
+  if( value.IsDefined() )
+  {
+    try
+    {
+      return value.as< T >();
     }
     catch( ... )
     {}
@@ -24,9 +44,10 @@ T yaml_get( const YAML::Node& node, const std::string& key, const T& fallback )
 std::vector< std::string > yaml_get_string_list( const YAML::Node& node, const std::string& key )
 {
   std::vector< std::string > result;
-  if( node[ key ] && node[ key ].IsSequence() )
+  auto value = yaml_child( node, key );
+  if( value.IsDefined() && value.IsSequence() )
   {
-    for( const auto& item: node[ key ] )
+    for( const auto& item: value )
     {
       try
       {
@@ -52,7 +73,7 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     YAML::Node root = YAML::LoadFile( config_path.string() );
 
     // ── Global ──
-    if( auto g = root[ "global" ] )
+    if( auto g = yaml_child( root, "global" ); g.IsDefined() )
     {
       cfg.log_level      = yaml_get< std::string >( g, "log-level", cfg.log_level );
       cfg.instance_id    = yaml_get< std::string >( g, "instance-id", cfg.instance_id );
@@ -61,12 +82,12 @@ NodeConfig load_config( const std::filesystem::path& config_path,
       cfg.log_datetime   = yaml_get< bool >( g, "log-datetime", cfg.log_datetime );
       cfg.reset          = yaml_get< bool >( g, "reset", cfg.reset );
 
-      if( g[ "jobs" ] )
+      if( yaml_child( g, "jobs" ).IsDefined() )
         cfg.chain_jobs = yaml_get< uint64_t >( g, "jobs", cfg.chain_jobs );
     }
 
     // ── Chain ──
-    if( auto c = root[ "chain" ] )
+    if( auto c = yaml_child( root, "chain" ); c.IsDefined() )
     {
       cfg.chain_jobs                    = yaml_get< uint64_t >( c, "jobs", cfg.chain_jobs );
       cfg.verify_blocks                 = yaml_get< bool >( c, "verify-blocks", cfg.verify_blocks );
@@ -76,7 +97,7 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     }
 
     // ── P2P ──
-    if( auto p = root[ "p2p" ] )
+    if( auto p = yaml_child( root, "p2p" ); p.IsDefined() )
     {
       cfg.p2p_listen = yaml_get< std::string >( p, "listen", cfg.p2p_listen );
       cfg.p2p_jobs   = yaml_get< uint64_t >( p, "jobs", cfg.p2p_jobs );
@@ -95,14 +116,14 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     }
 
     // ── JSON-RPC ──
-    if( auto j = root[ "jsonrpc" ] )
+    if( auto j = yaml_child( root, "jsonrpc" ); j.IsDefined() )
     {
       cfg.jsonrpc_listen = yaml_get< std::string >( j, "listen", cfg.jsonrpc_listen );
       cfg.jsonrpc_jobs   = yaml_get< uint64_t >( j, "jobs", cfg.jsonrpc_jobs );
     }
 
     // ── gRPC ──
-    if( auto g = root[ "grpc" ] )
+    if( auto g = yaml_child( root, "grpc" ); g.IsDefined() )
     {
       cfg.grpc_listen = yaml_get< std::string >( g, "listen", cfg.grpc_listen );
       cfg.grpc_listen = yaml_get< std::string >( g, "endpoint", cfg.grpc_listen );
@@ -110,7 +131,7 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     }
 
     // ── Block Producer ──
-    if( auto bp = root[ "block_producer" ] )
+    if( auto bp = yaml_child( root, "block_producer" ); bp.IsDefined() )
     {
       cfg.block_producer_algorithm         = yaml_get< std::string >( bp, "algorithm", cfg.block_producer_algorithm );
       cfg.block_producer_private_key_file  = yaml_get< std::string >( bp, "private-key-file", cfg.block_producer_private_key_file );
@@ -125,13 +146,13 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     }
 
     // ── Mempool ──
-    if( auto m = root[ "mempool" ] )
+    if( auto m = yaml_child( root, "mempool" ); m.IsDefined() )
     {
       cfg.mempool_transaction_expiration = yaml_get< uint64_t >( m, "transaction-expiration", cfg.mempool_transaction_expiration );
     }
 
     // ── RocksDB ──
-    if( auto r = root[ "rocksdb" ] )
+    if( auto r = yaml_child( root, "rocksdb" ); r.IsDefined() )
     {
       cfg.rocksdb_block_cache_mb           = yaml_get< uint64_t >( r, "block-cache-mb", cfg.rocksdb_block_cache_mb );
       cfg.rocksdb_max_background_jobs      = yaml_get< uint64_t >( r, "max-background-jobs", cfg.rocksdb_max_background_jobs );
@@ -147,7 +168,7 @@ NodeConfig load_config( const std::filesystem::path& config_path,
     }
 
     // ── Feature flags ──
-    if( auto f = root[ "features" ] )
+    if( auto f = yaml_child( root, "features" ); f.IsDefined() )
     {
       for( auto it = f.begin(); it != f.end(); ++it )
       {

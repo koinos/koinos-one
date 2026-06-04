@@ -456,28 +456,32 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 
 ## Sprint 6: Mainnet deployment (1 week)
 
-**Goal:** deploy the monolith on mainnet and prepare a Knodel release that can safely ship the native monolith runtime.
+**Goal:** deploy the monolith on mainnet and prepare a koinosGUI release that can safely ship the native monolith runtime.
 
 ### 6.1 Mainnet canary
-- [ ] Deploy the monolith on a production server without block production.
+- [~] Deploy the monolith on a production server without block production. Short disposable VPS1 observer canary passed; restored-data/longer production observer deployment remains pending.
 - [ ] Complete sync from mainnet peers.
 - [ ] Compare head height and block IDs against a parallel legacy multi-service node.
 - [ ] Monitor 48h: stability, memory, CPU, peer churn, warning/error rows.
+
+**2026-06-03 canary attempt:** Sprint 6.1 was blocked on stable mainnet Peer RPC availability from this host. The A/B harness found three Peer RPC-capable peers during discovery, but the repeat stability probe failed for all three with security-negotiation resets. A short disposable C++ monolith observer canary against the discovered peers started cleanly and kept JSON-RPC available, but observed no peer session, handshake, sync row, or head progress before the `120s` startup grace expired. Public mainnet RPC was at height `36489056`; the restored monolith basedir is verified at `36180957`, leaving about `309099` blocks to catch up once a stable peer window exists. Report: `docs/roadmap/monolith/networking/MONOLITH_MAINNET_CANARY_REPORT.md`.
+
+**2026-06-04 VPS1 short canary:** The monolith now builds on VPS1 at `/opt/knodel-mainnet-canary` after forcing cpp-libp2p and `koinos_node` onto the same Koinos Hunter OpenSSL 3 and `yaml-cpp` dependencies. A `300s` disposable mainnet observer canary with block production disabled passed on the server: process exit `0`, clean shutdown, max observed head `20282`, `3` handshakes, `48` sync rows, `0` disconnects, and `0` warning/score-threshold/checkpoint-mismatch rows. This validates the remote build, config loading, mainnet peer acquisition, handshake, and early sync path. It does not complete Sprint 6.1; the remaining gate is a restored-data or longer fresh-data observer canary, parallel legacy comparison, and `48h` stability monitoring. Report: `docs/roadmap/monolith/networking/MONOLITH_MAINNET_CANARY_REPORT.md`.
 
 ### 6.2 Mainnet producer
 - [ ] Enable `block_producer` in the monolith.
 - [ ] Verify produced blocks are accepted by the network.
 - [ ] Monitor 48h: produced blocks, expected share, missed slots, warning/error rows.
 
-### 6.3 Knodel release
+### 6.3 koinosGUI release
 - [~] Package the native monolith through electron-builder. Unsigned macOS `.app` directory packaging passes; signed/notarized DMG remains pending.
 - [ ] Verify the UI clearly shows "Monolith mode" versus "Multi-service mode" and exposes fallback status.
 - [ ] Document the end-user migration process.
-- [ ] Release as Knodel v0.11.0.
+- [ ] Release as koinosGUI v0.11.0.
 
 **2026-06-03 packaging readiness:** macOS packaging now has two automated gates. `npm run test:package-staging` runs `scripts/verify-package-staging.js` before electron-builder and verifies the staged native bundle under `build/bundle-staging/koinos`, including `koinos_node`, legacy service binaries, config templates, GarageMQ config, and REST standalone files. `npm run test:packaged` runs `scripts/verify-packaged-app.js` after electron-builder and verifies the final packaged app contains `app.asar`, `Resources/koinos/bin/koinos_node`, config templates, and REST server files. All macOS package scripts now use the existing `build:icon:mac` command, run `stage`, run the staging smoke, run electron-builder, and then run the packaged-app smoke. `package:mac:dir` is explicitly unsigned through `CSC_IDENTITY_AUTO_DISCOVERY=false`, making it the local release-candidate smoke command. Verification passed with `npm run package:mac:dir`: staging had `18` required files and `255.1 MB`; electron-builder produced `release/mac-arm64/Knodel.app`; post-package verification found `7` required files, app size `686.1 MB`, and bundled Koinos resources `255.1 MB`. Signed/notarized DMG verification remains pending because it depends on release credentials.
 
-**Sprint 6 deliverable:** Knodel with the monolith in production on mainnet.
+**Sprint 6 deliverable:** koinosGUI with the monolith in production on mainnet.
 
 ---
 

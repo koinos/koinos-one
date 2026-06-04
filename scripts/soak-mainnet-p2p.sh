@@ -20,7 +20,7 @@ REPORT_FILE="${MONOLITH_SOAK_REPORT:-$ROOT_DIR/docs/roadmap/monolith/networking/
 OWN_BASEDIR=0
 
 DEFAULT_P2P_PEERS=(
-  "/dns4/seed.koinosfoundation.org/tcp/8888/p2p/QmTCgDNrPDYVNmZNt58jixgtVjTveSpWsEbqPqGuEzZhWF"
+  "/dns4/seed.koinosfoundation.org/tcp/8888/p2p/QmZjGG6eFnLLSskbgikz956DTpPgodo5P7Dxa32qHYZBBP"
 )
 
 if [[ -n "${P2P_PEERS:-}" ]]; then
