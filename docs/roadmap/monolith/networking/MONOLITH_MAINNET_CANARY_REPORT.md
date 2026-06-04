@@ -1,11 +1,11 @@
 # Monolith Mainnet Canary Report
 
-Updated: 2026-06-04T01:05:39Z
+Updated: 2026-06-04T03:58:32Z
 
 ## Result
 
-- Status: short disposable observer canary passed
-- Classification: stable mainnet Peer RPC window from VPS1; local Mac peer availability remains unreliable
+- Status: short disposable observer canary passed; restored-data local observer catch-up in progress
+- Classification: stable mainnet Peer RPC windows from VPS1 and the local Mac restored-data observer
 - Sprint: 6.1 Mainnet canary
 - Block production: disabled for all checks
 
@@ -38,6 +38,34 @@ Observed peers during the successful canary:
 - `/ip4/46.62.204.73/tcp/8888/p2p/QmZjGG6eFnLLSskbgikz956DTpPgodo5P7Dxa32qHYZBBP`
 - `/ip4/95.216.68.185/tcp/8888/p2p/QmeTy5SE79ksZruNZ1DJJqR6UCe1oZvWcYaUnn6MuYE8Ea`
 
+## Local Restored-Data Mainnet Catch-Up
+
+On 2026-06-04, a separate local Mac mainnet observer was launched against the restored mainnet basedir at `/Volumes/external/knodel-monolith-restore/basedir`, using block production disabled, JSON-RPC on `127.0.0.1:18132`, and P2P listen port `18988`.
+
+- Started: `2026-06-04T03:53:16Z`
+- Latest sampled: `2026-06-04T03:58:32Z`
+- Process: running as PID `46481` in screen session `koinos-mainnet-observer`
+- Log: `/private/tmp/koinosgui-mainnet-observer/mainnet-observer-latest.log`
+- Initial restored head: `36180957`
+- Latest sampled local head: `36200760`
+- Latest sampled public mainnet head: `36496418`
+- Remaining lag at sample: `295658` blocks
+- Observed sync rate: about `60-66` blocks/sec from monolith metrics rows
+- Established mainnet peers: `4`
+- Fault scan: no `score threshold`, `checkpoint mismatch`, fatal, exception, or block-application failure rows observed
+
+Established peers during the local restored-data catch-up:
+
+- `/dns4/seed.koinosblocks.com/tcp/8888/p2p/QmUNURuZxSu5wLnmBNJdwGtwjLmV5JxGhu4uNSAS8ZNcze`
+- `/dns4/seed.koinosfoundation.org/tcp/8888/p2p/QmZjGG6eFnLLSskbgikz956DTpPgodo5P7Dxa32qHYZBBP`
+- `/ip4/46.62.245.240/tcp/8888/p2p/QmWmxqE6WhcMWZEKwqUAbu87Qgm6JroZLdM4Xmxouu1Mmi`
+- `/ip4/95.216.68.185/tcp/8888/p2p/QmeTy5SE79ksZruNZ1DJJqR6UCe1oZvWcYaUnn6MuYE8Ea`
+
+Two configured candidates were repeatedly unavailable during the local sample and produced expected transport warnings while sync continued through the healthy peers:
+
+- `/dns4/seed-east.burnkoin.com/tcp/8888/p2p/QmYAC9nxqgVt2p8NvmxNFsoMpQS7c4zEBmsZndEBTRHNu4`: operation timed out
+- `/ip4/37.27.7.221/tcp/11394/p2p/QmY8NBHwoVrxBvrjS3wQoeTmWG4UUKMxmYHss7QYRXktrs`: connection refused
+
 ## Evidence
 
 - A/B report: `docs/roadmap/monolith/networking/MONOLITH_AB_PEER_ACQUISITION_REPORT.md`
@@ -48,6 +76,7 @@ Observed peers during the successful canary:
 - Successful VPS1 canary report: `/tmp/knodel-mainnet-canary-run/monolith-soak-report.md`
 - Successful VPS1 canary log: `/tmp/knodel-mainnet-canary-run/monolith-soak.log`
 - Successful VPS1 binary: `/opt/knodel-mainnet-canary/vendor/koinos/koinos-node/build/src/koinos_node`
+- Local restored-data catch-up log: `/private/tmp/koinosgui-mainnet-observer/mainnet-observer-latest.log`
 
 ## Public Head Gap
 
@@ -79,4 +108,4 @@ Immediate repeat stability probing failed for all three peers with security-nego
 
 Sprint 6.1 now has a successful short mainnet observer canary from VPS1. This validates the remote monolith build path, config loading, mainnet peer acquisition, handshake, and early sync under block-production-disabled conditions.
 
-This is not yet the full mainnet signoff. The next valid step is a restored-data or longer fresh-data observer canary on the production server, followed by a parallel legacy comparison and a `48h` stability window. Do not enable mainnet block production until the observer gate is complete.
+This is not yet the full mainnet signoff. The next valid step is to let the restored-data observer reach the public head, compare it against a legacy observer over a sustained window, and then run the production-server `48h` stability window. Do not enable mainnet block production until the observer gate is complete.
