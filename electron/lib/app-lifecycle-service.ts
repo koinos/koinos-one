@@ -43,13 +43,13 @@ function localizedShutdownCopy(language: string | null | undefined): {
   if (spanish) {
     return {
       confirmTitle: 'Detener nodo antes de cerrar',
-      confirmMessage: 'Knodel debe detener los servicios activos del nodo antes de cerrar.',
+      confirmMessage: 'koinosGUI debe detener los servicios activos del nodo antes de cerrar.',
       confirmDetailPrefix: 'Servicios activos',
       confirmAction: 'Detener y cerrar',
       cancelAction: 'Cancelar',
-      stoppingWindowTitle: 'Knodel - Deteniendo nodo...',
+      stoppingWindowTitle: 'koinosGUI - Deteniendo nodo...',
       stopFailedTitle: 'No se pudo detener el nodo',
-      stopFailedMessage: 'Knodel no pudo detener todos los servicios antes de cerrar.',
+      stopFailedMessage: 'koinosGUI no pudo detener todos los servicios antes de cerrar.',
       stopFailedDetailPrefix: 'Salida del stop',
       keepOpenAction: 'Mantener abierta',
       forceCloseAction: 'Forzar cierre'
@@ -58,13 +58,13 @@ function localizedShutdownCopy(language: string | null | undefined): {
 
   return {
     confirmTitle: 'Stop node before closing',
-    confirmMessage: 'Knodel needs to stop running node services before it closes.',
+    confirmMessage: 'koinosGUI needs to stop running node services before it closes.',
     confirmDetailPrefix: 'Running services',
     confirmAction: 'Stop and close',
     cancelAction: 'Cancel',
-    stoppingWindowTitle: 'Knodel - Stopping node...',
+    stoppingWindowTitle: 'koinosGUI - Stopping node...',
     stopFailedTitle: 'Could not stop the node',
-    stopFailedMessage: 'Knodel could not stop all managed services before closing.',
+    stopFailedMessage: 'koinosGUI could not stop all managed services before closing.',
     stopFailedDetailPrefix: 'Stop output',
     keepOpenAction: 'Keep open',
     forceCloseAction: 'Force close'
@@ -240,7 +240,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
       const message = error instanceof Error ? error.message : 'Could not prepare the app shutdown.'
       void showMessageBoxForWindow(win, {
         type: 'error',
-        title: 'Knodel',
+        title: 'koinosGUI',
         message,
         buttons: ['OK'],
         defaultId: 0,

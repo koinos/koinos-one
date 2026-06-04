@@ -149,7 +149,7 @@ describe('producer-service helpers', () => {
     expect(aggregateDashboardPerformanceTotals([
       {
         id: 'knodel:1',
-        label: 'Knodel Main',
+        label: 'koinosGUI Main',
         kind: 'knodel',
         serviceId: null,
         pid: 1,
@@ -289,7 +289,7 @@ describe('dashboard performance', () => {
     expect(result.rows).toHaveLength(1)
     expect(result.rows[0]).toMatchObject({
       kind: 'knodel',
-      label: 'Knodel Main',
+      label: 'koinosGUI Main',
       pid: 101
     })
     expect(result.totals).toEqual({

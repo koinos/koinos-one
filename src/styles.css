@@ -1,20 +1,19 @@
 :root {
-  --bg: #081116;
-  --bg-2: #0d1a21;
-  --panel: rgba(10, 20, 27, 0.86);
-  --panel-2: rgba(14, 26, 34, 0.92);
-  --line: rgba(151, 184, 199, 0.18);
-  --line-strong: rgba(151, 184, 199, 0.34);
-  --text: #e7f4f7;
-  --muted: #8ba4ae;
-  --accent: #2fd2b7;
-  --accent-2: #f4b35d;
-  --danger: #ff746c;
-  --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  --bg: #f7fbfc;
+  --bg-2: #edf5f7;
+  --panel: rgba(255, 255, 255, 0.94);
+  --panel-2: rgba(247, 252, 253, 0.98);
+  --line: rgba(31, 71, 85, 0.16);
+  --line-strong: rgba(31, 71, 85, 0.32);
+  --text: #102832;
+  --muted: #5d7480;
+  --accent: #008f83;
+  --accent-2: #d48a17;
+  --danger: #c94d45;
+  --shadow: 0 16px 42px rgba(32, 67, 80, 0.12);
+  color-scheme: light;
   color: var(--text);
-  background: radial-gradient(circle at 10% 10%, #183039 0%, rgba(24, 48, 57, 0) 42%),
-    radial-gradient(circle at 90% 0%, #2b1f13 0%, rgba(43, 31, 19, 0) 38%),
-    linear-gradient(180deg, #071015 0%, #05090d 100%);
+  background: linear-gradient(180deg, #fbfdfe 0%, #edf5f7 100%);
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
@@ -28,21 +27,21 @@
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(6, 11, 14, 0.6);
+  background: rgba(222, 235, 240, 0.9);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(151, 184, 199, 0.3);
+  background: rgba(31, 71, 85, 0.24);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(151, 184, 199, 0.5);
+  background: rgba(31, 71, 85, 0.36);
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(151, 184, 199, 0.3) rgba(6, 11, 14, 0.6);
+  scrollbar-color: rgba(31, 71, 85, 0.26) rgba(222, 235, 240, 0.9);
 }
 
 html,
@@ -53,7 +52,7 @@ body,
 
 body {
   margin: 0;
-  background: transparent;
+  background: #f7fbfc;
 }
 
 .mono {
@@ -200,9 +199,36 @@ body {
   z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding-bottom: 14px;
+}
+
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.app-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #008f83, #2aa6d6);
+  color: #ffffff;
+  font-weight: 800;
+  box-shadow: 0 10px 22px rgba(0, 143, 131, 0.24);
+}
+
+.app-brand-name {
+  color: var(--text);
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .tabs-list {
@@ -1232,7 +1258,7 @@ body {
   font-size: 0.9rem;
 }
 
-/* Dark-themed inputs matching the rest of the app */
+/* App inputs matching the active theme */
 .config-section-fields input[type='text'],
 .config-section-fields input[type='number'],
 .config-section-fields select,
@@ -3650,6 +3676,461 @@ tbody tr.is-fresh {
   .log-modal-header {
     flex-direction: column;
   }
+}
+
+/* Bright koinosGUI surface pass. Keep this late so legacy dark component rules cannot win the cascade. */
+.app-shell {
+  background:
+    linear-gradient(140deg, rgba(0, 143, 131, 0.08), transparent 36%),
+    linear-gradient(320deg, rgba(212, 138, 23, 0.09), transparent 42%),
+    linear-gradient(180deg, #fbfdfe 0%, #edf5f7 100%);
+}
+
+.app-background {
+  background:
+    linear-gradient(115deg, rgba(0, 143, 131, 0.08), transparent 45%),
+    linear-gradient(295deg, rgba(212, 138, 23, 0.08), transparent 42%);
+  mask-image: none;
+  opacity: 1;
+}
+
+.app-footer {
+  border-top-color: var(--line);
+}
+
+.tabs-list,
+.app-version-badge,
+.status-pill,
+.settings-button,
+.settings-panel,
+.stat-card,
+.dashboard-panel,
+.dashboard-card,
+.dashboard-subpanel,
+.table-panel,
+.table-wrap,
+.node-panel,
+.node-services,
+.node-output,
+.node-backup-progress,
+.node-card,
+.node-preset-card,
+.node-presets,
+.node-profiles-modal,
+.node-profiles-modal-body,
+.node-native-builds,
+.node-native-build-root,
+.node-native-build-service,
+.component-health-grid,
+.config-section,
+.config-restart-banner,
+.microservices-config-panel,
+.wallet-panel,
+.wallet-header-shell,
+.wallet-card,
+.wallet-empty-state,
+.wallet-account-bar,
+.wallet-account-row,
+.wallet-activity-item,
+.wallet-output,
+.wallet-more-popover,
+.producer-panel,
+.producer-minimal-card,
+.producer-config-step,
+.producer-details,
+.producer-detail-row,
+.bid-container,
+.bid-tx-card,
+.bid-op,
+.bid-event,
+.bid-json,
+.bid-raw,
+.block-detail-dialog,
+.block-detail-tx-card,
+.block-detail-op,
+.block-detail-event,
+.block-detail-json,
+.log-modal,
+.service-context-menu,
+.file-editor-modal {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.tabs-list,
+.settings-tabs,
+.wallet-subtabs,
+.wallet-send-mode-tabs,
+.bid-tabs,
+.block-detail-tabs {
+  background: rgba(235, 244, 247, 0.92);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.tab-button,
+.settings-tab-button,
+.wallet-subtab-button,
+.wallet-send-mode-button,
+.bid-tab,
+.block-detail-tab,
+.ghost-button,
+.settings-inline-button,
+.node-service-inline-button,
+.node-preset-button,
+.copy-address-button,
+.wallet-more-item {
+  color: var(--muted);
+  border-color: rgba(31, 71, 85, 0.16);
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.tab-button:hover,
+.settings-tab-button:hover,
+.wallet-subtab-button:hover,
+.wallet-send-mode-button:hover,
+.bid-tab:hover,
+.block-detail-tab:hover,
+.ghost-button:hover,
+.settings-inline-button:hover,
+.node-service-inline-button:hover,
+.node-preset-button:hover,
+.copy-address-button:hover,
+.wallet-more-item:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: #ffffff;
+}
+
+.tab-button.is-active,
+.settings-tab-button.is-active,
+.wallet-subtab-button.is-active,
+.wallet-send-mode-button.is-active,
+.bid-tab.active,
+.block-detail-tab.is-active,
+.node-preset-card.is-selected {
+  color: #006f65;
+  border-color: rgba(0, 143, 131, 0.28);
+  background: linear-gradient(180deg, rgba(0, 143, 131, 0.12), rgba(255, 255, 255, 0.84));
+}
+
+.primary-button,
+.bid-action-btn {
+  color: #ffffff;
+  border-color: rgba(0, 111, 101, 0.22);
+  background: linear-gradient(180deg, #009b8e, #00796f);
+  box-shadow: 0 10px 22px rgba(0, 121, 111, 0.18);
+}
+
+.primary-button:hover,
+.bid-action-btn:hover {
+  border-color: rgba(0, 111, 101, 0.36);
+  background: linear-gradient(180deg, #00a99a, #008276);
+}
+
+.danger-button,
+.ghost-button.danger-button,
+.node-service-inline-button-danger {
+  color: #9c3029;
+  border-color: rgba(201, 77, 69, 0.3);
+  background: #fff1ef;
+}
+
+.danger-button:hover,
+.ghost-button.danger-button:hover,
+.node-service-inline-button-danger:hover {
+  color: #7d201b;
+  border-color: rgba(201, 77, 69, 0.44);
+  background: #ffe7e4;
+}
+
+.settings-form input:not([type='checkbox']),
+.settings-form select,
+.settings-form textarea,
+.table-select select,
+.node-field input,
+.node-field select,
+.node-runtime-select,
+.table-select,
+.wallet-unlock-input,
+.wallet-create-password-input,
+.file-editor-textarea,
+input,
+select,
+textarea {
+  color: var(--text);
+  border-color: var(--line);
+  background: #ffffff;
+}
+
+.settings-form input:focus-visible,
+.settings-form select:focus-visible,
+.settings-form textarea:focus-visible,
+.table-select select:focus-visible,
+.node-field input:focus-visible,
+.node-field select:focus-visible,
+.node-runtime-select:focus-visible,
+.table-select:focus-visible,
+.wallet-unlock-input:focus-visible,
+.wallet-create-password-input:focus-visible,
+.file-editor-textarea:focus-visible {
+  outline-color: rgba(0, 143, 131, 0.32);
+  border-color: rgba(0, 143, 131, 0.42);
+}
+
+.settings-form label,
+.settings-header p,
+.settings-subheader p,
+.settings-inline-help,
+.stat-label,
+.stat-note,
+.dashboard-note,
+.table-meta,
+.node-empty,
+.node-service-meta,
+.node-service-meta-label,
+.node-service-secondary,
+.node-native-build-updated,
+.node-native-build-note,
+.wallet-header-meta,
+.wallet-account-row-path,
+.wallet-activity-meta,
+.wallet-modal-note,
+.producer-header-copy,
+.producer-setup-copy,
+.producer-detail-note,
+.bid-empty,
+.bid-loading,
+.block-detail-empty,
+.block-detail-loading,
+.log-modal-meta,
+.file-editor-meta,
+.footer-status-meta,
+.app-version-label {
+  color: var(--muted);
+}
+
+.settings-subheader,
+.wallet-section-header,
+.node-panel-header,
+.node-services-header,
+.producer-header,
+.file-editor-header,
+.log-modal-header,
+.block-detail-header,
+.block-detail-footer {
+  border-color: var(--line);
+}
+
+.node-warning,
+.info-banner,
+.dashboard-note,
+.wallet-modal-note,
+.producer-detail-note,
+.node-native-build-note,
+.config-restart-banner {
+  color: #6b4a00;
+  border-color: rgba(212, 138, 23, 0.28);
+  background: #fff8e8;
+}
+
+.error-banner,
+.form-error,
+.node-inline-error,
+.file-editor-error,
+.wallet-modal-alert,
+.node-error-banner,
+.node-native-builds-error,
+.log-modal-inline-error,
+.bid-tx-status.tx-reverted,
+.block-detail-tx-status.tx-reverted {
+  color: #9c3029;
+  border-color: rgba(201, 77, 69, 0.28);
+  background: #fff0ef;
+}
+
+.status-pill.is-live,
+.node-service-status.is-running,
+.node-preset-state.is-live,
+.component-health-item.is-healthy,
+.wallet-activity-badge.is-ok,
+.bid-tx-status.tx-success,
+.block-detail-tx-status.tx-success {
+  color: #006f65;
+  border-color: rgba(0, 143, 131, 0.28);
+  background: rgba(0, 143, 131, 0.1);
+}
+
+.status-pill.is-idle,
+.node-service-status.is-stopped,
+.node-preset-state.is-pending {
+  color: var(--muted);
+  border-color: rgba(31, 71, 85, 0.16);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.status-pill.is-error,
+.node-service-status.is-error,
+.component-health-item.is-unhealthy {
+  color: #9c3029;
+  border-color: rgba(201, 77, 69, 0.28);
+  background: #fff0ef;
+}
+
+.status-dot,
+.node-service-dot {
+  background: var(--accent);
+}
+
+.footer-status-progress,
+.node-backup-progress-bar {
+  border-color: rgba(31, 71, 85, 0.12);
+  background: rgba(31, 71, 85, 0.08);
+}
+
+.footer-status-progress-fill,
+.node-backup-progress-fill {
+  background: linear-gradient(90deg, rgba(0, 143, 131, 0.62), rgba(42, 166, 214, 0.88));
+}
+
+.node-services-table,
+.node-native-build-table,
+.producer-blocks-table,
+.block-detail-table,
+.wallet-token-table {
+  color: var(--text);
+  background: #ffffff;
+  border-color: var(--line);
+}
+
+.node-services-table thead,
+.node-native-build-table thead,
+.producer-blocks-table thead,
+.wallet-token-table-head,
+.table-panel-header {
+  color: var(--muted);
+  background: #eef6f8;
+}
+
+thead th,
+.node-services-table th,
+.node-native-build-table th,
+.producer-blocks-table th {
+  color: #42616e;
+  border-bottom-color: rgba(31, 71, 85, 0.14);
+  background: #eef6f8;
+}
+
+.table-select select {
+  color: var(--text);
+  border-color: var(--line);
+  background: #ffffff;
+}
+
+.table-meta span {
+  color: var(--muted);
+  border-color: rgba(31, 71, 85, 0.14);
+  background: #edf6f8;
+}
+
+.node-services-table tbody tr,
+.node-native-build-table tbody tr,
+.producer-blocks-table tbody tr,
+.wallet-token-table-row,
+.explorer-row {
+  border-color: rgba(31, 71, 85, 0.1);
+}
+
+tbody td,
+.empty-cell {
+  color: var(--text);
+  border-bottom-color: rgba(31, 71, 85, 0.1);
+  background: #ffffff;
+}
+
+.empty-cell {
+  color: var(--muted);
+}
+
+.node-services-table tbody tr:hover,
+.node-native-build-table tbody tr:hover,
+.producer-blocks-table tbody tr:hover,
+.wallet-token-table-row:hover,
+.explorer-row:hover {
+  background: rgba(0, 143, 131, 0.06);
+}
+
+.node-log-pre,
+.log-modal-pre,
+.ansi-log-pre,
+.conflict-modal-pids,
+.bid-json,
+.bid-raw,
+.block-detail-json,
+.file-editor-textarea,
+.wallet-output,
+pre,
+code {
+  color: #18323c;
+  border-color: rgba(31, 71, 85, 0.14);
+  background: #f5fafb;
+}
+
+.mono {
+  color: inherit;
+}
+
+.explorer-block-id,
+.bid-hash,
+.bid-tx-id,
+.block-detail-hash,
+.block-detail-tx-id,
+.wallet-account-row-address,
+.producer-identity-value,
+.producer-derived-address,
+.node-native-build-path-cell,
+.file-editor-path {
+  color: #214856;
+}
+
+.bid-event-name,
+.block-detail-event-name,
+.bid-op-type,
+.block-detail-op-type,
+.wallet-account-current,
+.component-health-name {
+  color: #006f65;
+}
+
+.block-detail-overlay,
+.log-modal-backdrop,
+.file-editor-backdrop,
+.context-menu-backdrop,
+.node-profiles-backdrop {
+  background: rgba(22, 49, 60, 0.28);
+}
+
+.service-context-menu,
+.wallet-more-popover {
+  box-shadow: 0 18px 42px rgba(32, 67, 80, 0.18);
+}
+
+.node-service-runtime-tag,
+.wallet-account-badge,
+.producer-config-copy,
+.producer-config-launch,
+.config-field-dangerous {
+  color: #214856;
+  border-color: rgba(31, 71, 85, 0.16);
+  background: rgba(235, 244, 247, 0.9);
+}
+
+.has-error,
+.is-error,
+.is-unhealthy {
+  border-color: rgba(201, 77, 69, 0.3);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -354,12 +354,12 @@ export function sortDashboardPerformanceRows(
 }
 
 function labelKnodelMetric(metric: ProducerServiceAppMetric): string {
-  if (metric.type === 'Browser') return 'Knodel Main'
-  if (metric.type === 'Tab') return 'Knodel Renderer'
-  if (metric.type === 'GPU') return 'Knodel GPU'
+  if (metric.type === 'Browser') return 'koinosGUI Main'
+  if (metric.type === 'Tab') return 'koinosGUI Renderer'
+  if (metric.type === 'GPU') return 'koinosGUI GPU'
 
   const suffix = metric.name?.trim() || metric.serviceName?.trim() || metric.type.trim()
-  return suffix ? `Knodel ${suffix}` : 'Knodel Process'
+  return suffix ? `koinosGUI ${suffix}` : 'koinosGUI Process'
 }
 
 async function sampleDashboardPerformancePs(
@@ -1077,7 +1077,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
       const rows = sortDashboardPerformanceRows([...knodelRows, ...serviceRows])
       const totals = aggregateDashboardPerformanceTotals(rows)
       const notes = [
-        `Sampled ${knodelRows.length} Knodel process(es).`,
+        `Sampled ${knodelRows.length} koinosGUI process(es).`,
         managedServices.length > 0
           ? `Tracked ${managedServices.length} managed native service process(es).`
           : 'No managed native service PIDs were active.'
@@ -1216,7 +1216,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
     })
 
     if (!producerAddress) {
-      return fail('No producer address available. Configure one in the Producer tab or import an account into Knodel.')
+      return fail('No producer address available. Configure one in the Producer tab or import an account into koinosGUI.')
     }
 
     if (!deps.safeIsChecksumAddress(producerAddress)) {
@@ -1242,7 +1242,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
     const signerAccount = resolveUnlockedProducerSigner(wallet, signerAccountId)
     if (!signerAccount) {
-      return fail('The selected signer account is not unlocked in this Knodel session.')
+      return fail('The selected signer account is not unlocked in this koinosGUI session.')
     }
     if (!signerAccount.privateKey) {
       return fail('The selected signer account is watch-only and cannot register the producer key.')

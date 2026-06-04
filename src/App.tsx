@@ -3700,6 +3700,10 @@ export function App() {
 
       <div className="app-chrome">
         <nav className="tabs-bar" aria-label={t('sections.aria')}>
+          <div className="app-brand" aria-label={t('app.name')}>
+            <span className="app-brand-mark" aria-hidden="true">K</span>
+            <span className="app-brand-name">koinosGUI</span>
+          </div>
           <div className="tabs-list" role="tablist" aria-label={t('tabs.aria')}>
             <button
               id="tab-explorer"
