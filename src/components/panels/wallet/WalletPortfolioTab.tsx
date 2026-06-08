@@ -1,5 +1,6 @@
 type WalletPortfolioTabProps = {
   t: (key: string, values?: Record<string, string | number>) => string
+  nativeTokenSymbol: string
   walletBalance: KnodelWalletBalanceResult | null
   activeWalletCanSign: boolean
   isBusy: boolean
@@ -8,7 +9,7 @@ type WalletPortfolioTabProps = {
 }
 
 export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
-  const { t, walletBalance, activeWalletCanSign, isBusy, onOpenSend, onOpenBurn } = props
+  const { t, nativeTokenSymbol, walletBalance, activeWalletCanSign, isBusy, onOpenSend, onOpenBurn } = props
 
   return (
     <div className="wallet-subpanel">
@@ -19,7 +20,7 @@ export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
             <span>{t('wallet.balanceAction')}</span>
           </div>
           <div className="wallet-token-table-row">
-            <span>KOIN</span>
+            <span>{nativeTokenSymbol}</span>
             <span>{walletBalance?.koin || t('common.na')}</span>
           </div>
           <div className="wallet-token-table-row">

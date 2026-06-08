@@ -8,6 +8,7 @@ add_library(koinos_node_core
   core/config.cpp
   core/config.hpp
   core/event_bus.hpp
+  core/rpc_access_policy.hpp
   core/service_registry.hpp)
 
 target_include_directories(
@@ -274,6 +275,14 @@ else()
 endif()
 
 if(KOINOS_BUILD_TESTS)
+  add_executable(koinos_config_test
+    ../tests/core/config_test.cpp)
+
+  target_link_libraries(koinos_config_test PRIVATE
+    koinos_node_core)
+
+  add_test(NAME koinos_config_test COMMAND koinos_config_test)
+
   add_executable(koinos_service_registry_test
     ../tests/core/service_registry_test.cpp)
 

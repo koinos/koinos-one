@@ -38,6 +38,7 @@ export function WalletPanel(props: WalletPanelProps) {
     walletLoading,
     walletActionLoading,
     walletError,
+    nativeTokenSymbol,
     walletBalance,
     walletImportPrivateKey,
     setWalletImportPrivateKey,
@@ -368,6 +369,7 @@ export function WalletPanel(props: WalletPanelProps) {
           {walletSubtab === 'tokens' && (
             <WalletPortfolioTab
               t={t}
+              nativeTokenSymbol={nativeTokenSymbol}
               walletBalance={walletBalance}
               activeWalletCanSign={activeWalletCanSign}
               isBusy={walletActionLoading !== null}
@@ -879,6 +881,7 @@ export function WalletPanel(props: WalletPanelProps) {
         walletError={walletError}
         activeWalletCanSign={activeWalletCanSign}
         activeWalletAddress={activeWalletAddress}
+        nativeTokenSymbol={nativeTokenSymbol}
         walletTransferAsset={walletTransferAsset}
         setWalletTransferAsset={setWalletTransferAsset}
         walletTransferAddressDraft={walletTransferAddressDraft}

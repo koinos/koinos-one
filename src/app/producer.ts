@@ -17,6 +17,31 @@ export function resolveProducerTargetAddress(input: ProducerTargetAddressInput):
   return draftedProducerAddress || configProducerAddress
 }
 
+type ProducerDisplayAddressInput = {
+  configuredAddress?: string | null
+  signingWalletAddress?: string | null
+}
+
+export function resolveProducerDisplayAddress(input: ProducerDisplayAddressInput): string {
+  const configuredAddress = `${input.configuredAddress || ''}`.trim()
+  const signingWalletAddress = `${input.signingWalletAddress || ''}`.trim()
+  return configuredAddress || signingWalletAddress
+}
+
+type RuntimeProducerIdentityInput = {
+  configuredAddress?: string | null
+  localPublicKey?: string | null
+  registeredPublicKey?: string | null
+}
+
+export function hasRuntimeProducerIdentity(input: RuntimeProducerIdentityInput): boolean {
+  return Boolean(
+    `${input.configuredAddress || ''}`.trim() ||
+    `${input.localPublicKey || ''}`.trim() ||
+    `${input.registeredPublicKey || ''}`.trim()
+  )
+}
+
 export function isProducerSetupComplete(profile: KnodelKoinosNodeProducerProfileResult | null | undefined): boolean {
   return Boolean(profile?.ok && profile.profile?.producerAddress && profile.profile?.registrationSignerAccountId)
 }

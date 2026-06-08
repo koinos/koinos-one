@@ -1,5 +1,7 @@
 #include "config.hpp"
 
+#include <stdexcept>
+
 #include <yaml-cpp/yaml.h>
 
 namespace koinos::node {
@@ -60,6 +62,126 @@ std::vector< std::string > yaml_get_string_list( const YAML::Node& node, const s
   return result;
 }
 
+std::string yaml_get_string_scalar( const YAML::Node& node, const std::string& key, const std::string& fallback = {} )
+{
+  auto value = yaml_child( node, key );
+  if( value.IsDefined() && value.IsScalar() )
+  {
+    try
+    {
+      return value.as< std::string >();
+    }
+    catch( ... )
+    {}
+  }
+  return fallback;
+}
+
+uint8_t hex_nibble( char value )
+{
+  if( value >= '0' && value <= '9' )
+    return static_cast< uint8_t >( value - '0' );
+  if( value >= 'a' && value <= 'f' )
+    return static_cast< uint8_t >( value - 'a' + 10 );
+  if( value >= 'A' && value <= 'F' )
+    return static_cast< uint8_t >( value - 'A' + 10 );
+  throw std::runtime_error( "invalid hex character" );
+}
+
+std::string decode_hex_bytes( const std::string& value )
+{
+  const auto offset = value.size() >= 2 && value[ 0 ] == '0' && ( value[ 1 ] == 'x' || value[ 1 ] == 'X' ) ? 2 : 0;
+  if( value.size() == offset )
+    throw std::runtime_error( "block id is empty" );
+  if( ( value.size() - offset ) % 2 != 0 )
+    throw std::runtime_error( "block id hex string has odd length" );
+
+  std::string bytes;
+  bytes.reserve( ( value.size() - offset ) / 2 );
+  for( auto i = offset; i < value.size(); i += 2 )
+  {
+    bytes.push_back( static_cast< char >( ( hex_nibble( value[ i ] ) << 4 ) | hex_nibble( value[ i + 1 ] ) ) );
+  }
+  return bytes;
+}
+
+ConfigCheckpoint parse_checkpoint( const std::string& value )
+{
+  const auto separator = value.find( ':' );
+  if( separator == std::string::npos || separator == 0 || separator + 1 >= value.size() )
+    throw std::runtime_error( "p2p.checkpoint must be in height:block_id form" );
+
+  std::size_t parsed = 0;
+  uint64_t height = 0;
+  try
+  {
+    height = std::stoull( value.substr( 0, separator ), &parsed, 10 );
+  }
+  catch( const std::exception& e )
+  {
+    throw std::runtime_error( "invalid p2p.checkpoint height '" + value.substr( 0, separator ) + "': " + e.what() );
+  }
+
+  if( parsed != separator )
+    throw std::runtime_error( "invalid p2p.checkpoint height '" + value.substr( 0, separator ) + "'" );
+
+  ConfigCheckpoint checkpoint;
+  checkpoint.block_height = height;
+  try
+  {
+    checkpoint.block_id = decode_hex_bytes( value.substr( separator + 1 ) );
+  }
+  catch( const std::exception& e )
+  {
+    throw std::runtime_error( "invalid p2p.checkpoint block id: " + std::string( e.what() ) );
+  }
+  return checkpoint;
+}
+
+ConfigCheckpoint parse_checkpoint_map( const YAML::Node& value )
+{
+  if( value.size() != 1 )
+    throw std::runtime_error( "p2p.checkpoint map entries must contain exactly one height:block_id pair" );
+
+  auto it = value.begin();
+  return parse_checkpoint( it->first.as< std::string >() + ":" + it->second.as< std::string >() );
+}
+
+std::vector< ConfigCheckpoint > yaml_get_checkpoints( const YAML::Node& node, const std::string& key )
+{
+  std::vector< ConfigCheckpoint > checkpoints;
+  auto value = yaml_child( node, key );
+  if( !value.IsDefined() || value.IsNull() )
+    return checkpoints;
+
+  if( value.IsScalar() )
+  {
+    checkpoints.push_back( parse_checkpoint( value.as< std::string >() ) );
+    return checkpoints;
+  }
+
+  if( value.IsMap() )
+  {
+    for( auto it = value.begin(); it != value.end(); ++it )
+      checkpoints.push_back( parse_checkpoint( it->first.as< std::string >() + ":" + it->second.as< std::string >() ) );
+    return checkpoints;
+  }
+
+  if( !value.IsSequence() )
+    throw std::runtime_error( "p2p.checkpoint must be a string or string list" );
+
+  for( const auto& item: value )
+  {
+    if( item.IsScalar() )
+      checkpoints.push_back( parse_checkpoint( item.as< std::string >() ) );
+    else if( item.IsMap() )
+      checkpoints.push_back( parse_checkpoint_map( item ) );
+    else
+      throw std::runtime_error( "p2p.checkpoint entries must be strings or height:block_id maps" );
+  }
+  return checkpoints;
+}
+
 } // anonymous namespace
 
 NodeConfig load_config( const std::filesystem::path& config_path,
@@ -81,6 +203,8 @@ NodeConfig load_config( const std::filesystem::path& config_path,
       cfg.log_color      = yaml_get< bool >( g, "log-color", cfg.log_color );
       cfg.log_datetime   = yaml_get< bool >( g, "log-datetime", cfg.log_datetime );
       cfg.reset          = yaml_get< bool >( g, "reset", cfg.reset );
+      cfg.rpc_blacklist  = yaml_get_string_list( g, "blacklist" );
+      cfg.rpc_whitelist  = yaml_get_string_list( g, "whitelist" );
 
       if( yaml_child( g, "jobs" ).IsDefined() )
         cfg.chain_jobs = yaml_get< uint64_t >( g, "jobs", cfg.chain_jobs );
@@ -103,12 +227,31 @@ NodeConfig load_config( const std::filesystem::path& config_path,
       cfg.p2p_jobs   = yaml_get< uint64_t >( p, "jobs", cfg.p2p_jobs );
       cfg.p2p_seed_reconnect_interval_seconds =
         yaml_get< uint64_t >( p, "seed-reconnect-interval-seconds", cfg.p2p_seed_reconnect_interval_seconds );
+      cfg.p2p_peer_discovery_enabled = yaml_get< bool >( p, "peer-discovery", cfg.p2p_peer_discovery_enabled );
+      cfg.p2p_target_peer_count = yaml_get< uint64_t >( p, "target-peer-count", cfg.p2p_target_peer_count );
+      cfg.p2p_max_peer_candidates = yaml_get< uint64_t >( p, "max-peer-candidates", cfg.p2p_max_peer_candidates );
+      cfg.p2p_max_candidate_dials_per_cycle =
+        yaml_get< uint64_t >( p, "max-candidate-dials-per-cycle", cfg.p2p_max_candidate_dials_per_cycle );
+      cfg.p2p_peer_acquisition_interval_seconds =
+        yaml_get< uint64_t >( p, "peer-acquisition-interval-seconds", cfg.p2p_peer_acquisition_interval_seconds );
+      cfg.p2p_candidate_redial_interval_seconds =
+        yaml_get< uint64_t >( p, "candidate-redial-interval-seconds", cfg.p2p_candidate_redial_interval_seconds );
       cfg.p2p_force_gossip = yaml_get< bool >( p, "force-gossip", cfg.p2p_force_gossip );
       cfg.p2p_disable_gossip = yaml_get< bool >( p, "disable-gossip", cfg.p2p_disable_gossip );
+      cfg.p2p_identity_seed = yaml_get_string_scalar( p, "identity-seed", cfg.p2p_identity_seed );
+      cfg.p2p_checkpoints = yaml_get_checkpoints( p, "checkpoint" );
 
-      auto seeds = yaml_get_string_list( p, "seed" );
-      if( !seeds.empty() )
-        cfg.p2p_seeds = std::move( seeds );
+      if( auto seed = yaml_child( p, "seed" ); seed.IsDefined() )
+      {
+        if( seed.IsScalar() )
+          cfg.p2p_identity_seed = seed.as< std::string >();
+        else if( seed.IsSequence() )
+        {
+          auto seeds = yaml_get_string_list( p, "seed" );
+          if( !seeds.empty() )
+            cfg.p2p_seeds = std::move( seeds );
+        }
+      }
 
       auto peers = yaml_get_string_list( p, "peer" );
       if( !peers.empty() )

@@ -4,10 +4,16 @@ import path from 'node:path'
 
 import {
   DEFAULT_BASEDIR,
-  DEFAULT_BLOCKCHAIN_BACKUP_URL,
   DEFAULT_PUBLIC_RPC_URLS,
   resolveDefaultKoinosRepoPath
 } from './constants'
+import { isExistingKoinosNodeBaseDir } from './basedir-identity'
+import {
+  defaultProfilesForNetwork,
+  normalizeKoinosNetworkId,
+  resolveNetworkProfile,
+  type KoinosNetworkId
+} from './network-profiles'
 
 export function expandUserPath(inputPath: string): string {
   const trimmed = inputPath.trim()
@@ -21,6 +27,16 @@ export function ensureKoinosBaseDir(inputPath: string): string {
   const normalized = expanded.trim() || DEFAULT_BASEDIR
   const trimmedTrailingSeparators = normalized.replace(/[\\/]+$/, '')
   if (!trimmedTrailingSeparators) return DEFAULT_BASEDIR
+  const absoluteCandidate = path.isAbsolute(trimmedTrailingSeparators)
+    ? trimmedTrailingSeparators
+    : path.join(os.homedir(), trimmedTrailingSeparators)
+  if (isExistingKoinosNodeBaseDir(absoluteCandidate)) return absoluteCandidate
+
+  const existingChildBaseDir = ['basedir', '.koinos']
+    .map((childName) => path.join(absoluteCandidate, childName))
+    .find((candidate) => isExistingKoinosNodeBaseDir(candidate))
+  if (existingChildBaseDir) return existingChildBaseDir
+
   const withSuffix = trimmedTrailingSeparators.endsWith('.koinos') || trimmedTrailingSeparators.endsWith('.koinosgui')
     ? trimmedTrailingSeparators
     : path.join(trimmedTrailingSeparators, '.koinos')
@@ -92,9 +108,9 @@ export function normalizePublicRpcUrl(value: string): string | null {
   }
 }
 
-export function sanitizePublicRpcUrls(value: unknown): string[] {
+export function sanitizePublicRpcUrls(value: unknown, fallback: string[] = DEFAULT_PUBLIC_RPC_URLS): string[] {
   if (!Array.isArray(value)) {
-    return [...DEFAULT_PUBLIC_RPC_URLS]
+    return [...fallback]
   }
 
   const seen = new Set<string>()
@@ -108,30 +124,43 @@ export function sanitizePublicRpcUrls(value: unknown): string[] {
     urls.push(normalized)
   }
 
-  return urls.length > 0 ? urls : [...DEFAULT_PUBLIC_RPC_URLS]
+  return urls.length > 0 ? urls : [...fallback]
 }
 
-const NATIVE_DEFAULT_PROFILES = ['block_producer', 'jsonrpc', 'contract_meta_store']
+const NATIVE_DEFAULT_PROFILES = ['mainnet_observer']
+
+export function defaultBaseDirForNetwork(network: KoinosNetworkId): string {
+  if (network === 'testnet') return path.join(DEFAULT_BASEDIR, 'testnet', '.koinos')
+  if (network === 'custom') return path.join(DEFAULT_BASEDIR, 'custom', '.koinos')
+  return DEFAULT_BASEDIR
+}
 
 export function normalizeNodeSettings(
   input?: {
+    network?: KoinosNetworkId
     repoPath?: string
     baseDir?: string
     profiles?: string[]
     blockchainBackupUrl?: string
   }
 ): {
+  network: KoinosNetworkId
   repoPath: string
   baseDir: string
   profiles: string[]
   blockchainBackupUrl: string
 } {
   const repoPath = expandUserPath(input?.repoPath || resolveDefaultKoinosRepoPath())
-  const baseDir = ensureKoinosBaseDir(input?.baseDir || DEFAULT_BASEDIR)
-  const profiles = Array.isArray(input?.profiles) ? input.profiles : NATIVE_DEFAULT_PROFILES
-  const blockchainBackupUrl = (input?.blockchainBackupUrl || DEFAULT_BLOCKCHAIN_BACKUP_URL).trim() || DEFAULT_BLOCKCHAIN_BACKUP_URL
+  const profileFromInput = Array.isArray(input?.profiles) ? input.profiles : undefined
+  const network = resolveNetworkProfile(input?.network, profileFromInput).id
+  const baseDir = ensureKoinosBaseDir(input?.baseDir || defaultBaseDirForNetwork(network))
+  const profiles = profileFromInput ?? defaultProfilesForNetwork(network) ?? NATIVE_DEFAULT_PROFILES
+  const networkProfile = resolveNetworkProfile(network, profiles)
+  const defaultBackupUrl = networkProfile.blockchainBackupUrl ?? ''
+  const blockchainBackupUrl = (input?.blockchainBackupUrl ?? defaultBackupUrl).trim()
 
   return {
+    network,
     repoPath,
     baseDir,
     profiles,
@@ -140,6 +169,7 @@ export function normalizeNodeSettings(
 }
 
 export function parsePersistedNodeSettings(input: unknown): {
+  network?: KoinosNetworkId
   repoPath?: string
   baseDir?: string
   profiles?: string[]
@@ -157,6 +187,7 @@ export function parsePersistedNodeSettings(input: unknown): {
       : undefined
 
   return {
+    network: typeof value.network === 'string' ? normalizeKoinosNetworkId(value.network) : undefined,
     repoPath: typeof value.repoPath === 'string' ? value.repoPath : undefined,
     baseDir: typeof value.baseDir === 'string' ? value.baseDir : undefined,
     profiles,

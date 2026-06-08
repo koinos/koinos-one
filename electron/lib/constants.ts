@@ -2,16 +2,22 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { executableExtension } from './platform'
+import {
+  MAINNET_BLOCKCHAIN_BACKUP_URL,
+  MAINNET_CONTRACTS,
+  MAINNET_PUBLIC_RPC_URLS,
+  primaryPublicRpcUrlForNetwork,
+} from './network-profiles'
 
 export const DEFAULT_BASEDIR = path.join(os.homedir(), '.koinosgui')
-export const DEFAULT_BLOCKCHAIN_BACKUP_URL = 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
-export const PUBLIC_KOINOS_RPC_URL = 'https://api.koinos.io/'
-export const DEFAULT_PUBLIC_RPC_URLS = ['https://api.koinos.io/', 'https://api.koinosblocks.com/'] as const
+export const DEFAULT_BLOCKCHAIN_BACKUP_URL = MAINNET_BLOCKCHAIN_BACKUP_URL
+export const PUBLIC_KOINOS_RPC_URL = primaryPublicRpcUrlForNetwork('mainnet')
+export const DEFAULT_PUBLIC_RPC_URLS = MAINNET_PUBLIC_RPC_URLS
 export const NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
 export const LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
-export const KOIN_CONTRACT_ADDRESS = '19GYjDBVXU7keLbYvMLazsGQn3GTWHjHkK'
-export const VHP_CONTRACT_ADDRESS = '12Y5vW6gk8GceH53YfRkRre2Rrcsgw7Naq'
-export const POB_CONTRACT_ADDRESS = '159myq5YUhhoVWu3wsHKHiJYKPKGUrGiyv'
+export const KOIN_CONTRACT_ADDRESS = MAINNET_CONTRACTS.koin
+export const VHP_CONTRACT_ADDRESS = MAINNET_CONTRACTS.vhp
+export const POB_CONTRACT_ADDRESS = MAINNET_CONTRACTS.pob
 export const FREE_MANA_SHARER_ADDRESS = '162GhJwsciDiKsgwzj2t6VoFHt3RMzGKdG'
 export const FREE_MANA_METER_ADDRESS = '1MqveNK3piSGPHGocsRUCVhpCPLgQA58K9'
 export const KNODEL_SECURE_STORAGE_DIR = 'secure-storage'

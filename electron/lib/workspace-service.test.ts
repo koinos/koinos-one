@@ -17,6 +17,7 @@ function makeTempDir(): string {
 
 function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSettings {
   return {
+    network: input?.network || 'mainnet',
     repoPath: input?.repoPath || '',
     baseDir: input?.baseDir || path.join(input?.repoPath || '', 'basedir'),
     profiles: input?.profiles || [],
@@ -51,7 +52,7 @@ afterEach(() => {
 })
 
 describe('workspace-service', () => {
-  it('copies runtime files into BASEDIR while preserving config.yml', () => {
+  it('copies runtime files into BASEDIR while preserving existing runtime identity files', () => {
     const repoPath = makeTempDir()
     const baseDir = path.join(repoPath, 'basedir')
     const configDir = path.join(repoPath, 'config')
@@ -61,6 +62,10 @@ describe('workspace-service', () => {
     fs.writeFileSync(path.join(configDir, 'genesis_data.json'), '{}\n')
     fs.writeFileSync(path.join(configDir, 'koinos_descriptors.pb'), 'pb\n')
     fs.writeFileSync(path.join(baseDir, 'config.yml'), 'existing-config\n')
+    fs.mkdirSync(path.join(baseDir, 'chain'), { recursive: true })
+    fs.mkdirSync(path.join(baseDir, 'jsonrpc', 'descriptors'), { recursive: true })
+    fs.writeFileSync(path.join(baseDir, 'chain', 'genesis_data.json'), '{"chain":"existing"}\n')
+    fs.writeFileSync(path.join(baseDir, 'jsonrpc', 'descriptors', 'koinos_descriptors.pb'), 'existing-pb\n')
 
     const service = createService()
     const output = service.ensureBaseDirKoinosRuntimeFiles(
@@ -70,10 +75,11 @@ describe('workspace-service', () => {
       })
     )
 
-    expect(output).toContain('Prepared BASEDIR runtime files:')
     expect(output).toContain('Preserved existing BASEDIR runtime files: config.yml')
     expect(fs.readFileSync(path.join(baseDir, 'config.yml'), 'utf8')).toBe('existing-config\n')
-    expect(fs.readFileSync(path.join(baseDir, 'chain', 'genesis_data.json'), 'utf8')).toBe('{}\n')
-    expect(fs.readFileSync(path.join(baseDir, 'jsonrpc', 'descriptors', 'koinos_descriptors.pb'), 'utf8')).toBe('pb\n')
+    expect(output).toContain('chain/genesis_data.json')
+    expect(output).toContain('jsonrpc/descriptors/koinos_descriptors.pb')
+    expect(fs.readFileSync(path.join(baseDir, 'chain', 'genesis_data.json'), 'utf8')).toBe('{"chain":"existing"}\n')
+    expect(fs.readFileSync(path.join(baseDir, 'jsonrpc', 'descriptors', 'koinos_descriptors.pb'), 'utf8')).toBe('existing-pb\n')
   })
 })

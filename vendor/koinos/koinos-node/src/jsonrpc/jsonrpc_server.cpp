@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <sstream>
+#include <utility>
 
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/util/json_util.h>
@@ -449,7 +450,8 @@ JSONRPCServer::JSONRPCServer( IChain* chain,
                               account_history::AccountHistory* acct_history,
                               const std::string& listen_address,
                               uint16_t port,
-                              unsigned int threads )
+                              unsigned int threads,
+                              koinos::node::RpcAccessPolicy access_policy )
     : _chain( chain ),
       _mempool( mempool ),
       _block_store( block_store ),
@@ -458,7 +460,8 @@ JSONRPCServer::JSONRPCServer( IChain* chain,
       _acct_history( acct_history ),
       _ioc( std::max( threads, 1u ) ),
       _acceptor( _ioc, { net::ip::make_address( listen_address ), port } ),
-      _thread_count( std::max( threads, 1u ) )
+      _thread_count( std::max( threads, 1u ) ),
+      _access_policy( std::move( access_policy ) )
 {
 }
 
@@ -685,6 +688,9 @@ nlohmann::json JSONRPCServer::process_single_request( const nlohmann::json& requ
   auto [service, method] = parse_method( method_str );
   if( service.empty() || method.empty() )
     return make_error( METHOD_NOT_FOUND, "Malformed method: " + method_str, id );
+
+  if( !_access_policy.allows( service, method ) )
+    return make_error( METHOD_NOT_FOUND, "RPC method denied by access policy: " + service + "." + method, id );
 
   // Extract params (default empty object)
   nlohmann::json params = nlohmann::json::object();

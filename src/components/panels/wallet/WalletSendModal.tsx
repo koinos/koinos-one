@@ -9,6 +9,7 @@ type WalletSendModalProps = {
   walletError: string | null
   activeWalletCanSign: boolean
   activeWalletAddress: string
+  nativeTokenSymbol: string
   walletTransferAsset: 'koin' | 'vhp'
   setWalletTransferAsset: (value: 'koin' | 'vhp') => void
   walletTransferAddressDraft: string
@@ -45,6 +46,7 @@ export function WalletSendModal(props: WalletSendModalProps) {
     walletError,
     activeWalletCanSign,
     activeWalletAddress,
+    nativeTokenSymbol,
     walletTransferAsset,
     setWalletTransferAsset,
     walletTransferAddressDraft,
@@ -86,10 +88,12 @@ export function WalletSendModal(props: WalletSendModalProps) {
         <div className="log-modal-header">
           <div>
             <h3 id="wallet-send-modal-title" className="log-modal-title">
-              {isSend ? t('wallet.transferTitle') : t('wallet.burnTitle')}
+              {isSend ? t('wallet.transferTitle') : t('wallet.burnTitleForNetwork', { symbol: nativeTokenSymbol })}
             </h3>
             <p className="log-modal-meta">
-              {isSend ? t('wallet.transferDescription') : t('wallet.burnProducerDescription')}
+              {isSend
+                ? t('wallet.transferDescriptionForNetwork', { symbol: nativeTokenSymbol })
+                : t('wallet.burnProducerDescriptionForNetwork', { symbol: nativeTokenSymbol })}
             </p>
           </div>
           <button type="button" className="ghost-button" onClick={onClose}>
@@ -115,7 +119,7 @@ export function WalletSendModal(props: WalletSendModalProps) {
               role="tab"
               aria-selected={!isSend}
             >
-              {t('wallet.burnTitle')}
+              {t('wallet.burnTitleForNetwork', { symbol: nativeTokenSymbol })}
             </button>
           </div>
 
@@ -136,7 +140,7 @@ export function WalletSendModal(props: WalletSendModalProps) {
               <label>
                 {t('wallet.transferAsset')}
                 <select value={walletTransferAsset} onChange={(event) => setWalletTransferAsset(event.target.value as 'koin' | 'vhp')}>
-                  <option value="koin">{t('wallet.transferAssetKoin')}</option>
+                  <option value="koin">{nativeTokenSymbol}</option>
                   <option value="vhp">{t('wallet.transferAssetVhp')}</option>
                 </select>
               </label>

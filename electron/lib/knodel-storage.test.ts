@@ -42,6 +42,35 @@ describe('knodel storage', () => {
     ])
   })
 
+  it('keeps public rpc config separate per network', () => {
+    const storage = createKnodelStorage(createTempDir('knodel-storage-rpc-network-'))
+
+    const testnetSave = storage.savePublicRpcConfig({
+      network: 'testnet',
+      publicRpcUrls: ['https://testnet.koinosfoundation.org/jsonrpc']
+    })
+    expect(testnetSave.ok).toBe(true)
+    expect(testnetSave.publicRpcUrls).toEqual(['https://testnet.koinosfoundation.org/jsonrpc'])
+    expect(testnetSave.publicRpcUrlsByNetwork?.mainnet).toEqual([
+      'https://api.koinos.io/',
+      'https://api.koinosblocks.com/'
+    ])
+    expect(testnetSave.publicRpcUrlsByNetwork?.testnet).toEqual(['https://testnet.koinosfoundation.org/jsonrpc'])
+
+    const mainnetSave = storage.savePublicRpcConfig({
+      network: 'mainnet',
+      publicRpcUrls: ['https://api.koinos.io', 'https://api.koinosblocks.com']
+    })
+    expect(mainnetSave.ok).toBe(true)
+
+    const loaded = storage.loadPublicRpcConfig()
+    expect(loaded.publicRpcUrlsByNetwork?.mainnet).toEqual([
+      'https://api.koinos.io/',
+      'https://api.koinosblocks.com/'
+    ])
+    expect(loaded.publicRpcUrlsByNetwork?.testnet).toEqual(['https://testnet.koinosfoundation.org/jsonrpc'])
+  })
+
   it('persists, unlocks, closes and deletes a wallet', () => {
     const storage = createKnodelStorage(createTempDir('knodel-storage-wallet-'))
 

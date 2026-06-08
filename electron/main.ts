@@ -20,7 +20,6 @@ import {
   DEFAULT_PUBLIC_RPC_URLS,
   FREE_MANA_METER_ADDRESS,
   FREE_MANA_SHARER_ADDRESS,
-  KOIN_CONTRACT_ADDRESS,
   KOINOS_GIT_CLONE_URL,
   KNODEL_CONFIG_DIR,
   KNODEL_ENCRYPTION_ALGORITHM,
@@ -32,9 +31,7 @@ import {
   KNODEL_SECURE_STORAGE_DIR,
   LANGUAGE_STORAGE_KEY,
   NODE_SETTINGS_STORAGE_KEY,
-  POB_CONTRACT_ADDRESS,
   PRODUCER_DAY_WINDOW_MS,
-  PUBLIC_KOINOS_RPC_URL,
   resolveDefaultKoinosRepoPath,
   resolveDefaultKoinosSourceRoot,
   resolveAmqpBrokerPath,
@@ -43,12 +40,12 @@ import {
   MONOLITH_CORE_COMPONENTS,
   MONOLITH_OPTIONAL_COMPONENTS,
   resolveKoinosRestRoot,
-  isPackagedBuild,
-  VHP_CONTRACT_ADDRESS
+  isPackagedBuild
 } from './lib/constants'
 import { createAppLifecycleService } from './lib/app-lifecycle-service'
 import { createKnodelStorage } from './lib/knodel-storage'
 import { createBackupService } from './lib/backup-service'
+import { deriveMonolithComponentHealth } from './lib/component-health'
 import {
   baseDirConfigFilePath,
   blockProducerDirectoryPath,
@@ -56,6 +53,7 @@ import {
   blockProducerPublicKeyFilePath,
   configDirPath,
   configExampleDirPath,
+  defaultBaseDirForNetwork,
   ensureKoinosBaseDir,
   expandUserPath,
   managedFilePath,
@@ -65,6 +63,16 @@ import {
   restoreWorkspaceParentPath,
   verifyWritableDirectory
 } from './lib/node-paths'
+import {
+  MAINNET_PEER_ADDRESSES,
+  TESTNET_PEER_ADDRESSES,
+  primaryPublicRpcUrlForNetwork,
+  resolveNetworkProfile
+} from './lib/network-profiles'
+import {
+  normalizeConnectHost,
+  resolveRuntimeListenPorts
+} from './lib/runtime-listen'
 import {
   findExecutableInPath,
   nativeCmakeBuildCommand,
@@ -209,6 +217,7 @@ import { createNativeVersionResolver } from './lib/native-versions'
 import { createProducerService } from './lib/producer-service'
 import { producerAddressFromRuntimeConfig, resolveLocalProducerPublicKey } from './lib/producer-keys'
 import { createCachedContractLoader } from './lib/contract-loader'
+import { resolveCoreContractAbi } from './lib/core-contract-abis'
 import { registerKnodelIpcHandlers } from './lib/ipc-handlers'
 import { createLogsService } from './lib/logs-service'
 import { createNativeBuildService } from './lib/native-build-service'
@@ -252,6 +261,41 @@ let monolithProcessState: NativeServiceProcessState | null = null
 let monolithDisabledFeatures = new Set<string>(MONOLITH_DEFAULT_DISABLED_FEATURES)
 let monolithFallbackReason: string | null = null
 
+const MONOLITH_OBSERVER_FEATURES: Record<string, boolean> = {
+  chain: true,
+  mempool: true,
+  block_store: true,
+  p2p: true,
+  jsonrpc: true,
+  grpc: false,
+  block_producer: false,
+  contract_meta_store: false,
+  transaction_store: false,
+  account_history: false
+}
+
+const MONOLITH_PRODUCER_FEATURES: Record<string, boolean> = {
+  ...MONOLITH_OBSERVER_FEATURES,
+  block_producer: true,
+  contract_meta_store: true
+}
+
+const MONOLITH_FULL_NODE_FEATURES: Record<string, boolean> = {
+  ...MONOLITH_OBSERVER_FEATURES,
+  grpc: true,
+  contract_meta_store: true,
+  transaction_store: true,
+  account_history: true
+}
+
+const MONOLITH_CUSTOM_ADVANCED_FEATURES: Record<string, boolean> = {
+  ...MONOLITH_OBSERVER_FEATURES,
+  grpc: true,
+  contract_meta_store: true,
+  transaction_store: true,
+  account_history: true
+}
+
 function shouldUseMonolithMode(): boolean {
   return true
 }
@@ -290,16 +334,44 @@ async function startMonolithProcess(
   } catch (error) {
     return { ok: false, output: error instanceof Error ? error.message : 'Config setup failed' }
   }
+  const runtimePorts = resolveRuntimeListenPorts(settings)
+  const jsonrpcHost = normalizeConnectHost(runtimePorts.jsonrpc.host)
+  const jsonrpcPort = runtimePorts.jsonrpc.port ?? 8080
 
-  const args: string[] = [
-    `--basedir=${settings.baseDir}`,
-    '--log-level=info'
-  ]
-  const enabled = new Set(enabledFeatures)
-  const disabled = new Set<string>(disabledFeatures)
-  for (const feat of MONOLITH_DEFAULT_DISABLED_FEATURES) {
-    if (!enabled.has(feat)) disabled.add(feat)
+  const lockOwners = await detectBaseDirLockOwners(settings)
+  if (lockOwners.length > 0) {
+    return {
+      ok: false,
+      output: describeBaseDirLockConflict(settings, 'koinos-node', lockOwners)
+    }
   }
+  const processSnapshot = await listProcessSnapshot()
+  const conflictingProcesses = detectExternalNativeServiceProcesses(settings, 'koinos-node', processSnapshot)
+  if (conflictingProcesses.length > 0) {
+    return {
+      ok: false,
+      output: describeExternalNativeServiceConflict(settings, 'koinos-node', conflictingProcesses)
+    }
+  }
+
+	  const args: string[] = [
+	    `--basedir=${settings.baseDir}`,
+	    '--log-level=info'
+	  ]
+	  const configFeatureArgs = monolithFeatureCliArgs(readMonolithFeatureConfig(settings) ?? {})
+	  const enabled = new Set(configFeatureArgs.enabled)
+	  const disabled = new Set<string>(configFeatureArgs.disabled)
+	  for (const feat of enabledFeatures) {
+	    enabled.add(feat)
+	    disabled.delete(feat)
+	  }
+	  for (const feat of disabledFeatures) {
+	    disabled.add(feat)
+	    enabled.delete(feat)
+	  }
+	  for (const feat of MONOLITH_DEFAULT_DISABLED_FEATURES) {
+	    if (!enabled.has(feat)) disabled.add(feat)
+	  }
   monolithDisabledFeatures = new Set(disabled)
   for (const feat of enabled) args.push(`--enable=${feat}`)
   for (const feat of disabled) args.push(`--disable=${feat}`)
@@ -354,8 +426,7 @@ async function startMonolithProcess(
     closeNativeLogStreamsForService('koinos-node', code)
   })
 
-  // Wait for jsonrpc health endpoint (port 8080)
-  const jsonrpcReady = await waitForTcpListener('127.0.0.1', 8080, 30000)
+  const jsonrpcReady = await waitForTcpListener(jsonrpcHost, jsonrpcPort, 30000)
 
   if (state.closed) {
     return {
@@ -367,13 +438,13 @@ async function startMonolithProcess(
   if (!jsonrpcReady) {
     return {
       ok: true,
-      output: `Started koinos_node (pid ${child.pid ?? 'n/a'}) — jsonrpc port not yet ready`
+      output: `Started koinos_node (pid ${child.pid ?? 'n/a'}) — jsonrpc ${jsonrpcHost}:${jsonrpcPort} not yet ready`
     }
   }
 
   return {
     ok: true,
-    output: `Started koinos_node (pid ${child.pid ?? 'n/a'})`
+    output: `Started koinos_node (pid ${child.pid ?? 'n/a'}) on ${settings.network} (${jsonrpcHost}:${jsonrpcPort})`
   }
 }
 
@@ -415,30 +486,34 @@ async function stopMonolithProcess(): Promise<{ ok: boolean; output: string }> {
  * Parse component health from monolith log output.
  * The monolith emits lines like: [chain] INFO Listening...
  */
-function parseMonolithComponentHealth(): ComponentHealth[] {
+function parseMonolithComponentHealth(settings?: KoinosNodeSettings): ComponentHealth[] {
   const output = monolithProcessState?.output || ''
   const isRunning = monolithProcessState != null && !monolithProcessState.closed
+  const featureFlags = settings ? readMonolithFeatureConfig(settings) : null
 
-  return [...MONOLITH_CORE_COMPONENTS, ...MONOLITH_OPTIONAL_COMPONENTS].map((name) => {
-    const enabled = !monolithDisabledFeatures.has(name)
-    // A component is considered healthy if the monolith is running and
-    // we've seen log output from it
-    const hasOutput = output.includes(`[${name}]`)
-    return {
-      name,
-      enabled,
-      healthy: enabled && isRunning && hasOutput,
-      details: !enabled
-        ? 'Disabled'
-        : isRunning
-          ? hasOutput ? 'Running' : 'Waiting...'
-          : 'Stopped'
-    }
+  return deriveMonolithComponentHealth({
+    output,
+    isRunning,
+    featureFlags,
+    disabledFeatures: monolithDisabledFeatures
   })
 }
 
 /** Build feature flags for a preset in monolith mode. */
 function presetToFeatureFlags(presetId: string): Record<string, boolean> {
+  if (presetId.includes('mainnet_observer') || presetId.includes('testnet_observer')) {
+    return { ...MONOLITH_OBSERVER_FEATURES }
+  }
+  if (presetId.includes('full_node')) {
+    return { ...MONOLITH_FULL_NODE_FEATURES }
+  }
+  if (presetId.includes('block_producer') || presetId.includes('testnet_producer') || presetId.includes('producer')) {
+    return { ...MONOLITH_PRODUCER_FEATURES }
+  }
+  if (presetId.includes('custom_advanced')) {
+    return { ...MONOLITH_CUSTOM_ADVANCED_FEATURES }
+  }
+
   const flags: Record<string, boolean> = {}
 
   // Core components default on, including cpp-libp2p now that Gate D is closed.
@@ -483,7 +558,36 @@ function monolithFeatureCliArgs(featureFlags: Record<string, boolean>): { enable
   return { enabled, disabled }
 }
 
-function writeMonolithFeatureConfig(settings: KoinosNodeSettings, featureFlags: Record<string, boolean>): string {
+function readMonolithFeatureConfig(settings: KoinosNodeSettings): Record<string, boolean> | null {
+  const configPath = path.join(settings.baseDir, 'config.yml')
+  if (!fs.existsSync(configPath)) return null
+
+  try {
+    const yaml = require('yaml')
+    const doc = yaml.parseDocument(fs.readFileSync(configPath, 'utf-8'))
+    const flags: Record<string, boolean> = {}
+    for (const component of [...MONOLITH_CORE_COMPONENTS, ...MONOLITH_OPTIONAL_COMPONENTS]) {
+      const value = doc.getIn(['features', component])
+      if (typeof value === 'boolean') {
+        flags[component] = value
+      } else if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase()
+        if (normalized === 'true') flags[component] = true
+        if (normalized === 'false') flags[component] = false
+      }
+    }
+
+    return Object.keys(flags).length > 0 ? flags : null
+  } catch {
+    return null
+  }
+}
+
+function writeMonolithFeatureConfig(
+  settings: KoinosNodeSettings,
+  featureFlags: Record<string, boolean>,
+  configPatch?: KoinosNodePreset['configPatch']
+): string {
   ensureKoinosConfigFiles(settings)
   ensureBaseDirKoinosRuntimeFiles(settings)
 
@@ -492,6 +596,12 @@ function writeMonolithFeatureConfig(settings: KoinosNodeSettings, featureFlags: 
   const doc = yaml.parseDocument(fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf-8') : '')
   for (const [component, enabled] of Object.entries(featureFlags)) {
     doc.setIn(['features', component], enabled)
+  }
+  for (const patch of configPatch?.set ?? []) {
+    doc.setIn(patch.path, patch.value)
+  }
+  for (const deletePath of configPatch?.delete ?? []) {
+    doc.deleteIn(deletePath)
   }
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
   fs.writeFileSync(configPath, doc.toString(), 'utf-8')
@@ -1227,7 +1337,7 @@ function closeKnodelWalletSession(): string | null {
 function resolveWalletRpcUrl(input?: WalletRpcInput): string {
   const requested = `${input?.rpcUrl || ''}`.trim()
   if (requested) return requested
-  return PUBLIC_KOINOS_RPC_URL
+  return primaryPublicRpcUrlForNetwork(input?.network ?? 'mainnet')
 }
 
 function producerRpcTarget(input?: WalletRpcInput): { rpcUrl: string; rpcSource: 'public' | 'local' } {
@@ -1280,7 +1390,8 @@ function fixFetchedAbi(abi: unknown): unknown {
 }
 
 const cachedContractLoader = createCachedContractLoader(
-  (abi) => fixFetchedAbi(abi) as NonNullable<Awaited<ReturnType<Contract['fetchAbi']>>>
+  (abi) => fixFetchedAbi(abi) as NonNullable<Awaited<ReturnType<Contract['fetchAbi']>>>,
+  (contractId) => fixFetchedAbi(resolveCoreContractAbi(contractId)) as NonNullable<Awaited<ReturnType<Contract['fetchAbi']>>> | null
 )
 
 function formatWholeUnits(value: bigint | string | number | null | undefined, decimals = 8): string | null {
@@ -1562,56 +1673,137 @@ function assertRepoReady(settings: KoinosNodeSettings): void {
   workspaceService.assertRepoReady(settings)
 }
 
-function buildProfilePresets(_settings: KoinosNodeSettings): KoinosNodePreset[] {
-  // Core services that always run (no profile required)
-  const coreServiceIds = ['amqp', 'chain', 'mempool', 'block_store', 'p2p']
-  // Profile-specific services
-  const profileServiceMap: Record<string, string[]> = {
-    block_producer: ['block_producer', 'jsonrpc', 'contract_meta_store'],
-    jsonrpc: ['jsonrpc'],
-    grpc: ['grpc'],
-    transaction_store: ['transaction_store'],
-    contract_meta_store: ['contract_meta_store'],
-    account_history: ['account_history'],
-    rest: ['rest']
-  }
-
-  const managedServiceOrder = new Map(KOINOS_MANAGED_SERVICES.map((service, index) => [service.id, index] as const))
-
-  const sortServiceIds = (serviceIds: Iterable<string>) =>
-    [...serviceIds].sort((left, right) => {
-      const leftIndex = managedServiceOrder.get(left) ?? Number.MAX_SAFE_INTEGER
-      const rightIndex = managedServiceOrder.get(right) ?? Number.MAX_SAFE_INTEGER
-      if (leftIndex !== rightIndex) return leftIndex - rightIndex
-      return left.localeCompare(right)
-    })
-
-  const presets: KoinosNodePreset[] = []
-
-  for (const profile of Object.keys(profileServiceMap)) {
-    const services = new Set(coreServiceIds)
-    for (const serviceId of profileServiceMap[profile] ?? []) {
-      services.add(serviceId)
+function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
+  const mainnet = resolveNetworkProfile('mainnet')
+  const testnet = resolveNetworkProfile('testnet')
+  const presets: KoinosNodePreset[] = [
+    {
+      id: 'profile:mainnet_observer',
+      label: 'Mainnet Observer',
+      network: 'mainnet',
+      source: 'features',
+      profiles: ['mainnet_observer'],
+      services: ['koinos-node'],
+      featureFlags: { ...MONOLITH_OBSERVER_FEATURES },
+      configPatch: {
+        set: [
+          { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
+          { path: ['p2p', 'listen'], value: mainnet.p2pListen },
+          { path: ['p2p', 'peer-discovery'], value: true },
+          { path: ['p2p', 'target-peer-count'], value: 20 },
+          { path: ['p2p', 'max-peer-candidates'], value: 200 },
+          { path: ['p2p', 'max-candidate-dials-per-cycle'], value: 3 },
+          { path: ['p2p', 'peer-acquisition-interval-seconds'], value: 5 },
+          { path: ['p2p', 'candidate-redial-interval-seconds'], value: 60 },
+          { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
+        ]
+      },
+      description: 'Mainnet observer with P2P and local JSON-RPC enabled; block production disabled.'
+    },
+    {
+      id: 'profile:testnet_observer',
+      label: 'Testnet Observer',
+      network: 'testnet',
+      source: 'features',
+      profiles: ['testnet_observer'],
+      services: ['koinos-node'],
+      featureFlags: { ...MONOLITH_OBSERVER_FEATURES },
+      configPatch: {
+        set: [
+          { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
+          { path: ['p2p', 'listen'], value: testnet.p2pListen },
+          { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
+        ]
+      },
+      description: 'Public testnet observer preset using the Koinos Foundation testnet seed and testnet local ports.'
+    },
+    {
+      id: 'profile:mainnet_full_node',
+      label: 'Mainnet Full Node',
+      network: 'mainnet',
+      source: 'features',
+      profiles: ['mainnet_full_node'],
+      services: ['koinos-node'],
+      featureFlags: { ...MONOLITH_FULL_NODE_FEATURES },
+      configPatch: {
+        set: [
+          { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
+          { path: ['p2p', 'listen'], value: mainnet.p2pListen },
+          { path: ['p2p', 'peer-discovery'], value: true },
+          { path: ['p2p', 'target-peer-count'], value: 20 },
+          { path: ['p2p', 'max-peer-candidates'], value: 200 },
+          { path: ['p2p', 'max-candidate-dials-per-cycle'], value: 3 },
+          { path: ['p2p', 'peer-acquisition-interval-seconds'], value: 5 },
+          { path: ['p2p', 'candidate-redial-interval-seconds'], value: 60 },
+          { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
+        ]
+      },
+      description: 'Mainnet full node with JSON-RPC, gRPC, contract metadata, transaction store, and account history enabled; block production disabled.'
+    },
+    {
+      id: 'profile:testnet_full_node',
+      label: 'Testnet Full Node',
+      network: 'testnet',
+      source: 'features',
+      profiles: ['testnet_full_node'],
+      services: ['koinos-node'],
+      featureFlags: { ...MONOLITH_FULL_NODE_FEATURES },
+      configPatch: {
+        set: [
+          { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
+          { path: ['p2p', 'listen'], value: testnet.p2pListen },
+          { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
+        ]
+      },
+      description: 'Testnet full node with JSON-RPC, gRPC, contract metadata, transaction store, and account history enabled; block production disabled.'
+    },
+    {
+      id: 'profile:block_producer',
+      label: 'Mainnet Producer',
+      network: 'mainnet',
+      source: 'features',
+      profiles: ['block_producer'],
+      services: ['koinos-node'],
+      featureFlags: { ...MONOLITH_PRODUCER_FEATURES },
+      configPatch: {
+        set: [
+          { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
+          { path: ['p2p', 'listen'], value: mainnet.p2pListen },
+          { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
+        ]
+      },
+      description: 'Mainnet producer mode. Producer address and key material are managed from the Producer tab.'
+    },
+    {
+      id: 'profile:testnet_producer',
+      label: 'Testnet Producer',
+      network: 'testnet',
+      source: 'features',
+      profiles: ['testnet_producer'],
+      services: ['koinos-node'],
+      featureFlags: { ...MONOLITH_PRODUCER_FEATURES },
+      configPatch: {
+        set: [
+          { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
+          { path: ['p2p', 'listen'], value: testnet.p2pListen },
+          { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
+        ]
+      },
+      description: 'Public testnet producer mode using the Koinos Foundation seed and testnet local ports.'
+    },
+    {
+      id: 'profile:custom_advanced',
+      label: 'Custom Advanced',
+      network: 'custom',
+      source: 'features',
+      profiles: ['custom_advanced'],
+      services: ['koinos-node'],
+      featureFlags: { ...MONOLITH_CUSTOM_ADVANCED_FEATURES },
+      description: 'Advanced operator preset with optional query/index services enabled and block production disabled.'
     }
-    // Collect all profile names needed so each included service passes the profile filter
-    const profiles = Object.entries(profileServiceMap)
-      .filter(([, svcIds]) => svcIds.some((svcId) => services.has(svcId)))
-      .map(([profileName]) => profileName)
-    const serviceIds = sortServiceIds(services)
-    const label = profile.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  ]
 
-    presets.push({
-      id: `profile:${profile}`,
-      label,
-      source: shouldUseMonolithMode() ? 'features' : 'profile',
-      profiles,
-      services: serviceIds,
-      featureFlags: presetToFeatureFlags(profile),
-      description: `Profile "${profile}" (${serviceIds.length} components)`
-    })
-  }
-
-  return presets
+  return presets.filter((preset) => preset.network === settings.network)
 }
 
 function ensureKoinosConfigFiles(settings: KoinosNodeSettings): { configReady: boolean; output: string } {
@@ -1812,6 +2004,11 @@ function nativeServiceCommandHints(serviceId: string): string[] {
     hints.add(path.basename(buildDefinition.artifactPath))
   }
 
+  if (serviceId === 'koinos-node') {
+    hints.add(path.basename(resolveMonolithBinaryPath()))
+    hints.add('koinos_node')
+  }
+
   if (serviceId === 'amqp') {
     const rabbitmqServer = nativeRabbitmqServerExecutable()
     if (rabbitmqServer) hints.add(path.basename(rabbitmqServer))
@@ -1852,6 +2049,148 @@ function describeExternalNativeServiceConflict(
   const pidLabel = processes.length === 1 ? 'pid' : 'pids'
   const pidList = processes.map((entry) => String(entry.pid)).join(', ')
   return `External native process detected for ${serviceId} using the same baseDir ${settings.baseDir} (${pidLabel}: ${pidList}). Stop it before starting this component.`
+}
+
+function parseLsofProcessOwners(raw: string): ProcessSnapshotEntry[] {
+  const owners: ProcessSnapshotEntry[] = []
+  let currentPid: number | null = null
+  let currentCommand = ''
+
+  for (const line of raw.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
+    if (line.startsWith('p')) {
+      const pid = Number.parseInt(line.slice(1), 10)
+      currentPid = Number.isFinite(pid) ? pid : null
+      continue
+    }
+
+    if (line.startsWith('c')) {
+      currentCommand = line.slice(1).trim()
+      if (currentPid) {
+        owners.push({ pid: currentPid, command: currentCommand || 'unknown' })
+      }
+    }
+  }
+
+  const seenPids = new Set<number>()
+  return owners.filter((owner) => {
+    if (seenPids.has(owner.pid)) return false
+    seenPids.add(owner.pid)
+    return true
+  })
+}
+
+async function detectBaseDirLockOwners(
+  settings: KoinosNodeSettings,
+  excludePids: number[] = []
+): Promise<ProcessSnapshotEntry[]> {
+  if (process.platform === 'win32') return []
+
+  const lockPath = path.join(settings.baseDir, 'db', 'LOCK')
+  if (!fs.existsSync(lockPath)) return []
+
+  const result = await runCommand('lsof', ['-nP', '-Fpc', lockPath], {
+    cwd: process.cwd(),
+    timeoutMs: 5000
+  })
+
+  if (!result.output.trim()) return []
+
+  const excludedPidSet = new Set(excludePids.filter((pid) => Number.isFinite(pid) && pid > 0))
+  return parseLsofProcessOwners(result.output).filter((owner) => !excludedPidSet.has(owner.pid))
+}
+
+function describeBaseDirLockConflict(
+  settings: KoinosNodeSettings,
+  serviceId: string,
+  owners: ProcessSnapshotEntry[]
+): string {
+  const ownerList = owners.map((entry) => `${entry.command || 'unknown'} (pid ${entry.pid})`).join(', ')
+  return `External ${serviceId} is already using BASEDIR ${settings.baseDir} (${ownerList}). koinosGUI will not start a second node against the same RocksDB database. Stop that process first, or choose a different BASEDIR.`
+}
+
+function uniqueProcessSnapshotEntries(entries: ProcessSnapshotEntry[]): ProcessSnapshotEntry[] {
+  const seenPids = new Set<number>()
+  return entries.filter((entry) => {
+    if (seenPids.has(entry.pid)) return false
+    seenPids.add(entry.pid)
+    return true
+  })
+}
+
+async function detectMonolithConflictProcesses(
+  settings: KoinosNodeSettings,
+  excludePids: number[] = []
+): Promise<ProcessSnapshotEntry[]> {
+  const lockOwners = await detectBaseDirLockOwners(settings, excludePids)
+  const processSnapshot = await listProcessSnapshot()
+  const conflictingProcesses = detectExternalNativeServiceProcesses(
+    settings,
+    'koinos-node',
+    processSnapshot,
+    excludePids
+  )
+
+  return uniqueProcessSnapshotEntries([...lockOwners, ...conflictingProcesses])
+}
+
+async function killMonolithConflictProcesses(settings: KoinosNodeSettings): Promise<NativeConflictKillResult> {
+  const trackedPid =
+    monolithProcessState && !monolithProcessState.closed && monolithProcessState.child.pid
+      ? [monolithProcessState.child.pid]
+      : []
+  const conflictingProcesses = await detectMonolithConflictProcesses(settings, trackedPid)
+
+  if (conflictingProcesses.length === 0) {
+    return {
+      ok: true,
+      output: 'No conflicting koinos-node process was detected'
+    }
+  }
+
+  const termOutputs: string[] = []
+  for (const processEntry of conflictingProcesses) {
+    try {
+      process.kill(processEntry.pid, 'SIGTERM')
+      termOutputs.push(`SIGTERM sent to pid ${processEntry.pid} (koinos-node)`)
+    } catch (error) {
+      termOutputs.push(
+        `Could not send SIGTERM to pid ${processEntry.pid}: ${error instanceof Error ? error.message : 'unknown error'}`
+      )
+    }
+  }
+
+  await delay(1500)
+
+  const remainingAfterTerm = await detectMonolithConflictProcesses(settings, trackedPid)
+  const killOutputs = [...termOutputs]
+  for (const processEntry of remainingAfterTerm) {
+    try {
+      process.kill(processEntry.pid, 'SIGKILL')
+      killOutputs.push(`SIGKILL sent to pid ${processEntry.pid} (koinos-node)`)
+    } catch (error) {
+      killOutputs.push(
+        `Could not send SIGKILL to pid ${processEntry.pid}: ${error instanceof Error ? error.message : 'unknown error'}`
+      )
+    }
+  }
+
+  if (remainingAfterTerm.length > 0) {
+    await delay(750)
+  }
+
+  const remainingAfterKill = await detectMonolithConflictProcesses(settings, trackedPid)
+
+  return {
+    ok: remainingAfterKill.length === 0,
+    output: [
+      ...killOutputs,
+      remainingAfterKill.length === 0
+        ? 'Conflicting koinos-node processes terminated'
+        : `Still conflicting koinos-node pids: ${remainingAfterKill.map((entry) => entry.pid).join(', ')}`
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
 }
 
 function nativeManagedProcessRegistryOutput(settings?: KoinosNodeSettings): string {
@@ -2226,7 +2565,7 @@ function nativeAmqpUrl(serviceDefinitions: Map<string, NativeServiceDefinition>)
 }
 
 function nativeJsonrpcUrl(serviceDefinitions: Map<string, NativeServiceDefinition>): string {
-  const jsonrpcPort = composeServicePortByTarget(serviceDefinitions.get('jsonrpc'), 8080)
+  const jsonrpcPort = serviceDefinitions.get('jsonrpc')?.ports[0] ?? null
   return `http://${nativeServiceConnectHost(jsonrpcPort)}:${jsonrpcPort?.publishedPort ?? 8080}/`
 }
 
@@ -2843,19 +3182,24 @@ function isComposeServiceRunning(service: ServiceStatus): boolean {
  * Build native service definitions from known Koinos service metadata.
  * Hardcoded native service definitions with ports, dependencies, and profiles.
  */
-function readNativeServiceDefinitions(_settings: KoinosNodeSettings): Map<string, NativeServiceDefinition> {
+function readNativeServiceDefinitions(settings: KoinosNodeSettings): Map<string, NativeServiceDefinition> {
   const defs = new Map<string, NativeServiceDefinition>()
+  const runtimePorts = resolveRuntimeListenPorts(settings)
+  const p2pPort = runtimePorts.p2p.port ?? 8888
+  const p2pHost = runtimePorts.p2p.host ?? '0.0.0.0'
+  const jsonrpcPort = runtimePorts.jsonrpc.port ?? 8080
+  const jsonrpcHost = runtimePorts.jsonrpc.host ?? '127.0.0.1'
 
   // Core services (no profile)
   defs.set('amqp', { ports: [{ host: '127.0.0.1', publishedPort: 5672, targetPort: 5672, protocol: 'tcp', label: '5672/tcp' }, { host: '127.0.0.1', publishedPort: 15672, targetPort: 15672, protocol: 'tcp', label: '15672/tcp' }], dependsOn: [], profiles: [] })
   defs.set('chain', { ports: [], dependsOn: ['amqp'], profiles: [] })
   defs.set('mempool', { ports: [], dependsOn: ['amqp', 'chain'], profiles: [] })
   defs.set('block_store', { ports: [], dependsOn: ['amqp'], profiles: [] })
-  defs.set('p2p', { ports: [{ host: '0.0.0.0', publishedPort: 8888, targetPort: 8888, protocol: 'tcp', label: '8888/tcp' }], dependsOn: ['amqp', 'chain'], profiles: [] })
+  defs.set('p2p', { ports: [{ host: p2pHost, publishedPort: p2pPort, targetPort: p2pPort, protocol: 'tcp', label: `${p2pPort}/tcp` }], dependsOn: ['amqp', 'chain'], profiles: [] })
 
   // Profile services
-  defs.set('block_producer', { ports: [], dependsOn: ['amqp', 'chain', 'mempool', 'jsonrpc'], profiles: ['block_producer'] })
-  defs.set('jsonrpc', { ports: [{ host: '127.0.0.1', publishedPort: 8080, targetPort: 8080, protocol: 'tcp', label: '8080/tcp' }], dependsOn: ['amqp', 'chain'], profiles: ['jsonrpc'] })
+  defs.set('block_producer', { ports: [], dependsOn: ['amqp', 'chain', 'mempool', 'jsonrpc'], profiles: ['block_producer', 'testnet_producer'] })
+  defs.set('jsonrpc', { ports: [{ host: jsonrpcHost, publishedPort: jsonrpcPort, targetPort: jsonrpcPort, protocol: 'tcp', label: `${jsonrpcPort}/tcp` }], dependsOn: ['amqp', 'chain'], profiles: ['jsonrpc', 'block_producer', 'testnet_producer', 'mainnet_observer', 'testnet_observer'] })
   defs.set('grpc', { ports: [{ host: '127.0.0.1', publishedPort: 50051, targetPort: 50051, protocol: 'tcp', label: '50051/tcp' }], dependsOn: ['amqp', 'chain'], profiles: ['grpc'] })
   defs.set('transaction_store', { ports: [], dependsOn: ['amqp'], profiles: ['transaction_store'] })
   defs.set('contract_meta_store', { ports: [], dependsOn: ['amqp'], profiles: ['contract_meta_store'] })
@@ -3137,40 +3481,63 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
   // Monolith mode: single process status with component health
   if (shouldUseMonolithMode() || (monolithProcessState && !monolithProcessState.closed)) {
     const isRunning = monolithProcessState != null && !monolithProcessState.closed
+    const runtimePorts = resolveRuntimeListenPorts(settings)
+    const jsonrpcPort = runtimePorts.jsonrpc.port ?? 8080
+    const p2pPort = runtimePorts.p2p.port ?? 8888
+    const processSnapshot = await listProcessSnapshot()
+    const trackedPid = isRunning && monolithProcessState?.child.pid ? [monolithProcessState.child.pid] : []
+    const lockOwners = await detectBaseDirLockOwners(settings, trackedPid)
+    const conflictingProcesses = lockOwners.length > 0
+      ? []
+      : detectExternalNativeServiceProcesses(settings, 'koinos-node', processSnapshot, trackedPid)
+    const hasConflict = lockOwners.length > 0 || conflictingProcesses.length > 0
+    const conflictDescription = lockOwners.length > 0
+      ? describeBaseDirLockConflict(settings, 'koinos-node', lockOwners)
+      : conflictingProcesses.length > 0
+        ? describeExternalNativeServiceConflict(settings, 'koinos-node', conflictingProcesses)
+        : null
+    const conflictPids = (lockOwners.length > 0 ? lockOwners : conflictingProcesses)
+      .map((entry) => entry.pid)
+      .filter((pid, index, allPids) => allPids.indexOf(pid) === index)
     const monolithService: ServiceStatus = {
       id: 'koinos-node',
       name: 'Koinos Node',
       service: 'koinos-node',
       runtimeName: 'koinos_node',
       version: null,
-      state: isRunning ? 'running' : 'stopped',
-      status: isRunning
+      state: hasConflict ? 'conflict' : isRunning ? 'running' : 'stopped',
+      status: hasConflict
+        ? lockOwners.length > 0
+          ? 'External node already using BASEDIR'
+          : 'Conflicting native process detected'
+        : isRunning
         ? `Running (pid ${monolithProcessState?.child.pid ?? 'n/a'})`
         : 'Stopped',
       ports: [
-        { host: '127.0.0.1', publishedPort: 8080, targetPort: 8080, protocol: 'tcp', label: '8080/tcp' },
-        { host: '0.0.0.0', publishedPort: 8888, targetPort: 8888, protocol: 'tcp', label: '8888/tcp' }
+        { host: runtimePorts.jsonrpc.host ?? '127.0.0.1', publishedPort: jsonrpcPort, targetPort: jsonrpcPort, protocol: 'tcp', label: `${jsonrpcPort}/tcp` },
+        { host: runtimePorts.p2p.host ?? '0.0.0.0', publishedPort: p2pPort, targetPort: p2pPort, protocol: 'tcp', label: `${p2pPort}/tcp` }
       ],
       dependsOn: [],
-      lastError: monolithProcessState?.lastError ?? null,
-      nativePid: isRunning ? monolithProcessState?.child.pid ?? null : null,
-      conflictPids: [],
-      managedByKnodel: true
+      lastError: conflictDescription ?? monolithProcessState?.lastError ?? null,
+      nativePid: hasConflict ? null : isRunning ? monolithProcessState?.child.pid ?? null : null,
+      conflictPids,
+      managedByKnodel: !hasConflict
     }
 
     return {
       ok: true,
+      network: settings.network,
       repoPath: settings.repoPath,
       baseDir: settings.baseDir,
       profiles: settings.profiles,
       configReady: fs.existsSync(configDir),
       configDir,
       services: [monolithService],
-      components: parseMonolithComponentHealth(),
+      components: parseMonolithComponentHealth(settings),
       runningServices: isRunning ? 1 : 0,
-      output: isRunning
+      output: conflictDescription ?? (isRunning
         ? `koinos_node running (pid ${monolithProcessState?.child.pid ?? 'n/a'})`
-        : 'koinos_node stopped'
+        : 'koinos_node stopped')
     }
   }
 
@@ -3182,6 +3549,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
   } catch (error) {
     return {
       ok: false,
+      network: settings.network,
       repoPath: settings.repoPath,
       baseDir: settings.baseDir,
       profiles: settings.profiles,
@@ -3238,6 +3606,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
 
   return {
     ok: unavailableNativeServices.length === 0,
+    network: settings.network,
     repoPath: settings.repoPath,
     baseDir: settings.baseDir,
     profiles: settings.profiles,
@@ -3302,6 +3671,11 @@ async function resolvePresetOrThrow(
     preset,
     settings: {
       ...settings,
+      network: preset.network ?? settings.network,
+      baseDir:
+        preset.network && preset.network !== settings.network
+          ? defaultBaseDirForNetwork(preset.network)
+          : settings.baseDir,
       profiles: preset.profiles
     }
   }
@@ -3423,10 +3797,7 @@ async function koinosNodeServiceAction(
         output: [stopResult.output, startResult.output].filter(Boolean).join('\n')
       }
     } else {
-      result = {
-        ok: true,
-        output: 'Monolith mode has no per-service conflict process to kill'
-      }
+      result = await killMonolithConflictProcesses(settings)
     }
 
     if ((action === 'start' || action === 'restart') && !result.ok) {
@@ -3570,7 +3941,7 @@ async function koinosNodePresetReconcile(
     try {
       assertRepoReady(presetSettings)
       const featureFlags = preset.featureFlags ?? presetToFeatureFlags(presetId)
-      const configPath = writeMonolithFeatureConfig(presetSettings, featureFlags)
+      const configPath = writeMonolithFeatureConfig(presetSettings, featureFlags, preset.configPatch)
       const { enabled, disabled } = monolithFeatureCliArgs(featureFlags)
       const stopResult = monolithProcessState && !monolithProcessState.closed
         ? await stopMonolithProcess()

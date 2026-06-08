@@ -3,11 +3,9 @@ import { ethers } from 'ethers'
 
 import {
   FREE_MANA_METER_ADDRESS,
-  FREE_MANA_SHARER_ADDRESS,
-  KOIN_CONTRACT_ADDRESS,
-  POB_CONTRACT_ADDRESS,
-  VHP_CONTRACT_ADDRESS
+  FREE_MANA_SHARER_ADDRESS
 } from './constants'
+import { contractsForNetwork } from './network-profiles'
 import type {
   KnodelEncryptedWallet,
   KnodelProducerProfile,
@@ -827,6 +825,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletBalance(input?: WalletAddressQueryInput): Promise<WalletBalanceResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
+    const contracts = contractsForNetwork(input?.network ?? 'mainnet')
     const address = deps.resolveWalletQueryAddress(input?.address, input?.accountId)
     const empty = (output: string): WalletBalanceResult => ({
       ok: false,
@@ -841,8 +840,8 @@ export function createWalletService(deps: WalletServiceDeps) {
     try {
       const provider = new Provider([rpcUrl])
       const [koin, vhp] = await Promise.all([
-        deps.loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS),
-        deps.loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS)
+        deps.loadContractWithFetchedAbi(provider, contracts.koin),
+        deps.loadContractWithFetchedAbi(provider, contracts.vhp)
       ])
       const [{ result: koinResult }, { result: vhpResult }, rc] = await Promise.all([
         koin.functions.balance_of({ owner: address }),
@@ -865,12 +864,13 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletVhp(input?: WalletAddressQueryInput): Promise<WalletScalarResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
+    const contracts = contractsForNetwork(input?.network ?? 'mainnet')
     const address = deps.resolveWalletQueryAddress(input?.address, input?.accountId)
     const empty = (output: string): WalletScalarResult => ({ ok: false, output, rpcUrl, address, value: null, unit: 'VHP' })
     if (!address) return empty('Address is required.')
     try {
       const provider = new Provider([rpcUrl])
-      const vhp = await deps.loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS)
+      const vhp = await deps.loadContractWithFetchedAbi(provider, contracts.vhp)
       const { result } = await vhp.functions.balance_of({ owner: address })
       return { ok: true, output: `VHP loaded for ${address}.`, rpcUrl, address, value: deps.formatWholeUnits(result?.value) || '0', unit: 'VHP' }
     } catch (error) {
@@ -1007,6 +1007,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletBurn(input?: WalletBurnInput): Promise<WalletBurnResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
+    const contracts = contractsForNetwork(input?.network ?? 'mainnet')
     const dryRun = Boolean(input?.dryRun)
     const useFreeMana = Boolean(input?.useFreeMana)
     const requestedAccountId = `${input?.accountId || ''}`.trim()
@@ -1062,9 +1063,9 @@ export function createWalletService(deps: WalletServiceDeps) {
       signer.provider = provider
 
       const [koin, vhp, pob] = await Promise.all([
-        deps.loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS),
-        deps.loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS),
-        deps.loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS)
+        deps.loadContractWithFetchedAbi(provider, contracts.koin),
+        deps.loadContractWithFetchedAbi(provider, contracts.vhp),
+        deps.loadContractWithFetchedAbi(provider, contracts.pob)
       ])
       koin.signer = signer
       pob.signer = signer
@@ -1099,7 +1100,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       try {
         const { result: allowanceResult } = await koin.functions.allowance({
           owner: signingAccount.address,
-          spender: POB_CONTRACT_ADDRESS
+          spender: contracts.pob
         })
         currentAllowance = BigInt(allowanceResult?.value || '0')
       } catch {
@@ -1111,7 +1112,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         const { operation: approveOp } = await koin.functions.approve(
           {
             owner: signingAccount.address,
-            spender: POB_CONTRACT_ADDRESS,
+            spender: contracts.pob,
             value: burnAmount.toString()
           },
           { onlyOperation: true }
@@ -1217,6 +1218,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletTransferVhp(input?: WalletTransferVhpInput): Promise<WalletTransferVhpResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
+    const contracts = contractsForNetwork(input?.network ?? 'mainnet')
     const dryRun = Boolean(input?.dryRun)
     const useFreeMana = Boolean(input?.useFreeMana)
     const toAddress = `${input?.toAddress || ''}`.trim()
@@ -1252,7 +1254,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       const provider = new Provider([rpcUrl])
       const signer = Signer.fromWif(signingAccount.privateKey)
       signer.provider = provider
-      const vhp = await deps.loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS)
+      const vhp = await deps.loadContractWithFetchedAbi(provider, contracts.vhp)
       vhp.signer = signer
 
       const transferAmount = BigInt(Math.floor(amount * 1e8))
@@ -1347,6 +1349,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
   async function walletTransferKoin(input?: WalletTransferKoinInput): Promise<WalletTransferKoinResult> {
     const rpcUrl = deps.resolveWalletRpcUrl(input)
+    const contracts = contractsForNetwork(input?.network ?? 'mainnet')
     const dryRun = Boolean(input?.dryRun)
     const useFreeMana = Boolean(input?.useFreeMana)
     const toAddress = `${input?.toAddress || ''}`.trim()
@@ -1382,7 +1385,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       const provider = new Provider([rpcUrl])
       const signer = Signer.fromWif(signingAccount.privateKey)
       signer.provider = provider
-      const koin = await deps.loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS)
+      const koin = await deps.loadContractWithFetchedAbi(provider, contracts.koin)
       koin.signer = signer
 
       const transferAmount = BigInt(Math.floor(amount * 1e8))

@@ -47,6 +47,9 @@ public:
     if( !block.has_header() )
       throw std::runtime_error( "missing header" );
 
+    if( _state_merkle_mismatch_height != 0 && block.header().height() == _state_merkle_mismatch_height )
+      throw std::runtime_error( "block previous state merkle mismatch" );
+
     if( _known_blocks.count( block.id() ) )
       return {};
 
@@ -168,6 +171,12 @@ public:
     _lib_height = height;
   }
 
+  void reject_state_merkle_at( uint64_t height )
+  {
+    std::lock_guard lock( _mutex );
+    _state_merkle_mismatch_height = height;
+  }
+
   std::vector< protocol::block > submitted_blocks() const
   {
     std::lock_guard lock( _mutex );
@@ -186,6 +195,7 @@ private:
   std::condition_variable _cv;
   uint64_t _head_height = 0;
   uint64_t _lib_height = 0;
+  uint64_t _state_merkle_mismatch_height = 0;
   std::string _head_id;
   std::map< std::string, uint64_t > _known_blocks;
   std::vector< protocol::block > _submitted;
@@ -292,10 +302,11 @@ public:
 
   void stop() override {}
 
-  void connect_peer( const PeerID& ) override {}
+  void connect_peer( const PeerID& peer ) override { _connect_attempts.push_back( peer ); }
   void disconnect_peer( const PeerID& ) override { _disconnects++; }
   uint32_t connected_peer_count() const override { return 1; }
   std::vector< PeerID > connected_peers() const override { return { _peer }; }
+  std::vector< PeerID > known_peers() const override { return _known_peers; }
 
   std::string peer_get_chain_id( const PeerID& ) override
   {
@@ -353,6 +364,12 @@ public:
   uint64_t last_start_height() const { return _last_start_height; }
   uint32_t last_count() const { return _last_count; }
   int disconnects() const { return _disconnects; }
+  const std::vector< PeerID >& connect_attempts() const { return _connect_attempts; }
+
+  void add_known_peer( PeerID peer )
+  {
+    _known_peers.push_back( std::move( peer ) );
+  }
 
   void emit_block( const protocol::block& block )
   {
@@ -382,6 +399,8 @@ private:
   int _disconnects = 0;
   uint64_t _last_start_height = 0;
   uint32_t _last_count = 0;
+  std::vector< PeerID > _known_peers;
+  std::vector< PeerID > _connect_attempts;
 };
 
 } // namespace
@@ -409,6 +428,102 @@ int main()
     toggle.stop();
   }
 
+  EventBus event_bus;
+
+  {
+    std::vector< protocol::block > checkpoint_blocks;
+    checkpoint_blocks.push_back( make_block( 1, "" ) );
+    checkpoint_blocks.push_back( make_block( 2, checkpoint_blocks.back().id() ) );
+    checkpoint_blocks.push_back( make_block( 3, checkpoint_blocks.back().id() ) );
+
+    auto checkpoint_transport = std::make_unique< FakeTransport >( "test-chain", checkpoint_blocks );
+    auto* checkpoint_transport_ptr = checkpoint_transport.get();
+
+    FakeChain checkpoint_chain( "test-chain" );
+    FakeBlockStore checkpoint_block_store;
+    P2POptions checkpoint_opts;
+    checkpoint_opts.block_request_batch_size = 500;
+    checkpoint_opts.synced_block_delta = 1;
+    checkpoint_opts.sync_check_interval = std::chrono::seconds( 1 );
+    checkpoint_opts.syncing_check_interval = std::chrono::seconds( 1 );
+    checkpoint_opts.checkpoints.push_back( { 2, checkpoint_blocks[ 1 ].id() } );
+
+    P2PNode checkpoint_node(
+      checkpoint_opts, &checkpoint_chain, &checkpoint_block_store, &event_bus, std::move( checkpoint_transport ) );
+    checkpoint_node.start();
+
+    assert( checkpoint_chain.wait_for_height( 3 ) );
+    checkpoint_node.stop();
+    assert( checkpoint_transport_ptr->ancestor_calls() >= 1 );
+    assert( checkpoint_transport_ptr->disconnects() == 0 );
+  }
+
+  {
+    std::vector< protocol::block > mismatch_checkpoint_blocks;
+    mismatch_checkpoint_blocks.push_back( make_block( 1, "" ) );
+    mismatch_checkpoint_blocks.push_back( make_block( 2, mismatch_checkpoint_blocks.back().id() ) );
+    mismatch_checkpoint_blocks.push_back( make_block( 3, mismatch_checkpoint_blocks.back().id() ) );
+
+    auto mismatch_checkpoint_transport =
+      std::make_unique< FakeTransport >( "test-chain", mismatch_checkpoint_blocks );
+    auto* mismatch_checkpoint_transport_ptr = mismatch_checkpoint_transport.get();
+
+    FakeChain mismatch_checkpoint_chain( "test-chain" );
+    FakeBlockStore mismatch_checkpoint_block_store;
+    P2POptions mismatch_checkpoint_opts;
+    mismatch_checkpoint_opts.block_request_batch_size = 500;
+    mismatch_checkpoint_opts.synced_block_delta = 1;
+    mismatch_checkpoint_opts.sync_check_interval = std::chrono::seconds( 1 );
+    mismatch_checkpoint_opts.syncing_check_interval = std::chrono::seconds( 1 );
+    mismatch_checkpoint_opts.checkpoints.push_back( { 2, "not-block-2" } );
+
+    P2PNode mismatch_checkpoint_node(
+      mismatch_checkpoint_opts,
+      &mismatch_checkpoint_chain,
+      &mismatch_checkpoint_block_store,
+      &event_bus,
+      std::move( mismatch_checkpoint_transport ) );
+    mismatch_checkpoint_node.start();
+    std::this_thread::sleep_for( std::chrono::milliseconds( 300 ) );
+    mismatch_checkpoint_node.stop();
+
+    assert( mismatch_checkpoint_transport_ptr->ancestor_calls() >= 1 );
+    assert( mismatch_checkpoint_transport_ptr->disconnects() >= 1 );
+    assert( mismatch_checkpoint_chain.submitted_blocks().empty() );
+  }
+
+  {
+    std::vector< protocol::block > behind_checkpoint_blocks;
+    behind_checkpoint_blocks.push_back( make_block( 1, "" ) );
+
+    auto behind_checkpoint_transport =
+      std::make_unique< FakeTransport >( "test-chain", behind_checkpoint_blocks );
+    auto* behind_checkpoint_transport_ptr = behind_checkpoint_transport.get();
+
+    FakeChain behind_checkpoint_chain( "test-chain" );
+    FakeBlockStore behind_checkpoint_block_store;
+    P2POptions behind_checkpoint_opts;
+    behind_checkpoint_opts.block_request_batch_size = 500;
+    behind_checkpoint_opts.synced_block_delta = 1;
+    behind_checkpoint_opts.sync_check_interval = std::chrono::seconds( 1 );
+    behind_checkpoint_opts.syncing_check_interval = std::chrono::seconds( 1 );
+    behind_checkpoint_opts.checkpoints.push_back( { 2, "block-2" } );
+
+    P2PNode behind_checkpoint_node(
+      behind_checkpoint_opts,
+      &behind_checkpoint_chain,
+      &behind_checkpoint_block_store,
+      &event_bus,
+      std::move( behind_checkpoint_transport ) );
+    behind_checkpoint_node.start();
+    std::this_thread::sleep_for( std::chrono::milliseconds( 300 ) );
+    behind_checkpoint_node.stop();
+
+    assert( behind_checkpoint_transport_ptr->ancestor_calls() == 0 );
+    assert( behind_checkpoint_transport_ptr->disconnects() == 0 );
+    assert( behind_checkpoint_chain.submitted_blocks().empty() );
+  }
+
   std::vector< protocol::block > remote_blocks;
   remote_blocks.push_back( make_block( 1, "" ) );
   remote_blocks.push_back( make_block( 2, remote_blocks.back().id() ) );
@@ -419,7 +534,6 @@ int main()
 
   FakeChain chain( "test-chain" );
   FakeBlockStore block_store;
-  EventBus event_bus;
 
   P2POptions opts;
   opts.block_request_batch_size = 500;
@@ -500,8 +614,74 @@ int main()
     assert( fork_submitted[ 1 ].id() == "remote-4" );
     assert( fork_transport_ptr->ancestor_calls() >= 1 );
     assert( fork_transport_ptr->blocks_calls() == 1 );
-    assert( fork_transport_ptr->last_start_height() == 3 );
-    assert( fork_transport_ptr->disconnects() == 0 );
+	  assert( fork_transport_ptr->last_start_height() == 3 );
+	  assert( fork_transport_ptr->disconnects() == 0 );
+	}
+
+	{
+	  auto acquisition_transport = std::make_unique< FakeTransport >( "test-chain", remote_blocks );
+	  acquisition_transport->add_known_peer(
+	    { "peer-b", "/ip4/127.0.0.1/tcp/10001/p2p/peer-b" } );
+	  acquisition_transport->add_known_peer(
+	    { "peer-c", "/ip4/127.0.0.1/tcp/10002/p2p/peer-c" } );
+	  auto* acquisition_transport_ptr = acquisition_transport.get();
+
+	  FakeChain acquisition_chain( "test-chain" );
+	  FakeBlockStore acquisition_block_store;
+	  P2POptions acquisition_opts;
+	  acquisition_opts.block_request_batch_size = 500;
+	  acquisition_opts.synced_block_delta = 1;
+	  acquisition_opts.sync_check_interval = std::chrono::seconds( 1 );
+	  acquisition_opts.syncing_check_interval = std::chrono::seconds( 1 );
+	  acquisition_opts.seed_reconnect_interval = std::chrono::seconds( 60 );
+	  acquisition_opts.peer_acquisition_interval = std::chrono::seconds( 1 );
+	  acquisition_opts.target_peer_count = 3;
+	  acquisition_opts.max_candidate_dials_per_cycle = 2;
+
+	  P2PNode acquisition_node(
+	    acquisition_opts,
+	    &acquisition_chain,
+	    &acquisition_block_store,
+	    &event_bus,
+	    std::move( acquisition_transport ) );
+	  acquisition_node.start();
+
+	  std::this_thread::sleep_for( std::chrono::milliseconds( 1300 ) );
+	  acquisition_node.stop();
+
+	  const auto& attempts = acquisition_transport_ptr->connect_attempts();
+	  assert( attempts.size() == 2 );
+	  assert( attempts[ 0 ].id == "peer-b" );
+	  assert( attempts[ 1 ].id == "peer-c" );
+	}
+
+	{
+	  auto local_1 = make_block( 1, "" );
+	  auto remote_2 = make_block( 2, local_1.id() );
+    std::vector< protocol::block > remote_blocks_with_mismatch{ local_1, remote_2 };
+    auto mismatch_transport = std::make_unique< FakeTransport >( "test-chain", remote_blocks_with_mismatch );
+    auto* mismatch_transport_ptr = mismatch_transport.get();
+
+    FakeChain mismatch_chain( "test-chain" );
+    mismatch_chain.set_head( local_1 );
+    mismatch_chain.set_last_irreversible_block( 1 );
+    mismatch_chain.reject_state_merkle_at( 2 );
+    FakeBlockStore mismatch_block_store( { local_1 } );
+
+    P2POptions mismatch_opts;
+    mismatch_opts.block_request_batch_size = 500;
+    mismatch_opts.synced_block_delta = 1;
+    mismatch_opts.sync_check_interval = std::chrono::seconds( 1 );
+    mismatch_opts.syncing_check_interval = std::chrono::seconds( 1 );
+
+    P2PNode mismatch_node( mismatch_opts, &mismatch_chain, &mismatch_block_store, &event_bus, std::move( mismatch_transport ) );
+    mismatch_node.start();
+    std::this_thread::sleep_for( std::chrono::milliseconds( 1200 ) );
+    mismatch_node.stop();
+
+    assert( mismatch_transport_ptr->blocks_calls() >= 1 );
+    assert( mismatch_transport_ptr->disconnects() == 0 );
+    assert( mismatch_chain.submitted_blocks().empty() );
   }
 
   return 0;

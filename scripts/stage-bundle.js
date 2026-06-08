@@ -18,6 +18,7 @@ const VENDOR = path.join(ROOT, 'vendor', 'koinos');
 const STAGING = path.join(ROOT, 'build', 'bundle-staging', 'koinos');
 const BIN_DIR = path.join(STAGING, 'bin');
 const CONFIG_DIR = path.join(STAGING, 'config');
+const ABI_DIR = path.join(STAGING, 'abis');
 
 // Platform detection
 const isWindows = process.platform === 'win32';
@@ -93,6 +94,7 @@ if (fs.existsSync(STAGING)) {
 }
 ensureDir(BIN_DIR);
 ensureDir(CONFIG_DIR);
+ensureDir(ABI_DIR);
 
 // --- Monolithic koinos_node ---
 console.log('=== Monolithic Node ===');
@@ -126,6 +128,24 @@ if (fs.existsSync(harbingerSrc)) {
   console.log(`  OK:   config-harbinger (testnet)`);
   passed++;
 }
+
+// --- Core contract ABIs ---
+console.log('\n=== Core Contract ABIs ===');
+copyFileChecked(
+  path.join(VENDOR, 'koinos-contracts-as', 'contracts', 'koin', 'abi', 'koin.abi'),
+  path.join(ABI_DIR, 'koin.abi'),
+  'koin.abi'
+);
+copyFileChecked(
+  path.join(VENDOR, 'koinos-contracts-as', 'contracts', 'vhp', 'abi', 'vhp.abi'),
+  path.join(ABI_DIR, 'vhp.abi'),
+  'vhp.abi'
+);
+copyFileChecked(
+  path.join(VENDOR, 'koinos-contracts-as', 'contracts', 'pob', 'abi', 'pob.abi'),
+  path.join(ABI_DIR, 'pob.abi'),
+  'pob.abi'
+);
 
 // --- Summary ---
 console.log('\n============================================================================');

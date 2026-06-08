@@ -16,12 +16,20 @@
 #include "p2p/gorpc_codec.hpp"
 #include "libp2p_transport.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <future>
 #include <iostream>
 #include <mutex>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
+#include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/post.hpp>
 #include <koinos/log.hpp>
 #include <koinos/protocol/protocol.pb.h>
@@ -32,12 +40,161 @@
 #include <libp2p/common/literals.hpp>
 #include <libp2p/common/types.hpp>
 #include <libp2p/crypto/key_marshaller/key_marshaller_impl.hpp>
+#include <libp2p/crypto/random_generator.hpp>
+#include <libp2p/event/bus.hpp>
 #include <libp2p/injector/host_injector.hpp>
 #include <libp2p/log/logger.hpp>
 #include <libp2p/muxer/yamux/yamux.hpp>
+#include <libp2p/peer/identity_manager.hpp>
+#include <libp2p/protocol/kademlia/config.hpp>
+#include <libp2p/protocol/kademlia/impl/content_routing_table_impl.hpp>
+#include <libp2p/protocol/kademlia/impl/kademlia_impl.hpp>
+#include <libp2p/protocol/kademlia/impl/peer_routing_table_impl.hpp>
+#include <libp2p/protocol/kademlia/impl/storage_backend_default.hpp>
+#include <libp2p/protocol/kademlia/impl/storage_impl.hpp>
+#include <libp2p/protocol/kademlia/impl/validator_default.hpp>
 #include <soralog/impl/fallback_configurator.hpp>
 
 namespace {
+
+struct DialMultiaddresses
+{
+  std::vector< libp2p::multi::Multiaddress > addresses;
+  std::vector< std::string > address_strings;
+  bool resolved_dns = false;
+};
+
+std::vector< std::string > split_multiaddress( const std::string& address )
+{
+  std::vector< std::string > parts;
+  std::size_t pos = 0;
+  while( pos < address.size() )
+  {
+    if( address[ pos ] == '/' )
+      ++pos;
+
+    auto next = address.find( '/', pos );
+    auto part = address.substr( pos, next == std::string::npos ? std::string::npos : next - pos );
+    if( !part.empty() )
+      parts.push_back( part );
+
+    if( next == std::string::npos )
+      break;
+    pos = next + 1;
+  }
+  return parts;
+}
+
+std::string join_multiaddress( const std::vector< std::string >& parts )
+{
+  std::ostringstream out;
+  for( const auto& part: parts )
+    out << '/' << part;
+  return out.str();
+}
+
+std::optional< std::string > protocol_value( const std::vector< std::string >& parts,
+                                             const std::string& protocol )
+{
+  for( std::size_t i = 0; i + 1 < parts.size(); ++i )
+    if( parts[ i ] == protocol )
+      return parts[ i + 1 ];
+  return std::nullopt;
+}
+
+bool has_peer_id_component( const std::string& address )
+{
+  auto parts = split_multiaddress( address );
+  return std::find( parts.begin(), parts.end(), "p2p" ) != parts.end();
+}
+
+std::string with_peer_id_component( const std::string& address, const std::string& peer_id )
+{
+  if( address.empty() || peer_id.empty() || has_peer_id_component( address ) )
+    return address;
+  return address + "/p2p/" + peer_id;
+}
+
+std::vector< std::string > resolve_dns_multiaddress_strings( const std::string& address )
+{
+  auto parts = split_multiaddress( address );
+  if( parts.size() < 2 || ( parts[ 0 ] != "dns4" && parts[ 0 ] != "dns6" ) )
+    return { address };
+
+  auto port = protocol_value( parts, "tcp" );
+  if( !port.has_value() )
+    throw std::runtime_error( "DNS multiaddr has no TCP port: " + address );
+
+  boost::asio::io_context io;
+  boost::asio::ip::tcp::resolver resolver( io );
+  boost::system::error_code ec;
+  const bool wants_ipv6 = parts[ 0 ] == "dns6";
+  auto results = resolver.resolve(
+    wants_ipv6 ? boost::asio::ip::tcp::v6() : boost::asio::ip::tcp::v4(),
+    parts[ 1 ],
+    port.value(),
+    ec );
+  if( ec )
+    throw std::runtime_error( "Failed to resolve DNS multiaddr " + address + ": " + ec.message() );
+
+  std::vector< std::string > resolved;
+  std::set< std::string > seen;
+  for( const auto& result: results )
+  {
+    auto ip = result.endpoint().address();
+    if( wants_ipv6 != ip.is_v6() )
+      continue;
+
+    boost::system::error_code to_string_ec;
+    auto ip_string = ip.to_string( to_string_ec );
+    if( to_string_ec || !seen.insert( ip_string ).second )
+      continue;
+
+    auto resolved_parts = parts;
+    resolved_parts[ 0 ] = wants_ipv6 ? "ip6" : "ip4";
+    resolved_parts[ 1 ] = ip_string;
+    resolved.push_back( join_multiaddress( resolved_parts ) );
+  }
+
+  if( resolved.empty() )
+    throw std::runtime_error( "DNS multiaddr resolved no usable addresses: " + address );
+
+  return resolved;
+}
+
+DialMultiaddresses dial_multiaddresses_from( const std::string& address )
+{
+  DialMultiaddresses result;
+  result.address_strings = resolve_dns_multiaddress_strings( address );
+  result.resolved_dns    = result.address_strings.size() != 1 || result.address_strings.front() != address;
+
+  for( const auto& address_string: result.address_strings )
+  {
+    auto ma = libp2p::multi::Multiaddress::create( address_string );
+    if( !ma.has_value() )
+      throw std::runtime_error( "Invalid multiaddr: " + address_string );
+    result.addresses.push_back( ma.value() );
+  }
+
+  return result;
+}
+
+std::optional< libp2p::peer::PeerInfo > peer_info_from_multiaddress( const std::string& address )
+{
+  auto dial_addresses = dial_multiaddresses_from( address );
+  if( dial_addresses.addresses.empty() )
+    return std::nullopt;
+
+  auto peer_id_str = dial_addresses.addresses.front().getPeerId();
+  if( !peer_id_str.has_value() )
+    return std::nullopt;
+
+  auto peer_id = libp2p::peer::PeerId::fromBase58( peer_id_str.value() );
+  if( !peer_id.has_value() )
+    return std::nullopt;
+
+  return libp2p::peer::PeerInfo{ peer_id.value(), dial_addresses.addresses };
+}
 
 void prepare_libp2p_logging()
 {
@@ -59,9 +216,37 @@ void prepare_libp2p_logging()
     std::getenv( "KOINOS_LIBP2P_TRACE" ) ? soralog::Level::TRACE : soralog::Level::ERROR );
 }
 
+auto make_libp2p_injector( const std::shared_ptr< boost::asio::io_context >& io,
+                           const std::string& protocol_version )
+{
+  // The injector owns shared-scoped cpp-libp2p dependencies, including TLS and
+  // scheduler state used by async callbacks after the host has started.
+  return libp2p::injector::makeHostInjector< boost::di::extension::shared_config >(
+    boost::di::bind< boost::asio::io_context >.to( io )[ boost::di::override ],
+    libp2p::injector::useLibp2pClientVersion( libp2p::Libp2pClientVersion{ protocol_version } ),
+    libp2p::injector::useLayerAdaptors<>(),
+    libp2p::injector::useMuxerAdaptors< libp2p::muxer::Yamux >(),
+    libp2p::injector::useTransportAdaptors< libp2p::transport::TcpTransport >() );
+}
+
 } // namespace
 
 namespace koinos::node::p2p {
+
+using Libp2pInjector = decltype( make_libp2p_injector(
+  std::declval< const std::shared_ptr< boost::asio::io_context >& >(),
+  std::declval< const std::string& >() ) );
+
+struct Libp2pTransport::Libp2pRuntime
+{
+  Libp2pInjector injector;
+  libp2p::protocol::kademlia::Config kademlia_config;
+
+  Libp2pRuntime( const std::shared_ptr< boost::asio::io_context >& io,
+                 const std::string& protocol_version )
+    : injector( make_libp2p_injector( io, protocol_version ) )
+  {}
+};
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -84,16 +269,14 @@ Libp2pTransport::~Libp2pTransport()
 void Libp2pTransport::start()
 {
   _running = true;
+  _io->restart();
+  _work_guard.emplace( _io->get_executor() );
   prepare_libp2p_logging();
 
-  // Create libp2p host via injector. QUIC is disabled in the Koinos-compatible
-  // cpp-libp2p build, so bind the transport stack to TCP only.
-  auto injector = libp2p::injector::makeHostInjector< boost::di::extension::shared_config >(
-    boost::di::bind< boost::asio::io_context >.to( _io )[ boost::di::override ],
-    libp2p::injector::useLibp2pClientVersion( libp2p::Libp2pClientVersion{ _config.protocol_version } ),
-    libp2p::injector::useLayerAdaptors<>(),
-    libp2p::injector::useMuxerAdaptors< libp2p::muxer::Yamux >(),
-    libp2p::injector::useTransportAdaptors< libp2p::transport::TcpTransport >() );
+  // Create libp2p host via a runtime-owned injector. QUIC is disabled in the
+  // Koinos-compatible cpp-libp2p build, so bind the transport stack to TCP only.
+  _runtime = std::make_unique< Libp2pRuntime >( _io, _config.protocol_version );
+  auto& injector = _runtime->injector;
 
   _host = injector.create< std::shared_ptr< libp2p::Host > >();
 
@@ -101,11 +284,30 @@ void Libp2pTransport::start()
   LOG( info ) << "[p2p/transport] Advertised protocol version: " << _config.protocol_version;
 
   // Parse listen address
-  auto listen_ma = libp2p::multi::Multiaddress::create( _config.listen_address );
-  if( listen_ma.has_value() )
+  if( _config.listen_address.empty() )
   {
-    _host->listen( listen_ma.value() );
-    LOG( info ) << "[p2p/transport] Listening on " << _config.listen_address;
+    LOG( info ) << "[p2p/transport] Inbound listener disabled";
+  }
+  else
+  {
+    auto listen_ma = libp2p::multi::Multiaddress::create( _config.listen_address );
+    if( listen_ma.has_value() )
+    {
+      auto listen_result = _host->listen( listen_ma.value() );
+      if( listen_result.has_value() )
+      {
+        LOG( info ) << "[p2p/transport] Listening on " << _config.listen_address;
+      }
+      else
+      {
+        LOG( warning ) << "[p2p/transport] Failed to listen on " << _config.listen_address
+                       << " error=" << listen_result.error().message();
+      }
+    }
+    else
+    {
+      LOG( warning ) << "[p2p/transport] Invalid listen address: " << _config.listen_address;
+    }
   }
 
   // Register peer RPC protocol handler (server side)
@@ -122,11 +324,13 @@ void Libp2pTransport::start()
       auto id_str = peer_info.id.toBase58();
       std::string address;
       if( !peer_info.addresses.empty() )
-        address = std::string( peer_info.addresses.front().getStringAddress() );
+        address = with_peer_id_component( std::string( peer_info.addresses.front().getStringAddress() ), id_str );
       PeerID peer{ id_str, address };
       {
         std::lock_guard lock( _peers_mutex );
         _connected[ id_str ] = peer;
+        if( !address.empty() )
+          _known_peers[ id_str ] = peer;
       }
       if( _on_connected )
         _on_connected( peer );
@@ -177,19 +381,99 @@ void Libp2pTransport::start()
     }
   );
 
-  _gossip->start();
+	  _gossip->start();
 
-  // Start host
-  _host->start();
+	  // Start host
+	  _host->start();
 
-  // Connect to seed peers
-  for( const auto& seed: _config.seed_peers )
+	  if( _config.enable_dht )
+	  {
+	    try
+	    {
+	      auto scheduler = injector.create< std::shared_ptr< libp2p::basic::Scheduler > >();
+	      auto identity_manager = injector.create< std::shared_ptr< libp2p::peer::IdentityManager > >();
+	      auto bus = injector.create< std::shared_ptr< libp2p::event::Bus > >();
+	      auto random_generator =
+	        injector.create< std::shared_ptr< libp2p::crypto::random::RandomGenerator > >();
+
+	      auto storage_backend =
+	        std::make_shared< libp2p::protocol::kademlia::StorageBackendDefault >();
+	      auto storage = std::make_shared< libp2p::protocol::kademlia::StorageImpl >(
+	        _runtime->kademlia_config,
+	        storage_backend,
+	        scheduler );
+	      auto peer_table = std::make_shared< libp2p::protocol::kademlia::PeerRoutingTableImpl >(
+	        _runtime->kademlia_config,
+	        identity_manager,
+	        bus );
+	      auto content_table =
+	        std::make_shared< libp2p::protocol::kademlia::ContentRoutingTableImpl >(
+	          _runtime->kademlia_config,
+	          *scheduler,
+	          bus );
+	      auto validator =
+	        std::make_shared< libp2p::protocol::kademlia::ValidatorDefault >();
+
+	      _kademlia = std::make_shared< libp2p::protocol::kademlia::KademliaImpl >(
+	        _runtime->kademlia_config,
+	        _host,
+	        storage,
+	        content_table,
+	        peer_table,
+	        validator,
+	        scheduler,
+	        bus,
+	        random_generator );
+
+	      _kademlia->start();
+
+	      for( const auto& peer_address: _config.discovery_peers )
+	      {
+	        auto peer_info = peer_info_from_multiaddress( peer_address );
+	        if( !peer_info.has_value() )
+	          continue;
+
+	        _kademlia->addPeer( peer_info.value(), true, false );
+	        auto id = peer_info->id.toBase58();
+	        std::lock_guard lock( _peers_mutex );
+	        _known_peers[ id ] = PeerID{ id, peer_address };
+	      }
+
+	      auto bootstrap_result = _kademlia->bootstrap();
+	      if( bootstrap_result.has_value() )
+	      {
+	        LOG( info ) << "[p2p/transport] Kademlia DHT started with "
+	                    << _config.discovery_peers.size() << " bootstrap peer(s)";
+	      }
+	      else
+	      {
+	        LOG( warning ) << "[p2p/transport] Kademlia bootstrap failed: "
+	                       << bootstrap_result.error().message();
+	      }
+	    }
+	    catch( const std::exception& e )
+	    {
+	      LOG( warning ) << "[p2p/transport] Kademlia DHT startup failed: " << e.what();
+	      _kademlia.reset();
+	    }
+	  }
+
+	  // Connect to seed peers
+	  for( const auto& seed: _config.seed_peers )
   {
-    auto ma = libp2p::multi::Multiaddress::create( seed );
-    if( !ma.has_value() )
+    DialMultiaddresses dial_addresses;
+    try
+    {
+      dial_addresses = dial_multiaddresses_from( seed );
+    }
+    catch( const std::exception& e )
+    {
+      LOG( warning ) << "[p2p/transport] Failed to prepare seed address: " << seed
+                     << " error=" << e.what();
       continue;
+    }
 
-    auto peer_id_str = ma.value().getPeerId();
+    auto peer_id_str = dial_addresses.addresses.front().getPeerId();
     if( !peer_id_str.has_value() )
       continue;
 
@@ -197,7 +481,11 @@ void Libp2pTransport::start()
     if( !peer_id.has_value() )
       continue;
 
-    libp2p::peer::PeerInfo peer_info{ peer_id.value(), { ma.value() } };
+    if( dial_addresses.resolved_dns )
+      LOG( info ) << "[p2p/transport] Resolved seed " << seed << " to "
+                  << dial_addresses.address_strings.front();
+
+    libp2p::peer::PeerInfo peer_info{ peer_id.value(), dial_addresses.addresses };
 
     _host->connect( peer_info, [this, seed, id = peer_id_str.value()]( auto&& result ) {
       if( result.has_value() )
@@ -206,6 +494,7 @@ void Libp2pTransport::start()
         {
           std::lock_guard lock( _peers_mutex );
           _connected[ id ] = peer;
+          _known_peers[ id ] = peer;
         }
         if( _on_connected )
           _on_connected( peer );
@@ -240,17 +529,27 @@ void Libp2pTransport::stop()
   _block_sub.reset();
   _tx_sub.reset();
 
-  if( _gossip )
-    _gossip->stop();
+	  if( _gossip )
+	  {
+	    _gossip->stop();
+	    _gossip.reset();
+	  }
 
-  if( _host )
+	  _kademlia.reset();
+
+	  if( _host )
+  {
     _host->stop();
+    _host.reset();
+  }
 
+  _work_guard.reset();
   _io->stop();
   for( auto& t: _io_threads )
     if( t.joinable() )
       t.join();
   _io_threads.clear();
+  _runtime.reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -264,17 +563,23 @@ void Libp2pTransport::connect_peer( const PeerID& peer )
     if( _connected.count( peer.id ) || _connecting.count( peer.id ) )
       return;
     _connecting.insert( peer.id );
+    if( !peer.address.empty() )
+      _known_peers[ peer.id ] = peer;
   }
 
-  auto ma = libp2p::multi::Multiaddress::create( peer.address );
-  if( !ma.has_value() )
+  DialMultiaddresses dial_addresses;
+  try
+  {
+    dial_addresses = dial_multiaddresses_from( peer.address );
+  }
+  catch( const std::exception& e )
   {
     std::lock_guard lock( _peers_mutex );
     _connecting.erase( peer.id );
-    throw std::runtime_error( "Invalid multiaddr: " + peer.address );
+    throw std::runtime_error( e.what() );
   }
 
-  auto peer_id_str = ma.value().getPeerId();
+  auto peer_id_str = dial_addresses.addresses.front().getPeerId();
   if( !peer_id_str.has_value() )
   {
     std::lock_guard lock( _peers_mutex );
@@ -290,25 +595,33 @@ void Libp2pTransport::connect_peer( const PeerID& peer )
     throw std::runtime_error( "Invalid peer ID in multiaddr: " + peer.address );
   }
 
-  libp2p::peer::PeerInfo peer_info{ peer_id.value(), { ma.value() } };
-  _host->connect( peer_info, [this, peer]( auto&& result ) {
-    {
-      std::lock_guard lock( _peers_mutex );
-      _connecting.erase( peer.id );
-    }
+  if( dial_addresses.resolved_dns )
+    LOG( info ) << "[p2p/transport] Resolved peer " << peer.address << " to "
+                << dial_addresses.address_strings.front();
 
-    if( result.has_value() )
-    {
+  libp2p::peer::PeerInfo peer_info{ peer_id.value(), dial_addresses.addresses };
+  boost::asio::post( *_io, [this, host = _host, peer, peer_info = std::move( peer_info )]() mutable {
+    host->connect( peer_info, [this, peer]( auto&& result ) {
       {
         std::lock_guard lock( _peers_mutex );
-        _connected[ peer.id ] = peer;
+        _connecting.erase( peer.id );
       }
-      if( _on_connected )
-        _on_connected( peer );
-    }
-    else
-      LOG( warning ) << "[p2p/transport] Failed to connect to peer: " << peer.address
-                     << " error=" << result.error().message();
+
+      if( result.has_value() )
+      {
+        {
+          std::lock_guard lock( _peers_mutex );
+          _connected[ peer.id ] = peer;
+          if( !peer.address.empty() )
+            _known_peers[ peer.id ] = peer;
+        }
+        if( _on_connected )
+          _on_connected( peer );
+      }
+      else
+        LOG( warning ) << "[p2p/transport] Failed to connect to peer: " << peer.address
+                       << " error=" << result.error().message();
+    } );
   } );
 }
 
@@ -346,6 +659,58 @@ std::vector< PeerID > Libp2pTransport::connected_peers() const
   std::lock_guard lock( _peers_mutex );
   std::vector< PeerID > result;
   for( const auto& [id, peer]: _connected )
+    result.push_back( peer );
+  return result;
+}
+
+std::vector< PeerID > Libp2pTransport::known_peers() const
+{
+  std::map< std::string, PeerID > known;
+  {
+    std::lock_guard lock( _peers_mutex );
+    known = _known_peers;
+  }
+
+  if( _host )
+  {
+    try
+    {
+      const auto self_id = _host->getId();
+      auto& repo = _host->getPeerRepository();
+      for( const auto& peer_id: repo.getPeers() )
+      {
+        if( peer_id == self_id )
+          continue;
+
+        auto addresses = repo.getAddressRepository().getAddresses( peer_id );
+        if( !addresses.has_value() )
+          continue;
+
+        auto id = peer_id.toBase58();
+        for( const auto& address: addresses.value() )
+        {
+          auto address_string = with_peer_id_component( std::string( address.getStringAddress() ), id );
+          if( address_string.empty() )
+            continue;
+
+          known[ id ] = PeerID{ id, address_string };
+          break;
+        }
+      }
+    }
+    catch( const std::exception& e )
+    {
+      LOG( debug ) << "[p2p/transport] Failed to inspect known peers: " << e.what();
+    }
+    catch( ... )
+    {
+      LOG( debug ) << "[p2p/transport] Failed to inspect known peers: unknown exception";
+    }
+  }
+
+  std::vector< PeerID > result;
+  result.reserve( known.size() );
+  for( const auto& [id, peer]: known )
     result.push_back( peer );
   return result;
 }
@@ -416,11 +781,13 @@ std::string Libp2pTransport::send_peer_rpc( const PeerID& peer,
   if( !pid.has_value() )
     throw std::runtime_error( "Invalid peer ID: " + peer.id );
 
-  auto ma = libp2p::multi::Multiaddress::create( peer.address );
-  if( !ma.has_value() )
-    throw std::runtime_error( "Invalid multiaddr: " + peer.address );
+  auto dial_addresses = dial_multiaddresses_from( peer.address );
 
-  libp2p::peer::PeerInfo peer_info{ pid.value(), { ma.value() } };
+  if( dial_addresses.resolved_dns )
+    LOG( info ) << "[p2p/transport] Resolved Peer RPC target " << peer.address
+                << " to " << dial_addresses.address_strings.front();
+
+  libp2p::peer::PeerInfo peer_info{ pid.value(), dial_addresses.addresses };
 
   const auto timeout = std::chrono::seconds( 6 );
 

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { KOINOS_GIT_CLONE_URL, isPackagedBuild, resolveKoinosConfigRoot } from './constants'
+import { inspectBaseDirIdentity } from './basedir-identity'
 import type {
   KoinosNodeCloneRepoResult,
   KoinosNodeFileReadInput,
@@ -70,6 +71,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
 
   function ensureBaseDirKoinosRuntimeFiles(settings: KoinosNodeSettings): string {
     const cfgDir = deps.configDirPath(settings)
+    const identity = inspectBaseDirIdentity(settings.baseDir)
     const mappings = [
       {
         sourceName: 'config.yml',
@@ -79,12 +81,12 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
       {
         sourceName: 'genesis_data.json',
         targetPath: path.join(settings.baseDir, 'chain', 'genesis_data.json'),
-        preserveExisting: false
+        preserveExisting: true
       },
       {
         sourceName: 'koinos_descriptors.pb',
         targetPath: path.join(settings.baseDir, 'jsonrpc', 'descriptors', 'koinos_descriptors.pb'),
-        preserveExisting: false
+        preserveExisting: true
       }
     ] as const
 
@@ -110,6 +112,9 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
     }
     if (preserved.length > 0) {
       notes.push(`Preserved existing BASEDIR runtime files: ${preserved.join(', ')}`)
+    }
+    if (identity.exactNodeLayout) {
+      notes.push('Detected existing Koinos node BASEDIR layout; runtime identity files were treated as authoritative')
     }
 
     return notes.join('\n') || 'BASEDIR runtime files already present'

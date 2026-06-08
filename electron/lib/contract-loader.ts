@@ -1,8 +1,12 @@
 import { Contract, type Provider } from 'koilib'
 
 type FetchedAbi = NonNullable<Awaited<ReturnType<Contract['fetchAbi']>>>
+type ContractAbiFallbackResolver = (contractId: string) => FetchedAbi | null | Promise<FetchedAbi | null>
 
-export function createCachedContractLoader(normalizeAbi: (abi: FetchedAbi) => FetchedAbi) {
+export function createCachedContractLoader(
+  normalizeAbi: (abi: FetchedAbi) => FetchedAbi,
+  resolveFallbackAbi?: ContractAbiFallbackResolver
+) {
   const abiCache = new Map<string, Promise<FetchedAbi>>()
 
   return async function loadContractWithFetchedAbi(provider: Provider, contractId: string): Promise<Contract> {
@@ -12,7 +16,8 @@ export function createCachedContractLoader(normalizeAbi: (abi: FetchedAbi) => Fe
     if (!pendingAbi) {
       pendingAbi = contract
         .fetchAbi()
-        .then((abi) => {
+        .then(async (fetchedAbi) => {
+          const abi = fetchedAbi ?? await resolveFallbackAbi?.(contractId)
           if (!abi) {
             throw new Error(`Could not load ABI for contract ${contractId}`)
           }

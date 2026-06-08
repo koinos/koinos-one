@@ -910,16 +910,27 @@ int main( int argc, char** argv )
     {
 #ifdef KOINOS_HAS_LIBP2P
       // cpp-libp2p transport available — create real P2P node
-      node::p2p::Libp2pTransport::Config transport_cfg;
-      transport_cfg.listen_address = cfg.p2p_listen;
-      transport_cfg.requested_io_threads = static_cast< unsigned int >( std::max< uint64_t >( 1, cfg.p2p_jobs ) );
+	      node::p2p::Libp2pTransport::Config transport_cfg;
+	      transport_cfg.listen_address = cfg.p2p_listen;
+	      transport_cfg.discovery_peers = cfg.p2p_seeds;
+	      transport_cfg.enable_dht = cfg.p2p_peer_discovery_enabled;
+	      transport_cfg.requested_io_threads = static_cast< unsigned int >( std::max< uint64_t >( 1, cfg.p2p_jobs ) );
 
       auto transport = std::make_unique< node::p2p::Libp2pTransport >( transport_cfg );
 
-      node::p2p::P2POptions p2p_opts;
-      p2p_opts.seed_reconnect_interval = std::chrono::seconds( cfg.p2p_seed_reconnect_interval_seconds );
-      p2p_opts.always_enable_gossip    = cfg.p2p_force_gossip;
-      p2p_opts.always_disable_gossip   = cfg.p2p_disable_gossip;
+	      node::p2p::P2POptions p2p_opts;
+	      p2p_opts.seed_reconnect_interval = std::chrono::seconds( cfg.p2p_seed_reconnect_interval_seconds );
+	      p2p_opts.peer_discovery_enabled   = cfg.p2p_peer_discovery_enabled;
+	      p2p_opts.target_peer_count        = static_cast< uint32_t >( cfg.p2p_target_peer_count );
+	      p2p_opts.max_peer_candidates      = static_cast< uint32_t >( cfg.p2p_max_peer_candidates );
+	      p2p_opts.max_candidate_dials_per_cycle =
+	        static_cast< uint32_t >( cfg.p2p_max_candidate_dials_per_cycle );
+	      p2p_opts.peer_acquisition_interval = std::chrono::seconds( cfg.p2p_peer_acquisition_interval_seconds );
+	      p2p_opts.candidate_redial_interval = std::chrono::seconds( cfg.p2p_candidate_redial_interval_seconds );
+	      p2p_opts.always_enable_gossip    = cfg.p2p_force_gossip;
+	      p2p_opts.always_disable_gossip   = cfg.p2p_disable_gossip;
+      for( const auto& checkpoint: cfg.p2p_checkpoints )
+        p2p_opts.checkpoints.push_back( { checkpoint.block_height, checkpoint.block_id } );
       for( const auto& seed: cfg.p2p_seeds )
       {
         auto marker = seed.rfind( "/p2p/" );
@@ -949,10 +960,19 @@ int main( int argc, char** argv )
 
       auto transport = std::make_unique< node::p2p::GoBridgeTransport >( go_cfg );
 
-      node::p2p::P2POptions p2p_opts;
-      p2p_opts.seed_reconnect_interval = std::chrono::seconds( cfg.p2p_seed_reconnect_interval_seconds );
-      p2p_opts.always_enable_gossip    = cfg.p2p_force_gossip;
-      p2p_opts.always_disable_gossip   = cfg.p2p_disable_gossip;
+	      node::p2p::P2POptions p2p_opts;
+	      p2p_opts.seed_reconnect_interval = std::chrono::seconds( cfg.p2p_seed_reconnect_interval_seconds );
+	      p2p_opts.peer_discovery_enabled   = cfg.p2p_peer_discovery_enabled;
+	      p2p_opts.target_peer_count        = static_cast< uint32_t >( cfg.p2p_target_peer_count );
+	      p2p_opts.max_peer_candidates      = static_cast< uint32_t >( cfg.p2p_max_peer_candidates );
+	      p2p_opts.max_candidate_dials_per_cycle =
+	        static_cast< uint32_t >( cfg.p2p_max_candidate_dials_per_cycle );
+	      p2p_opts.peer_acquisition_interval = std::chrono::seconds( cfg.p2p_peer_acquisition_interval_seconds );
+	      p2p_opts.candidate_redial_interval = std::chrono::seconds( cfg.p2p_candidate_redial_interval_seconds );
+	      p2p_opts.always_enable_gossip    = cfg.p2p_force_gossip;
+	      p2p_opts.always_disable_gossip   = cfg.p2p_disable_gossip;
+      for( const auto& checkpoint: cfg.p2p_checkpoints )
+        p2p_opts.checkpoints.push_back( { checkpoint.block_height, checkpoint.block_id } );
       for( const auto& seed: cfg.p2p_seeds )
       {
         auto marker = seed.rfind( "/p2p/" );
@@ -1016,7 +1036,8 @@ int main( int argc, char** argv )
         cfg.is_enabled( "account_history" ) ? &account_history_impl : nullptr,
         jsonrpc_host,
         jsonrpc_port,
-        static_cast< unsigned int >( cfg.jsonrpc_jobs )
+        static_cast< unsigned int >( cfg.jsonrpc_jobs ),
+        node::RpcAccessPolicy{ cfg.rpc_blacklist, cfg.rpc_whitelist }
       );
 
       registry.add(

@@ -10,10 +10,13 @@ import {
   DASHBOARD_REFRESH_SECONDS_MAX,
   DASHBOARD_REFRESH_SECONDS_MIN,
   DEFAULT_NODE_SETTINGS,
+  DEFAULT_NODE_BASEDIR_BY_NETWORK,
+  DEFAULT_NODE_PROFILES_BY_NETWORK,
   DEFAULT_PUBLIC_RPC_URLS,
   DEFAULT_SETTINGS,
   LANGUAGE_STORAGE_KEY,
   LOCAL_RPC_SOURCE,
+  NODE_NETWORK_BASEDIRS_STORAGE_KEY,
   NODE_SETTINGS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY
 } from './constants'
@@ -36,6 +39,7 @@ import type {
   RawTransactionReceipt,
   TransactionDetail
 } from './types'
+import { normalizeKoinosNetworkId, type KoinosNetworkId } from './network'
 
 export function safeParseInt(value: string | undefined, fallback = 0): number {
   if (!value) return fallback
@@ -332,6 +336,7 @@ export function loadInitialSettings(): ExplorerSettings {
       pollMs: clamp(typeof parsed.pollMs === 'number' ? parsed.pollMs : DEFAULT_SETTINGS.pollMs, 1000, 30000),
       rowLimit: clamp(typeof parsed.rowLimit === 'number' ? parsed.rowLimit : DEFAULT_SETTINGS.rowLimit, 5, 50),
       producerAdvancedMode: parsed.producerAdvancedMode === true,
+      nodeAdvancedMode: parsed.nodeAdvancedMode === true,
       dashboardProducerWindowBlocks: normalizeDashboardProducerWindowBlocks(parsed.dashboardProducerWindowBlocks),
       dashboardRefreshSeconds: normalizeDashboardRefreshSeconds(parsed.dashboardRefreshSeconds)
     }
@@ -345,18 +350,27 @@ export function loadInitialNodeSettings(): NodeManagerSettings {
     const raw = window.localStorage.getItem(NODE_SETTINGS_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_NODE_SETTINGS }
     const parsed = JSON.parse(raw) as Partial<NodeManagerSettings>
-    const profiles =
+    const rawProfiles =
       typeof parsed.profiles === 'string'
         ? expandNodeProfiles(parseProfilesCsv(parsed.profiles)).join(',')
-        : DEFAULT_NODE_SETTINGS.profiles
+        : ''
+    const storedNetwork = (parsed as { network?: unknown }).network
+    const network = storedNetwork
+      ? normalizeKoinosNetworkId(storedNetwork)
+      : rawProfiles.split(',').some((profile) => profile.trim().startsWith('testnet_'))
+        ? 'testnet'
+        : DEFAULT_NODE_SETTINGS.network
+    const profiles = rawProfiles || defaultNodeProfilesForNetwork(network)
+    const parsedBaseDir =
+      typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : defaultNodeBaseDirForNetwork(network)
+    const baseDir = resolveNodeBaseDirForNetwork(network, parsedBaseDir)
     return {
+      network,
       repoPath:
         typeof parsed.repoPath === 'string' && parsed.repoPath.trim()
           ? parsed.repoPath
           : DEFAULT_NODE_SETTINGS.repoPath,
-      baseDir: normalizeNodeBaseDirInput(
-        typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : DEFAULT_NODE_SETTINGS.baseDir
-      ),
+      baseDir,
       profiles,
       blockchainBackupUrl:
         typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
@@ -366,6 +380,110 @@ export function loadInitialNodeSettings(): NodeManagerSettings {
   } catch {
     return { ...DEFAULT_NODE_SETTINGS }
   }
+}
+
+type NodeBaseDirsByNetwork = Partial<Record<KoinosNetworkId, string>>
+
+function browserLocalStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+export function defaultNodeBaseDirForNetwork(network: KoinosNetworkId): string {
+  return DEFAULT_NODE_BASEDIR_BY_NETWORK[network] ?? DEFAULT_NODE_SETTINGS.baseDir
+}
+
+export function defaultNodeProfilesForNetwork(network: KoinosNetworkId): string {
+  return DEFAULT_NODE_PROFILES_BY_NETWORK[network] ?? DEFAULT_NODE_SETTINGS.profiles
+}
+
+export function loadNodeBaseDirsByNetwork(): NodeBaseDirsByNetwork {
+  const storage = browserLocalStorage()
+  if (!storage) return {}
+
+  try {
+    const raw = storage.getItem(NODE_NETWORK_BASEDIRS_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Partial<Record<KoinosNetworkId, unknown>>
+    return {
+      mainnet:
+        typeof parsed.mainnet === 'string' && parsed.mainnet.trim()
+          ? normalizeNodeBaseDirInput(parsed.mainnet)
+          : undefined,
+      testnet:
+        typeof parsed.testnet === 'string' && parsed.testnet.trim()
+          ? normalizeNodeBaseDirInput(parsed.testnet)
+          : undefined,
+      custom:
+        typeof parsed.custom === 'string' && parsed.custom.trim()
+          ? normalizeNodeBaseDirInput(parsed.custom)
+          : undefined
+    }
+  } catch {
+    return {}
+  }
+}
+
+function knownBaseDirMatchesDifferentNetwork(
+  baseDir: string,
+  network: KoinosNetworkId,
+  baseDirs: NodeBaseDirsByNetwork
+): boolean {
+  const normalizedBaseDir = normalizeNodeBaseDirInput(baseDir)
+  const lowerBaseDir = normalizedBaseDir.toLowerCase()
+  if (network === 'mainnet' && /(^|[^a-z0-9])testnet([^a-z0-9]|$)/.test(lowerBaseDir)) return true
+  if (network === 'testnet' && /(^|[^a-z0-9])mainnet([^a-z0-9]|$)/.test(lowerBaseDir)) return true
+
+  return (['mainnet', 'testnet', 'custom'] as const).some((candidateNetwork) => {
+    if (candidateNetwork === network) return false
+    const candidateBaseDir = baseDirs[candidateNetwork] || defaultNodeBaseDirForNetwork(candidateNetwork)
+    return normalizeNodeBaseDirInput(candidateBaseDir) === normalizedBaseDir
+  })
+}
+
+function resolveStoredNodeBaseDir(
+  network: KoinosNetworkId,
+  fallbackBaseDir: string | undefined,
+  baseDirs: NodeBaseDirsByNetwork
+): string {
+  const storedBaseDir = baseDirs[network]
+  if (storedBaseDir && !knownBaseDirMatchesDifferentNetwork(storedBaseDir, network, baseDirs)) {
+    return normalizeNodeBaseDirInput(storedBaseDir)
+  }
+
+  if (fallbackBaseDir && !knownBaseDirMatchesDifferentNetwork(fallbackBaseDir, network, baseDirs)) {
+    return normalizeNodeBaseDirInput(fallbackBaseDir)
+  }
+
+  return normalizeNodeBaseDirInput(defaultNodeBaseDirForNetwork(network))
+}
+
+export function storeNodeBaseDirForNetwork(network: KoinosNetworkId, baseDir: string): void {
+  const storage = browserLocalStorage()
+  if (!storage) return
+
+  const storedBaseDirs = loadNodeBaseDirsByNetwork()
+  const normalizedBaseDir = normalizeNodeBaseDirInput(baseDir)
+  if (knownBaseDirMatchesDifferentNetwork(normalizedBaseDir, network, storedBaseDirs)) return
+
+  const nextBaseDirs = {
+    ...storedBaseDirs,
+    [network]: normalizedBaseDir
+  }
+
+  try {
+    storage.setItem(NODE_NETWORK_BASEDIRS_STORAGE_KEY, JSON.stringify(nextBaseDirs))
+  } catch {
+    // localStorage may be unavailable under strict browser privacy settings.
+  }
+}
+
+export function resolveNodeBaseDirForNetwork(network: KoinosNetworkId, fallbackBaseDir?: string): string {
+  return resolveStoredNodeBaseDir(network, fallbackBaseDir, loadNodeBaseDirsByNetwork())
 }
 
 export function loadInitialLanguage(): AppLanguage {
@@ -391,12 +509,13 @@ export function normalizeNodeBaseDirInput(value: string): string {
   const normalized = trimmed.replace(/[\\/]+$/, '')
   if (!normalized) return DEFAULT_NODE_SETTINGS.baseDir
   const segments = normalized.split(/[\\/]+/).filter(Boolean)
-  if (['.koinos', '.koinosgui'].includes(segments.at(-1) ?? '')) return normalized
+  if (['.koinos', '.koinosgui', 'basedir'].includes(segments.at(-1) ?? '')) return normalized
   return `${normalized}/.koinos`
 }
 
 export function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNodeSettings {
   return {
+    network: settings.network,
     repoPath: settings.repoPath.trim(),
     baseDir: normalizeNodeBaseDirInput(settings.baseDir),
     profiles: expandNodeProfiles(parseProfilesCsv(settings.profiles)),
@@ -433,8 +552,15 @@ export function normalizeNodeRpcHost(host: string | null | undefined, fallback =
 }
 
 export function resolveLocalNodeRpcUrl(nodeStatus: KnodelKoinosNodeStatus | null): string {
-  const jsonrpcService = nodeStatus?.services.find((service) => service.id === 'jsonrpc') ?? null
-  const jsonrpcPort = nodeServicePortByTarget(jsonrpcService, 8080)
+  const jsonrpcService =
+    nodeStatus?.services.find((service) => service.id === 'jsonrpc') ??
+    nodeStatus?.services.find((service) => service.id === 'koinos-node') ??
+    null
+  const jsonrpcPort =
+    nodeServicePortByTarget(jsonrpcService, 8080) ??
+    jsonrpcService?.ports.find((port) => port.host !== '0.0.0.0' && port.host !== '::') ??
+    jsonrpcService?.ports[0] ??
+    null
   const host = normalizeNodeRpcHost(jsonrpcPort?.host)
   const port = jsonrpcPort?.publishedPort ?? 8080
   return `http://${host}:${port}/`

@@ -60,6 +60,14 @@ private:
     std::thread sync_thread;
   };
 
+  struct PeerCandidate
+  {
+    PeerID peer;
+    bool seed = false;
+    uint32_t attempts = 0;
+    std::chrono::steady_clock::time_point last_dial{};
+  };
+
   // ── Peer lifecycle ──
   void on_peer_connected( const PeerID& peer );
   void on_peer_disconnected( const PeerID& peer );
@@ -82,6 +90,10 @@ private:
 
   // ── Helpers ──
   void log_peer_snapshot();
+  void add_peer_candidate( const PeerID& peer, bool seed );
+  void refresh_known_peer_candidates();
+  void run_peer_acquisition_cycle();
+  bool is_peer_connected_locked( const std::string& peer_id ) const;
   bool get_local_block_height( const std::string& block_id, uint64_t& height );
   std::string get_local_ancestor_block_id( const std::string& head_block_id, uint64_t height );
   bool report_peer_error( const PeerID& peer, const std::string& error, uint64_t score );
@@ -99,6 +111,7 @@ private:
 
   std::mutex _peers_mutex;
   std::map< std::string, std::unique_ptr< PeerState > > _peers; // peer.id → state
+  std::map< std::string, PeerCandidate > _peer_candidates;
   std::mutex _sync_mutex;
   std::mutex _seen_mutex;
   std::set< std::string > _seen_blocks;

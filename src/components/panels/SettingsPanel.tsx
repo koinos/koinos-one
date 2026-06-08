@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { normalizeAppLanguage } from '../../i18n'
-import { normalizeNodeBaseDirInput, formatTime } from '../../app/utils'
-import { MicroservicesConfigPanel } from './MicroservicesConfigPanel'
+import { formatTime } from '../../app/utils'
+import { KOINOS_NETWORK_OPTIONS, normalizeKoinosNetworkId } from '../../app/network'
+import { NodeConfigPanel } from './MicroservicesConfigPanel'
 type BackupInfo = { ok: boolean; lastModified: string | null; sizeBytes: number | null }
 type SettingsPanelProps = any
 
-type SettingsTab = 'general' | 'explorer' | 'dashboard' | 'backup' | 'microservices'
+type SettingsTab = 'general' | 'explorer' | 'dashboard' | 'backup' | 'node'
 
 export function SettingsPanel(props: SettingsPanelProps) {
   const {
@@ -29,6 +30,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     openNodeFileEditor,
     nodeFileEditorLoading,
     nodeFileEditorSaving,
+    draftNodeNetwork,
+    setDraftNodeNetwork,
     draftNodeBlockchainBackupUrl,
     setDraftNodeBlockchainBackupUrl,
     runNodeRestoreBackupVerify,
@@ -52,6 +55,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     nodeBaseDirValidation,
     formError,
     resetDefaults,
+    settingsDirty,
+    onBlockedSettingsNavigation,
     getKoinosNodeBridge,
     nodeComponents
   } = props
@@ -60,6 +65,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [backupInfo, setBackupInfo] = useState<BackupInfo | null>(null)
   const [backupInfoLoading, setBackupInfoLoading] = useState(false)
+  const saveSettingsButtonClass = `primary-button settings-save-button ${settingsDirty ? 'is-dirty' : ''}`.trim()
 
   useEffect(() => {
     const url = nodeSettings?.blockchainBackupUrl || draftNodeBlockchainBackupUrl
@@ -78,8 +84,17 @@ export function SettingsPanel(props: SettingsPanelProps) {
     { id: 'explorer', label: t('settings.tabExplorer') },
     { id: 'dashboard', label: t('settings.tabDashboard') },
     { id: 'backup', label: t('settings.tabBackup') },
-    { id: 'microservices', label: t('settings.tabMicroservices') }
+    { id: 'node', label: t('settings.tabNode') }
   ]
+  const requestSettingsTab = (tab: SettingsTab) => {
+    if (tab === activeTab) return
+    if (settingsDirty) {
+      onBlockedSettingsNavigation?.()
+      return
+    }
+    setFormError(null)
+    setActiveTab(tab)
+  }
 
   return (
     <section
@@ -95,14 +110,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
             key={tab.id}
             type="button"
             className={`settings-tab-button ${activeTab === tab.id ? 'is-active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => requestSettingsTab(tab.id)}
           >
             {tab.label}
           </button>
         ))}
       </div>
 
-      <form className="settings-form" onSubmit={applySettings} style={activeTab === 'microservices' ? { display: 'none' } : undefined}>
+      <form className="settings-form" onSubmit={applySettings} style={activeTab === 'node' ? { display: 'none' } : undefined}>
 
         {/* ─── General ─── */}
         {activeTab === 'general' && (
@@ -118,6 +133,26 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <option value="es">{t('language.spanish')}</option>
               </select>
             </label>
+
+            <div className="settings-subheader">
+              <h3>{t('settings.nodeModeTitle')}</h3>
+              <p>{t('settings.nodeModeDescription')}</p>
+            </div>
+            <div>
+              <label className="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={settings.nodeAdvancedMode}
+                  onChange={(event) => {
+                    setSettings((current: any) => ({ ...current, nodeAdvancedMode: event.target.checked }))
+                  }}
+                />
+                <span>{t('settings.nodeAdvancedMode')}</span>
+              </label>
+              <span className="settings-inline-help">
+                {settings.nodeAdvancedMode ? t('settings.nodeAdvancedHelpOn') : t('settings.nodeAdvancedHelpOff')}
+              </span>
+            </div>
 
             <div className="settings-subheader">
               <h3>{t('settings.producerModeTitle')}</h3>
@@ -140,6 +175,25 @@ export function SettingsPanel(props: SettingsPanelProps) {
             </div>
 
             <label>
+              Network
+              <select
+                style={{ maxWidth: '260px' }}
+                value={draftNodeNetwork}
+                onChange={(event) => {
+                  setDraftNodeNetwork(normalizeKoinosNetworkId(event.target.value))
+                }}
+                disabled={nodeBusy}
+              >
+                {KOINOS_NETWORK_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+              <span className="settings-inline-help">
+                {KOINOS_NETWORK_OPTIONS.find((option) => option.id === draftNodeNetwork)?.description || ''}
+              </span>
+            </label>
+
+            <label>
               {t('settings.baseDataDir')}
               <div className="settings-input-with-button">
                 <input
@@ -150,12 +204,12 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     setNodeBaseDirValidation(null)
                   }}
                   onBlur={(event) => {
-                    const normalized = normalizeNodeBaseDirInput(event.target.value)
-                    setDraftNodeBaseDir(normalized)
-                    void validateDraftNodeBaseDir(normalized).then((result: any) => {
+                    const input = event.target.value.trim()
+                    void validateDraftNodeBaseDir(input).then((result: any) => {
                       if (!result.ok) {
-                        setFormError(result.output || t('settings.baseDirNotUsable', { baseDir: normalized }))
+                        setFormError(result.output || t('settings.baseDirNotUsable', { baseDir: input }))
                       } else {
+                        setDraftNodeBaseDir(result.baseDir)
                         setFormError(null)
                       }
                     })
@@ -198,8 +252,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <button type="button" className="ghost-button" onClick={resetDefaults}>
                 {t('settings.reset')}
               </button>
-              <button type="submit" className="primary-button">
-                {t('settings.saveReconnect')}
+              <button type="submit" className={saveSettingsButtonClass} disabled={!settingsDirty}>
+                {t('settings.saveSettings')}
               </button>
             </div>
           </>
@@ -255,8 +309,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <button type="button" className="ghost-button" onClick={resetDefaults}>
                 {t('settings.reset')}
               </button>
-              <button type="submit" className="primary-button">
-                {t('settings.saveReconnect')}
+              <button type="submit" className={saveSettingsButtonClass} disabled={!settingsDirty}>
+                {t('settings.saveSettings')}
               </button>
             </div>
           </>
@@ -301,8 +355,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <button type="button" className="ghost-button" onClick={resetDefaults}>
                 {t('settings.reset')}
               </button>
-              <button type="submit" className="primary-button">
-                {t('settings.saveReconnect')}
+              <button type="submit" className={saveSettingsButtonClass} disabled={!settingsDirty}>
+                {t('settings.saveSettings')}
               </button>
             </div>
           </>
@@ -423,27 +477,28 @@ export function SettingsPanel(props: SettingsPanelProps) {
             )}
 
             <div className="settings-actions">
-              <button type="submit" className="primary-button">
-                {t('settings.saveReconnect')}
+              <button type="submit" className={saveSettingsButtonClass} disabled={!settingsDirty}>
+                {t('settings.saveSettings')}
               </button>
             </div>
           </>
         )}
       </form>
 
-      {/* ─── Microservices ─── */}
-      {activeTab === 'microservices' && hasNodeControls && (
-        <MicroservicesConfigPanel
+      {/* ─── Node Config ─── */}
+      {activeTab === 'node' && hasNodeControls && (
+        <NodeConfigPanel
           t={t}
           hasNodeControls={hasNodeControls}
           nodeSettings={nodeSettings}
           components={nodeComponents}
+          advancedMode={settings.nodeAdvancedMode}
         />
       )}
 
-      {activeTab === 'microservices' && !hasNodeControls && (
+      {activeTab === 'node' && !hasNodeControls && (
         <div className="settings-form">
-          <p className="settings-inline-help">{t('settings.microservicesNotAvailable')}</p>
+          <p className="settings-inline-help">{t('settings.nodeNotAvailable')}</p>
         </div>
       )}
     </section>

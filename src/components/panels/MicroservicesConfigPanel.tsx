@@ -6,8 +6,10 @@ import {
   CONFIG_SECTION_DESC_KEYS,
   getFieldsForSection,
   extractConfigValues,
+  findIgnoredLegacyConfigEntries,
   type KoinosConfigValues,
   type ConfigFieldMeta,
+  type IgnoredLegacyConfigEntry,
   type ConfigSection
 } from '../../app/koinos-config-schema'
 import { getKoinosNodeBridge, toNodeApiSettings } from '../../app/utils'
@@ -17,6 +19,7 @@ type ComponentHealthEntry = {
   name: string
   enabled: boolean
   healthy: boolean
+  state?: 'running' | 'passive' | 'waiting' | 'disabled' | 'stopped'
   details?: string
 }
 
@@ -25,9 +28,10 @@ type MicroservicesConfigPanelProps = {
   hasNodeControls: boolean
   nodeSettings: NodeManagerSettings
   components?: ComponentHealthEntry[]
+  advancedMode?: boolean
 }
 
-export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, components }: MicroservicesConfigPanelProps) {
+export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, components, advancedMode = false }: MicroservicesConfigPanelProps) {
   const [configDoc, setConfigDoc] = useState<Document | null>(null)
   const [draftValues, setDraftValues] = useState<KoinosConfigValues>({
     global: {}, block_producer: {}, chain: {}, jsonrpc: {}, grpc: {}, mempool: {}, p2p: {}
@@ -36,6 +40,7 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, com
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedBanner, setSavedBanner] = useState(false)
+  const [ignoredLegacyEntries, setIgnoredLegacyEntries] = useState<IgnoredLegacyConfigEntry[]>([])
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     () => new Set(CONFIG_SECTIONS.filter((s) => s !== 'global'))
   )
@@ -53,9 +58,11 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, com
         setConfigDoc(doc)
         const parsed = doc.toJSON() || {}
         setDraftValues(extractConfigValues(parsed))
+        setIgnoredLegacyEntries(findIgnoredLegacyConfigEntries(parsed))
       } else {
         setConfigDoc(null)
         setDraftValues({ global: {}, block_producer: {}, chain: {}, jsonrpc: {}, grpc: {}, mempool: {}, p2p: {} })
+        setIgnoredLegacyEntries([])
         if (!result.ok) setError(result.output || t('config.loadError'))
       }
     } catch (e) {
@@ -81,6 +88,11 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, com
     setSaving(true)
     setError(null)
     try {
+      if (advancedMode && shouldConfirmAdvancedSave(draftValues)) {
+        const confirmed = window.confirm(t('config.advancedConfirm'))
+        if (!confirmed) return
+      }
+
       const doc = configDoc ? configDoc.clone() : new Document({})
 
       for (const section of CONFIG_SECTIONS) {
@@ -156,6 +168,24 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, com
   }
 
   if (!hasNodeControls) return null
+
+  const shouldShowField = (field: ConfigFieldMeta) => {
+    if (field.hidden) return false
+    if (field.advanced && !advancedMode) return false
+    if (field.dangerous && !advancedMode) return false
+    return true
+  }
+
+  const visibleFieldsForSection = (section: ConfigSection) =>
+    getFieldsForSection(section).filter(shouldShowField)
+
+  const globalValues = draftValues.global ?? {}
+  const publicRpcBind =
+    /(^|[/:])0\.0\.0\.0($|[:/])/.test(`${draftValues.jsonrpc?.listen ?? ''}`) ||
+    /(^|[/:])0\.0\.0\.0($|[:/])/.test(`${draftValues.grpc?.listen ?? ''}`)
+  const hasRpcAcl =
+    (Array.isArray(globalValues.blacklist) && globalValues.blacklist.length > 0) ||
+    (Array.isArray(globalValues.whitelist) && globalValues.whitelist.length > 0)
 
   const renderField = (field: ConfigFieldMeta) => {
     const sectionValues = (draftValues[field.section as ConfigSection] || {}) as Record<string, unknown>
@@ -253,21 +283,24 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, com
     <div className="microservices-config-panel">
       <div className="settings-subheader">
         <h3>{t('config.title')}</h3>
-        <p>{t('config.subtitle')}</p>
+        <p>{advancedMode ? t('config.subtitleAdvanced') : t('config.subtitleSimple')}</p>
       </div>
 
       {components && components.length > 0 && (
         <div className="component-health-grid">
-          {components.map((comp) => (
-            <div
-              key={comp.name}
-              className={`component-health-item ${comp.healthy ? 'is-healthy' : comp.enabled ? 'is-unhealthy' : 'is-disabled'}`}
-              title={comp.details || comp.name}
-            >
-              <span className="component-health-indicator" />
-              <span className="component-health-name">{comp.name}</span>
-            </div>
-          ))}
+          {components.map((comp) => {
+            const componentState = comp.state ?? (!comp.enabled ? 'disabled' : comp.healthy ? 'running' : 'waiting')
+            return (
+              <div
+                key={comp.name}
+                className={`component-health-item is-${componentState}`}
+                title={comp.details || comp.name}
+              >
+                <span className="component-health-indicator" />
+                <span className="component-health-name">{comp.name}</span>
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -279,9 +312,38 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, com
         </div>
       )}
 
+      {!advancedMode && (
+        <div className="config-simple-banner">
+          {t('config.simpleBanner')}
+        </div>
+      )}
+
+      {advancedMode && ignoredLegacyEntries.length > 0 && (
+        <div className="config-legacy-banner">
+          <strong>{t('config.ignoredLegacyTitle')}</strong>
+          <p>{t('config.ignoredLegacyDescription')}</p>
+          <ul>
+            {ignoredLegacyEntries.map((entry) => (
+              <li key={entry.path}>
+                <code>{entry.path}</code>
+                <span>{t(entry.reasonKey)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {advancedMode && publicRpcBind && !hasRpcAcl && (
+        <div className="config-legacy-banner">
+          <strong>{t('config.publicRpcAclTitle')}</strong>
+          <p>{t('config.publicRpcAclDescription')}</p>
+        </div>
+      )}
+
       {!loading &&
         CONFIG_SECTIONS.map((section) => {
-          const fields = getFieldsForSection(section)
+          const fields = visibleFieldsForSection(section)
+          if (fields.length === 0) return null
           const collapsed = collapsedSections.has(section)
           return (
             <div key={section} className="config-section">
@@ -322,4 +384,17 @@ export function MicroservicesConfigPanel({ t, hasNodeControls, nodeSettings, com
       )}
     </div>
   )
+}
+
+function shouldConfirmAdvancedSave(values: KoinosConfigValues): boolean {
+  const globalValues = values.global ?? {}
+  const featureValues = values.features ?? {}
+  const jsonrpcListen = `${values.jsonrpc?.listen ?? ''}`
+  const grpcListen = `${values.grpc?.listen ?? ''}`
+
+  if (globalValues.reset === true) return true
+  for (const core of ['chain', 'mempool', 'block_store', 'p2p']) {
+    if (featureValues[core] === false) return true
+  }
+  return /(^|[/:])0\.0\.0\.0($|[:/])/.test(jsonrpcListen) || /(^|[/:])0\.0\.0\.0($|[:/])/.test(grpcListen)
 }

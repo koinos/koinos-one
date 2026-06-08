@@ -8,6 +8,12 @@
 
 namespace koinos::node {
 
+struct ConfigCheckpoint
+{
+  uint64_t block_height = 0;
+  std::string block_id;
+};
+
 /**
  * Unified configuration parsed from config.yml + CLI flags.
  * Replaces per-service config parsing.
@@ -21,6 +27,8 @@ struct NodeConfig
   std::filesystem::path basedir;
   bool log_color    = true;
   bool log_datetime = true;
+  std::vector< std::string > rpc_blacklist;
+  std::vector< std::string > rpc_whitelist;
 
   // ── Chain ──
   uint64_t chain_jobs                    = 2;
@@ -33,8 +41,16 @@ struct NodeConfig
   // ── P2P ──
   std::string p2p_listen   = "/ip4/0.0.0.0/tcp/8888";
   std::vector< std::string > p2p_seeds;
+  std::string p2p_identity_seed;
+  std::vector< ConfigCheckpoint > p2p_checkpoints;
   uint64_t p2p_jobs        = 4;
   uint64_t p2p_seed_reconnect_interval_seconds = 10;
+  bool p2p_peer_discovery_enabled = true;
+  uint64_t p2p_target_peer_count = 20;
+  uint64_t p2p_max_peer_candidates = 200;
+  uint64_t p2p_max_candidate_dials_per_cycle = 3;
+  uint64_t p2p_peer_acquisition_interval_seconds = 5;
+  uint64_t p2p_candidate_redial_interval_seconds = 60;
   bool p2p_force_gossip   = false;
   bool p2p_disable_gossip = false;
 

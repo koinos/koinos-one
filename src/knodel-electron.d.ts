@@ -2,6 +2,7 @@ export {}
 
 declare global {
   type KnodelKoinosNodeServiceRuntime = 'native'
+  type KnodelKoinosNetworkId = 'mainnet' | 'testnet' | 'custom'
   type KnodelKoinosNativeBuildSystem = 'cmake' | 'go' | 'yarn'
 
   type KnodelKoinosNodeServicePort = {
@@ -13,6 +14,7 @@ declare global {
   }
 
   type KnodelKoinosNodeSettings = {
+    network?: KnodelKoinosNetworkId
     repoPath?: string
     composeFile?: string
     envFile?: string
@@ -39,14 +41,16 @@ declare global {
     managedByKnodel: boolean
   }
 
-  type KnodelKoinosNodePresetSource = 'compose-core' | 'compose-profile'
+  type KnodelKoinosNodePresetSource = 'profile' | 'features'
 
   type KnodelKoinosNodePreset = {
     id: string
     label: string
+    network?: KnodelKoinosNetworkId
     source: KnodelKoinosNodePresetSource
     profiles: string[]
     services: string[]
+    featureFlags?: Record<string, boolean>
     description: string
   }
 
@@ -54,11 +58,13 @@ declare global {
     name: string
     enabled: boolean
     healthy: boolean
+    state?: 'running' | 'passive' | 'waiting' | 'disabled' | 'stopped'
     details?: string
   }
 
   type KnodelKoinosNodeStatus = {
     ok: boolean
+    network?: KnodelKoinosNetworkId
     dockerAvailable: boolean
     runtimeMode: KnodelKoinosNodeServiceRuntime
     availableRuntimeModes: KnodelKoinosNodeServiceRuntime[]
@@ -117,6 +123,9 @@ declare global {
   type KnodelKoinosNodeProducerLocalInfoResult = {
     ok: boolean
     output: string
+    producerAddress: string | null
+    configFilePath: string | null
+    configHasProducer: boolean
     localPublicKey: string | null
     localPublicKeyPath: string | null
     localPrivateKeyPath: string | null
@@ -486,6 +495,7 @@ declare global {
   }
 
   type KnodelWalletRpcParams = {
+    network?: KnodelKoinosNetworkId
     rpcUrl?: string
   }
 
@@ -838,13 +848,17 @@ declare global {
   }
 
   type KnodelPublicRpcConfigParams = {
+    network?: KnodelKoinosNetworkId
     publicRpcUrls?: string[]
+    publicRpcUrlsByNetwork?: Partial<Record<KnodelKoinosNetworkId, string[]>>
   }
 
   type KnodelPublicRpcConfigResult = {
     ok: boolean
     output: string
+    network?: KnodelKoinosNetworkId
     publicRpcUrls: string[]
+    publicRpcUrlsByNetwork?: Partial<Record<KnodelKoinosNetworkId, string[]>>
   }
 
   type KnodelApi = {

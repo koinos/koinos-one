@@ -10,6 +10,7 @@ import type {
 
 function createSettings(): KoinosNodeSettings {
   return {
+    network: 'mainnet',
     repoPath: '/tmp/koinos',
     baseDir: '/tmp/koinos/basedir',
     profiles: ['block_producer'],
@@ -20,6 +21,7 @@ function createSettings(): KoinosNodeSettings {
 function createStatus(serviceOverrides?: Partial<ServiceStatus>): KoinosNodeStatus {
   return {
     ok: true,
+    network: 'mainnet',
     repoPath: '/tmp/koinos',
     baseDir: '/tmp/koinos/basedir',
     profiles: ['block_producer'],

@@ -4,8 +4,10 @@ import type { Readable } from 'node:stream'
 import type { WebContents } from 'electron'
 
 import type { NativeBuildSystem } from './native-tooling'
+import type { KoinosNetworkId } from './network-profiles'
 
 export type KoinosNodeSettingsInput = {
+  network?: KoinosNetworkId
   repoPath?: string
   baseDir?: string
   profiles?: string[]
@@ -32,6 +34,7 @@ export type KoinosNodeDashboardPeersInput = KoinosNodeSettingsInput
 export type KoinosNodeDashboardPerformanceInput = KoinosNodeSettingsInput
 
 export type KoinosNodeSettings = {
+  network: KoinosNetworkId
   repoPath: string
   baseDir: string
   profiles: string[]
@@ -39,13 +42,17 @@ export type KoinosNodeSettings = {
 }
 
 export type PublicRpcConfigInput = {
+  network?: KoinosNetworkId
   publicRpcUrls?: string[]
+  publicRpcUrlsByNetwork?: Partial<Record<KoinosNetworkId, string[]>>
 }
 
 export type PublicRpcConfigResult = {
   ok: boolean
   output: string
+  network?: KoinosNetworkId
   publicRpcUrls: string[]
+  publicRpcUrlsByNetwork?: Partial<Record<KoinosNetworkId, string[]>>
 }
 
 export type KoinosNodeServicePort = {
@@ -81,11 +88,13 @@ export type ComponentHealth = {
   name: string
   enabled: boolean
   healthy: boolean
+  state?: 'running' | 'passive' | 'waiting' | 'disabled' | 'stopped'
   details?: string
 }
 
 export type KoinosNodeStatus = {
   ok: boolean
+  network?: KoinosNetworkId
   repoPath: string
   baseDir: string
   profiles: string[]
@@ -115,10 +124,15 @@ export type KoinosNodePresetSource = 'profile' | 'features'
 export type KoinosNodePreset = {
   id: string
   label: string
+  network?: KoinosNetworkId
   source: KoinosNodePresetSource
   profiles: string[]
   services: string[]
   featureFlags?: Record<string, boolean>
+  configPatch?: {
+    set?: Array<{ path: string[]; value: unknown }>
+    delete?: string[][]
+  }
   description: string
 }
 
@@ -188,6 +202,9 @@ export type KoinosNodeProducerRegistrationStatus =
 export type KoinosNodeProducerLocalInfoResult = {
   ok: boolean
   output: string
+  producerAddress: string | null
+  configFilePath: string | null
+  configHasProducer: boolean
   localPublicKey: string | null
   localPublicKeyPath: string | null
   localPrivateKeyPath: string | null
@@ -676,6 +693,7 @@ export type KnodelProducerProfile = {
 }
 
 export type WalletRpcInput = {
+  network?: KoinosNetworkId
   rpcUrl?: string
 }
 

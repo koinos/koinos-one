@@ -52,4 +52,21 @@ describe('createCachedContractLoader', () => {
     expect(contract.abi).toEqual(FAKE_ABI_WITH_TYPES)
     expect(contract.serializer).toBeTruthy()
   })
+
+  it('uses a local fallback ABI when the contract does not expose one', async () => {
+    const fetchAbi = vi
+      .spyOn(Contract.prototype, 'fetchAbi')
+      .mockResolvedValue(null as unknown as Awaited<ReturnType<Contract['fetchAbi']>>)
+    vi.spyOn(Contract.prototype, 'updateFunctionsFromAbi').mockImplementation(() => false)
+    const resolveFallbackAbi = vi.fn(() => FAKE_ABI_WITH_TYPES)
+    const normalizeAbi = vi.fn((abi: typeof FAKE_ABI_WITH_TYPES) => abi)
+    const loadContract = createCachedContractLoader(normalizeAbi, resolveFallbackAbi)
+
+    const contract = await loadContract({} as Provider, '1MAbK5pYkhp9yHnfhYamC3tfSLmVRTDjd9')
+
+    expect(contract.abi).toEqual(FAKE_ABI_WITH_TYPES)
+    expect(fetchAbi).toHaveBeenCalledTimes(1)
+    expect(resolveFallbackAbi).toHaveBeenCalledWith('1MAbK5pYkhp9yHnfhYamC3tfSLmVRTDjd9')
+    expect(normalizeAbi).toHaveBeenCalledWith(FAKE_ABI_WITH_TYPES)
+  })
 })

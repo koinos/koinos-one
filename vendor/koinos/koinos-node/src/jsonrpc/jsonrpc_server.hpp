@@ -12,6 +12,7 @@
 #include <boost/beast.hpp>
 #include <nlohmann/json.hpp>
 
+#include "core/rpc_access_policy.hpp"
 #include "interfaces/i_block_store.hpp"
 #include "interfaces/i_chain.hpp"
 #include "interfaces/i_mempool.hpp"
@@ -46,7 +47,8 @@ public:
                  account_history::AccountHistory* acct_history         = nullptr,
                  const std::string& listen_address = "0.0.0.0",
                  uint16_t port                     = 8080,
-                 unsigned int threads               = 4 );
+                 unsigned int threads               = 4,
+                 koinos::node::RpcAccessPolicy access_policy = {} );
 
   ~JSONRPCServer();
 
@@ -129,6 +131,7 @@ private:
   std::atomic< bool > _running{ false };
   std::atomic< unsigned int > _active_sessions{ 0 };
   unsigned int _thread_count;
+  koinos::node::RpcAccessPolicy _access_policy;
 };
 
 } // namespace koinos::node::jsonrpc

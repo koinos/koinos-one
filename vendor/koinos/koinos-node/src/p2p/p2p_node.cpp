@@ -41,6 +41,17 @@ bool is_irreversibility_error( const std::string& error )
          || contains_case_insensitive( error, "block irreversibility" );
 }
 
+bool is_local_state_merkle_mismatch( const std::string& error )
+{
+  return contains_case_insensitive( error, "block previous state merkle mismatch" )
+         || contains_case_insensitive( error, "previous state merkle mismatch" );
+}
+
+bool has_dialable_address( const PeerID& peer )
+{
+  return !peer.id.empty() && !peer.address.empty();
+}
+
 void sleep_while_running( const std::atomic< bool >& running, std::chrono::seconds delay )
 {
   const auto ticks = std::max< int64_t >( 1, delay.count() * 10 );
@@ -63,6 +74,8 @@ P2PNode::P2PNode( const P2POptions& opts,
       _error_handler( opts )
 {
   _seed_peers = opts.seed_peers;
+  for( const auto& peer: _seed_peers )
+    add_peer_candidate( peer, true );
 }
 
 P2PNode::~P2PNode()
@@ -119,45 +132,58 @@ void P2PNode::start()
   // Start seed peer reconnection loop
   _reconnect_thread = std::thread( [this]() {
     const auto seed_dial_spacing = std::chrono::seconds( 1 );
+    auto last_seed_cycle = std::chrono::steady_clock::now() - _opts.seed_reconnect_interval;
 
     while( _running )
     {
-      for( const auto& seed: _seed_peers )
+      refresh_known_peer_candidates();
+
+      const auto now = std::chrono::steady_clock::now();
+      if( now - last_seed_cycle >= _opts.seed_reconnect_interval )
       {
-        if( !_running )
-          break;
-        if( !_error_handler.can_connect( seed.address ) )
-          continue;
-
-        // Check if already connected
-        bool found = false;
+        last_seed_cycle = now;
+        for( const auto& seed: _seed_peers )
         {
-          std::lock_guard lock( _peers_mutex );
-          found = _peers.count( seed.id ) > 0;
-        }
-        if( !found )
-        {
-          try
-          {
-            LOG( info ) << "[p2p] Attempting to connect to seed " << seed.id;
-            _transport->connect_peer( seed );
-          }
-          catch( const std::exception& e )
-          {
-            LOG( debug ) << "[p2p] Seed reconnect failed for " << seed.id << ": " << e.what();
-          }
+          if( !_running )
+            break;
+          if( !_error_handler.can_connect( seed.address ) )
+            continue;
 
-          sleep_while_running( _running, seed_dial_spacing );
+          // Check if already connected
+          bool found = false;
+          {
+            std::lock_guard lock( _peers_mutex );
+            found = _peers.count( seed.id ) > 0;
+          }
+          if( !found )
+          {
+            try
+            {
+              LOG( info ) << "[p2p] Attempting to connect to seed " << seed.id;
+              _transport->connect_peer( seed );
+            }
+            catch( const std::exception& e )
+            {
+              LOG( debug ) << "[p2p] Seed reconnect failed for " << seed.id << ": " << e.what();
+            }
+
+            sleep_while_running( _running, seed_dial_spacing );
+          }
         }
       }
 
+      run_peer_acquisition_cycle();
       log_peer_snapshot();
 
-      sleep_while_running( _running, _opts.seed_reconnect_interval );
+      auto loop_interval = _opts.seed_reconnect_interval;
+      if( _opts.peer_discovery_enabled )
+        loop_interval = std::min( loop_interval, _opts.peer_acquisition_interval );
+      sleep_while_running( _running, loop_interval );
     }
   } );
 
-  LOG( info ) << "[p2p] Started with " << _seed_peers.size() << " seed peers";
+  LOG( info ) << "[p2p] Started with " << _seed_peers.size()
+              << " seed peers, target peer count " << _opts.target_peer_count;
 }
 
 void P2PNode::stop()
@@ -206,6 +232,101 @@ void P2PNode::log_peer_snapshot()
   }
 }
 
+void P2PNode::add_peer_candidate( const PeerID& peer, bool seed )
+{
+  if( !has_dialable_address( peer ) )
+    return;
+
+  std::lock_guard lock( _peers_mutex );
+  auto [it, inserted] = _peer_candidates.emplace( peer.id, PeerCandidate{} );
+  if( inserted || it->second.peer.address.empty() || seed )
+    it->second.peer = peer;
+  it->second.seed = it->second.seed || seed;
+
+  if( _opts.max_peer_candidates > 0
+      && _peer_candidates.size() > _opts.max_peer_candidates )
+  {
+    for( auto itr = _peer_candidates.begin(); itr != _peer_candidates.end(); )
+    {
+      if( itr->second.seed || _peers.count( itr->first ) )
+      {
+        ++itr;
+        continue;
+      }
+
+      itr = _peer_candidates.erase( itr );
+      if( _peer_candidates.size() <= _opts.max_peer_candidates )
+        break;
+    }
+  }
+}
+
+void P2PNode::refresh_known_peer_candidates()
+{
+  if( !_opts.peer_discovery_enabled )
+    return;
+
+  for( const auto& peer: _transport->known_peers() )
+    add_peer_candidate( peer, false );
+}
+
+bool P2PNode::is_peer_connected_locked( const std::string& peer_id ) const
+{
+  return _peers.count( peer_id ) > 0;
+}
+
+void P2PNode::run_peer_acquisition_cycle()
+{
+  if( !_opts.peer_discovery_enabled || _opts.target_peer_count == 0 )
+    return;
+
+  const auto connected = _transport->connected_peer_count();
+  if( connected >= _opts.target_peer_count )
+    return;
+
+  const auto now = std::chrono::steady_clock::now();
+  const auto wanted = _opts.target_peer_count - connected;
+  const auto max_dials = std::max< uint32_t >( 1, _opts.max_candidate_dials_per_cycle );
+  std::vector< PeerID > peers_to_dial;
+  peers_to_dial.reserve( std::min( wanted, max_dials ) );
+
+  {
+    std::lock_guard lock( _peers_mutex );
+    for( auto& [id, candidate]: _peer_candidates )
+    {
+      if( peers_to_dial.size() >= wanted || peers_to_dial.size() >= max_dials )
+        break;
+      if( candidate.seed || is_peer_connected_locked( id ) )
+        continue;
+      if( !_error_handler.can_connect( candidate.peer.address ) )
+        continue;
+      if( candidate.attempts > 0
+          && now - candidate.last_dial < _opts.candidate_redial_interval )
+        continue;
+
+      candidate.last_dial = now;
+      ++candidate.attempts;
+      peers_to_dial.push_back( candidate.peer );
+    }
+  }
+
+  for( const auto& peer: peers_to_dial )
+  {
+    if( !_running )
+      break;
+    try
+    {
+      LOG( info ) << "[p2p] Attempting to connect to discovered peer " << peer.id;
+      _transport->connect_peer( peer );
+    }
+    catch( const std::exception& e )
+    {
+      LOG( debug ) << "[p2p] Discovered peer reconnect failed for " << peer.id
+                   << ": " << e.what();
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Peer lifecycle
 // ---------------------------------------------------------------------------
@@ -216,6 +337,12 @@ void P2PNode::on_peer_connected( const PeerID& peer )
 
   if( _peers.count( peer.id ) )
     return; // Already connected
+
+  if( has_dialable_address( peer ) )
+  {
+    auto [candidate_it, inserted] = _peer_candidates.emplace( peer.id, PeerCandidate{} );
+    candidate_it->second.peer = peer;
+  }
 
   auto state = std::make_unique< PeerState >();
   state->peer = peer;
@@ -391,6 +518,24 @@ bool P2PNode::peer_handshake( const PeerID& peer )
     return false;
   }
 
+  for( const auto& checkpoint: _opts.checkpoints )
+  {
+    if( peer_head.height < checkpoint.block_height )
+    {
+      LOG( info ) << "[p2p] Peer " << peer.id << " is behind configured checkpoint height "
+                  << checkpoint.block_height << " (peer height " << peer_head.height << ")";
+      return false;
+    }
+
+    auto peer_checkpoint =
+      _transport->peer_get_ancestor_block_id( peer, peer_head.block_id, checkpoint.block_height );
+    if( peer_checkpoint != checkpoint.block_id )
+    {
+      report_peer_error( peer, "checkpoint mismatch", _opts.score_checkpoint_mismatch );
+      return false;
+    }
+  }
+
   LOG( info ) << "[p2p] Handshake complete with " << peer.id;
   return true;
 }
@@ -503,6 +648,14 @@ bool P2PNode::request_sync_blocks( const PeerID& peer, bool& is_synced )
 
       LOG( warning ) << "[p2p] Block application failed at height "
                      << block.header().height() << ": " << e.what();
+
+      if( is_local_state_merkle_mismatch( e.what() ) )
+      {
+        LOG( warning ) << "[p2p] Local chain state rejected a peer sync block due to state merkle mismatch; "
+                       << "keeping peer connected so local verify-blocks recovery can run";
+        return false;
+      }
+
       report_peer_error( peer, std::string( "block application: " ) + e.what(), _opts.score_block_application );
       return false;
     }

@@ -44,6 +44,7 @@ import {
   fetchHeadSnapshot,
   fetchLatestBlocks,
   filterBlocksByProducer,
+  defaultNodeProfilesForNetwork,
   formatDateTime,
   formatExplorerRpcSourceTarget,
   formatNodeServicePorts,
@@ -70,12 +71,14 @@ import {
   parseProfilesCsv,
   parsePublicRpcUrlsInput,
   renderAnsiLog,
+  resolveNodeBaseDirForNetwork,
   resolveExplorerRpcUrl,
   resolveLocalNodeRpcUrl,
   resolveProducerRpcUrl,
   resolveNodeFileDisplayPath,
   sameProfiles,
   sameStringList,
+  storeNodeBaseDirForNetwork,
   toNodeApiSettings
 } from './app/utils'
 import { AppFooter } from './components/panels/AppFooter'
@@ -86,8 +89,9 @@ import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
-import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, parseIndexerProgress, shouldDisableVerifyBlocks } from './app/chain-sync'
+import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, hasStateMerkleMismatch, parseIndexerProgress, shouldDisableVerifyBlocks } from './app/chain-sync'
 import type { AutoRestartState, IndexerProgress, P2pRestartState } from './app/chain-sync'
+import { KOINOS_NETWORK_OPTIONS, nativeTokenSymbolForNetwork, publicRpcUrlsForNetwork, type KoinosNetworkId } from './app/network'
 import pkg from '../package.json'
 
 type WalletActivityEntry = {
@@ -106,12 +110,68 @@ type WalletBalanceCacheEntry = {
   refreshedAt: number
 }
 
-function walletBalanceCacheKeys(address?: string | null, accountId?: string | null): string[] {
+type PublicRpcUrlsByNetwork = Record<KoinosNetworkId, string[]>
+
+const publicRpcNetworks: KoinosNetworkId[] = ['mainnet', 'testnet', 'custom']
+const nodePanelOptionalComponentOrder = [
+  'jsonrpc',
+  'grpc',
+  'block_producer',
+  'contract_meta_store',
+  'transaction_store',
+  'account_history'
+]
+
+function formatNetworkLabel(network: KoinosNetworkId): string {
+  return KOINOS_NETWORK_OPTIONS.find((option) => option.id === network)?.label ?? network
+}
+
+function findKoinosNodeConflictService(
+  status: KnodelKoinosNodeStatus | null
+): KnodelKoinosNodeServiceStatus | null {
+  return (
+    status?.services.find(
+      (service) =>
+        service.id === 'koinos-node' &&
+        service.state === 'conflict' &&
+        (service.conflictPids?.length ?? 0) > 0
+    ) ?? null
+  )
+}
+
+function defaultPublicRpcUrlsByNetwork(): PublicRpcUrlsByNetwork {
+  return {
+    mainnet: publicRpcUrlsForNetwork('mainnet'),
+    testnet: publicRpcUrlsForNetwork('testnet'),
+    custom: publicRpcUrlsForNetwork('custom')
+  }
+}
+
+function publicRpcUrlsForActiveNetwork(network: KoinosNetworkId, urlsByNetwork: PublicRpcUrlsByNetwork): string[] {
+  const urls = urlsByNetwork[network]
+  return urls.length > 0 ? urls : publicRpcUrlsForNetwork(network)
+}
+
+function mergePublicRpcUrlsByNetwork(input?: Partial<Record<KoinosNetworkId, string[]>>): PublicRpcUrlsByNetwork {
+  const merged = defaultPublicRpcUrlsByNetwork()
+  if (!input || typeof input !== 'object') return merged
+
+  for (const network of publicRpcNetworks) {
+    const urls = input[network]
+    if (Array.isArray(urls) && urls.length > 0) {
+      merged[network] = urls
+    }
+  }
+
+  return merged
+}
+
+function walletBalanceCacheKeys(network: KoinosNetworkId, address?: string | null, accountId?: string | null): string[] {
   const keys: string[] = []
   const normalizedAccountId = `${accountId || ''}`.trim()
   const normalizedAddress = `${address || ''}`.trim().toLowerCase()
-  if (normalizedAccountId) keys.push(`id:${normalizedAccountId}`)
-  if (normalizedAddress) keys.push(`address:${normalizedAddress}`)
+  if (normalizedAccountId) keys.push(`${network}:id:${normalizedAccountId}`)
+  if (normalizedAddress) keys.push(`${network}:address:${normalizedAddress}`)
   return keys
 }
 
@@ -119,7 +179,13 @@ export function App() {
   const appVersion = window.knodel?.version?.trim() || pkg.version
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
+  const [savedLanguage, setSavedLanguage] = useState<AppLanguage>(() => language)
+  const [savedSettings, setSavedSettings] = useState<ExplorerSettings>(() => settings)
   const [nodeSettings, setNodeSettings] = useState<NodeManagerSettings>(() => loadInitialNodeSettings())
+  const [publicRpcUrlsByNetwork, setPublicRpcUrlsByNetwork] = useState<PublicRpcUrlsByNetwork>(() => ({
+    ...defaultPublicRpcUrlsByNetwork(),
+    [nodeSettings.network]: settings.publicRpcUrls
+  }))
   const [rows, setRows] = useState<BlockRow[]>([])
   const [head, setHead] = useState<HeadSnapshot | null>(null)
   const [publicChainHead, setPublicChainHead] = useState<HeadSnapshot | null>(null)
@@ -151,6 +217,7 @@ export function App() {
     String(settings.dashboardRefreshSeconds)
   )
   const [draftNodeRepoPath, setDraftNodeRepoPath] = useState(nodeSettings.repoPath)
+  const [draftNodeNetwork, setDraftNodeNetwork] = useState<KoinosNetworkId>(nodeSettings.network)
   const [draftNodeBaseDir, setDraftNodeBaseDir] = useState(nodeSettings.baseDir)
   const [draftNodeProfiles, setDraftNodeProfiles] = useState(nodeSettings.profiles)
   const [draftNodeBlockchainBackupUrl, setDraftNodeBlockchainBackupUrl] = useState(nodeSettings.blockchainBackupUrl)
@@ -220,11 +287,13 @@ export function App() {
   const [nodeBaseDirChangeDialog, setNodeBaseDirChangeDialog] = useState<NodeBaseDirChangeDialogState | null>(null)
   const [nodeBaseDirCopyLoading, setNodeBaseDirCopyLoading] = useState(false)
   const [nodeBaseDirRestartLoading, setNodeBaseDirRestartLoading] = useState(false)
+  const [settingsUnsavedDialogOpen, setSettingsUnsavedDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
   const [dashboardSubtab, setDashboardSubtab] = useState<DashboardSubtab>('producers')
   const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
   const [walletOverview, setWalletOverview] = useState<KnodelWalletOverviewResult | null>(null)
   const [producerSigningWalletBalance, setProducerSigningWalletBalance] = useState<KnodelWalletBalanceResult | null>(null)
+  const [producerSigningWalletBalanceNetwork, setProducerSigningWalletBalanceNetwork] = useState<KoinosNetworkId | null>(null)
   const [walletLoading, setWalletLoading] = useState(false)
   const [producerSigningWalletBalanceLoading, setProducerSigningWalletBalanceLoading] = useState(false)
   const [walletError, setWalletError] = useState<string | null>(null)
@@ -270,10 +339,11 @@ export function App() {
     [settings, nodeStatus]
   )
   const primaryPublicRpcUrl = settings.publicRpcUrls[0] ?? DEFAULT_PUBLIC_RPC_URLS[0]
+  const nodeNetworkPublicRpcUrl = primaryPublicRpcUrl
   const localNodeRpcUrl = useMemo(() => resolveLocalNodeRpcUrl(nodeStatus), [nodeStatus])
   const producerRpcUrl = useMemo(
-    () => resolveProducerRpcUrl(nodeStatus, primaryPublicRpcUrl),
-    [nodeStatus, primaryPublicRpcUrl]
+    () => resolveProducerRpcUrl(nodeStatus, nodeNetworkPublicRpcUrl),
+    [nodeStatus, nodeNetworkPublicRpcUrl]
   )
   // Wallet RPC: use local node only when synced (gap ≤ threshold), else fall back to public
   const walletRpcUrl = useMemo(() => {
@@ -289,15 +359,17 @@ export function App() {
     walletAccounts.find((account) => account.id === activeWalletAccountId) || walletAccounts[0] || null
   const activeWalletAddress = activeWalletAccount?.address?.trim() || walletOverview?.walletAddress?.trim() || ''
   const activeWalletCanSign = Boolean(walletOverview?.unlocked && activeWalletAccount?.hasPrivateKey)
+  const nativeTokenSymbol = nativeTokenSymbolForNetwork(nodeSettings.network)
   const activeWalletBalanceCacheEntry = useMemo(() => {
-    const keys = walletBalanceCacheKeys(activeWalletAddress, activeWalletAccountId)
+    const keys = walletBalanceCacheKeys(nodeSettings.network, activeWalletAddress, activeWalletAccountId)
     for (const key of keys) {
       const entry = walletBalanceCache[key]
       if (entry) return entry
     }
     return null
-  }, [walletBalanceCache, activeWalletAddress, activeWalletAccountId])
+  }, [walletBalanceCache, nodeSettings.network, activeWalletAddress, activeWalletAccountId])
   const liveWalletBalanceMatchesActive = Boolean(
+    producerSigningWalletBalanceNetwork === nodeSettings.network &&
     producerSigningWalletBalance?.address &&
       activeWalletAddress &&
       producerSigningWalletBalance.address.toLowerCase() === activeWalletAddress.toLowerCase()
@@ -306,6 +378,68 @@ export function App() {
   const walletDisplayBalanceRefreshedAt =
     activeWalletBalanceCacheEntry?.refreshedAt || (liveWalletBalanceMatchesActive ? walletBalanceRefreshedAt : null)
   const configFileDisplayPath = resolveNodeFileDisplayPath(draftNodeRepoPath, 'config/config.yml')
+  const settingsDirty = useMemo(() => {
+    const savedPublicRpcUrls = publicRpcUrlsForActiveNetwork(draftNodeNetwork, publicRpcUrlsByNetwork)
+    let publicRpcUrlsChanged = false
+    try {
+      publicRpcUrlsChanged = !sameStringList(parsePublicRpcUrlsInput(draftPublicRpcUrls, language), savedPublicRpcUrls)
+    } catch {
+      publicRpcUrlsChanged = draftPublicRpcUrls.trim() !== savedPublicRpcUrls.join('\n').trim()
+    }
+
+    const effectivePollMs = clamp(Number.parseInt(draftPollMs, 10) || DEFAULT_SETTINGS.pollMs, 1000, 30000)
+    const effectiveRowLimit = clamp(Number.parseInt(draftRowLimit, 10) || DEFAULT_SETTINGS.rowLimit, 5, 50)
+    const effectiveDashboardProducerWindowBlocks = normalizeDashboardProducerWindowBlocks(draftDashboardProducerWindowBlocks)
+    const effectiveDashboardRefreshSeconds = normalizeDashboardRefreshSeconds(draftDashboardRefreshSeconds)
+    const effectiveRepoPath = draftNodeRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
+    const effectiveBaseDir = normalizeNodeBaseDirInput(draftNodeBaseDir)
+    const effectiveProfiles = expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)).join(',')
+    const rawBlockchainBackupUrl = draftNodeBlockchainBackupUrl.trim()
+    const effectiveBlockchainBackupUrl = rawBlockchainBackupUrl
+      ? rawBlockchainBackupUrl
+      : draftNodeNetwork === 'mainnet'
+        ? DEFAULT_NODE_SETTINGS.blockchainBackupUrl
+        : ''
+
+    return (
+      language !== savedLanguage ||
+      settings.nodeAdvancedMode !== savedSettings.nodeAdvancedMode ||
+      settings.producerAdvancedMode !== savedSettings.producerAdvancedMode ||
+      publicRpcUrlsChanged ||
+      effectivePollMs !== settings.pollMs ||
+      effectiveRowLimit !== settings.rowLimit ||
+      effectiveDashboardProducerWindowBlocks !== settings.dashboardProducerWindowBlocks ||
+      effectiveDashboardRefreshSeconds !== settings.dashboardRefreshSeconds ||
+      draftNodeNetwork !== nodeSettings.network ||
+      effectiveRepoPath !== nodeSettings.repoPath ||
+      effectiveBaseDir !== nodeSettings.baseDir ||
+      effectiveProfiles !== nodeSettings.profiles ||
+      effectiveBlockchainBackupUrl !== nodeSettings.blockchainBackupUrl
+    )
+  }, [
+    draftDashboardProducerWindowBlocks,
+    draftDashboardRefreshSeconds,
+    draftNodeBaseDir,
+    draftNodeBlockchainBackupUrl,
+    draftNodeNetwork,
+    draftNodeProfiles,
+    draftNodeRepoPath,
+    draftPollMs,
+    draftPublicRpcUrls,
+    draftRowLimit,
+    language,
+    nodeSettings,
+    publicRpcUrlsByNetwork,
+    savedLanguage,
+    savedSettings.nodeAdvancedMode,
+    savedSettings.producerAdvancedMode,
+    settings.dashboardProducerWindowBlocks,
+    settings.dashboardRefreshSeconds,
+    settings.nodeAdvancedMode,
+    settings.pollMs,
+    settings.producerAdvancedMode,
+    settings.rowLimit
+  ])
 
   useEffect(() => {
     setDraftPublicRpcUrls(settings.publicRpcUrls.join('\n'))
@@ -332,10 +466,21 @@ export function App() {
     void bridge.loadPublicRpcUrls()
       .then((result) => {
         if (disposed || !result.ok || result.publicRpcUrls.length === 0) return
+        const nextPublicRpcUrlsByNetwork = mergePublicRpcUrlsByNetwork(result.publicRpcUrlsByNetwork)
+        if (result.network && result.publicRpcUrls.length > 0) {
+          nextPublicRpcUrlsByNetwork[result.network] = result.publicRpcUrls
+        }
+        const activePublicRpcUrls = publicRpcUrlsForActiveNetwork(nodeSettings.network, nextPublicRpcUrlsByNetwork)
+        setPublicRpcUrlsByNetwork(nextPublicRpcUrlsByNetwork)
         setSettings((current) => ({
           ...current,
-          publicRpcUrls: result.publicRpcUrls,
-          rpcSource: normalizeExplorerRpcSource(current.rpcSource, result.publicRpcUrls, current.rpcSource)
+          publicRpcUrls: activePublicRpcUrls,
+          rpcSource: normalizeExplorerRpcSource(current.rpcSource, activePublicRpcUrls, current.rpcSource)
+        }))
+        setSavedSettings((current) => ({
+          ...current,
+          publicRpcUrls: activePublicRpcUrls,
+          rpcSource: normalizeExplorerRpcSource(current.rpcSource, activePublicRpcUrls, current.rpcSource)
         }))
       })
       .finally(() => {
@@ -348,7 +493,23 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    const activePublicRpcUrls = publicRpcUrlsForActiveNetwork(nodeSettings.network, publicRpcUrlsByNetwork)
+    setSettings((current) => {
+      const rpcSource = normalizeExplorerRpcSource(current.rpcSource, activePublicRpcUrls, current.rpcSource)
+      if (current.rpcSource === rpcSource && sameStringList(current.publicRpcUrls, activePublicRpcUrls)) {
+        return current
+      }
+      return {
+        ...current,
+        publicRpcUrls: activePublicRpcUrls,
+        rpcSource
+      }
+    })
+  }, [nodeSettings.network, publicRpcUrlsByNetwork])
+
+  useEffect(() => {
     setDraftNodeRepoPath(nodeSettings.repoPath)
+    setDraftNodeNetwork(nodeSettings.network)
     setDraftNodeBaseDir(nodeSettings.baseDir)
     setDraftNodeProfiles(nodeSettings.profiles)
     setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
@@ -401,11 +562,16 @@ export function App() {
   useEffect(() => {
     const bridge = getAppConfigBridge()
     if (!publicRpcConfigLoaded || !bridge?.savePublicRpcUrls) return
-    void bridge.savePublicRpcUrls({ publicRpcUrls: settings.publicRpcUrls })
-  }, [publicRpcConfigLoaded, settings.publicRpcUrls])
+    void bridge.savePublicRpcUrls({
+      network: nodeSettings.network,
+      publicRpcUrls: settings.publicRpcUrls,
+      publicRpcUrlsByNetwork
+    })
+  }, [nodeSettings.network, publicRpcConfigLoaded, publicRpcUrlsByNetwork, settings.publicRpcUrls])
 
   useEffect(() => {
     window.localStorage.setItem(NODE_SETTINGS_STORAGE_KEY, JSON.stringify(nodeSettings))
+    storeNodeBaseDirForNetwork(nodeSettings.network, nodeSettings.baseDir)
   }, [nodeSettings])
 
   useEffect(() => {
@@ -433,10 +599,26 @@ export function App() {
   }, [nodeStatus, nodeLogsService])
 
   useEffect(() => {
+    setProducerSigningWalletBalance(null)
+    setProducerSigningWalletBalanceNetwork(null)
+    setProducerSigningWalletBalanceError(null)
+    setWalletBalanceRefreshedAt(null)
+
+    if (activeTab === 'wallet' || activeTab === 'producer' || (activeTab === 'dashboard' && dashboardSubtab === 'forecast')) {
+      void refreshWalletOverview()
+      if (activeWalletAddress) {
+        void refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined, {
+          silent: activeTab === 'wallet'
+        })
+      }
+    }
+  }, [nodeSettings.network])
+
+  useEffect(() => {
     if (activeTab !== 'producer' && activeTab !== 'wallet' && !(activeTab === 'dashboard' && dashboardSubtab === 'forecast')) return
     if (!getWalletBridge()) return
     void refreshWalletOverview()
-  }, [activeTab, dashboardSubtab, effectiveExplorerRpcUrl])
+  }, [activeTab, dashboardSubtab, effectiveExplorerRpcUrl, nodeSettings.network, walletRpcUrl])
 
   useEffect(() => {
     if (activeTab !== 'producer' && activeTab !== 'wallet' && !(activeTab === 'dashboard' && dashboardSubtab === 'forecast')) return
@@ -454,6 +636,7 @@ export function App() {
     if (!shouldRefreshBalance) {
       if (activeTab === 'producer') {
         setProducerSigningWalletBalance(null)
+        setProducerSigningWalletBalanceNetwork(null)
         setProducerSigningWalletBalanceError(null)
         setProducerSigningWalletBalanceLoading(false)
       }
@@ -463,6 +646,7 @@ export function App() {
     if (!activeWalletAddress) {
       if (activeTab !== 'wallet') {
         setProducerSigningWalletBalance(null)
+        setProducerSigningWalletBalanceNetwork(null)
         setProducerSigningWalletBalanceError(null)
         setProducerSigningWalletBalanceLoading(false)
       }
@@ -471,7 +655,7 @@ export function App() {
     void refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined, {
       silent: activeTab === 'wallet'
     })
-  }, [activeTab, dashboardSubtab, producerProfile, producerRpcUrl, activeWalletAddress, activeWalletAccountId])
+  }, [activeTab, dashboardSubtab, producerProfile, producerRpcUrl, nodeSettings.network, activeWalletAddress, activeWalletAccountId])
 
   useEffect(() => {
     if (activeTab !== 'wallet') return
@@ -504,6 +688,7 @@ export function App() {
     activeTab,
     settings.dashboardRefreshSeconds,
     producerRpcUrl,
+    nodeSettings.network,
     activeWalletAddress,
     activeWalletAccountId,
     walletOverview?.unlocked
@@ -909,6 +1094,11 @@ export function App() {
   void nodeNativeBuildsError
   void nodeNativeBuildSummaryText
   const nodeServices = nodeStatus?.services ?? []
+  const nodeComponents = nodeStatus?.components ?? []
+  const nodeComponentByName = useMemo(
+    () => new Map(nodeComponents.map((component) => [component.name, component] as const)),
+    [nodeComponents]
+  )
   const nodeServiceById = useMemo(
     () => new Map(nodeServices.map((service) => [service.id, service] as const)),
     [nodeServices]
@@ -995,6 +1185,42 @@ export function App() {
   const nodeContextServiceCapabilities = nodeContextService
     ? nodeServiceCapabilities.get(nodeContextService.id) ?? null
     : null
+  const nodePrimaryService = nodeServices[0] ?? null
+  const nodePrimaryCapabilities = nodePrimaryService
+    ? nodeServiceCapabilities.get(nodePrimaryService.id) ?? null
+    : null
+  const nodePrimaryRunning = Boolean(nodePrimaryCapabilities?.running)
+  const nodePrimaryStatusTone = nodePrimaryService?.state === 'conflict'
+    ? 'is-conflict'
+    : nodePrimaryRunning
+      ? 'is-running'
+      : 'is-stopped'
+  const nodePrimaryTooltip = nodePrimaryService && nodePrimaryCapabilities
+    ? formatNodeServiceTooltip(nodePrimaryService, nodePrimaryCapabilities, language)
+    : ''
+  const nodePrimaryRuntimeDetail = nodePrimaryService
+    ? formatNodeServiceRuntimeDetail(nodePrimaryService, language)
+    : t('common.runtimeNative')
+  const nodePrimaryVersion = nodePrimaryService?.version?.trim() || t('common.na')
+  const nodePrimaryPid = nodePrimaryService?.nativePid
+    ? `${nodePrimaryService.nativePid}`
+    : nodePrimaryService?.conflictPids.length
+      ? nodePrimaryService.conflictPids.join(', ')
+      : t('common.na')
+  const nodePrimaryPorts = nodePrimaryService ? formatNodeServicePorts(nodePrimaryService) : t('common.na')
+  const nodeP2pPort = nodePrimaryService?.ports.find((port) => {
+    const label = `${port.label} ${port.targetPort ?? ''} ${port.publishedPort ?? ''}`
+    return /8888/.test(label)
+  }) ?? null
+  const nodeP2pEndpoint = nodeP2pPort
+    ? `${nodeP2pPort.host?.trim() || '0.0.0.0'}:${nodeP2pPort.publishedPort ?? nodeP2pPort.targetPort ?? 8888}/${nodeP2pPort.protocol || 'tcp'}`
+    : t('common.na')
+  const nodePanelOptionalComponents = nodePanelOptionalComponentOrder.flatMap((componentName) => {
+    const component = nodeComponentByName.get(componentName)
+    return component ? [component] : []
+  })
+  const nodeEnabledComponents = nodePanelOptionalComponents.filter((component) => component.enabled)
+  const nodeDisabledComponents = nodePanelOptionalComponents.filter((component) => !component.enabled)
   const blockProducerService = nodeServiceById.get('block_producer') ?? null
   const blockProducerRunning = blockProducerService ? isNodeServiceRunning(blockProducerService) : false
   const nodeServiceCount = nodeServices.length
@@ -1004,8 +1230,16 @@ export function App() {
   const nodeHasPartialOutage = nodeRunningCount > 0 && nodeHasStoppedServices
   const isLocalRpc = settings.rpcSource === 'local'
   const localNodeNotRunning = isLocalRpc && nodeRunningCount === 0
+  const presetMatchesNodeState = (preset: KnodelKoinosNodePreset) => {
+    if (preset.featureFlags) {
+      return nodeRunningCount > 0 && Object.entries(preset.featureFlags).every(([component, enabled]) => {
+        return nodeComponentByName.get(component)?.enabled === enabled
+      })
+    }
+    return sameStringList(preset.services, nodeRunningServiceIds)
+  }
   const selectedNodePresetMatchesRunningState = selectedNodePreset
-    ? sameStringList(selectedNodePreset.services, nodeRunningServiceIds)
+    ? presetMatchesNodeState(selectedNodePreset)
     : false
   const nodePresetSummaryText = selectedNodePreset
     ? t('node.presetSummarySelected', {
@@ -1111,6 +1345,7 @@ export function App() {
     null
   const producerConfiguredAddress =
     producerProfile?.profile?.producerAddress?.trim() ||
+    producerLocalInfo?.producerAddress?.trim() ||
     nodeProducerOverview?.producerAddress?.trim() ||
     effectiveProducerTargetAddress.trim()
   const producerAndSigningWalletMatch =
@@ -1262,13 +1497,22 @@ export function App() {
           target: publicChainHead.height.toLocaleString(locale),
           percent: chainSyncPercentLabel
         }) + blocksPerSecLabel
+      : hasNodeControls &&
+          nodeRunningCount > 0 &&
+          !nodeHasPartialOutage &&
+          !showIndexerProgress &&
+          !showChainSyncProgress &&
+          localChainHead &&
+          !(blockProducerRunning && producerSetupComplete && producerFooterState === 'producing')
+        ? t('status.headBlock', { height: localChainHead.height.toLocaleString(locale) })
       : null
   const hasAppOverlayOpen =
     nodeProfilesModalOpen ||
     nodeLogsModalOpen ||
     nodeFileEditorOpen ||
     nodeConflictDialog !== null ||
-    nodeBaseDirChangeDialog !== null
+    nodeBaseDirChangeDialog !== null ||
+    settingsUnsavedDialogOpen
 
   useEffect(() => {
     let disposed = false
@@ -1327,13 +1571,14 @@ export function App() {
   ])
 
   // Refs for auto-restart timer — read fresh values inside 60s interval without re-creating it
-  const autoRestartDepsRef = useRef<{
-    localChainHead: typeof localChainHead
-    publicChainHead: typeof publicChainHead
-    nodeSettings: typeof nodeSettings
-    nodeServices: typeof nodeServices
-  }>({ localChainHead: null, publicChainHead: null, nodeSettings, nodeServices: [] })
-  autoRestartDepsRef.current = { localChainHead, publicChainHead, nodeSettings, nodeServices }
+	  const autoRestartDepsRef = useRef<{
+	    localChainHead: typeof localChainHead
+	    publicChainHead: typeof publicChainHead
+	    nodeSettings: typeof nodeSettings
+	    nodeServices: typeof nodeServices
+	    nodeComponents: typeof nodeComponents
+	  }>({ localChainHead: null, publicChainHead: null, nodeSettings, nodeServices: [], nodeComponents: [] })
+	  autoRestartDepsRef.current = { localChainHead, publicChainHead, nodeSettings, nodeServices, nodeComponents }
 
   // Auto-restart chain when sync gap is detected and chain is stalled
   // Also auto-disable verify-blocks when chain catches up after restore
@@ -1347,10 +1592,21 @@ export function App() {
 
       const bridge = getKoinosNodeBridge()
       const now = Date.now()
-      const { localChainHead: lHead, publicChainHead: pHead, nodeSettings: settings, nodeServices: services } = autoRestartDepsRef.current
-      const gap = (pHead?.height ?? 0) - (lHead?.height ?? 0)
-      const syncGapExists = gap > SYNC_GAP_BLOCK_THRESHOLD
-      // --- Auto-disable verify-blocks when chain is synced ---
+	      const {
+	        localChainHead: lHead,
+	        publicChainHead: pHead,
+	        nodeSettings: settings,
+	        nodeServices: services,
+	        nodeComponents: components
+	      } = autoRestartDepsRef.current
+	      const gap = (pHead?.height ?? 0) - (lHead?.height ?? 0)
+	      const syncGapExists = gap > SYNC_GAP_BLOCK_THRESHOLD
+	      const monolithService = services.find((service) => service.id === 'koinos-node') ?? null
+	      const resolveRestartService = (componentService: string) =>
+	        services.some((service) => service.id === componentService) ? componentService : monolithService?.id ?? componentService
+	      const chainRestartService = resolveRestartService('chain')
+	      const p2pRestartService = resolveRestartService('p2p')
+	      // --- Auto-disable verify-blocks when chain is synced ---
       if (!verifyBlocksCheckDoneRef.current && bridge?.getVerifyBlocks && bridge?.setVerifyBlocks && bridge?.serviceRestart) {
         void (async () => {
           try {
@@ -1365,7 +1621,7 @@ export function App() {
               console.log(`[verify-blocks] ${setResult.output}`)
               if (setResult.ok) {
                 verifyBlocksCheckDoneRef.current = true
-                const restartResult = await bridge.serviceRestart!({ ...toNodeApiSettings(settings), service: 'chain' })
+	                const restartResult = await bridge.serviceRestart!({ ...toNodeApiSettings(settings), service: chainRestartService })
                 if (!disposed && restartResult.status) {
                   setNodeStatus(restartResult.status)
                 }
@@ -1381,10 +1637,45 @@ export function App() {
         })()
       }
 
-      // --- Auto-restart P2P when no peers and sync gap exists ---
-      if (bridge?.dashboardPeers && bridge?.serviceRestart) {
-        const p2pService = services.find((s) => s.id === 'p2p')
-        const p2pRunning = p2pService ? isNodeServiceRunning(p2pService) : false
+      // --- Auto-enable verify-blocks when p2p sees a local state merkle mismatch ---
+      if (syncGapExists && bridge?.logs && bridge?.getVerifyBlocks && bridge?.setVerifyBlocks && bridge?.serviceRestart) {
+        void (async () => {
+          try {
+            const logsResult = await bridge.logs!({ ...toNodeApiSettings(settings), service: 'p2p', tail: 400 })
+            if (!logsResult.ok || !hasStateMerkleMismatch(logsResult.output)) return
+
+            const vbResult = await bridge.getVerifyBlocks!(toNodeApiSettings(settings))
+            if (vbResult.enabled !== false) return
+
+            console.log(
+	              `[verify-blocks] Detected block previous state merkle mismatch at local height ${lHead?.height ?? 0}. Enabling verify-blocks and restarting ${chainRestartService}.`
+	            )
+            const setResult = await bridge.setVerifyBlocks!({ ...toNodeApiSettings(settings), enabled: true })
+            console.log(`[verify-blocks] ${setResult.output}`)
+            if (!setResult.ok) return
+
+            verifyBlocksCheckDoneRef.current = false
+            autoRestartStateRef.current = createAutoRestartState()
+            p2pRestartStateRef.current = createP2pRestartState()
+
+	            const restartResult = await bridge.serviceRestart!({ ...toNodeApiSettings(settings), service: chainRestartService })
+            if (!disposed && restartResult.status) {
+              setNodeStatus(restartResult.status)
+            }
+            console.log(`[verify-blocks] Recovery restart ${restartResult.ok ? 'succeeded' : 'failed'}: ${restartResult.output || ''}`)
+          } catch (err) {
+            console.error('[verify-blocks] Merkle recovery check error:', err)
+          }
+        })()
+      }
+
+	      // --- Auto-restart P2P when no peers and sync gap exists ---
+	      if (bridge?.dashboardPeers && bridge?.serviceRestart) {
+	        const p2pService = services.find((s) => s.id === 'p2p')
+	        const p2pComponent = components.find((component) => component.name === 'p2p')
+	        const p2pRunning = p2pService
+	          ? isNodeServiceRunning(p2pService)
+	          : Boolean(monolithService && isNodeServiceRunning(monolithService) && p2pComponent?.enabled && p2pComponent.healthy)
 
         if (p2pRunning && syncGapExists) {
           void (async () => {
@@ -1400,9 +1691,9 @@ export function App() {
               })
               p2pRestartStateRef.current = p2pResult.state
 
-              if (p2pResult.shouldRestart) {
-                console.log(`[auto-restart] P2P has 0 peers with sync gap=${gap} blocks. Restarting P2P to reconnect.`)
-                const restartResult = await bridge.serviceRestart!({ ...toNodeApiSettings(settings), service: 'p2p' })
+	              if (p2pResult.shouldRestart) {
+	                console.log(`[auto-restart] P2P has 0 peers with sync gap=${gap} blocks. Restarting ${p2pRestartService} to reconnect.`)
+	                const restartResult = await bridge.serviceRestart!({ ...toNodeApiSettings(settings), service: p2pRestartService })
                 if (!disposed && restartResult.status) {
                   setNodeStatus(restartResult.status)
                 }
@@ -1435,18 +1726,18 @@ export function App() {
               const vbResult = await bridge.getVerifyBlocks!(toNodeApiSettings(settings))
               if (vbResult.enabled === false) {
                 console.log(
-                  `[auto-restart] Chain stalled at height ${lHead?.height ?? 0} with verify-blocks=false (likely merkle mismatch). Enabling verify-blocks and restarting chain.`
+	                  `[auto-restart] Chain stalled at height ${lHead?.height ?? 0} with verify-blocks=false (likely merkle mismatch). Enabling verify-blocks and restarting ${chainRestartService}.`
                 )
                 const setResult = await bridge.setVerifyBlocks!({ ...toNodeApiSettings(settings), enabled: true })
                 console.log(`[auto-restart] ${setResult.output}`)
                 verifyBlocksCheckDoneRef.current = false // re-arm auto-disable for when chain catches up
               } else {
-                console.log(
-                  `[auto-restart] Chain stalled at height ${lHead?.height ?? 0}, gap=${gap} blocks. Restarting chain to trigger indexer.`
-                )
-              }
-            }
-            const res = await bridge.serviceRestart!({ ...toNodeApiSettings(settings), service: 'chain' })
+	                console.log(
+	                  `[auto-restart] Chain stalled at height ${lHead?.height ?? 0}, gap=${gap} blocks. Restarting ${chainRestartService} to trigger indexer.`
+	                )
+	              }
+	            }
+	            const res = await bridge.serviceRestart!({ ...toNodeApiSettings(settings), service: chainRestartService })
             if (!disposed && res.status) {
               setNodeStatus(res.status)
             }
@@ -1628,11 +1919,34 @@ export function App() {
   }
   void refreshNodeNativeBuilds
 
-  const applyNodePreset = (preset: KnodelKoinosNodePreset) => {
+  const resolveNodeSettingsForPreset = (preset: KnodelKoinosNodePreset): NodeManagerSettings => {
     const nextProfiles = preset.profiles.join(',')
-    const nextSettings = { ...nodeSettings, profiles: nextProfiles }
+    const nextNetwork = preset.network ?? nodeSettings.network
+    const nextBaseDir =
+      nextNetwork === nodeSettings.network
+        ? nodeSettings.baseDir
+        : resolveNodeBaseDirForNetwork(nextNetwork)
+
+    return { ...nodeSettings, network: nextNetwork, baseDir: nextBaseDir, profiles: nextProfiles }
+  }
+
+  const applyNodePreset = (preset: KnodelKoinosNodePreset) => {
+    const nextSettings = resolveNodeSettingsForPreset(preset)
+    const nextProfiles = nextSettings.profiles
+    const nextNetwork = nextSettings.network
     setNodeSettings(nextSettings)
+    setDraftNodeNetwork(nextNetwork)
+    setDraftNodeBaseDir(nextSettings.baseDir)
     setDraftNodeProfiles(nextProfiles)
+    if (nextNetwork !== nodeSettings.network) {
+      const nextPublicRpcUrls = publicRpcUrlsForActiveNetwork(nextNetwork, publicRpcUrlsByNetwork)
+      setDraftPublicRpcUrls(nextPublicRpcUrls.join('\n'))
+      setSettings((current) => ({
+        ...current,
+        publicRpcUrls: nextPublicRpcUrls,
+        rpcSource: current.rpcSource === LOCAL_RPC_SOURCE ? LOCAL_RPC_SOURCE : nextPublicRpcUrls[0] ?? current.rpcSource
+      }))
+    }
     setFormError(null)
     setNodeError(null)
     setNodeOutput(
@@ -1653,16 +1967,34 @@ export function App() {
     setNodeError(null)
 
     try {
+      const presetSettings = resolveNodeSettingsForPreset(preset)
       const result = await bridge.presetReconcile({
-        ...toNodeApiSettings(nodeSettings),
+        ...toNodeApiSettings(presetSettings),
         presetId: preset.id
       })
 
       const nextProfiles = preset.profiles.join(',')
-      const nextSettings = { ...nodeSettings, profiles: nextProfiles }
+      const nextNetwork = preset.network ?? result.status.network ?? presetSettings.network
+      const nextSettings = {
+        ...presetSettings,
+        network: nextNetwork,
+        baseDir: result.status.baseDir || presetSettings.baseDir,
+        profiles: nextProfiles
+      }
 
       setNodeSettings(nextSettings)
+      setDraftNodeNetwork(nextNetwork)
+      setDraftNodeBaseDir(nextSettings.baseDir)
       setDraftNodeProfiles(nextProfiles)
+      if (nextNetwork !== nodeSettings.network) {
+        const nextPublicRpcUrls = publicRpcUrlsForActiveNetwork(nextNetwork, publicRpcUrlsByNetwork)
+        setDraftPublicRpcUrls(nextPublicRpcUrls.join('\n'))
+        setSettings((current) => ({
+          ...current,
+          publicRpcUrls: nextPublicRpcUrls,
+          rpcSource: current.rpcSource === LOCAL_RPC_SOURCE ? LOCAL_RPC_SOURCE : nextPublicRpcUrls[0] ?? current.rpcSource
+        }))
+      }
       setNodeStatus(result.status)
       setNodeOutput(result.output || result.status.output || '')
 
@@ -1722,9 +2054,9 @@ export function App() {
   const refreshNodeProducerOverview = async (
     settingsOverride?: NodeManagerSettings,
     producerAddressOverride?: string
-  ) => {
+  ): Promise<KnodelKoinosNodeProducerOverviewResult | null> => {
     const bridge = getKoinosNodeBridge()
-    if (!bridge?.producerOverview) return
+    if (!bridge?.producerOverview) return null
 
     setNodeProducerLoading(true)
     setNodeProducerError(null)
@@ -1747,27 +2079,34 @@ export function App() {
       if (!result.ok) {
         setNodeProducerError(result.output || t('producer.unableLoadOverview'))
       }
+      return result
     } catch (error) {
       setNodeProducerError(error instanceof Error ? error.message : t('producer.unableLoadOverview'))
+      return null
     } finally {
       setNodeProducerLoading(false)
     }
   }
 
-  const refreshProducerLocalInfo = async (settingsOverride?: NodeManagerSettings) => {
+  const refreshProducerLocalInfo = async (
+    settingsOverride?: NodeManagerSettings
+  ): Promise<KnodelKoinosNodeProducerLocalInfoResult | null> => {
     const bridge = getKoinosNodeBridge()
-    if (!bridge?.producerLocalInfo) return
+    if (!bridge?.producerLocalInfo) return null
 
     try {
       const result = await bridge.producerLocalInfo(toNodeApiSettings(settingsOverride ?? nodeSettings))
       setProducerLocalInfo(result)
+      return result
     } catch {
       setProducerLocalInfo(null)
+      return null
     }
   }
 
   const refreshProducerRegisteredPublicKeyPreview = async (
-    producerAddressOverride?: string
+    producerAddressOverride?: string,
+    rpcUrlOverride?: string
   ): Promise<string | null> => {
     const bridge = getKoinosNodeBridge()
     if (!bridge?.producerRegisteredKey) return null
@@ -1781,7 +2120,7 @@ export function App() {
     try {
       const result = await bridge.producerRegisteredKey({
         ...toNodeApiSettings(nodeSettings),
-        rpcUrl: producerRpcUrl,
+        rpcUrl: rpcUrlOverride || producerRpcUrl,
         producerAddress
       })
       const registeredPublicKey = result.ok ? result.registeredPublicKey || null : null
@@ -1795,7 +2134,8 @@ export function App() {
 
   const refreshProducerRecentBlocks = async (
     producerAddressOverride?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    rpcUrlOverride?: string
   ) => {
     const producerAddress =
       producerAddressOverride?.trim() ||
@@ -1821,7 +2161,7 @@ export function App() {
       const requestSignal = signal ?? new AbortController().signal
       const snapshot = await fetchLatestBlocks(
         language,
-        producerRpcUrl,
+        rpcUrlOverride || producerRpcUrl,
         settings.dashboardProducerWindowBlocks,
         requestSignal
       )
@@ -1940,23 +2280,40 @@ export function App() {
 
       try {
         if (!producerSetupComplete) {
+          const localInfo = await refreshProducerLocalInfo()
           const nextSigningWalletAddress = activeWalletAddress
-          const requests: Promise<unknown>[] = [refreshProducerLocalInfo()]
+          const runtimeProducerAddress =
+            localInfo?.producerAddress?.trim() ||
+            producerConfiguredAddress ||
+            nextSigningWalletAddress ||
+            ''
+          const requests: Promise<unknown>[] = []
           if (nextSigningWalletAddress) {
             requests.push(
               refreshProducerRegisteredPublicKeyPreview(nextSigningWalletAddress),
               refreshProducerSigningWalletBalance(nextSigningWalletAddress, activeWalletAccountId || undefined)
             )
+          } else if (runtimeProducerAddress) {
+            requests.push(refreshProducerRegisteredPublicKeyPreview(runtimeProducerAddress, nodeNetworkPublicRpcUrl))
+            setProducerSigningWalletBalance(null)
+            setProducerSigningWalletBalanceNetwork(null)
+            setProducerSigningWalletBalanceError(null)
+            setProducerSigningWalletBalanceLoading(false)
           } else {
             setProducerPreviewRegisteredPublicKey(null)
             setProducerSigningWalletBalance(null)
+            setProducerSigningWalletBalanceNetwork(null)
             setProducerSigningWalletBalanceError(null)
             setProducerSigningWalletBalanceLoading(false)
           }
+          if (runtimeProducerAddress) {
+            requests.push(refreshProducerRecentBlocks(runtimeProducerAddress, controller.signal, nodeNetworkPublicRpcUrl))
+          } else {
+            setProducerRecentBlocks([])
+            setProducerRecentBlocksError(null)
+            setProducerRecentBlocksLoading(false)
+          }
           await Promise.all(requests)
-          setProducerRecentBlocks([])
-          setProducerRecentBlocksError(null)
-          setProducerRecentBlocksLoading(false)
           return
         }
 
@@ -1970,6 +2327,7 @@ export function App() {
           requests.push(refreshProducerSigningWalletBalance(nextSigningWalletAddress, activeWalletAccountId || undefined))
         } else {
           setProducerSigningWalletBalance(null)
+          setProducerSigningWalletBalanceNetwork(null)
           setProducerSigningWalletBalanceError(null)
           setProducerSigningWalletBalanceLoading(false)
         }
@@ -1995,8 +2353,10 @@ export function App() {
     hasNodeControls,
     nodeSettings.repoPath,
     nodeSettings.baseDir,
+    nodeSettings.network,
     nodeSettings.profiles,
     nodeStatus?.runningServices,
+    nodeNetworkPublicRpcUrl,
     producerRpcUrl,
     settings.dashboardProducerWindowBlocks,
     settings.dashboardRefreshSeconds,
@@ -2470,10 +2830,11 @@ export function App() {
     }
     const previousOverview = walletOverview
     const previousBalance = producerSigningWalletBalance
+    const previousBalanceNetwork = producerSigningWalletBalanceNetwork
     const previousBalanceRefreshedAt = walletBalanceRefreshedAt
     const previousBalanceError = producerSigningWalletBalanceError
     const nextCachedBalanceEntry =
-      walletBalanceCacheKeys(nextActiveAccount.address, requestedAccountId)
+      walletBalanceCacheKeys(nodeSettings.network, nextActiveAccount.address, requestedAccountId)
         .map((key) => walletBalanceCache[key])
         .find(Boolean) || null
 
@@ -2491,6 +2852,7 @@ export function App() {
 
     if (nextCachedBalanceEntry) {
       setProducerSigningWalletBalance(nextCachedBalanceEntry.balance)
+      setProducerSigningWalletBalanceNetwork(nodeSettings.network)
       setWalletBalanceRefreshedAt(nextCachedBalanceEntry.refreshedAt)
       setProducerSigningWalletBalanceError(null)
     }
@@ -2504,6 +2866,7 @@ export function App() {
       if (!result.ok) {
         setWalletOverview(previousOverview)
         setProducerSigningWalletBalance(previousBalance)
+        setProducerSigningWalletBalanceNetwork(previousBalanceNetwork)
         setWalletBalanceRefreshedAt(previousBalanceRefreshedAt)
         setProducerSigningWalletBalanceError(previousBalanceError)
         setWalletError(result.output || t('wallet.unableSetActiveAccount'))
@@ -2533,6 +2896,7 @@ export function App() {
     } catch (error) {
       setWalletOverview(previousOverview)
       setProducerSigningWalletBalance(previousBalance)
+      setProducerSigningWalletBalanceNetwork(previousBalanceNetwork)
       setWalletBalanceRefreshedAt(previousBalanceRefreshedAt)
       setProducerSigningWalletBalanceError(previousBalanceError)
       setWalletError(error instanceof Error ? error.message : t('wallet.unableSetActiveAccount'))
@@ -2724,6 +3088,7 @@ export function App() {
       setWalletImportPassword('')
       setProducerUnlockPassword('')
       setProducerSigningWalletBalance(null)
+      setProducerSigningWalletBalanceNetwork(null)
       setProducerSigningWalletBalanceError(null)
       setProducerSigningWalletBalanceLoading(false)
       await refreshWalletOverview()
@@ -2773,7 +3138,7 @@ export function App() {
     setWalletLoading(true)
     setWalletError(null)
     try {
-      const result = await bridge.overview({ rpcUrl: walletRpcUrl })
+      const result = await bridge.overview({ network: nodeSettings.network, rpcUrl: walletRpcUrl })
       setWalletOverview(result)
       if (!result.ok) {
         setWalletError(result.output || 'Could not load wallet overview')
@@ -2835,6 +3200,7 @@ export function App() {
     if (!address && !accountId) {
       if (!silent) {
         setProducerSigningWalletBalance(null)
+        setProducerSigningWalletBalanceNetwork(null)
         setProducerSigningWalletBalanceError(null)
         setProducerSigningWalletBalanceLoading(false)
       }
@@ -2847,6 +3213,7 @@ export function App() {
     }
     try {
       const result = await bridge.balance({
+        network: nodeSettings.network,
         rpcUrl,
         address: address || undefined,
         accountId: accountId || undefined
@@ -2855,7 +3222,7 @@ export function App() {
       if (result.ok) {
         const refreshedAt = Date.now()
         setWalletBalanceCache((current) => {
-          const keys = walletBalanceCacheKeys(result.address, accountId)
+          const keys = walletBalanceCacheKeys(nodeSettings.network, result.address, accountId)
           if (keys.length === 0) return current
           const nextEntry: WalletBalanceCacheEntry = { balance: result, refreshedAt }
           const next = { ...current }
@@ -2878,6 +3245,7 @@ export function App() {
           }
           return result
         })
+        setProducerSigningWalletBalanceNetwork(nodeSettings.network)
         if (!silent) {
           setWalletBalanceRefreshedAt(refreshedAt)
         }
@@ -2957,6 +3325,7 @@ export function App() {
     await runWalletAction(actionId, t('wallet.transferTitle'), async () => {
       if (walletTransferAsset === 'koin') {
         return bridge.transferKoin({
+          network: nodeSettings.network,
           rpcUrl: walletRpcUrl,
           toAddress,
           amount,
@@ -2966,6 +3335,7 @@ export function App() {
         })
       }
       return bridge.transferVhp({
+        network: nodeSettings.network,
         rpcUrl: walletRpcUrl,
         toAddress,
         amount,
@@ -2984,6 +3354,7 @@ export function App() {
     const targetAddress = walletBurnTargetAddressDraft.trim() || activeWalletAddress || undefined
     await runWalletAction('wallet-burn', t('wallet.burnTitle'), async () => {
       return bridge.burn({
+        network: nodeSettings.network,
         rpcUrl: walletRpcUrl,
         percent,
         amount,
@@ -3000,8 +3371,9 @@ export function App() {
     overrides?: Partial<KnodelKoinosNodeSettings>
   ): KnodelKoinosNodeSettings => {
     return {
+      network: overrides?.network ?? draftNodeNetwork,
       repoPath: overrides?.repoPath ?? draftNodeRepoPath.trim(),
-      baseDir: overrides?.baseDir ?? normalizeNodeBaseDirInput(draftNodeBaseDir),
+      baseDir: overrides?.baseDir ?? draftNodeBaseDir.trim(),
       profiles: overrides?.profiles ?? expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)),
       blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim()
     }
@@ -3009,8 +3381,9 @@ export function App() {
 
   const validateDraftNodeBaseDir = async (baseDirInput: string) => {
     const bridge = getKoinosNodeBridge()
-    const normalizedBaseDir = normalizeNodeBaseDirInput(baseDirInput)
+    const rawBaseDir = baseDirInput.trim() || DEFAULT_NODE_SETTINGS.baseDir
     if (!bridge?.validateBaseDir) {
+      const normalizedBaseDir = normalizeNodeBaseDirInput(rawBaseDir)
       return {
         ok: true,
         baseDir: normalizedBaseDir,
@@ -3022,7 +3395,7 @@ export function App() {
 
     setNodeBaseDirValidationLoading(true)
     try {
-      const result = await bridge.validateBaseDir(currentDraftNodeApiSettings({ baseDir: normalizedBaseDir }))
+      const result = await bridge.validateBaseDir(currentDraftNodeApiSettings({ baseDir: rawBaseDir }))
       setNodeBaseDirValidation({
         ok: result.ok,
         baseDir: result.baseDir,
@@ -3620,6 +3993,7 @@ export function App() {
 
   const applySettings = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!settingsDirty) return
     setFormError(null)
 
     try {
@@ -3628,44 +4002,112 @@ export function App() {
       const rowLimit = clamp(Number.parseInt(draftRowLimit, 10) || DEFAULT_SETTINGS.rowLimit, 5, 50)
       const dashboardProducerWindowBlocks = normalizeDashboardProducerWindowBlocks(draftDashboardProducerWindowBlocks)
       const dashboardRefreshSeconds = normalizeDashboardRefreshSeconds(draftDashboardRefreshSeconds)
-      const previousBaseDir = normalizeNodeBaseDirInput(nodeSettings.baseDir)
+      const previousNodeSettings = nodeSettings
+      const previousNetwork = previousNodeSettings.network
+      const previousBaseDir = normalizeNodeBaseDirInput(previousNodeSettings.baseDir)
+      const network = draftNodeNetwork
       const repoPath = draftNodeRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
-      const baseDir = normalizeNodeBaseDirInput(draftNodeBaseDir)
       const profiles = expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)).join(',')
-      const blockchainBackupUrl = normalizeBackupTarGzUrl(
-        draftNodeBlockchainBackupUrl.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
-        language
-      )
+      const rawBlockchainBackupUrl = draftNodeBlockchainBackupUrl.trim()
+      const blockchainBackupUrl = rawBlockchainBackupUrl
+        ? normalizeBackupTarGzUrl(rawBlockchainBackupUrl, language)
+        : network === 'mainnet'
+          ? normalizeBackupTarGzUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl, language)
+          : ''
 
       if (!repoPath) throw new Error(t('settings.repoRequired'))
-      if (!baseDir) throw new Error(t('settings.baseDirRequired'))
+      if (!draftNodeBaseDir.trim()) throw new Error(t('settings.baseDirRequired'))
 
-      const baseDirValidation = await validateDraftNodeBaseDir(baseDir)
+      const baseDirValidation = await validateDraftNodeBaseDir(draftNodeBaseDir)
       if (!baseDirValidation.ok) {
-        throw new Error(baseDirValidation.output || t('settings.baseDirNotUsable', { baseDir }))
+        throw new Error(baseDirValidation.output || t('settings.baseDirNotUsable', { baseDir: draftNodeBaseDir }))
+      }
+      const baseDir = baseDirValidation.baseDir
+      const networkChanged = previousNetwork !== network
+      const baseDirChanged = previousBaseDir !== baseDir
+      const previousNodeWasRunning = (nodeStatus?.services ?? []).some(
+        (service) => service.managedByKnodel || isNodeServiceRunning(service)
+      )
+      let networkStopOutput = ''
+
+      if (networkChanged) {
+        const bridge = getKoinosNodeBridge()
+        if (bridge?.stop) {
+          setNodeActionLoading('stop')
+          setNodeError(null)
+          try {
+            const stopResult = await bridge.stop(toNodeApiSettings(previousNodeSettings))
+            setNodeStatus(stopResult.status)
+            networkStopOutput = stopResult.output || stopResult.status.output || ''
+
+            if (!stopResult.ok) {
+              const output = networkStopOutput || t('node.unableStopNode')
+              setNodeError(output)
+              throw new Error(output)
+            }
+
+            const conflictService = findKoinosNodeConflictService(stopResult.status)
+            if (conflictService && bridge.serviceKillConflict) {
+              const killResult = await bridge.serviceKillConflict({
+                ...toNodeApiSettings(previousNodeSettings),
+                service: conflictService.id
+              })
+              setNodeStatus(killResult.status)
+              networkStopOutput = [networkStopOutput, killResult.output || killResult.status.output || '']
+                .filter(Boolean)
+                .join('\n')
+
+              if (!killResult.ok) {
+                const output = killResult.output || killResult.status.output || t('node.unableStopNode')
+                setNodeError(output)
+                throw new Error(output)
+              }
+            }
+          } catch (error) {
+            const output = error instanceof Error ? error.message : t('node.errorStoppingNode')
+            setNodeError(output)
+            throw new Error(t('settings.networkChangeStopFailed', { output }))
+          } finally {
+            setNodeActionLoading(null)
+          }
+        }
       }
 
-      setSettings((current) => ({
-        ...current,
+      const nextSettings: ExplorerSettings = {
+        ...settings,
         publicRpcUrls,
-        rpcSource: normalizeExplorerRpcSource(current.rpcSource, publicRpcUrls, current.rpcSource),
+        rpcSource: normalizeExplorerRpcSource(settings.rpcSource, publicRpcUrls, settings.rpcSource),
         pollMs,
         rowLimit,
         dashboardProducerWindowBlocks,
         dashboardRefreshSeconds
+      }
+
+      setSettings(nextSettings)
+      setSavedSettings(nextSettings)
+      setSavedLanguage(language)
+      setPublicRpcUrlsByNetwork((current) => ({
+        ...current,
+        [network]: publicRpcUrls
       }))
-      setNodeSettings({ repoPath, baseDir, profiles, blockchainBackupUrl })
+      setNodeSettings({ network, repoPath, baseDir, profiles, blockchainBackupUrl })
+      setDraftNodeNetwork(network)
       setDraftNodeBaseDir(baseDir)
-      const baseDirChanged = previousBaseDir !== baseDir
-      const settingsSummary = baseDirChanged
+      const settingsSummary = networkChanged
+        ? t('settings.savedNetworkChangedStopped', {
+            previous: formatNetworkLabel(previousNetwork),
+            next: formatNetworkLabel(network),
+            baseDir
+          })
+        : baseDirChanged
         ? t('settings.savedBaseDirChanged', { previous: previousBaseDir, next: baseDir })
         : t('settings.savedBaseDir', { baseDir })
-      setNodeOutput(settingsSummary)
-      if (baseDirChanged) {
+      setNodeOutput([settingsSummary, networkStopOutput].filter(Boolean).join('\n'))
+      if (baseDirChanged && !networkChanged) {
         setNodeBaseDirChangeDialog({
           previousBaseDir,
           nextBaseDir: baseDir,
-          nodeWasRunning: (nodeStatus?.services ?? []).some((service) => service.managedByKnodel || isNodeServiceRunning(service))
+          nodeWasRunning: previousNodeWasRunning
         })
       } else {
         setNodeBaseDirChangeDialog(null)
@@ -3675,6 +4117,7 @@ export function App() {
       setHead(null)
       setIsInitialLoading(true)
       setErrorMessage(null)
+      setSettingsUnsavedDialogOpen(false)
     } catch (error) {
       setFormError(error instanceof Error ? error.message : t('settings.invalidConfig'))
     }
@@ -3686,12 +4129,46 @@ export function App() {
     setDraftRowLimit(String(DEFAULT_SETTINGS.rowLimit))
     setDraftDashboardProducerWindowBlocks(String(DEFAULT_SETTINGS.dashboardProducerWindowBlocks))
     setDraftDashboardRefreshSeconds(String(DEFAULT_SETTINGS.dashboardRefreshSeconds))
+    setSettings((current) => ({
+      ...current,
+      nodeAdvancedMode: DEFAULT_SETTINGS.nodeAdvancedMode,
+      producerAdvancedMode: DEFAULT_SETTINGS.producerAdvancedMode
+    }))
     setDraftNodeRepoPath(DEFAULT_NODE_SETTINGS.repoPath)
+    setDraftNodeNetwork(DEFAULT_NODE_SETTINGS.network)
     setDraftNodeBaseDir(DEFAULT_NODE_SETTINGS.baseDir)
     setDraftNodeProfiles(DEFAULT_NODE_SETTINGS.profiles)
     setDraftNodeBlockchainBackupUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
     setNodeBaseDirValidation(null)
     setFormError(null)
+  }
+
+  const updateDraftNodeNetwork = (network: KoinosNetworkId) => {
+    storeNodeBaseDirForNetwork(draftNodeNetwork, draftNodeBaseDir)
+    setDraftNodeNetwork(network)
+    setDraftNodeBaseDir(resolveNodeBaseDirForNetwork(network))
+    setDraftNodeProfiles(defaultNodeProfilesForNetwork(network))
+    setNodeBaseDirValidation(null)
+    setFormError(null)
+    const nextPublicRpcUrls = publicRpcUrlsForActiveNetwork(network, publicRpcUrlsByNetwork)
+    setDraftPublicRpcUrls(nextPublicRpcUrls.join('\n'))
+    if (network === 'mainnet') {
+      setDraftNodeBlockchainBackupUrl((current) => current.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
+    } else {
+      setDraftNodeBlockchainBackupUrl('')
+    }
+  }
+
+  const requestActiveTab = (nextTab: AppTab) => {
+    if (nextTab === activeTab) return
+    if (activeTab === 'settings' && nextTab !== 'settings' && settingsDirty) {
+      setSettingsUnsavedDialogOpen(true)
+      return
+    }
+    if (nextTab === 'settings') {
+      setFormError(null)
+    }
+    setActiveTab(nextTab)
   }
 
   return (
@@ -3703,6 +4180,9 @@ export function App() {
           <div className="app-brand" aria-label={t('app.name')}>
             <span className="app-brand-mark" aria-hidden="true">K</span>
             <span className="app-brand-name">koinosGUI</span>
+            {(activeTab === 'settings' ? draftNodeNetwork : nodeSettings.network) === 'testnet' && (
+              <span className="app-brand-network">(Testnet)</span>
+            )}
           </div>
           <div className="tabs-list" role="tablist" aria-label={t('tabs.aria')}>
             <button
@@ -3712,7 +4192,7 @@ export function App() {
               aria-selected={activeTab === 'explorer'}
               aria-controls="panel-explorer"
               className={`tab-button ${activeTab === 'explorer' ? 'is-active' : ''}`.trim()}
-              onClick={() => setActiveTab('explorer')}
+              onClick={() => requestActiveTab('explorer')}
             >
               {t('tab.explorer')}
             </button>
@@ -3723,7 +4203,7 @@ export function App() {
               aria-selected={activeTab === 'dashboard'}
               aria-controls="panel-dashboard"
               className={`tab-button ${activeTab === 'dashboard' ? 'is-active' : ''}`.trim()}
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => requestActiveTab('dashboard')}
             >
               {t('tab.dashboard')}
             </button>
@@ -3734,7 +4214,7 @@ export function App() {
               aria-selected={activeTab === 'node'}
               aria-controls="panel-node"
               className={`tab-button ${activeTab === 'node' ? 'is-active' : ''}`.trim()}
-              onClick={() => setActiveTab('node')}
+              onClick={() => requestActiveTab('node')}
             >
               {t('tab.node')}
             </button>
@@ -3745,7 +4225,7 @@ export function App() {
               aria-selected={activeTab === 'producer'}
               aria-controls="panel-producer"
               className={`tab-button ${activeTab === 'producer' ? 'is-active' : ''}`.trim()}
-              onClick={() => setActiveTab('producer')}
+              onClick={() => requestActiveTab('producer')}
             >
               {t('tab.producer')}
             </button>
@@ -3756,7 +4236,7 @@ export function App() {
               aria-selected={activeTab === 'wallet'}
               aria-controls="panel-wallet"
               className={`tab-button ${activeTab === 'wallet' ? 'is-active' : ''}`.trim()}
-              onClick={() => setActiveTab('wallet')}
+              onClick={() => requestActiveTab('wallet')}
             >
               {t('tab.wallet')}
             </button>
@@ -3767,10 +4247,7 @@ export function App() {
               aria-selected={activeTab === 'settings'}
               aria-controls="panel-settings"
               className={`tab-button ${activeTab === 'settings' ? 'is-active' : ''}`.trim()}
-              onClick={() => {
-                setActiveTab('settings')
-                setFormError(null)
-              }}
+              onClick={() => requestActiveTab('settings')}
             >
               {t('tab.settings')}
             </button>
@@ -3800,6 +4277,8 @@ export function App() {
           setDraftDashboardRefreshSeconds={setDraftDashboardRefreshSeconds}
           draftNodeRepoPath={draftNodeRepoPath}
           setDraftNodeRepoPath={setDraftNodeRepoPath}
+          draftNodeNetwork={draftNodeNetwork}
+          setDraftNodeNetwork={updateDraftNodeNetwork}
           cloneKoinosRepo={cloneKoinosRepo}
           hasNodeControls={hasNodeControls}
           nodeCloneLoading={nodeCloneLoading}
@@ -3832,8 +4311,10 @@ export function App() {
           nodeBaseDirValidation={nodeBaseDirValidation}
           formError={formError}
           resetDefaults={resetDefaults}
+          settingsDirty={settingsDirty}
+          onBlockedSettingsNavigation={() => setSettingsUnsavedDialogOpen(true)}
           getKoinosNodeBridge={getKoinosNodeBridge}
-          nodeComponents={nodeStatus?.components}
+          nodeComponents={nodeComponents}
         />
       )}
 
@@ -3880,7 +4361,11 @@ export function App() {
 
       {activeTab === 'node' && (
       <section id="panel-node" className="node-panel" aria-label={t('node.panelAria')} role="tabpanel" aria-labelledby="tab-node">
-        <div className="node-panel-header is-compact">
+        <div className="node-panel-header">
+          <div>
+            <h2>{t('node.singleName')}</h2>
+            <p>{t('node.singleDescription')}</p>
+          </div>
           <div className="node-panel-actions">
             <button
               type="button"
@@ -3900,6 +4385,40 @@ export function App() {
             >
               {nodeActionLoading === 'start' ? t('common.starting') : t('node.startNode')}
             </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                if (nodePrimaryService) openServiceLogsModal(nodePrimaryService.id)
+              }}
+              disabled={!hasNodeControls || nodeBusy || !nodePrimaryService}
+            >
+              {t('common.logs')}
+            </button>
+            <span
+              className="node-service-action-wrap"
+              title={nodePrimaryCapabilities?.restartBlockedReason || t('node.restartService')}
+            >
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  if (nodePrimaryService) void runNodeServiceAction(nodePrimaryService.id, 'restart')
+                }}
+                disabled={
+                  !hasNodeControls ||
+                  nodeBusy ||
+                  !nodePrimaryService ||
+                  nodePrimaryCapabilities?.restartBlockedReason !== null
+                }
+              >
+                {nodePrimaryService &&
+                nodeServiceActionLoading?.serviceId === nodePrimaryService.id &&
+                nodeServiceActionLoading.action === 'restart'
+                  ? t('common.restarting')
+                  : t('common.restart')}
+              </button>
+            </span>
             <button
               type="button"
               className="ghost-button danger-button"
@@ -3938,136 +4457,116 @@ export function App() {
           </div>
         )}
 
-        <div className="node-services">
-          {nodeServiceCount > 0 ? (
-            <div className="node-services-table-wrap">
-              <table className="node-services-table">
-                <thead>
-                  <tr>
-                    <th>{t('common.name')}</th>
-                    <th>{t('common.status')}</th>
-                    <th>{t('common.port')}</th>
-                    <th>{t('common.logs')}</th>
-                    <th>{t('common.start')}</th>
-                    <th>{t('common.restart')}</th>
-                    <th>{t('common.stop')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nodeServices.map((service) => {
-                    const capabilities = nodeServiceCapabilities.get(service.id)
-                    if (!capabilities) return null
+        <div className="node-services node-single-node">
+          {nodePrimaryService && nodePrimaryCapabilities ? (
+            <section
+              className="node-control-surface"
+              title={nodePrimaryTooltip}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                setNodeServiceContextMenu({
+                  serviceId: nodePrimaryService.id,
+                  x: event.clientX,
+                  y: event.clientY
+                })
+              }}
+            >
+              <div className="node-control-top">
+                <div className="node-control-title">
+                  <span className="eyebrow">{t('node.singleEyebrow')}</span>
+                  <h3>{t('node.singleName')}</h3>
+                  <p>
+                    {(selectedNodePreset?.label ?? t('node.presetCustomLabel'))} · {nodePrimaryRuntimeDetail}
+                  </p>
+                </div>
+                <span className={`node-service-status ${nodePrimaryStatusTone}`.trim()} title={nodePrimaryService.status}>
+                  <span className="node-service-dot" aria-hidden="true" />
+                  {nodePrimaryService.state}
+                </span>
+              </div>
 
-                    const running = capabilities.running
-                    const statusTone =
-                      service.state === 'conflict' ? 'is-conflict' : running ? 'is-running' : 'is-stopped'
-                    const serviceTooltip = formatNodeServiceTooltip(service, capabilities, language)
-                    return (
-                      <tr
-                        key={`${service.id}-${service.runtimeName}`}
-                        className={service.state === 'conflict' ? 'is-stopped' : running ? 'is-running' : 'is-stopped'}
-                        onContextMenu={(event) => {
-                          event.preventDefault()
-                          setNodeServiceContextMenu({
-                            serviceId: service.id,
-                            x: event.clientX,
-                            y: event.clientY
-                          })
-                        }}
-                      >
-                        <td className="node-service-name-cell" title={serviceTooltip}>
-                          <span className="mono">
-                            {formatNodeServiceVersion(service, language) || service.name}
-                            {service.nativePid ? ` (pid ${service.nativePid})` : ''}
-                          </span>
-                        </td>
-                        <td>
+              <div className="node-control-summary">
+                <article>
+                  <span>{t('node.detailPid')}</span>
+                  <strong className="mono">{nodePrimaryPid}</strong>
+                  <small>{t('common.version')}: {nodePrimaryVersion}</small>
+                </article>
+                <article>
+                  <span>{t('node.detailJsonRpc')}</span>
+                  <strong className="mono">{localNodeRpcUrl}</strong>
+                  <small>{nodePrimaryRunning ? t('status.live') : t('common.status')}: {nodePrimaryService.state}</small>
+                </article>
+                <article>
+                  <span>{t('node.detailP2p')}</span>
+                  <strong className="mono">{nodeP2pEndpoint}</strong>
+                  <small>{t('node.detailPorts')}: {nodePrimaryPorts}</small>
+                </article>
+              </div>
+
+              <div className="node-control-details">
+                <section>
+                  <h4>{t('node.detailRuntime')}</h4>
+                  <dl>
+                    <div>
+                      <dt>{t('node.detailPreset')}</dt>
+                      <dd>{selectedNodePreset?.label ?? t('node.presetCustomLabel')}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('node.detailBaseDir')}</dt>
+                      <dd className="mono" title={nodeStatus?.baseDir || nodeSettings.baseDir}>
+                        {nodeStatus?.baseDir || nodeSettings.baseDir || t('common.na')}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('node.detailRepo')}</dt>
+                      <dd className="mono" title={nodeStatus?.repoPath || nodeSettings.repoPath}>
+                        {nodeStatus?.repoPath || nodeSettings.repoPath || t('common.na')}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <section>
+                  <h4>{t('node.detailComponents')}</h4>
+                  {nodePanelOptionalComponents.length > 0 ? (
+                    <div className="component-health-grid node-component-health-grid">
+                      {nodePanelOptionalComponents.map((component) => {
+                        const labelKey = `config.field.features.${component.name}`
+                        const label = t(labelKey) === labelKey ? component.name : t(labelKey)
+                        const componentState = component.state ?? (
+                          !component.enabled ? 'disabled' : component.healthy ? 'running' : 'waiting'
+                        )
+                        return (
                           <span
-                            className={`node-service-status ${statusTone}`}
-                            title={service.status}
+                            key={component.name}
+                            className={`component-health-item is-${component.enabled ? 'enabled' : 'disabled'} runtime-${componentState}`.trim()}
+                            title={`${label}: ${component.enabled ? t('node.componentEnabled') : t('node.componentDisabled')}${component.details ? ` · ${component.details}` : ''}`}
                           >
-                            <span className="node-service-dot" aria-hidden="true" />
-                            {service.state}
+                            <span className="component-health-indicator" aria-hidden="true" />
+                            <span className="component-health-name">{label}</span>
+                            <span className="component-health-state">
+                              {component.enabled ? t('node.componentEnabledShort') : t('node.componentDisabledShort')}
+                            </span>
                           </span>
-                        </td>
-                        <td className="mono">{formatNodeServicePorts(service)}</td>
-                        {/* TYPE and LAST ERROR columns removed — native-only mode */}
-                        <td className="node-service-action-cell">
-                          <button
-                            type="button"
-                            className="ghost-button node-service-inline-button"
-                            onClick={() => openServiceLogsModal(service.id)}
-                            disabled={!hasNodeControls || nodeBusy}
-                          >
-                            {t('common.logs')}
-                          </button>
-                        </td>
-                        <td className="node-service-action-cell">
-                          <span
-                            className="node-service-action-wrap"
-                            title={capabilities.startBlockedReason || t('node.startService')}
-                          >
-                            <button
-                              type="button"
-                              className="ghost-button node-service-inline-button"
-                              onClick={() => {
-                                void runNodeServiceAction(service.id, 'start')
-                              }}
-                              disabled={!hasNodeControls || nodeBusy || capabilities.startBlockedReason !== null}
-                            >
-                              {nodeServiceActionLoading?.serviceId === service.id &&
-                              nodeServiceActionLoading.action === 'start'
-                                ? t('common.starting')
-                                : t('common.start')}
-                            </button>
-                          </span>
-                        </td>
-                        <td className="node-service-action-cell">
-                          <span
-                            className="node-service-action-wrap"
-                            title={capabilities.restartBlockedReason || t('node.restartService')}
-                          >
-                            <button
-                              type="button"
-                              className="ghost-button node-service-inline-button"
-                              onClick={() => {
-                                void runNodeServiceAction(service.id, 'restart')
-                              }}
-                              disabled={!hasNodeControls || nodeBusy || capabilities.restartBlockedReason !== null}
-                            >
-                              {nodeServiceActionLoading?.serviceId === service.id &&
-                              nodeServiceActionLoading.action === 'restart'
-                                ? t('common.restarting')
-                                : t('common.restart')}
-                            </button>
-                          </span>
-                        </td>
-                        <td className="node-service-action-cell">
-                          <span
-                            className="node-service-action-wrap"
-                            title={capabilities.stopBlockedReason || t('node.stopService')}
-                          >
-                            <button
-                              type="button"
-                              className="ghost-button node-service-inline-button node-service-inline-button-danger"
-                              onClick={() => {
-                                void runNodeServiceAction(service.id, 'stop')
-                              }}
-                              disabled={!hasNodeControls || nodeBusy || capabilities.stopBlockedReason !== null}
-                            >
-                              {nodeServiceActionLoading?.serviceId === service.id &&
-                              nodeServiceActionLoading.action === 'stop'
-                                ? t('common.stopping')
-                                : t('common.stop')}
-                            </button>
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="node-empty">{t('node.noComponentHealth')}</p>
+                  )}
+                  <p className="node-control-meta">
+                    {t('node.componentSummary', {
+                      enabled: nodeEnabledComponents.length,
+                      disabled: nodeDisabledComponents.length
+                    })}
+                  </p>
+                </section>
+              </div>
+
+              {nodePrimaryService.lastError && (
+                <p className="node-inline-error" role="alert">{nodePrimaryService.lastError}</p>
+              )}
+            </section>
           ) : (
             <p className="node-empty">
               {nodeStatusLoading ? t('node.checkingServices') : t('node.noServices')}
@@ -4154,7 +4653,7 @@ export function App() {
                   <div className="node-preset-list">
                     {nodePresets.map((preset) => {
                       const selected = selectedNodePreset?.id === preset.id
-                      const matchesRunningState = sameStringList(preset.services, nodeRunningServiceIds)
+                      const matchesRunningState = presetMatchesNodeState(preset)
                       return (
                         <article
                           key={preset.id}
@@ -4550,7 +5049,7 @@ export function App() {
           setProducerAllowDelegatedSigner={setProducerAllowDelegatedSigner}
           producerProfile={producerProfile}
           clearProducerSetup={clearProducerSetup}
-          openWalletTab={() => setActiveTab('wallet')}
+          openWalletTab={() => requestActiveTab('wallet')}
         />
       )}
 
@@ -4562,6 +5061,8 @@ export function App() {
           walletLoading={walletLoading}
           walletActionLoading={walletActionLoading}
           walletError={walletError}
+          network={nodeSettings.network}
+          nativeTokenSymbol={nativeTokenSymbol}
           walletBalance={walletDisplayBalance}
           walletBalanceLoading={producerSigningWalletBalanceLoading}
           walletBalanceError={producerSigningWalletBalanceError}
@@ -4650,6 +5151,39 @@ export function App() {
       )}
 
       </div>
+
+      {settingsUnsavedDialogOpen && (
+        <div className="log-modal-backdrop" role="presentation" onClick={() => setSettingsUnsavedDialogOpen(false)}>
+          <section
+            className="log-modal conflict-modal settings-unsaved-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-unsaved-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="log-modal-header">
+              <div>
+                <h3 id="settings-unsaved-modal-title" className="log-modal-title">
+                  {t('settings.unsavedTitle')}
+                </h3>
+                <p className="log-modal-meta">{t('settings.unsavedDescription')}</p>
+              </div>
+            </header>
+            <div className="conflict-modal-body">
+              <p className="conflict-modal-copy">{t('settings.unsavedCopy')}</p>
+              <div className="conflict-modal-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => setSettingsUnsavedDialogOpen(false)}
+                >
+                  {t('settings.unsavedStay')}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       <AppFooter
         footerStatusClass={footerStatusClass}

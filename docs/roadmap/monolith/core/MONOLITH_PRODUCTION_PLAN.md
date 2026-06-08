@@ -1,17 +1,17 @@
 # Monolithic Node — Production Roadmap
 
-Sequential plan to take the monolith from its current state (builds and starts locally) to a functional mainnet node.
+Sequential plan to take the monolith from its current state to a release-ready koinosGUI node, with public-testnet producer signoff, mainnet observer signoff, and finalized storage/backup work tracked separately.
 
 ## Monolith Overview
 
-The monolithic node replaces the legacy Koinos multi-service runtime with a single native `koinos_node` process. The goal is not to change the Koinos protocol or create a Knodel-specific fork. The goal is to make a Koinos block-producing node easier to install, operate, package, debug, and optimize while preserving compatibility with existing peers, wallets, JSON-RPC/gRPC clients, chain data, PoB/VHP rules, and block validation behavior.
+The monolithic node replaces the legacy Koinos multi-service runtime with a single native `koinos_node` process. The goal is not to change the Koinos protocol or create a koinosGUI-specific fork. The goal is to make a Koinos block-producing node easier to install, operate, package, debug, and optimize while preserving compatibility with existing peers, wallets, JSON-RPC/gRPC clients, chain data, PoB/VHP rules, and block validation behavior.
 
 The legacy node architecture runs many services behind an AMQP broker. That structure creates operational complexity and adds internal round-trip overhead because frequent calls between services serialize protobuf messages, route through AMQP, cross process boundaries, and deserialize responses. The monolith keeps the service responsibilities but moves the internal calls into one C++ process through direct interfaces, a service registry, and typed events.
 
 Expected benefits:
 
 - One native binary instead of a full microservice stack plus AMQP broker.
-- One main process, log stream, health surface, and configuration path for Knodel to manage.
+- One main process, log stream, health surface, and configuration path for koinosGUI to manage.
 - Lower internal latency by replacing AMQP round trips with direct C++ calls or in-process events.
 - Better resource usage through shared address space, consolidated storage access, fewer duplicate buffers, and no broker process.
 - Faster startup and shutdown because the node does not sequence many independent services through broker readiness.
@@ -32,50 +32,37 @@ Target architecture:
 
 ## Current Status
 
-- arm64 binary builds, starts, initializes chain from genesis, and serves JSON-RPC.
-- 7 services are internalized, with 6 RocksDB column families and 21 JSON-RPC methods.
-- C++ P2P builds and links with `cpp-libp2p` using `-DKOINOS_ENABLE_LIBP2P=ON`.
-- Peer RPC uses the real `go-libp2p-gorpc` MessagePack framing, passes offline fixtures generated from Go, passes live interop against a controlled Go peer, and controlled one-peer sync applies blocks by RPC. GossipSub crosses blocks/transactions in both directions against a controlled Go peer. Knodel local mode no longer forces `p2p` off. The 48h soak against real peers is still pending.
-- Block producer backend is implemented: it loads WIF keys, assembles resource-bounded blocks, signs `federated` and PoB blocks, prunes failed transactions, gates production on gossip readiness, and submits populated `propose_block_request` messages. Local build and unit validation pass. Private three-node federated validation passes with observer P2P sync and store health checks. Private three-node PoB validation also passes with a deterministic generated genesis that includes system-contract bytecode, system-call dispatch, name-service records, producer hot-key registration, KOIN/RC, VHP, and VHP burn allowance. A 30-minute private PoB soak passed with continuous producer/observer progress and no severe log matches. Isolated seed-host external validation passed on `seed.koinosfoundation.org` without touching the production Docker stack: the branch was built on `/mnt/HC_Volume_105581636`, then a three-node private PoB soak ran for `300s` on high localhost ports with final producer head `8736`, observer head `8384`, observer block-store height `8384`, `0` stalled samples, and clean shutdown. Shared/external testnet validation tooling remains available in `scripts/external-pob-testnet-signoff.sh` for future independently reachable producer/observer RPC endpoints.
-- Sprint 1.3 mempool end-to-end is implemented and locally verified: `chain.submit_transaction` has the in-process mempool RPCs it depends on, accepted transactions are inserted into the real mempool implementation through the monolith event bus, account RC/nonce/count checks are covered, and the 120s expiration boundary is tested.
-- Sprint 4 migration tooling can now run an offline legacy Badger block-store migration, optional sampled/full SHA-256 source-vs-target verification, and a migrated-basedir node smoke that starts `koinos_node` with P2P disabled and verifies `chain.get_head_info` over JSON-RPC.
-- Sprint 4.3 gRPC compatibility has a strict legacy-vs-monolith comparison pass. The monolith now registers the generated `koinos.services.koinos` gRPC service instead of the previous generic/envelope-path handler, routes typed protobuf calls into the in-process chain, block store, mempool, contract meta store, transaction store, and account history services, returns `UNAVAILABLE` for disabled optional stores, maps validation errors such as `expected field ... was nil` to `INVALID_ARGUMENT`, and serves `get_gossip_status` from the monolith gossip gate state. `scripts/compare-grpc-parity.sh` builds and runs `koinos_grpc_parity_probe`, records status codes, protobuf JSON, and serialized response bytes, and supports endpoint probing plus sequential file comparison for legacy and monolith runs that cannot hold the same dataset open at the same time.
-- Sprint 4.4 is complete for the selected legacy functional regression bridge using `koinos/koinos-integration-tests` at pinned commit `74b64d739a98045630cb61557e1f141c04cd1eb1`. Native legacy mode passes the high-value single-node upstream baseline without Docker, and monolith mode passes the selected public JSON-RPC suite: `publish_transaction`, `pending_nonce`, `pending_transaction_limit`, `koin`, `vhp`, and `pob`. The work fixed JSON-RPC compatibility gaps for both response byte-field encoding and full block input normalization.
-- A live external Koinos Foundation testnet is available and documented in `pgarciagon/koinos_testnet`: JSON-RPC `https://testnet.koinosfoundation.org/jsonrpc`, public P2P `testnet.koinosfoundation.org:8888`, peer ID `QmYV414G6xRzkSUytntEsBsCSjXrVGubfYJn4vpeER2s2W`, chain ID `EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==`. The public endpoint was verified on 2026-05-25 with `/health` returning `ok`, `chain.get_head_info` returning an advancing head, public libp2p exposure accepting dials, and a non-producing monolith observer completing handshake and syncing to height `4000`.
-- `kcli` is installed locally and configured as the wallet/client tool for live testnet operations. The local config now uses network `testnet` and RPC `https://testnet.koinosfoundation.org/jsonrpc` before funding, VHP burn, producer-key registration, and producer dashboard checks.
-- Live producer assets and on-chain setup are prepared and accepted on the public testnet. A dedicated producer-control wallet was generated with `kcli`; the active producer-control address is `1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`. The user faucet-funded the account in multiple rounds, `2,850,095` KOIN has been burned into VHP across the validation run, and the monolith hot-key public key `AjyRoy9QlZP-AuojYV-cBlHC64mP-ZliaibjmjVnHL97` is registered for that producer address. Private material is stored outside the repo under `/Users/pgarcgo/.kcli/knodel-testnet-producer`. A live catch-up false-positive was fixed: while the node is far behind, future gossiped blocks are now ignored instead of scoring the seed for `unknown previous block`. The live-testnet basedir was moved to `/Volumes/external/knodel-testnet-producer/basedir` after the internal data volume filled during catch-up; the original basedir path is now a symlink to the external SSD. On 2026-05-30 the restarted observer caught up to the live head, was cleanly stopped, and was restarted with `features.block_producer: true`. Producer startup succeeded, P2P handshake completed, and the gossip production gate opened. The first producer window stayed healthy but produced no block; that exposed a stale PoB candidate bug where the producer could keep a candidate after the head advanced. The producer now rebuilds its PoB bundle when the local head changes, and the rebuilt monolith immediately produced blocks accepted by `https://testnet.koinosfoundation.org/jsonrpc`. The follow-up soak exposed a P2P live-fork compatibility issue: C++ sync checked the volatile local head as a checkpoint, while legacy `koinos-p2p` anchors sync on the local LIB. The monolith now uses the local LIB as the peer branch anchor and can catch up through normal competing live forks above LIB without score-threshold disconnects.
-- Live `kcli` client validation through the monolith JSON-RPC is also complete. `jsonrpc_server.cpp` now accepts public Koinos JSON inputs from `kcli`/koilib (Base58 addresses, `0x` hashes/ids, websafe byte fields), returns websafe/base64url bytes for the chain/read-contract paths used by `kcli`, and handles HTTP keep-alive reuse. A real `kcli transfer` through `http://127.0.0.1:18122` submitted tx `0x12209ffc21122d2dfd36b01be685bb88a6867b8325c350df5312714b7f316e0f27cb`, confirmed in public-testnet block `5380195`; the local monolith producer produced that block with `1 transaction`, and public `kcli block 5380195` shows the same tx id.
-- A first external legacy observer VPS has been added to strengthen the live testnet topology. VPS1 `46.225.170.6` runs a non-producing legacy Docker observer stack at `/opt/koinos-testnet-legacy-observer`, exposes P2P at `/ip4/46.225.170.6/tcp/28888/p2p/QmeJnbWzRZ91zgTDTxs1UdsbRFFM6B26PntLdk69N63ePY`, and keeps JSON-RPC bound to remote localhost. UFW allows `28888/tcp`. Mac-side probes verified raw libp2p, Peer RPC, protocol `koinos/p2p/1.0.0`, and the expected live-testnet chain ID. The node is still catching up from genesis, so it should be treated as a topology/stability peer until it reaches the live head.
-- A second external legacy observer VM has been added. VM2 `46.62.155.105` is a smaller host, so it is running only the non-producing legacy observer stack. It exposes P2P at `/ip4/46.62.155.105/tcp/28888/p2p/QmXfSaJjSPSivJURC9RrCGKGmKtB3EA3AWEUksY2e189R3`, connects to the public testnet seed, and advanced from height `23` to `6194` during setup. TCP `28888` is externally reachable, but full Peer RPC validation is still pending because `GetHeadBlock` reset during initial catch-up load and later probes from this Mac hit temporary security resets.
+Last reviewed: 2026-06-09.
+
+- The monolith binary builds and runs on macOS arm64 from `vendor/koinos/koinos-node/build/koinos_node`. It internalizes the core chain, mempool, block store, P2P, block producer, JSON-RPC, gRPC, transaction store, contract meta store, and account history surfaces inside one process.
+- Public JSON-RPC is the primary client API and is live-compatible with `kcli`/koilib request conventions. The server normalizes Base58 addresses, `0x` hashes/ids, and websafe byte fields on input, returns websafe byte fields where public Koinos JSON clients expect them, and supports HTTP keep-alive reuse. The selected JSON-RPC parity and upstream integration-test suites pass.
+- gRPC compatibility uses the generated typed `koinos.services.koinos` protobuf service. Focused tests and saved legacy-vs-monolith comparison runs cover routing, protobuf JSON/bytes, disabled optional stores, validation errors, and `get_gossip_status`. gRPC ACL mapping remains deferred.
+- The standalone legacy REST API has not been migrated into the monolith. Current monolith scope is JSON-RPC plus gRPC; REST remains a legacy packaged artifact only unless it is explicitly re-scoped.
+- P2P is implemented with `cpp-libp2p`, Koinos Peer RPC gorpc MessagePack framing, controlled Go-peer interop, one-peer sync, and GossipSub interop. Testnet live sync and production are validated. Mainnet public peer availability is still the open readiness gate; a short VPS1 mainnet observer canary passed, but restored-data/longer mainnet observer soak and parallel legacy comparison remain pending.
+- Block production is implemented and validated. Private federated and PoB networks pass; the public Koinos Foundation testnet producer produced accepted blocks, submitted real transfers through local monolith JSON-RPC, passed explicit-nonce mempool pressure, passed real PoB burn/system-operation validation behind explicit flags, and reached a 48h live-producer stability milestone.
+- `kcli` local setup is complete for testnet. The active testnet producer-control address used for validation is `1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`; private material remains outside the repo. Mainnet producer address `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb` is a real funded producer and must remain read-only unless the user gives an explicit, verified mainnet-safe instruction.
+- External testnet topology has two legacy observer hosts. VPS1 caught up and passed as the independent Level 5 observer witness. VM2 is externally reachable but still needs a later full Peer RPC validation after initial catch-up pressure and source-IP scoring clear.
+- Sprint 5 performance and hardening are substantially complete: read-only RPC/process benchmark, live submit benchmark, startup benchmark, live P2P sync benchmark, thread-matrix benchmark, mixed RPC/submit/sync stress, offline replay indexing, RocksDB tuning, JSON-RPC session limits, error handling, and logging/metrics hardening all have recorded evidence.
+- koinosGUI has moved from Knodel inheritance toward the independent `koinosGUI` product. The app has a bright UI, network-aware mainnet/testnet settings, network-filtered presets, separate base dirs per network, dirty-settings leave guards, wallet import/create/delete flows, producer registration flows, and a simplified Node panel focused on the single monolith process and optional components.
+- Storage is partially consolidated, not final. The monolith uses `BASEDIR/db` for block/index data and still uses `BASEDIR/chain/blockchain` for chain state. The restored mainnet external basedir has been cleaned of obsolete legacy microservice directories; final one-DB layout requires the new Unified RocksDB Layout phase before online checkpoint backup.
+- Packaging has an unsigned macOS directory smoke with staged Koinos resources, but the final koinosGUI-branded signed/notarized release package is still pending. Current app version remains `0.10.1`; planned release target remains a future `v0.11.0`.
 
 ---
 
 ## Current Critical Path
 
-This is the work order that minimizes technical risk before investing further in UX, packaging, or optimization.
+This is the current work order that minimizes technical risk. Earlier Gates A-E are complete and retained as historical milestones; the active work is mainnet observer signoff, release readiness, and storage finalization.
 
 | Gate | Objective | Exit Criteria |
 |------|----------|--------------------|
-| A. Reproducible build | `koinos_node` can be built with libp2p from a clean workspace | Exact script or documentation produces the binary and `koinos_node --help` passes |
-| B. Peer RPC wire compatibility | C++ gorpc framing matches Go byte-for-byte | Go-captured fixtures pass in C++ tests and a Go peer accepts C++ calls |
-| C. One-peer sync | The monolith connects to one peer and applies blocks by RPC | `GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, and `GetBlocks` work against Go |
-| D. Gossip interop | Blocks and transactions cross between Go and C++ | Messages on `koinos.blocks` and `koinos.transactions` are received and validated |
-| E. Knodel local mode | Knodel starts the monolith as the multi-service stack replacement | Complete: UI shows health/logs, JSON-RPC works, and `p2p` is no longer disabled by default |
-| F. Mainnet soak | The node remains stable while synchronized | In progress: stale peer ID fixed and reconnect path hardened; still needs a stable peer window for a production-duration soak |
+| A-E. Build, Peer RPC, one-peer sync, gossip, local GUI mode | Core technical feasibility | **Complete**. Build scripts, gorpc fixtures, Go interop, one-peer sync, GossipSub interop, and koinosGUI monolith management are in place. |
+| F. Public testnet producer signoff | Prove real PoB production and client compatibility | **Complete**. Accepted public-testnet blocks, real transfers, mempool pressure, real PoB burn validation, independent VPS1 witness, and 48h producer soak are recorded. |
+| G. Mainnet observer signoff | Prove sustained mainnet sync without block production | **In progress**. VPS1 short disposable observer canary passed; restored-data or longer fresh-data observer canary, parallel legacy comparison, and 48h stability monitoring remain pending. |
+| H. koinosGUI release readiness | Ship a trustworthy monolith operator app | **In progress**. Bright koinosGUI UI, network-aware presets/settings, wallet/producer flows, and settings guards are implemented in the working tree; signed/notarized package and final release docs remain pending. |
+| I. Unified RocksDB layout | Finish storage consolidation | **Pending**. Move chain state from `BASEDIR/chain/blockchain` into the shared `BASEDIR/db` layout with migration manifests, rollback, and restored-mainnet/testnet validation. |
+| J. Online checkpoint backup | Backup without stopping the node | **Pending**. Depends on Gate I so the final backup can checkpoint one unified RocksDB handle instead of a temporary two-DB layout. |
 
-Gate F has a harness and short preflight path. The 5h production-style attempt on 2026-05-24 was aborted as invalid because the node remained at `0` peers and height `0`; the primary cause was a stale peer ID for `seed.koinosfoundation.org`. The seed now responds as `QmTCgDNrPDYVNmZNt58jixgtVjTveSpWsEbqPqGuEzZhWF`; with that ID, cpp-libp2p connected, completed handshake, and applied `500` blocks in a `90s` preflight. `scripts/probe-mainnet-seeds.sh` validates Go libp2p handshakes before long soaks, and the soak aborts by default if it does not observe required progress within the startup grace window. The harness now also requires head progress by default, so a raw libp2p socket without Koinos Peer RPC sync cannot be counted as Gate F progress.
-
-The latest Gate F hardening focuses on matching legacy p2p behavior and avoiding local false failures: cpp-libp2p now advertises `koinos/p2p/1.0.0`, libp2p callbacks run on one IO runner, seed dialing is paced from `P2PNode` instead of fired as an async burst, duplicate in-flight dials are suppressed, incoming Peer RPC is served from local `chain`/`block_store`, EOF/reset closes stale peers without escalating into score-threshold disconnects, sync application is serialized, and already-irreversible local races are not scored as peer misconduct. The candidate peer file now prioritizes the legacy `config-example` seeds and keeps production-log peers as fallbacks.
-
-Latest validation after those fixes proved build/test health and showed that this machine currently has no reachable Peer RPC-capable public target: a Go libp2p probe failed against all five official legacy seeds during security negotiation/timeout/refused, and the only raw libp2p peers that accepted dials advertised `protocol_version=unknown` and rejected `/koinos/peerrpc/1.0.0`. The probe now enforces this distinction by default: `OK` requires `PeerRPCService.GetChainID` and `PeerRPCService.GetHeadBlock`, and `SEED_PROBE_OUTPUT=scripts/mainnet-peer-validated.txt` writes only peers that passed that stricter validation. The current next critical step is therefore to repeat Gate F in a fresh peer window: first get a successful Go probe against a peer that serves Koinos Peer RPC, then require the C++ soak to complete Koinos handshake and advance beyond height `1000`. If Go succeeds while C++ fails, inspect cpp-libp2p security negotiation and Identify/client-version behavior.
-
-**2026-05-25 Gate F retry:** A fast Go sweep found one transient Peer RPC-capable mainnet peer, `/ip4/94.130.148.114/tcp/8888/p2p/QmQ841mUuYeCtbZXdEMeKcYCx4CZydgz84zSDqWVCeJ4H8`, at head height `36232881`. Immediate repeat probes against that same peer failed with EOF/reset during security negotiation, and the C++ `300s` short soak against it was invalid: the node started cleanly, JSON-RPC stayed up, but no peer session, handshake, sync rows, or head progress were observed before the `240s` startup grace expired. Treat this as a closed/unstable public peer window, not a successful Gate F signoff. During this retry, `scripts/probe-mainnet-seeds.sh` was fixed so relative `SEED_PROBE_OUTPUT` paths resolve from the repo root before the script changes into the `koinos-p2p` submodule.
-
-**2026-05-25 plan update:** Gate F no longer blocks monolith implementation work. It remains a mainnet readiness gate. The next networking diagnostic is an A/B harness that runs a Go legacy direct-dial Peer RPC discovery/stability baseline before starting the C++ monolith soak against the same validated peer list. If Go connects while C++ does not, continue C++ compatibility debugging; if Go cannot find stable Peer RPC targets, treat the result as public peer availability/backoff and continue implementation or real testnet producer validation.
-
-**2026-05-25 A/B run:** `scripts/ab-mainnet-peer-acquisition.sh` was added and run in report-only mode against the current mainnet candidate list. The Go baseline found `0` Peer RPC-capable targets, so the harness correctly skipped the C++ monolith soak and recorded the result as `blocked: go-discovery-found-no-peer-rpc-targets`. Report: `docs/roadmap/monolith/networking/MONOLITH_AB_PEER_ACQUISITION_REPORT.md`.
-
-**2026-05-25 public testnet update:** The external testnet is now a concrete validation target, not a missing dependency. The public P2P endpoint is `/dns4/testnet.koinosfoundation.org/tcp/8888/p2p/QmYV414G6xRzkSUytntEsBsCSjXrVGubfYJn4vpeER2s2W`. Public TCP exposure and raw libp2p negotiation are working; use `SEED_PROBE_PEER_RPC=0` for exposure checks because the lightweight probe is not a full Koinos peer and repeated Peer RPC probes can temporarily trigger Go p2p source-IP error scoring on the single-node testnet. The monolith was then run as a non-producing observer against the public endpoint using live testnet genesis/descriptors copied from `testnet.koinosfoundation.org`; it reported the correct chain ID, connected to the seed, completed handshake, logged connected peer snapshots, synced from height `0` to `4000` in about `54s`, and produced no score-threshold rows. A producer hot key and basedir are prepared locally, and that same basedir passed a short non-producing startup check to head `3157`. The producer-control account is now funded, `95` KOIN has been burned to VHP, and the monolith hot key is registered on-chain. The next Sprint 2.4 step is to sync or otherwise catch up the prepared basedir to the live testnet head, then deploy the monolith with `features.block_producer: true` and verify accepted produced blocks. Use `scripts/external-pob-testnet-signoff.sh`, `kcli producer-dashboard`, or an equivalent independent observer check to prove produced blocks are accepted by the existing network.
+Historical Gate F peer-acquisition notes remain in `docs/roadmap/monolith/networking/MONOLITH_AB_PEER_ACQUISITION_REPORT.md` and `docs/roadmap/monolith/networking/MONOLITH_MAINNET_CANARY_REPORT.md`. The current mainnet decision is not to enable production; the next safe mainnet step is a non-producing observer canary against restored or fresh data, then a parallel legacy comparison.
 
 ---
 
@@ -105,25 +92,25 @@ Latest validation after those fixes proved build/test health and showed that thi
 
 **2026-05-25 status:** Sprint 1.3 is locally complete. `IMempool`, `MempoolAdapter`, and `MonolithRpcClient` now cover `check_account_nonce`, `get_pending_nonce`, and `get_pending_transaction_count`, which are required by `chain.submit_transaction` when broadcasting transactions. The monolith subscribes mempool to `koinos.transaction.accept`, inserts the accepted transaction plus receipt resource usage into the real mempool implementation, and runs a 1s prune loop using `mempool.transaction-expiration` (default `120s`). `koinos_mempool_adapter_test` verifies accepted transaction insertion, `get_pending_transactions`, reserved RC accounting, `check_pending_account_resources`, duplicate/next nonce behavior, pending nonce/count, and the 119s/120s expiration boundary. The focused build and CTest set passed for `koinos_node`, `koinos_mempool_adapter_test`, `koinos_block_producer_test`, `koinos_gorpc_codec_test`, and `koinos_p2p_one_peer_sync_test`.
 
-### 1.4 Knodel integración local
-- [x] Mover el build temporal desde `/private/tmp/koinos-node-libp2p-build` a la ruta esperada por Knodel: `vendor/koinos/koinos-node/build/koinos_node`
+### 1.4 koinosGUI local integration
+- [x] Move the temporary build from `/private/tmp/koinos-node-libp2p-build` to the path expected by koinosGUI: `vendor/koinos/koinos-node/build/koinos_node`
 - [x] Actualizar `monolithBuildDefinition()` para pasar las flags CMake requeridas por cpp-libp2p (`KOINOS_ENABLE_LIBP2P`, prelude, shims, prefixes)
 - [x] Verificar que `resolveMonolithBinaryPath()` encuentra el binario en dev y en packaged app (`release/mac-arm64/Knodel.app` resuelve `Contents/Resources/koinos/bin/koinos_node`; smoke packaged start/RPC/stop OK)
-- [x] Verificar que Knodel detecta el monolito y lo arranca en vez de los 12 servicios (Electron renderer/preload/main bridge verificado con `serviceStart` y `p2p` deshabilitado)
+- [x] Verify that koinosGUI detects the monolith and starts it instead of the legacy service stack (Electron renderer/preload/main bridge verified with `serviceStart` and `p2p` disabled in the historical smoke)
 - [x] Verificar que start/stop/restart usan un solo proceso `koinos-node` y no dejan procesos legacy vivos (Electron bridge `serviceStart`/`serviceStop`/`serviceRestart`; `chain.get_head_info` responde; sin procesos legacy tras stop)
 - [x] Verificar que el panel Node Components muestra health de los componentes derivados del log o de endpoint de health (parser acepta el formato real con timestamp antes de `[component]`)
 - [x] Verificar logs con filtrado por `[component]` para `chain`, `mempool`, `block_store`, `p2p`, `jsonrpc`, `grpc`, `block_producer` (targets de logs monolíticos resueltos desde `status.components`; smoke verificado con `jsonrpc`)
 - [x] Validar presets: cambios de feature flags escriben config y reinician el monolito (smoke `profile:jsonrpc`: escribe `features`, arranca `koinos_node`, responde JSON-RPC; `p2p` queda habilitado por defecto salvo override explícito)
-- [x] Definir fallback UX: si el binario monolítico falta o falla al arrancar, Knodel muestra causa y permite volver al modo multi-servicio (startup failure activa fallback de sesion; status/presets/actions pasan a native multi-service; rebuild monolitico exitoso limpia el fallback)
+- [x] Definir fallback UX: si el binario monolítico falta o falla al arrancar, koinosGUI muestra causa y permite volver al modo multi-servicio (startup failure activa fallback de sesion; status/presets/actions pasan a native multi-service; rebuild monolitico exitoso limpia el fallback)
 
-**Nota 2026-05-23:** Gate E queda implementado: Knodel ya no añade `--disable=p2p` por defecto, los presets monolíticos mantienen `p2p=true` salvo override explícito y `scripts/smoke-monolith-p2p-local.sh` valida arranque local con `p2p` + `jsonrpc`. Smoke Electron dev previo: `serviceStart`/`serviceStop`/`serviceRestart` desde el renderer usan un solo `koinos_node` y dejan `nativePid=null` al parar. El health de componentes se deriva de líneas reales con timestamp y el endpoint de logs acepta componentes como `jsonrpc`/`p2p` filtrando el buffer monolítico. Si el monolito existe pero falla al arrancar, Knodel devuelve la causa como error visible y activa fallback de sesión a native multi-service; un rebuild monolítico exitoso limpia ese estado.
+**Nota 2026-05-23:** Gate E queda implementado: koinosGUI ya no añade `--disable=p2p` por defecto, los presets monolíticos mantienen `p2p=true` salvo override explícito y `scripts/smoke-monolith-p2p-local.sh` valida arranque local con `p2p` + `jsonrpc`. Smoke Electron dev previo: `serviceStart`/`serviceStop`/`serviceRestart` desde el renderer usan un solo `koinos_node` y dejan `nativePid=null` al parar. El health de componentes se deriva de líneas reales con timestamp y el endpoint de logs acepta componentes como `jsonrpc`/`p2p` filtrando el buffer monolítico. Si el monolito existe pero falla al arrancar, koinosGUI devuelve la causa como error visible y activa fallback de sesión a native multi-service; un rebuild monolítico exitoso limpia ese estado.
 
 **Entregables 1.4:**
-- Build local reproducible desde Knodel
+- Build local reproducible desde koinosGUI
 - Start/stop/status monolítico funcionando por IPC
 - Capturas o logs que prueben detección de componentes y filtrado por logs
 
-**Entregable Sprint 1:** Nodo local que restaura backup, sirve queries, y Knodel lo gestiona.
+**Entregable Sprint 1:** Nodo local que restaura backup, sirve queries, y koinosGUI lo gestiona.
 
 ---
 
@@ -138,7 +125,7 @@ Latest validation after those fixes proved build/test health and showed that thi
 
 ### 2.2 Producer address config
 - [x] Read `block_producer.producer` from `config.yml` for PoB producer identity.
-- [x] Keep compatibility with the existing Knodel producer profile/runtime config flow, which persists `block_producer.producer` and `block_producer.private-key-file`.
+- [x] Keep compatibility with the existing koinosGUI producer profile/runtime config flow, which persists `block_producer.producer` and `block_producer.private-key-file`.
 
 ### 2.3 Production loop tuning
 - [x] Replace the old empty 3s proposal loop with local block assembly, mempool transaction selection, signing, and chain proposal.
@@ -170,9 +157,9 @@ Latest validation after those fixes proved build/test health and showed that thi
 - [x] Run and maintain the transaction/operation/performance regression suite against the live monolith producer: Level 5 now passes with real transfers, explicit-nonce mempool pressure, independent VPS1 legacy observer witness, soak sampling, and bounded performance sampling.
 - [x] Add one externally reachable legacy observer VPS for live topology and Peer RPC compatibility checks.
 - [x] Add a second externally reachable legacy observer VM for live topology diversity.
-- [ ] Let the external legacy observer catch up before using it as an independent near-head witness.
+- [x] Let VPS1 catch up and use it as an independent near-head legacy observer witness.
 - [ ] Re-run full Peer RPC validation against VM2 after initial catch-up pressure drops.
-- [ ] Monitor for 24h: uptime, produced blocks, rejected proposals, peer count, and errors.
+- [x] Monitor for 48h: uptime, produced blocks, rejected proposals, peer count, and errors.
 
 **2026-05-24 status:** Backend implementation is complete and locally verified. Phase A private validation passes through `scripts/private-testnet-sprint2.sh`: the monolith producer creates a federated block, the observer syncs that block from the producer over P2P, and observer block store, transaction store, and contract meta store checks pass. Phase B private PoB validation also passes through the same harness with `PRIVATE_TESTNET_MODE=pob`: the generated runtime genesis is statically PoB-ready, the producer creates PoB blocks, the observer syncs them over P2P, and service health checks pass. The 30-minute private PoB soak also passes: 31 samples, zero stalled samples, zero severe log matches, final producer head `74362`, final observer head `73842`, and final observer block-store height `73842`. External seed-host validation also passes: commit `ec1d737` was pulled into `/mnt/HC_Volume_105581636/knodel-external-signoff/knodel` on `seed.koinosfoundation.org`, `scripts/build-cpp-libp2p-koinos.sh` produced the cpp-libp2p-enabled monolith there, and `scripts/private-testnet-sprint2.sh` ran a `300s` private PoB soak on high localhost ports with final producer head `8736`, observer head `8384`, observer block-store height `8384`, zero stalled samples, zero severe log matches, transaction/contract-meta checks `ok`, and clean shutdown. The production stack was not touched. `scripts/external-pob-testnet-signoff.sh` remains available for a future shared/external validation step against independently reachable producer and observer RPC endpoints.
 
@@ -180,7 +167,7 @@ Latest validation after those fixes proved build/test health and showed that thi
 
 **2026-05-25 kcli update:** `kcli` is available locally at `/opt/homebrew/bin/kcli`. The plan now uses `kcli` as the Koinos wallet/client for the live testnet: configure the RPC, create or import the producer-control wallet, request faucet funds, verify balances, burn KOIN to VHP, register the monolith producer public key, and monitor producer visibility.
 
-**2026-05-25 kcli configuration:** `kcli` version `1.2.0` was configured through `/Users/pgarcgo/.kcli/config.json` with default network `testnet` and RPC `https://testnet.koinosfoundation.org/jsonrpc`. Verification passed: `kcli testnet-info` returned the expected chain ID and contract IDs, `kcli faucet-info` returned the Telegram faucet command, and `kcli chain-info` returned head block `5247425` with last irreversible block `5247365`.
+**2026-05-25 kcli configuration:** `kcli` was configured through `/Users/pgarcgo/.kcli/config.json` with default network `testnet` and RPC `https://testnet.koinosfoundation.org/jsonrpc`. The local client was later updated to `1.4.0`. Verification passed: `kcli testnet-info` returned the expected chain ID and contract IDs, `kcli faucet-info` returned the Telegram faucet command, and `kcli chain-info` returned head block `5247425` with last irreversible block `5247365`.
 
 **2026-05-25 observer validation:** Public P2P exposure is corrected and validated. After clearing a temporary source-IP score on `koinos-p2p-1`, a raw libp2p-only probe reached `/dns4/testnet.koinosfoundation.org/tcp/8888/p2p/QmYV414G6xRzkSUytntEsBsCSjXrVGubfYJn4vpeER2s2W` and observed protocol version `koinos/p2p/1.0.0`. A non-producing monolith observer using the live testnet genesis/descriptors then completed handshake and synced to height `4000` with no score-threshold rows. This completes the observer prerequisite for the VHP-staked producer test.
 
@@ -224,7 +211,7 @@ Private-testnet signoff plan: `docs/roadmap/monolith/testnets/MONOLITH_PRIVATE_T
 Latest private-testnet report: `docs/roadmap/monolith/testnets/MONOLITH_PRIVATE_TESTNET_REPORT.md`.
 Latest external-testnet report: `docs/roadmap/monolith/testnets/MONOLITH_EXTERNAL_TESTNET_REPORT.md`.
 
-**Sprint 2 Deliverable:** Monolith producing blocks on testnet with Knodel.
+**Sprint 2 Deliverable:** Monolith producing blocks on testnet with koinosGUI.
 
 ---
 
@@ -309,6 +296,8 @@ Latest external-testnet report: `docs/roadmap/monolith/testnets/MONOLITH_EXTERNA
 - [x] Harden `scripts/probe-mainnet-seeds.sh` so validated peers must support Koinos Peer RPC, not just raw libp2p dial
 - [x] Add A/B legacy-vs-monolith peer acquisition harness: `scripts/ab-mainnet-peer-acquisition.sh` runs a Go legacy direct-dial Peer RPC discovery/stability baseline and only starts the C++ monolith soak when Go finds stable Peer RPC targets
 - [x] Run A/B harness against the current mainnet candidate list before spending more time on C++-only Gate F soaks: first report-only run was blocked because the Go baseline found `0` Peer RPC-capable targets
+- [x] Port legacy-style peer acquisition/fanout instead of relying only on configured seed dials: track all libp2p network connections, keep a bounded candidate table, dial discovered candidates toward a target peer count, wire cpp-libp2p Kademlia/GossipSub peer discovery where available, and validate discovered peers through the existing Koinos Peer RPC handshake before using them for sync
+- [ ] Add a mainnet comparison run against a legacy Go p2p observer showing the monolith can maintain more than seed-only connectivity under the same network window
 - [ ] Run 2h with 1 controlled Go peer and ASAN/TSAN when viable
 - [ ] Run 12h with 5-10 real peers, without block production
 - [ ] Run 48h with 20+ connected peers
@@ -316,7 +305,7 @@ Latest external-testnet report: `docs/roadmap/monolith/testnets/MONOLITH_EXTERNA
 - [ ] Verify fork watchdog detects fork bombs correctly and does not trigger during normal sync
 - [ ] Verify reconnect to seed peers after disconnects and network blips
 - [ ] Verify clean shutdown: SIGTERM closes libp2p, RocksDB, and threads without hanging
-- [ ] Document Knodel alert thresholds: low peer count, stalled sync, RPC timeout rate, memory growth
+- [ ] Document koinosGUI alert thresholds: low peer count, stalled sync, RPC timeout rate, memory growth
 
 **3.5 Deliverables:**
 - Soak test report with timestamp, commit, build flags, peers, initial/final RSS
@@ -446,7 +435,7 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 ### 5.5 Logging
 - [~] Verify every component consistently uses the `[component]` prefix. Monolith wrapper lifecycle and subsystem rows are normalized; deeper legacy chain/mempool internals still have some old unprefixed rows.
 - [x] Add periodic metrics for blocks/sec, pending transactions, peer count, and memory
-- [x] Verify log rotation works with the Knodel 512KB log buffer
+- [x] Verify log rotation works with the koinosGUI 512KB log buffer
 
 **2026-06-02 logging hardening implementation:** The monolith now emits compact startup, readiness, signal, and shutdown lifecycle rows with the `[node]` prefix, and the RocksDB open failure path uses the `[db]` prefix. The periodic `[metrics]` row now emits immediately at readiness and then every `60s`, and includes `head_height`, `lib`, derived `blocks_per_sec`, `pending_txs`, `peer_count`, `rss_bytes`, `rss_mb`, and `components`. RSS collection uses `task_info` on macOS and `/proc/self/statm` on Linux, with `0` as the fallback value when the platform cannot report current RSS. Knodel's desktop log-buffer behavior is covered by `electron/lib/logs-service.test.ts`: the new test appends more than `512KB` of native output, then verifies the compact `[metrics]` row remains parseable after trimming. Verification passed: `cmake --build vendor/koinos/koinos-node/build --target koinos_node --parallel`, `npx vitest run electron/lib/logs-service.test.ts`, and `REPORT_DIR=/private/tmp/knodel-logging-smoke-20260602 ITERATIONS=1 START_PORT=28500 scripts/benchmark-monolith-startup.sh`. The isolated startup smoke emitted `[node] koinos_node ready`, `[metrics] head_height=0 lib=0 blocks_per_sec=0.000 pending_txs=0 peer_count=0 rss_bytes=24379392 rss_mb=23.250 components=3`, `[node] Received signal 15`, and `[node] koinos_node shutdown complete`, with no leftover temporary process. The live producer on `127.0.0.1:18122` was not restarted and remained healthy at public-testnet head `5474776`.
 
@@ -474,14 +463,163 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 - [ ] Monitor 48h: produced blocks, expected share, missed slots, warning/error rows.
 
 ### 6.3 koinosGUI release
-- [~] Package the native monolith through electron-builder. Unsigned macOS `.app` directory packaging passes; signed/notarized DMG remains pending.
-- [ ] Verify the UI clearly shows "Monolith mode" versus "Multi-service mode" and exposes fallback status.
+- [~] Package the native monolith through electron-builder. Unsigned macOS `.app` directory packaging passed before final release naming; current koinosGUI-branded signed/notarized DMG remains pending.
+- [~] Verify the UI clearly shows the single monolith node runtime, network mode, optional component status, and fallback/error status.
 - [ ] Document the end-user migration process.
 - [ ] Release as koinosGUI v0.11.0.
 
 **2026-06-03 packaging readiness:** macOS packaging now has two automated gates. `npm run test:package-staging` runs `scripts/verify-package-staging.js` before electron-builder and verifies the staged native bundle under `build/bundle-staging/koinos`, including `koinos_node`, legacy service binaries, config templates, GarageMQ config, and REST standalone files. `npm run test:packaged` runs `scripts/verify-packaged-app.js` after electron-builder and verifies the final packaged app contains `app.asar`, `Resources/koinos/bin/koinos_node`, config templates, and REST server files. All macOS package scripts now use the existing `build:icon:mac` command, run `stage`, run the staging smoke, run electron-builder, and then run the packaged-app smoke. `package:mac:dir` is explicitly unsigned through `CSC_IDENTITY_AUTO_DISCOVERY=false`, making it the local release-candidate smoke command. Verification passed with `npm run package:mac:dir`: staging had `18` required files and `255.1 MB`; electron-builder produced `release/mac-arm64/Knodel.app`; post-package verification found `7` required files, app size `686.1 MB`, and bundled Koinos resources `255.1 MB`. Signed/notarized DMG verification remains pending because it depends on release credentials.
 
-**Sprint 6 deliverable:** koinosGUI with the monolith in production on mainnet.
+**2026-06-09 release status:** The repository package identity is now `koinosgui` and app version is `0.10.1`. The final release gate must re-run package staging and packaged-app verification after the koinosGUI branding/release-name pass, then produce the signed/notarized artifact for `v0.11.0`. Historical `Knodel.app` package evidence remains useful for native bundle completeness but is not final release evidence for the renamed product.
+
+### 6.4 Monolith node-settings cleanup and advanced hardening
+
+**Goal:** make `Settings > Node Settings` trustworthy for a simple monolith node operator. A visible field must either be parsed and effective in `koinos_node`, or be clearly removed/hidden until the backend support exists. This is a release-readiness task for koinosGUI because stale microservice-era settings can make users believe they changed storage, networking, or RPC security when the monolith ignored the key.
+
+**Audit source:** the GUI schema is `src/app/koinos-config-schema.ts`; the monolith parser is `vendor/koinos/koinos-node/src/core/config.cpp`; runtime use is in `vendor/koinos/koinos-node/src/main.cpp`, `src/p2p`, `src/jsonrpc`, `src/grpc_server`, and `src/block_production`.
+
+**Planning refinement log:**
+- **Pass 1 - raw cleanup:** split every current GUI setting into `effective`, `parsed-only`, `not parsed because obsolete`, and `not parsed but real TODO`. The first draft removed only obvious microservice leftovers and kept the rest visible.
+- **Pass 2 - operator safety:** refine the plan so no ineffective setting remains editable. Fields that are real TODOs must be hidden or disabled until implementation lands, then reintroduced only with tests and restart guidance.
+- **Pass 3 - release sequencing:** put low-risk renderer cleanup first, then backend protocol/security work, then advanced UI exposure. This avoids shipping misleading controls while keeping protocol-sensitive changes behind focused unit tests and isolated node smokes.
+
+**Action classification:**
+
+| Setting | Current issue | Decision | Rationale |
+|---|---|---|---|
+| `global.amqp` | Legacy AMQP URL, hidden today | Remove from visible schema; keep only migration tolerance | The monolith intentionally has no AMQP or GarageMQ internal path. |
+| `global.blacklist` | GUI-visible but not parsed/effective | Implement as advanced RPC ACL | Needed for public-facing RPC hardening; not needed for simple local-only operation. |
+| `global.whitelist` | GUI-visible but not parsed/effective | Implement as advanced RPC ACL | Same security surface as blacklist; whitelist must win over blacklist when set. |
+| `block_store.basedir` | GUI-visible but ignored | Remove from UI | Monolith stores block data in shared `BASEDIR/db` RocksDB column families. |
+| `transaction_store.basedir` | GUI-visible but ignored | Remove from UI | Monolith transaction index is a shared RocksDB column family. |
+| `contract_meta_store.basedir` | GUI-visible but ignored | Remove from UI | Monolith contract metadata index is a shared RocksDB column family. |
+| `account_history.basedir` | GUI-visible but ignored | Remove from UI | Monolith account history index is a shared RocksDB column family. |
+| `p2p.peer-exchange` | GUI-visible but not parsed | Remove or replace with existing discovery controls | Current monolith equivalent is `peer-discovery` plus candidate acquisition settings. |
+| `p2p.checkpoint` | GUI-visible but not parsed | Implement as advanced P2P safety setting | Legacy Go p2p used checkpoints to reject peers not on the configured chain. |
+| `p2p.seed` | GUI says identity seed, parser treats it as peer list | Fix schema and parser semantics | Legacy Koinos uses `p2p.seed` as deterministic peer identity seed; seed peers belong in `p2p.peer`. |
+| `block_producer.pob-contract-id` | Schema-only/no parser | Do not expose in normal UI | Mainnet/testnet producer resolves `pob` from on-chain name service. A private-chain override can be a future debug-only setting. |
+| `block_producer.vhp-contract-id` | Schema-only/no parser | Do not expose in normal UI | Same as PoB contract override. |
+
+**Implementation phases:**
+
+1. **Renderer schema cleanup - no backend behavior change**
+   - Remove or hide no-op fields from `src/app/koinos-config-schema.ts`: store-specific `*.basedir`, `p2p.peer-exchange`, and producer PoB/VHP contract overrides.
+   - Keep feature flags for `contract_meta_store`, `transaction_store`, and `account_history`; only remove their per-service data-directory fields.
+   - Remove empty sections from the rendered config panel so the user does not see tabs/accordions with no effective fields.
+   - Update `src/i18n.ts` labels/help to remove stale AMQP/MQ/service-directory language from the visible surface.
+   - Preserve unknown keys already present in `config.yml` on save; the cleanup must stop writing no-op fields, not destructively rewrite existing user config.
+   - Add a small config-schema unit test that fails if a field marked visible has no corresponding parser/effectiveness classification.
+
+2. **Config diagnostics before deletion**
+   - Add a non-blocking "Ignored legacy settings" diagnostic in the advanced Node Settings panel if an existing config contains no-op keys such as `global.amqp`, store `basedir`, `p2p.peer-exchange`, or old producer contract overrides.
+   - The diagnostic should explain that these keys are ignored by the monolith and offer a later cleanup action only after the user confirms.
+   - Do not automatically delete ignored keys in the first release; this avoids surprising users who reuse the same basedir with legacy tooling.
+
+3. **Fix `p2p.seed` semantics**
+   - Update `NodeConfig` with a dedicated deterministic P2P identity field. Preferred naming is `p2p.identity-seed` for explicit monolith config, while accepting legacy string `p2p.seed` as an alias.
+   - Keep `p2p.peer` as the only GUI field for seed/static peer multiaddresses.
+   - For backward compatibility, if `p2p.seed` is already a YAML sequence in an experimental config, log a deprecation warning and treat it as extra peer addresses for one release cycle.
+   - Wire the deterministic identity into `Libp2pTransport::Config`. The transport already has an `identity_key_path` placeholder; the implementation must either generate a deterministic identity from the configured seed or persist the generated identity key under `BASEDIR/p2p`.
+   - Add a transport/unit test that two starts with the same identity seed produce the same peer ID, and two starts without a seed preserve or intentionally rotate identity according to the chosen storage policy.
+   - Keep the identity field advanced-only; simple operators normally do not need stable public seed identity.
+
+4. **Implement configured P2P checkpoints**
+   - Add a parsed checkpoint structure to `NodeConfig` and `P2POptions`, using `height:block_id` strings from `p2p.checkpoint`.
+   - Accept hex block IDs with optional `0x`; consider accepting Koinos JSON/base64url IDs if the current block ID utilities make that safe.
+   - Validate configured checkpoints at startup and fail fast on malformed values with a clear `[p2p]` or `[config]` error.
+   - During peer handshake, after chain ID and remote head are known, ask the peer for each checkpoint ancestor and reject/score the peer if it does not contain the configured block.
+   - Avoid false faults for peers behind the checkpoint: classify them as unusable for this node until they catch up rather than as malicious, unless legacy behavior proves otherwise in comparison.
+   - Add focused C++ tests for matching checkpoint, mismatched checkpoint, malformed config, and peer-behind-checkpoint behavior.
+   - Add one isolated live/testnet smoke with no checkpoints configured to prove default behavior is unchanged.
+
+5. **Implement RPC whitelist/blacklist**
+   - Add `global.blacklist` and `global.whitelist` parsing to `NodeConfig` as canonical RPC target strings such as `chain.get_head_info` or whole-service names such as `block_store`.
+   - Introduce a shared `RpcAccessPolicy` helper used by JSON-RPC first, and by gRPC if the policy can map generated method names to the same `service.method` targets cleanly.
+   - Policy rules: if whitelist is non-empty, only whitelisted targets are allowed; otherwise all targets are allowed except blacklisted targets. Exact method entries override service-level entries only when this is explicitly documented and tested.
+   - Keep HTTP health/CORS/options handling outside the policy; enforce only actual RPC method dispatch.
+   - Return deterministic JSON-RPC errors for blocked methods, with a message that does not leak private config beyond the target being denied.
+   - Add tests for service-level blacklist, method-level blacklist, whitelist-only mode, whitelist precedence, malformed method names, and disabled optional service interaction.
+   - Add an advanced UI warning when the user binds JSON-RPC or gRPC to `0.0.0.0` without any ACL configured.
+
+6. **Re-expose only effective advanced settings**
+   - Reintroduce `p2p.checkpoint`, deterministic identity, and RPC ACL fields in the advanced panel only after the backend implementation and tests land.
+   - Add missing effective advanced fields that are already parsed but absent from the UI: `chain.jobs`, `p2p.jobs`, `p2p.seed-reconnect-interval-seconds`, `jsonrpc.jobs`, `grpc.jobs`, and selected `rocksdb.*` tuning fields.
+   - Keep dangerous fields behind existing advanced/danger confirmation, especially public listen addresses, reset, core feature disabling, and checkpoint edits.
+   - Keep producer identity/wallet setup in the Producer tab; do not make users edit producer keys or producer address in raw config unless Advanced producer mode is enabled.
+
+**Implementation status - 2026-06-05:**
+- Implemented renderer cleanup for Node Settings: store-specific `*.basedir`, `p2p.peer-exchange`, and producer PoB/VHP override fields are no longer visible; existing unknown/legacy keys are preserved on save.
+- Added advanced diagnostics for ignored legacy keys and a public-RPC-without-ACL warning.
+- Added effective advanced fields for `chain.jobs`, P2P peer-acquisition tuning, `jsonrpc.jobs`, `grpc.jobs`, and selected `rocksdb.*` tuning.
+- Implemented `global.blacklist`/`global.whitelist` parsing and JSON-RPC enforcement. Whitelist mode wins when configured.
+- Implemented `p2p.checkpoint` parsing and P2P handshake enforcement, including non-malicious handling for peers behind a configured checkpoint.
+- Added focused renderer, config-parser, RPC policy, and P2P checkpoint tests.
+- Deferred deterministic P2P identity runtime support: `p2p.identity-seed` and legacy scalar `p2p.seed` are parsed/reserved, but the GUI field remains hidden until cpp-libp2p identity key persistence is wired and tested.
+- Deferred gRPC ACL enforcement pending a generated-method-to-`service.method` mapping audit; the UI warning covers public gRPC binds for now.
+
+**Implementation status - 2026-06-09:**
+- Network selection is now a first-class koinosGUI setting. Mainnet and testnet have separate default base dirs, local listen ports, public RPC lists, presets, and explorer source defaults.
+- Presets are filtered by the selected network: mainnet users see mainnet observer/full-node/producer choices, and testnet users see testnet observer/full-node/producer choices. Applying a preset from another network switches to that network's default base dir.
+- Settings has a dirty-state guard. `Save Settings` is disabled until there are changes, becomes visually prominent when changes exist, and blocks navigation out of Settings until the user saves or resets.
+- The Node panel now models one monolithic node instead of a list of microservices. It shows the process, JSON-RPC, P2P, runtime preset, base dir, repository, external-process/lock conflicts, and only optional components: JSON-RPC, gRPC, block producer, contract meta store, transaction store, and account history.
+- koinosGUI detects external native processes and RocksDB lock holders for the same `BASEDIR` before starting the node. This prevents a second node from opening the same RocksDB database and surfaces the owning PIDs in the UI.
+- Wallet UI is network-aware: the native token label is `KOIN` on mainnet and `vKOIN` on testnet, and wallet/producer flows use the selected network RPC source.
+- The testnet producer process used for earlier live validation was later stopped intentionally during manual operations. That changes the local machine runtime state, not the historical validation result.
+
+**Validation gates:**
+- Renderer/unit: `npm test -- src/app/koinos-config-schema.test.ts src/components/panels/MicroservicesConfigPanel.test.ts` or equivalent focused tests.
+- Electron build: `npm run build:electron`.
+- Renderer build: `npm run build:renderer`.
+- C++ parser/P2P/RPC: build `koinos_node` plus focused config, P2P, and JSON-RPC tests through CMake/CTest.
+- Config preservation: save a config containing ignored legacy keys and verify unknown keys are preserved unless the explicit cleanup action is used.
+- Isolated node smoke: start a temporary non-producing node with JSON-RPC enabled and P2P disabled for ACL tests; start a second temporary node with P2P enabled and no checkpoints to prove default networking still starts.
+- Mainnet/testnet safety: do not restart the live producer for this work unless explicitly requested; use temporary basedirs and high private ports.
+
+**Exit criteria:**
+- No visible Node Settings field is a silent no-op.
+- Any ignored legacy key is either hidden with a diagnostic or implemented with tests.
+- `p2p.seed` no longer has ambiguous meaning in the GUI.
+- `p2p.checkpoint` works when configured and leaves default sync behavior unchanged when absent.
+- Public RPC operators can configure whitelist/blacklist before binding to a public interface.
+- The Simple operator mode shows only presets, basedir, backup/restore, and safe runtime controls; protocol and exposure controls remain behind Advanced mode.
+
+**Sprint 6 deliverable:** koinosGUI with a release-ready monolith operator flow and a signed-off non-producing mainnet observer path. Mainnet block production remains a separate opt-in production decision, not an automatic release gate.
+
+---
+
+## Storage Finalization Addendum
+
+The production roadmap now has an explicit storage-finalization track after the functional monolith and mainnet/testnet validation work. The current runtime is not yet the final one-database layout: `BASEDIR/db` contains the shared monolith block/index database, while the chain controller still opens a separate RocksDB database at `BASEDIR/chain/blockchain`.
+
+**2026-06-09 status:** The restored external mainnet basedir at `/Volumes/external/knodel-monolith-restore/basedir` has been cleaned for monolith use. Obsolete legacy directories such as `block_store/`, `account_history/`, `transaction_store/`, and `contract_meta_store/` were removed after confirming the monolith uses shared RocksDB column families for those stores. The remaining required runtime state is `db/`, `chain/blockchain/`, `chain/genesis_data.json`, `jsonrpc/descriptors/`, and `config.yml`. This cleanup reduced the basedir to the current two-DB monolith layout, not the final one-DB layout.
+
+This track must be completed before the final online backup/restore design:
+
+1. **Unified RocksDB layout**
+   - Audit all chain-state read/write paths still using `chain/blockchain`.
+   - Design chain-state column families or layout markers inside `BASEDIR/db`.
+   - Preserve `koinos_state_db` fork-tree, state-root, LIB, and head semantics.
+   - Add safe boot-time detection for legacy/two-DB, unified, mixed, and partially migrated layouts.
+
+2. **Offline chain-state migration**
+   - Build a migration tool that copies `chain/blockchain` into the shared `db` layout.
+   - Write migration manifests, checksums, source/target metadata, and layout version markers.
+   - Keep the original `chain/blockchain` source untouched until verification passes.
+   - Do not auto-mutate populated mainnet basedirs without explicit user confirmation.
+
+3. **Validation gates**
+   - Validate migrated restored-mainnet data by comparing head, LIB, head block ID, state merkle root, and block time.
+   - Start from migrated data and apply additional blocks as an observer.
+   - Run live testnet observer and producer canaries before deprecating the old layout.
+   - Avoid any mutating mainnet producer validation.
+
+4. **Online checkpoint backup**
+   - Implement RocksDB checkpoint backup only after the unified layout is validated.
+   - Checkpoint the node-owned shared RocksDB handle from inside `koinos_node`.
+   - Archive checkpoint data with manifest, config, genesis, and descriptors.
+   - Exclude wallets, secure storage, producer private keys, logs, and legacy microservice directories.
+
+The separate implementation plan for the final backup path is `docs/roadmap/monolith/backup-restore/ONLINE_ROCKSDB_CHECKPOINT_BACKUP_PLAN.md`.
 
 ---
 
@@ -489,13 +627,15 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 
 | Sprint | Duración | Objetivo |
 |--------|----------|----------|
-| Sprint 1 | 1-2 semanas | Nodo local con backup restore + Knodel |
+| Sprint 1 | 1-2 semanas | Nodo local con backup restore + koinosGUI |
 | Sprint 2 | 1 semana | Block producer en testnet |
 | Sprint 3 | 2-3 semanas | P2P sync con mainnet |
 | Sprint 4 | 1 semana | Data migration + gRPC + legacy integration regressions |
 | Sprint 5 | 2 semanas | Performance + hardening |
 | Sprint 6 | 1 semana | Mainnet deployment |
-| **Total** | **8-10 semanas** | **Producción completa** |
+| Sprint 7 | 2-4 semanas | Unified RocksDB layout + chain-state migration |
+| Sprint 8 | 1-2 semanas | Online checkpoint backup + restore |
+| **Total** | **11-16 semanas** | **Functional production node plus finalized storage/backup layout** |
 
 ---
 
@@ -503,11 +643,13 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 
 | Riesgo | Impacto | Mitigación |
 |--------|---------|------------|
-| Build libp2p no es reproducible desde Knodel | Usuarios no pueden probar monolito local | Convertir el build temporal en flags CMake documentadas + integración en `monolithBuildDefinition()` |
+| Build libp2p no es reproducible desde koinosGUI | Usuarios no pueden probar monolito local | Convertir el build temporal en flags CMake documentadas + integración en `monolithBuildDefinition()` |
 | cpp-libp2p tiene bugs runtime | Sprint 3 bloqueado aunque compile | Soak tests, fallback temporal a Go P2P sidecar via IPC local |
 | gorpc framing incompatible | Peers rechazan el nodo | Wire traces + fixtures binarios + test harness con Go peer + C++ peer lado a lado |
 | Peer RPC responde pero payload struct difiere | Sync falla al parsear respuestas | Validar structs Go exactos: multihash, heights, `[][]byte` para blocks |
 | RocksDB corruption durante migración | Pérdida de datos | Mantener Badger DB como backup hasta verificación completa |
+| Chain-state migration corruption | Pérdida o divergencia de estado consensus-critical | Migración offline con manifiestos, checksums, layout markers, retención de `chain/blockchain`, validación mainnet/testnet y rollback |
+| Online checkpoint inconsistente | Restore arranca con estado parcialmente aplicado | Ejecutar checkpoint solo tras layout unificado, con guard de writes y restore smoke opcional |
 | Xcode/toolchain incompatibilidad | Build roto | Usar CI con Xcode estable (16/17), no beta |
 | Memory leaks en operación prolongada | Crash después de horas/días | ASAN/TSAN durante desarrollo, 48h soak tests |
 | Performance no alcanza targets | Justificación del proyecto débil | Profile hot paths con `perf`/Instruments, optimizar bottlenecks |

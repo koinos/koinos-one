@@ -15,6 +15,7 @@ import {
   KNODEL_PUBLIC_RPCS_FILE,
   KNODEL_SECURE_STORAGE_DIR
 } from './constants'
+import { normalizeKoinosNetworkId, publicRpcUrlsForNetwork, type KoinosNetworkId } from './network-profiles'
 import type {
   KnodelEncryptedSecret,
   KnodelEncryptedWallet,
@@ -29,13 +30,17 @@ import { sanitizePublicRpcUrls } from './node-paths'
 import { deriveWalletAccountFromPath, parseWalletDerivationIndex, walletDerivationPath } from './wallet-accounts'
 
 type PublicRpcConfigInput = {
+  network?: KoinosNetworkId
   publicRpcUrls?: string[]
+  publicRpcUrlsByNetwork?: Partial<Record<KoinosNetworkId, string[]>>
 }
 
 type PublicRpcConfigResult = {
   ok: boolean
   output: string
+  network?: KoinosNetworkId
   publicRpcUrls: string[]
+  publicRpcUrlsByNetwork?: Partial<Record<KoinosNetworkId, string[]>>
 }
 
 type WalletAccountSecrets = {
@@ -47,6 +52,58 @@ type WalletAccountSecrets = {
   privateKeyWif: string | null
   derivationPath: string | null
   seedPhrase: string | null
+}
+
+type PublicRpcUrlsByNetwork = Record<KoinosNetworkId, string[]>
+
+const PUBLIC_RPC_NETWORKS: KoinosNetworkId[] = ['mainnet', 'testnet', 'custom']
+
+function defaultPublicRpcUrlsByNetwork(): PublicRpcUrlsByNetwork {
+  return {
+    mainnet: publicRpcUrlsForNetwork('mainnet'),
+    testnet: publicRpcUrlsForNetwork('testnet'),
+    custom: publicRpcUrlsForNetwork('custom')
+  }
+}
+
+function sanitizePublicRpcUrlsForNetwork(value: unknown, network: KoinosNetworkId): string[] {
+  return sanitizePublicRpcUrls(value, publicRpcUrlsForNetwork(network))
+}
+
+function inferLegacyPublicRpcNetwork(publicRpcUrls: string[]): KoinosNetworkId {
+  const hasTestnetUrl = publicRpcUrls.some((url) => /testnet/i.test(url))
+  const hasMainnetUrl = publicRpcUrls.some((url) => /api\.koinos\.io|api\.koinosblocks\.com/i.test(url))
+  return hasTestnetUrl && !hasMainnetUrl ? 'testnet' : 'mainnet'
+}
+
+function normalizePublicRpcConfig(input?: PublicRpcConfigInput): {
+  network: KoinosNetworkId
+  publicRpcUrls: string[]
+  publicRpcUrlsByNetwork: PublicRpcUrlsByNetwork
+} {
+  const network = normalizeKoinosNetworkId(input?.network)
+  const publicRpcUrlsByNetwork = defaultPublicRpcUrlsByNetwork()
+  const rawByNetwork = input?.publicRpcUrlsByNetwork
+
+  if (rawByNetwork && typeof rawByNetwork === 'object') {
+    for (const networkId of PUBLIC_RPC_NETWORKS) {
+      if (Object.prototype.hasOwnProperty.call(rawByNetwork, networkId)) {
+        publicRpcUrlsByNetwork[networkId] = sanitizePublicRpcUrlsForNetwork(rawByNetwork[networkId], networkId)
+      }
+    }
+  }
+
+  if (Array.isArray(input?.publicRpcUrls)) {
+    const legacyPublicRpcUrls = sanitizePublicRpcUrls(input.publicRpcUrls, publicRpcUrlsForNetwork(network))
+    const targetNetwork = rawByNetwork && typeof rawByNetwork === 'object' ? network : inferLegacyPublicRpcNetwork(legacyPublicRpcUrls)
+    publicRpcUrlsByNetwork[targetNetwork] = legacyPublicRpcUrls
+  }
+
+  return {
+    network,
+    publicRpcUrls: publicRpcUrlsByNetwork[network],
+    publicRpcUrlsByNetwork
+  }
 }
 
 function secureStoragePath(userDataPath: string, ...parts: string[]): string {
@@ -338,47 +395,82 @@ export function createKnodelStorage(userDataPath: string) {
   const loadPublicRpcConfig = (): PublicRpcConfigResult => {
     const filePath = publicRpcsFilePath()
     if (!fs.existsSync(filePath)) {
+      const defaults = normalizePublicRpcConfig()
       return {
         ok: true,
         output: `Using default public RPC list (${DEFAULT_PUBLIC_RPC_URLS.length} entries)`,
-        publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS]
+        network: defaults.network,
+        publicRpcUrls: defaults.publicRpcUrls,
+        publicRpcUrlsByNetwork: defaults.publicRpcUrlsByNetwork
       }
     }
 
     try {
       const raw = fs.readFileSync(filePath, 'utf8')
       const parsed = JSON.parse(raw) as PublicRpcConfigInput
-      const publicRpcUrls = sanitizePublicRpcUrls(parsed.publicRpcUrls)
+      const normalized = normalizePublicRpcConfig(parsed)
       return {
         ok: true,
-        output: `Loaded ${publicRpcUrls.length} public RPC URLs from ${filePath}`,
-        publicRpcUrls
+        output: `Loaded ${normalized.publicRpcUrls.length} public RPC URLs from ${filePath}`,
+        network: normalized.network,
+        publicRpcUrls: normalized.publicRpcUrls,
+        publicRpcUrlsByNetwork: normalized.publicRpcUrlsByNetwork
       }
     } catch (error) {
+      const defaults = normalizePublicRpcConfig()
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not read public RPC config',
-        publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS]
+        network: defaults.network,
+        publicRpcUrls: defaults.publicRpcUrls,
+        publicRpcUrlsByNetwork: defaults.publicRpcUrlsByNetwork
       }
     }
   }
 
   const savePublicRpcConfig = (input?: PublicRpcConfigInput): PublicRpcConfigResult => {
     try {
-      const publicRpcUrls = sanitizePublicRpcUrls(input?.publicRpcUrls)
       ensureConfigDir()
       const filePath = publicRpcsFilePath()
-      fs.writeFileSync(filePath, JSON.stringify({ publicRpcUrls }, null, 2))
+      const existing = fs.existsSync(filePath) ? loadPublicRpcConfig() : normalizePublicRpcConfig()
+      const publicRpcUrlsByNetwork = {
+        ...defaultPublicRpcUrlsByNetwork(),
+        ...normalizePublicRpcConfig(existing).publicRpcUrlsByNetwork
+      }
+      const network = normalizeKoinosNetworkId(input?.network ?? existing.network)
+
+      if (input?.publicRpcUrlsByNetwork && typeof input.publicRpcUrlsByNetwork === 'object') {
+        for (const networkId of PUBLIC_RPC_NETWORKS) {
+          if (Object.prototype.hasOwnProperty.call(input.publicRpcUrlsByNetwork, networkId)) {
+            publicRpcUrlsByNetwork[networkId] = sanitizePublicRpcUrlsForNetwork(
+              input.publicRpcUrlsByNetwork[networkId],
+              networkId
+            )
+          }
+        }
+      }
+
+      if (Array.isArray(input?.publicRpcUrls)) {
+        publicRpcUrlsByNetwork[network] = sanitizePublicRpcUrlsForNetwork(input.publicRpcUrls, network)
+      }
+
+      const publicRpcUrls = publicRpcUrlsByNetwork[network]
+      fs.writeFileSync(filePath, JSON.stringify({ network, publicRpcUrls, publicRpcUrlsByNetwork }, null, 2))
       return {
         ok: true,
         output: `Saved ${publicRpcUrls.length} public RPC URLs to ${filePath}`,
-        publicRpcUrls
+        network,
+        publicRpcUrls,
+        publicRpcUrlsByNetwork
       }
     } catch (error) {
+      const defaults = normalizePublicRpcConfig()
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not save public RPC config',
-        publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS]
+        network: defaults.network,
+        publicRpcUrls: defaults.publicRpcUrls,
+        publicRpcUrlsByNetwork: defaults.publicRpcUrlsByNetwork
       }
     }
   }

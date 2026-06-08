@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { NODE_NETWORK_BASEDIRS_STORAGE_KEY, NODE_SETTINGS_STORAGE_KEY } from './constants'
 import {
+  defaultNodeBaseDirForNetwork,
+  defaultNodeProfilesForNetwork,
   expandNodeProfiles,
   filterBlocksByProducer,
   formatBytes,
   formatCpuPercent,
   formatDurationSeconds,
+  loadInitialNodeSettings,
   mapBlockItem,
   normalizeBackupTarGzUrl,
   normalizeDashboardProducerWindowBlocks,
@@ -13,14 +17,39 @@ import {
   normalizeNodeBaseDirInput,
   parseAnsiTextSegments,
   parsePublicRpcUrlsInput,
+  resolveNodeBaseDirForNetwork,
   resolveLocalNodeRpcUrl,
   resolveNodeFileDisplayPath,
   resolveProducerRpcUrl,
   sanitizeStoredPublicRpcUrls,
   sameProfiles,
   sameStringList,
+  storeNodeBaseDirForNetwork,
   tryNormalizeHttpUrl
 } from './utils'
+
+function withMockLocalStorage(run: (store: Map<string, string>) => void): void {
+  const previousWindow = (globalThis as { window?: unknown }).window
+  const store = new Map<string, string>()
+  ;(globalThis as { window?: unknown }).window = {
+    localStorage: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value)
+      }
+    }
+  }
+
+  try {
+    run(store)
+  } finally {
+    if (previousWindow === undefined) {
+      Reflect.deleteProperty(globalThis, 'window')
+    } else {
+      ;(globalThis as { window?: unknown }).window = previousWindow
+    }
+  }
+}
 
 describe('URL normalization', () => {
   it('normalizes and deduplicates stored public RPC URLs', () => {
@@ -86,6 +115,63 @@ describe('node path and state helpers', () => {
     expect(normalizeNodeBaseDirInput('~/data')).toBe('~/data/.koinos')
     expect(normalizeNodeBaseDirInput('~/data/.koinos/')).toBe('~/data/.koinos')
     expect(normalizeNodeBaseDirInput('~/.koinosgui/')).toBe('~/.koinosgui')
+  })
+
+  it('stores and resolves node base dirs independently per network', () => {
+    withMockLocalStorage(() => {
+      storeNodeBaseDirForNetwork('testnet', '/Volumes/external/knodel-testnet-producer/basedir')
+
+      expect(resolveNodeBaseDirForNetwork('testnet')).toBe('/Volumes/external/knodel-testnet-producer/basedir')
+      expect(resolveNodeBaseDirForNetwork('mainnet')).toBe(defaultNodeBaseDirForNetwork('mainnet'))
+    })
+  })
+
+  it('does not store a known testnet base dir as the mainnet base dir', () => {
+    withMockLocalStorage(() => {
+      const testnetBaseDir = '/Volumes/external/knodel-testnet-producer/basedir'
+
+      storeNodeBaseDirForNetwork('testnet', testnetBaseDir)
+      storeNodeBaseDirForNetwork('mainnet', testnetBaseDir)
+
+      expect(resolveNodeBaseDirForNetwork('testnet')).toBe(testnetBaseDir)
+      expect(resolveNodeBaseDirForNetwork('mainnet')).toBe(defaultNodeBaseDirForNetwork('mainnet'))
+    })
+  })
+
+  it('recovers from a stale mainnet cache entry that points at a testnet base dir', () => {
+    withMockLocalStorage((store) => {
+      store.set(
+        NODE_NETWORK_BASEDIRS_STORAGE_KEY,
+        JSON.stringify({ mainnet: '/Volumes/external/knodel-testnet-producer/basedir' })
+      )
+
+      expect(resolveNodeBaseDirForNetwork('mainnet')).toBe(defaultNodeBaseDirForNetwork('mainnet'))
+    })
+  })
+
+  it('reconciles stored node settings when the mainnet base dir points at testnet data', () => {
+    withMockLocalStorage((store) => {
+      store.set(
+        NODE_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          network: 'mainnet',
+          repoPath: '/tmp/koinos',
+          baseDir: '/Volumes/external/knodel-testnet-producer/basedir',
+          profiles: 'mainnet_observer',
+          blockchainBackupUrl: 'https://example.com/backup.tar.gz'
+        })
+      )
+
+      expect(loadInitialNodeSettings()).toMatchObject({
+        network: 'mainnet',
+        baseDir: defaultNodeBaseDirForNetwork('mainnet')
+      })
+    })
+  })
+
+  it('uses network-specific default node profiles', () => {
+    expect(defaultNodeProfilesForNetwork('mainnet')).toBe('mainnet_observer')
+    expect(defaultNodeProfilesForNetwork('testnet')).toBe('testnet_observer')
   })
 
   it('resolves relative managed file paths against repo path', () => {

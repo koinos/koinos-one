@@ -32,7 +32,12 @@
     "test:backend": "node --test backend/test/*.test.js",
     "submodules:init": "git submodule update --init --recursive",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:ui": "playwright test tests/ui/node-settings.spec.ts",
+    "test:ui:headed": "playwright test tests/ui/node-settings.spec.ts --headed",
+    "test:ui:update": "playwright test tests/ui/node-settings.spec.ts --update-snapshots",
+    "test:ui:report": "playwright show-report",
+    "test:ui:electron": "npm run build && cross-env KOINOSGUI_PLAYWRIGHT_ELECTRON=1 playwright test --config=playwright.electron.config.ts tests/ui/electron-smoke.spec.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
@@ -44,6 +49,7 @@
     "yaml": "^2.8.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

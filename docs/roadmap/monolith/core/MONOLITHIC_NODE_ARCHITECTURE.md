@@ -409,7 +409,7 @@ Background io_context (1-2 threads)
 
 ### Single RocksDB Instance with Column Families
 
-**Current state:**
+**Legacy source state:**
 | Component | Database | Location | Size |
 |---|---|---|---|
 | Chain state | RocksDB | `{basedir}/chain/blockchain/` | ~1 GB |
@@ -444,6 +444,8 @@ Background io_context (1-2 threads)
 
 **Integration with koinos_state_db:** The existing chain state_db library wraps RocksDB with fork-tree support. Pass the same `rocksdb::DB*` instance — state_db uses its own column families, other stores use additional CFs.
 
+**Current implementation checkpoint:** The monolith is partially consolidated, not fully consolidated. Block-store and optional index data now live in `BASEDIR/db`, but the chain controller still opens a second RocksDB instance at `BASEDIR/chain/blockchain`. This keeps the initial migration compatible with the existing `koinos_state_db` path, but it means online checkpoint backup, restore, and operator documentation must still treat storage as a two-database layout until the chain-state migration phase is complete.
+
 **Data directory layout:**
 
 ```
@@ -457,6 +459,8 @@ Background io_context (1-2 threads)
 ```
 
 **Migration tool:** One-time script to import existing Badger DB block data into RocksDB. Run offline with checksum verification. Keep Badger DB as backup until verified.
+
+**Final layout migration:** A second migration phase is required after the Badger block-store import: move chain state from `chain/blockchain` into the shared `db` RocksDB layout. This must be handled separately because chain state is consensus-critical and uses fork-tree/state-root semantics from `koinos_state_db`.
 
 ---
 
@@ -1082,6 +1086,62 @@ function filterLogsByComponent(logs: string, component: string): string {
 6. Load test P2P with many concurrent connections
 7. Memory profiling — target 2x reduction
 
+### Phase 9: Unified RocksDB Layout and Chain State Migration (2-4 weeks)
+
+**Goal:** Finish storage consolidation by moving chain state out of `BASEDIR/chain/blockchain` and into the shared `BASEDIR/db` RocksDB layout.
+
+This phase is required before the final online checkpoint backup design can be considered complete. The current runtime has two RocksDB databases: the shared monolith database at `BASEDIR/db` and the chain controller database at `BASEDIR/chain/blockchain`. A single-node monolith should eventually have one durable blockchain-state database, one lock surface, one checkpoint target, and one restore layout.
+
+1. Audit all chain-state ownership:
+   - identify every read/write path that still opens `chain/blockchain`
+   - identify the exact column-family and fork-tree expectations of `koinos_state_db`
+   - document which block-application writes must be atomic with block-store and index writes
+2. Design the target shared-DB schema:
+   - add dedicated chain-state column families if needed rather than overloading `default`
+   - preserve state-root, fork-tree, LIB, head, and irreversible-state semantics
+   - define a layout version marker in `BASEDIR/db`
+3. Implement boot-time layout detection:
+   - detect legacy/two-DB layout
+   - detect unified layout
+   - fail safely on mixed or partially migrated layouts
+   - never auto-mutate a populated mainnet basedir without explicit user confirmation
+4. Build an offline migration tool:
+   - copy `chain/blockchain` state into the target shared DB layout
+   - write migration manifests, checksums, source/target metadata, and layout version
+   - keep the original `chain/blockchain` directory untouched until verification passes
+5. Add rollback support:
+   - allow the node to start from the original two-DB layout if migration verification fails
+   - prevent the GUI from deleting old chain state until the migrated node passes validation
+6. Validate with restored mainnet and testnet data:
+   - compare `chain.get_head_info`, LIB, head block ID, state merkle root, and block time
+   - verify block-store highest block and chain head alignment
+   - run `verify-blocks`/reindex-style smoke where applicable
+   - run observer catch-up after migration to prove new blocks apply correctly
+7. Validate producer behavior:
+   - start a non-producing observer first
+   - only then run a testnet producer canary
+   - do not perform any mutating mainnet producer operation during validation
+8. Update GUI and operator docs:
+   - show the detected storage layout
+   - warn before migrating large external-SSD datasets
+   - remove `chain/blockchain` from the required final backup layout
+
+**Verification:** A restored mainnet basedir migrates offline, starts from the unified layout, reports the same head/LIB/state summary as the source layout, catches up additional blocks, and leaves no dependency on `BASEDIR/chain/blockchain` except rollback. A live testnet observer and producer canary pass with the unified layout.
+
+### Phase 10: Online Checkpoint Backup and Restore (1-2 weeks)
+
+**Goal:** Implement online backup using RocksDB checkpoints against the final unified storage layout.
+
+1. Add a private local admin control channel for managed GUI operations.
+2. Add a node-side checkpoint manager with access to the open shared RocksDB handle.
+3. Add an application-level write guard so checkpoints do not catch multi-step block application midway.
+4. Create same-volume checkpoint workspaces under `BASEDIR/.koinosgui-checkpoints/`.
+5. Archive checkpoint data plus `config.yml`, `chain/genesis_data.json`, descriptors, and a versioned manifest.
+6. Exclude wallets, secure storage, producer private keys, logs, and legacy microservice directories.
+7. Add GUI backup/restore flows, storage estimates, warnings for live producer mode, and optional restore smoke verification.
+
+**Verification:** A running observer can produce a checkpoint backup without stopping the node, restore it into a clean basedir, start from the restored state, and continue syncing. Producer-mode backup is validated first on testnet only.
+
 ---
 
 ## 17. Risk Assessment
@@ -1092,7 +1152,7 @@ function filterLogsByComponent(logs: string, component: string): string {
 
 2. **cpp-libp2p maturity.** Less battle-tested than go-libp2p. NAT traversal, relay, and hole-punching may differ. **Mitigation:** Extensive testing on various network configs. Could temporarily run Go P2P binary alongside monolith during transition via a thin local protocol.
 
-3. **State database corruption during migration.** Badger DB → RocksDB conversion risks data loss. **Mitigation:** Offline migration tool with checksum verification. Keep Badger DB as backup.
+3. **State database corruption during migration.** Badger DB → RocksDB conversion and the later `chain/blockchain` → shared-DB migration both risk data loss. **Mitigation:** Offline migration tools with checksum verification, layout manifests, source-directory retention, and rollback support until validation passes.
 
 ### Medium Risk
 
@@ -1219,6 +1279,8 @@ function filterLogsByComponent(logs: string, component: string): string {
 | Phase 6: gRPC + Account History | AsyncGenericService + address history indexer | **DONE** | `grpc_server/`, `account_history/`, 6 RocksDB CFs |
 | Phase 7: Knodel Integration | Electron app adaptation | **DONE** | Types, IPC, UI, i18n, mode detection, process mgmt, log filtering |
 | Phase 8: Performance Validation | Benchmarks, tuning, optimization | **PENDING** | See remaining work below |
+| Phase 9: Unified RocksDB Layout | Move chain state from `chain/blockchain` into shared `db` | **PENDING** | Required before final one-DB checkpoint backup |
+| Phase 10: Online Checkpoint Backup | Live RocksDB checkpoint backup + restore | **PENDING** | Depends on Phase 9 unified layout |
 
 ### What Works Now
 
@@ -1227,7 +1289,7 @@ function filterLogsByComponent(logs: string, component: string): string {
 - Chain ID calculated: `0x1220592bf18654fd07fdf5d500cde3e8402ecf7f81fa5dde8f14527b08bba8805f48`
 - JSON-RPC serves 21 methods on port 8080 (chain, block_store, mempool, contract_meta, tx_store, account_history)
 - gRPC serves chain/block_store/mempool via AsyncGenericService on port 50051
-- RocksDB with 6 column families
+- RocksDB with 6 monolith column families in `BASEDIR/db`, plus a separate chain-state RocksDB at `BASEDIR/chain/blockchain` until Phase 9 completes
 - EventBus connects all services (block_accepted, block_irreversible, transaction events)
 - Chain indexer syncs from block_store on startup
 - Block producer loop (optional, 3s interval)
@@ -1253,6 +1315,7 @@ function filterLogsByComponent(logs: string, component: string): string {
 | P2P sync from mainnet | High | Connect to seed peers, handshake, batch fetch 500 blocks, apply sequentially — full sync to chain head |
 | Indexer + MonolithRpcClient | Medium | Validate indexer handles edge cases: timeouts, partial block responses, block_store gaps |
 | Backup restore | Medium | Restore from `.tar.gz` backup, verify chain re-indexes correctly with `verify-blocks: true` |
+| Online checkpoint backup | High | After Phase 9, create live RocksDB checkpoint backups from the unified `BASEDIR/db` layout without stopping the node |
 
 #### 3. Block Producer
 
@@ -1284,9 +1347,30 @@ function filterLogsByComponent(logs: string, component: string): string {
 | Task | Priority | Description |
 |------|----------|-------------|
 | Badger → RocksDB tool | Medium | Create a Go utility that reads existing `block_store/db/` (Badger) and writes to RocksDB `blocks` + `block_meta` column families, preserving skip-list pointers |
-| Chain state_db | Low | Already RocksDB — can be reused directly (just needs path mapping) |
+| Chain state_db unified layout | High | Current runtime still opens `BASEDIR/chain/blockchain`; migrate it into the shared `BASEDIR/db` layout with explicit detection, verification, and rollback |
 | Checksum verification | Medium | Verify imported data integrity with SHA-256 checksums |
-| Rollback support | Low | Keep Badger DB as backup until verification passes |
+| Rollback support | High | Keep both the legacy Badger source and original `chain/blockchain` source until verification passes |
+
+#### 6.1 Unified Storage Layout (Phase 9)
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Storage ownership audit | High | Enumerate every chain-state read/write path that still uses `chain/blockchain` and every shared-DB write path that must remain consistent with it |
+| Shared schema design | High | Define column families/layout versioning for chain state inside `BASEDIR/db` while preserving state-root and fork-tree behavior |
+| Offline migration tool | High | Copy chain-state data into the shared layout, write manifests/checksums, and leave the source directory untouched until verified |
+| Boot layout detection | High | Detect two-DB, unified, mixed, and partially migrated layouts; fail safely on ambiguous states |
+| Mainnet/testnet validation | High | Compare head/LIB/state summaries, apply additional blocks, and run observer/producer canaries before deprecating `chain/blockchain` |
+| GUI/operator docs | Medium | Surface storage layout in the GUI, warn before migration, and update backup/restore guidance |
+
+#### 6.2 Online Checkpoint Backup (Phase 10)
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Private admin channel | High | Add a loopback-only authenticated control surface for GUI-managed backup operations |
+| Checkpoint manager | High | Create RocksDB checkpoints from inside the node process using the open shared DB handle |
+| Write guard | High | Pause or fence state-changing writes long enough to create an application-consistent checkpoint |
+| Archive format | Medium | Archive checkpoint data with manifest, config, genesis, and descriptors; exclude wallets, keys, logs, and legacy service directories |
+| Restore flow | High | Restore into a clean basedir, verify manifest/network/layout, start the node, and continue syncing |
 
 #### 7. Performance (Phase 8)
 

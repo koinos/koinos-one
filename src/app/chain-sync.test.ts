@@ -7,7 +7,7 @@ import {
   AUTO_RESTART_P2P_MIN_NO_PEERS_CHECKS,
   VERIFY_BLOCKS_SYNC_THRESHOLD
 } from './constants'
-import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, parseIndexerProgress, shouldDisableVerifyBlocks, type AutoRestartState } from './chain-sync'
+import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, hasStateMerkleMismatch, parseIndexerProgress, shouldDisableVerifyBlocks, type AutoRestartState } from './chain-sync'
 
 function run(state: AutoRestartState, localHeight: number | null, publicHeight: number | null, now = 1000000) {
   return evaluateAutoRestart(state, { localHeight, publicHeight, now })
@@ -306,6 +306,16 @@ describe('shouldDisableVerifyBlocks', () => {
       publicHeight: 34636000,
       verifyBlocksEnabled: true
     })).toBe(true)
+  })
+})
+
+describe('hasStateMerkleMismatch', () => {
+  it('detects p2p state merkle mismatch rows', () => {
+    expect(hasStateMerkleMismatch('[p2p] Block application failed at height 36513229: block previous state merkle mismatch')).toBe(true)
+  })
+
+  it('ignores unrelated p2p warnings', () => {
+    expect(hasStateMerkleMismatch('[p2p] Failed to connect to peer: Operation timed out')).toBe(false)
   })
 })
 

@@ -1,10 +1,12 @@
 import type { ExplorerSettings, NodeManagerSettings } from './types'
+import { MAINNET_PUBLIC_RPC_URLS } from './network'
 
 export const SETTINGS_STORAGE_KEY = 'koinosgui.explorer.settings.v1'
 export const NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
+export const NODE_NETWORK_BASEDIRS_STORAGE_KEY = 'koinosgui.koinos-node.network-basedirs.v1'
 export const LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
 export const LOCAL_RPC_SOURCE = 'local'
-export const DEFAULT_PUBLIC_RPC_URLS = ['https://api.koinos.io/', 'https://api.koinosblocks.com/'] as const
+export const DEFAULT_PUBLIC_RPC_URLS = MAINNET_PUBLIC_RPC_URLS
 export const LOCAL_NODE_RPC_FALLBACK_URL = 'http://127.0.0.1:8080/'
 export const DASHBOARD_PRODUCER_WINDOW_BLOCKS_DEFAULT = 200
 export const DASHBOARD_PRODUCER_WINDOW_BLOCKS_MIN = 20
@@ -19,16 +21,30 @@ export const DEFAULT_SETTINGS = {
   pollMs: 3000,
   rowLimit: 20,
   producerAdvancedMode: false,
+  nodeAdvancedMode: false,
   dashboardProducerWindowBlocks: DASHBOARD_PRODUCER_WINDOW_BLOCKS_DEFAULT,
   dashboardRefreshSeconds: DASHBOARD_REFRESH_SECONDS_DEFAULT
 } as const satisfies ExplorerSettings
 
 export const DEFAULT_NODE_SETTINGS = {
+  network: 'mainnet',
   repoPath: '/Users/pgarcgo/code/koinos_code/koinos',
   baseDir: '~/.koinosgui',
-  profiles: 'block_producer,jsonrpc,contract_meta_store',
+  profiles: 'mainnet_observer',
   blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
 } as const satisfies NodeManagerSettings
+
+export const DEFAULT_NODE_BASEDIR_BY_NETWORK = {
+  mainnet: DEFAULT_NODE_SETTINGS.baseDir,
+  testnet: '~/.koinosgui/testnet/.koinos',
+  custom: '~/.koinosgui/custom/.koinos'
+} as const satisfies Record<NodeManagerSettings['network'], string>
+
+export const DEFAULT_NODE_PROFILES_BY_NETWORK = {
+  mainnet: 'mainnet_observer',
+  testnet: 'testnet_observer',
+  custom: 'custom_advanced'
+} as const satisfies Record<NodeManagerSettings['network'], string>
 
 export const SYNC_GAP_BLOCK_THRESHOLD = 50
 export const SYNC_GAP_TIME_THRESHOLD_MS = 30_000

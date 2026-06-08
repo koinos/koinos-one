@@ -7,12 +7,9 @@ import {
   DASHBOARD_PRODUCER_WINDOW_BLOCKS_DEFAULT,
   DASHBOARD_PRODUCER_WINDOW_BLOCKS_MAX,
   DASHBOARD_PRODUCER_WINDOW_BLOCKS_MIN,
-  KOIN_CONTRACT_ADDRESS,
-  POB_CONTRACT_ADDRESS,
   PRODUCER_DAY_WINDOW_MS,
-  PUBLIC_KOINOS_RPC_URL,
-  VHP_CONTRACT_ADDRESS
 } from './constants'
+import { contractsForNetwork, primaryPublicRpcUrlForNetwork, type KoinosNetworkId } from './network-profiles'
 import type {
   ServiceStatus,
   KoinosNodeDashboardPerformanceHost,
@@ -54,7 +51,7 @@ type ProducerServiceDeps = {
   resolveLocalProducerPublicKey: (
     settings: KoinosNodeSettings
   ) => { publicKey: string | null; publicKeyPath: string | null; privateKeyPath: string | null }
-  producerRpcTarget: (input?: { rpcUrl?: string }) => { rpcUrl: string; rpcSource: 'public' | 'local' }
+  producerRpcTarget: (input?: { network?: KoinosNetworkId; rpcUrl?: string }) => { rpcUrl: string; rpcSource: 'public' | 'local' }
   loadContractWithFetchedAbi: (provider: Provider, contractId: string) => Promise<Contract>
   fetchBlocksByHeightPaged: (
     provider: Provider,
@@ -551,6 +548,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
     const wallet = deps.loadKnodelWalletFile()
     const localProducerKey = deps.resolveLocalProducerPublicKey(settings)
     const { rpcUrl, rpcSource } = deps.producerRpcTarget(input)
+    const contracts = contractsForNetwork(settings.network)
     const requestedProducerAddress = `${input?.producerAddress || ''}`.trim()
     const producerAddress = requestedProducerAddress || configProducer.producerAddress || null
     const producerAddressSource: KoinosNodeProducerAddressSource = requestedProducerAddress
@@ -606,9 +604,9 @@ export function createProducerService(deps: ProducerServiceDeps) {
     try {
       const provider = new Provider([rpcUrl])
       const [koin, vhp, pob, koinPrice] = await Promise.all([
-        deps.loadContractWithFetchedAbi(provider, KOIN_CONTRACT_ADDRESS),
-        deps.loadContractWithFetchedAbi(provider, VHP_CONTRACT_ADDRESS),
-        deps.loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS),
+        deps.loadContractWithFetchedAbi(provider, contracts.koin),
+        deps.loadContractWithFetchedAbi(provider, contracts.vhp),
+        deps.loadContractWithFetchedAbi(provider, contracts.pob),
         fetchProducerKoinPriceUsd()
       ])
 
@@ -666,7 +664,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
           return koinosNodeProducerOverview({
             ...settings,
             producerAddress: requestedProducerAddress || undefined,
-            rpcUrl: PUBLIC_KOINOS_RPC_URL
+            rpcUrl: primaryPublicRpcUrlForNetwork(settings.network)
           })
         }
         producerActivityWarning = formatProducerOverviewActivityWarning(rpcUrl, error)
@@ -786,7 +784,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         return koinosNodeProducerOverview({
           ...settings,
           producerAddress: requestedProducerAddress || undefined,
-          rpcUrl: PUBLIC_KOINOS_RPC_URL
+          rpcUrl: primaryPublicRpcUrlForNetwork(settings.network)
         })
       }
       baseResult.output =
@@ -802,6 +800,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
   ): Promise<KoinosNodeProducerRegisteredKeyResult> {
     const settings = deps.normalizeNodeSettings(input)
     const { rpcUrl, rpcSource } = deps.producerRpcTarget(input)
+    const contracts = contractsForNetwork(settings.network)
     const producerAddress = `${input?.producerAddress || ''}`.trim() || null
     const respond = (
       ok: boolean,
@@ -822,7 +821,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
     try {
       const provider = new Provider([rpcUrl])
-      const pob = await deps.loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS)
+      const pob = await deps.loadContractWithFetchedAbi(provider, contracts.pob)
       const { result } = await pob.functions.get_public_key({ producer: producerAddress })
       const registeredPublicKey = `${(result as { value?: string } | undefined)?.value ?? ''}`.trim() || null
       return respond(true, `Registered producer key loaded for ${producerAddress}.`, registeredPublicKey)
@@ -831,7 +830,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         return koinosNodeProducerRegisteredKey({
           ...settings,
           producerAddress: producerAddress || undefined,
-          rpcUrl: PUBLIC_KOINOS_RPC_URL
+          rpcUrl: primaryPublicRpcUrlForNetwork(settings.network)
         })
       }
 
@@ -887,7 +886,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         if (rpcSource === 'local' && isProducerOverviewTimeoutError(error)) {
           return koinosNodeDashboardProducers({
             ...settings,
-            rpcUrl: PUBLIC_KOINOS_RPC_URL,
+            rpcUrl: primaryPublicRpcUrlForNetwork(settings.network),
             windowBlocks
           })
         }
@@ -1140,12 +1139,16 @@ export function createProducerService(deps: ProducerServiceDeps) {
   async function koinosNodeProducerLocalInfo(input?: KoinosNodeSettingsInput): Promise<KoinosNodeProducerLocalInfoResult> {
     try {
       const settings = deps.normalizeNodeSettings(input)
+      const configProducer = deps.producerAddressFromRuntimeConfig(settings)
       const localProducerKey = deps.resolveLocalProducerPublicKey(settings)
       return {
         ok: true,
         output: localProducerKey.publicKey
           ? 'Local producer public key detected.'
           : 'Local producer public key not found in BASEDIR/block_producer.',
+        producerAddress: configProducer.producerAddress,
+        configFilePath: configProducer.configFilePath,
+        configHasProducer: configProducer.configHasProducer,
         localPublicKey: localProducerKey.publicKey,
         localPublicKeyPath: localProducerKey.publicKeyPath,
         localPrivateKeyPath: localProducerKey.privateKeyPath
@@ -1154,6 +1157,9 @@ export function createProducerService(deps: ProducerServiceDeps) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not inspect local producer keys',
+        producerAddress: null,
+        configFilePath: null,
+        configHasProducer: false,
         localPublicKey: null,
         localPublicKeyPath: null,
         localPrivateKeyPath: null
@@ -1199,6 +1205,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
   ): Promise<KoinosNodeProducerRegisterResult> {
     const settings = deps.normalizeNodeSettings(input)
     const { rpcUrl } = deps.producerRpcTarget(input)
+    const contracts = contractsForNetwork(settings.network)
     const configuredProducer = deps.producerAddressFromRuntimeConfig(settings).producerAddress
     const producerAddress = `${input?.producerAddress || configuredProducer || ''}`.trim()
     const password = `${input?.password || ''}`
@@ -1254,7 +1261,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
     try {
       const provider = new Provider([rpcUrl])
-      const pobReadContract = await deps.loadContractWithFetchedAbi(provider, POB_CONTRACT_ADDRESS)
+      const pobReadContract = await deps.loadContractWithFetchedAbi(provider, contracts.pob)
       let registeredPublicKey = ''
       try {
         const existingRegistration = await pobReadContract.functions.get_public_key({ producer: producerAddress })
@@ -1278,7 +1285,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         }
 
         const pobWriteContract = new Contract({
-          id: POB_CONTRACT_ADDRESS,
+          id: contracts.pob,
           provider,
           signer,
           abi: pobReadContract.abi

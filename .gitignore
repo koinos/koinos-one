@@ -28,3 +28,7 @@ vendor/amqp-broker/admin-frontend/node_modules/
 
 # Bundle staging
 build/
+
+# Playwright artifacts
+test-results/
+playwright-report/

@@ -28,9 +28,16 @@ struct PeerHeadInfo
   uint64_t height = 0;
 };
 
+struct Checkpoint
+{
+  uint64_t block_height = 0;
+  std::string block_id;
+};
+
 struct P2POptions
 {
   std::vector< PeerID > seed_peers;
+  std::vector< Checkpoint > checkpoints;
 
   // Sync
   uint32_t block_request_batch_size = 500;
@@ -39,6 +46,14 @@ struct P2POptions
   std::chrono::seconds syncing_check_interval{ 1 };
   std::chrono::seconds handshake_retry_interval{ 6 };
   std::chrono::seconds seed_reconnect_interval{ 10 };
+
+  // Peer acquisition
+  bool peer_discovery_enabled          = true;
+  uint32_t target_peer_count           = 20;
+  uint32_t max_peer_candidates         = 200;
+  uint32_t max_candidate_dials_per_cycle = 3;
+  std::chrono::seconds peer_acquisition_interval{ 5 };
+  std::chrono::seconds candidate_redial_interval{ 60 };
 
   // Gossip toggle
   std::chrono::seconds gossip_head_threshold{ 45 };

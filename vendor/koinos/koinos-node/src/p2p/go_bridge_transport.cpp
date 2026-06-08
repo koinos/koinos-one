@@ -160,6 +160,7 @@ void GoBridgeTransport::connect_peer( const PeerID& ) {}
 void GoBridgeTransport::disconnect_peer( const PeerID& ) {}
 uint32_t GoBridgeTransport::connected_peer_count() const { return _peer_count; }
 std::vector< PeerID > GoBridgeTransport::connected_peers() const { return {}; }
+std::vector< PeerID > GoBridgeTransport::known_peers() const { return {}; }
 
 std::string GoBridgeTransport::peer_get_chain_id( const PeerID& ) { return ""; }
 PeerHeadInfo GoBridgeTransport::peer_get_head_block( const PeerID& ) { return {}; }

@@ -125,6 +125,10 @@ export function shouldDisableVerifyBlocks(input: {
   return gap <= VERIFY_BLOCKS_SYNC_THRESHOLD
 }
 
+export function hasStateMerkleMismatch(logOutput: string): boolean {
+  return /block previous state merkle mismatch/i.test(logOutput)
+}
+
 // --- P2P auto-restart when no peers ---
 
 export type P2pRestartState = {

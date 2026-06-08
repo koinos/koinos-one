@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   getProducerSetupBlockReason,
+  hasRuntimeProducerIdentity,
   isProducerActivelyProducingFromLogs,
   isProducerSetupComplete,
+  resolveProducerDisplayAddress,
   resolveProducerTargetAddress
 } from './producer'
 
@@ -32,6 +34,32 @@ describe('producer setup helpers', () => {
       configProducerAddress: '1Config',
       useWalletAddress: true
     })).toBe('1Config')
+  })
+
+  it('prefers the runtime configured address for producer display', () => {
+    expect(resolveProducerDisplayAddress({
+      configuredAddress: ' 1RuntimeProducer ',
+      signingWalletAddress: '1WalletProducer'
+    })).toBe('1RuntimeProducer')
+
+    expect(resolveProducerDisplayAddress({
+      configuredAddress: '',
+      signingWalletAddress: ' 1WalletProducer '
+    })).toBe('1WalletProducer')
+  })
+
+  it('detects read-only runtime producer identity without a GUI wallet', () => {
+    expect(hasRuntimeProducerIdentity({
+      configuredAddress: '',
+      localPublicKey: ' AjyProducerPublicKey ',
+      registeredPublicKey: ''
+    })).toBe(true)
+
+    expect(hasRuntimeProducerIdentity({
+      configuredAddress: '',
+      localPublicKey: '',
+      registeredPublicKey: ''
+    })).toBe(false)
   })
 
   it('detects setup completion from profile data', () => {

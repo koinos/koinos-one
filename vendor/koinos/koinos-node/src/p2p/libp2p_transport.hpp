@@ -38,20 +38,26 @@
 #include <libp2p/peer/peer_id.hpp>
 #include <libp2p/multi/multiaddress.hpp>
 
+namespace libp2p::protocol::kademlia {
+class Kademlia;
+}
+
 namespace koinos::node::p2p {
 
 class Libp2pTransport final : public ITransport
 {
 public:
-  struct Config
-  {
-    std::string listen_address = "/ip4/0.0.0.0/tcp/8888";
-    std::vector< std::string > seed_peers;
-    std::string identity_key_path; // Ed25519 key file
-    bool enable_dht_local = false;
-    std::string protocol_version = "koinos/p2p/1.0.0";
-    unsigned int requested_io_threads = 1;
-  };
+	  struct Config
+	  {
+	    std::string listen_address = "/ip4/0.0.0.0/tcp/8888";
+	    std::vector< std::string > seed_peers;
+	    std::vector< std::string > discovery_peers;
+	    std::string identity_key_path; // Ed25519 key file
+	    bool enable_dht = true;
+	    bool enable_dht_local = false;
+	    std::string protocol_version = "koinos/p2p/1.0.0";
+	    unsigned int requested_io_threads = 1;
+	  };
 
   explicit Libp2pTransport( const Config& config );
   ~Libp2pTransport() override;
@@ -65,6 +71,7 @@ public:
   void disconnect_peer( const PeerID& peer ) override;
   uint32_t connected_peer_count() const override;
   std::vector< PeerID > connected_peers() const override;
+  std::vector< PeerID > known_peers() const override;
 
   // ── Peer RPC (custom protocol /koinos/peerrpc/1.0.0) ──
   std::string peer_get_chain_id( const PeerID& peer ) override;
@@ -116,8 +123,11 @@ private:
   static PeerID to_peer_id( const libp2p::peer::PeerId& pid );
 
   Config _config;
-  std::shared_ptr< libp2p::Host > _host;
-  std::shared_ptr< libp2p::protocol::gossip::Gossip > _gossip;
+  struct Libp2pRuntime;
+  std::unique_ptr< Libp2pRuntime > _runtime;
+	  std::shared_ptr< libp2p::Host > _host;
+	  std::shared_ptr< libp2p::protocol::gossip::Gossip > _gossip;
+	  std::shared_ptr< libp2p::protocol::kademlia::Kademlia > _kademlia;
 
   // GossipSub subscriptions (RAII handles — cancel on destruction)
   std::optional< libp2p::protocol::Subscription > _block_sub;
@@ -132,12 +142,15 @@ private:
 
   // IO
   std::shared_ptr< boost::asio::io_context > _io;
+  using IoWorkGuard = boost::asio::executor_work_guard< boost::asio::io_context::executor_type >;
+  std::optional< IoWorkGuard > _work_guard;
   std::vector< std::thread > _io_threads;
   std::atomic< bool > _running{ false };
 
   mutable std::mutex _peers_mutex;
   std::map< std::string, PeerID > _connected;
   std::set< std::string > _connecting;
+  std::map< std::string, PeerID > _known_peers;
 };
 
 } // namespace koinos::node::p2p

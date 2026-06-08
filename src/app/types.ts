@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import type { KoinosNetworkId } from './network'
 
 export type ExplorerSettings = {
   rpcSource: ExplorerRpcSource
@@ -6,6 +7,7 @@ export type ExplorerSettings = {
   pollMs: number
   rowLimit: number
   producerAdvancedMode: boolean
+  nodeAdvancedMode: boolean
   dashboardProducerWindowBlocks: number
   dashboardRefreshSeconds: number
 }
@@ -13,6 +15,7 @@ export type ExplorerSettings = {
 export type ExplorerRpcSource = 'local' | string
 
 export type NodeManagerSettings = {
+  network: KoinosNetworkId
   repoPath: string
   baseDir: string
   profiles: string

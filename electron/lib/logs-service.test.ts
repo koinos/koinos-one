@@ -66,6 +66,7 @@ function createService(output: string, maxNativeServiceLogBytes = 1024 * 1024) {
     logsFollowEventChannel: 'logs:event',
     maxNativeServiceLogBytes,
     normalizeNodeSettings: () => ({
+      network: 'mainnet',
       repoPath: '/tmp/koinos',
       baseDir: '/tmp/.koinos',
       profiles: ['jsonrpc'],

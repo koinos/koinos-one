@@ -5,10 +5,11 @@ type WalletOverviewStripProps = {
   walletBalanceError: string | null
   walletBalanceRefreshedAt: number | null
   locale: string
+  nativeTokenSymbol: string
 }
 
 export function WalletOverviewStrip(props: WalletOverviewStripProps) {
-  const { t, walletBalance, walletBalanceLoading, walletBalanceError, walletBalanceRefreshedAt, locale } = props
+  const { t, walletBalance, walletBalanceLoading, walletBalanceError, walletBalanceRefreshedAt, locale, nativeTokenSymbol } = props
   const lastRefresh = walletBalanceRefreshedAt
     ? new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(walletBalanceRefreshedAt)
     : t('common.na')
@@ -17,9 +18,9 @@ export function WalletOverviewStrip(props: WalletOverviewStripProps) {
     <>
       <div className="wallet-overview-grid">
         <article className="stat-card">
-          <span className="stat-label">{t('wallet.availableKoin')}</span>
+          <span className="stat-label">{t('wallet.availableNativeToken', { symbol: nativeTokenSymbol })}</span>
           <p className="stat-value">{walletBalance?.koin || t('common.na')}</p>
-          <p className="stat-note">KOIN</p>
+          <p className="stat-note">{nativeTokenSymbol}</p>
         </article>
         <article className="stat-card">
           <span className="stat-label">{t('wallet.availableVhp')}</span>
