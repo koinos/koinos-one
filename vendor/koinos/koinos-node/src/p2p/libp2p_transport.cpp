@@ -318,24 +318,51 @@ void Libp2pTransport::start()
     }
   );
 
-  // Set up connection handler via Host
-  _host->setOnNewConnectionHandler(
+  // Set up connection handlers via Host. The returned event handles must stay
+  // alive for the subscriptions to remain active.
+  _new_connection_subscription = _host->setOnNewConnectionHandler(
     [this]( libp2p::peer::PeerInfo&& peer_info ) {
       auto id_str = peer_info.id.toBase58();
       std::string address;
       if( !peer_info.addresses.empty() )
         address = with_peer_id_component( std::string( peer_info.addresses.front().getStringAddress() ), id_str );
       PeerID peer{ id_str, address };
+      bool inserted = false;
       {
         std::lock_guard lock( _peers_mutex );
-        _connected[ id_str ] = peer;
+        auto it = _connected.find( id_str );
+        inserted = it == _connected.end();
+        if( inserted || it->second.address.empty() )
+          _connected[ id_str ] = peer;
         if( !address.empty() )
           _known_peers[ id_str ] = peer;
       }
-      if( _on_connected )
+      if( inserted && _on_connected )
         _on_connected( peer );
     }
   );
+
+  _peer_disconnected_subscription = _host->getBus()
+    .getChannel< libp2p::event::network::OnPeerDisconnectedChannel >()
+    .subscribe( [this]( const libp2p::peer::PeerId& peer_id ) {
+      auto id_str = peer_id.toBase58();
+      PeerID peer{ id_str, "" };
+      bool erased = false;
+      {
+        std::lock_guard lock( _peers_mutex );
+        auto it = _connected.find( id_str );
+        if( it != _connected.end() )
+        {
+          peer = it->second;
+          _connected.erase( it );
+          erased = true;
+        }
+        _connecting.erase( id_str );
+      }
+
+      if( erased && _on_disconnected )
+        _on_disconnected( peer );
+    } );
 
   // Create GossipSub
   auto gossip_config = libp2p::protocol::gossip::Config{};
@@ -348,6 +375,14 @@ void Libp2pTransport::start()
     injector.create< std::shared_ptr< libp2p::crypto::CryptoProvider > >(),
     injector.create< std::shared_ptr< libp2p::crypto::marshaller::KeyMarshaller > >(),
     gossip_config );
+
+  for( const auto& seed: _config.seed_peers )
+  {
+    auto result = _gossip->addBootstrapPeer( seed );
+    if( !result.has_value() )
+      LOG( debug ) << "[p2p/transport] Failed to add GossipSub bootstrap peer: "
+                   << seed << " error=" << result.error().message();
+  }
 
   // Subscribe to block topic
   _block_sub = _gossip->subscribe(
@@ -537,6 +572,9 @@ void Libp2pTransport::stop()
 
 	  _kademlia.reset();
 
+  _new_connection_subscription.unsubscribe();
+  _peer_disconnected_subscription.unsubscribe();
+
 	  if( _host )
   {
     _host->stop();
@@ -650,15 +688,54 @@ void Libp2pTransport::disconnect_peer( const PeerID& peer )
 
 uint32_t Libp2pTransport::connected_peer_count() const
 {
-  std::lock_guard lock( _peers_mutex );
-  return static_cast< uint32_t >( _connected.size() );
+  return static_cast< uint32_t >( connected_peers().size() );
 }
 
 std::vector< PeerID > Libp2pTransport::connected_peers() const
 {
-  std::lock_guard lock( _peers_mutex );
+  std::map< std::string, PeerID > peers;
+  {
+    std::lock_guard lock( _peers_mutex );
+    peers = _connected;
+  }
+
+  if( _host )
+  {
+    try
+    {
+      for( const auto& connection: _host->getNetwork().getConnectionManager().getConnections() )
+      {
+        if( !connection || connection->isClosed() )
+          continue;
+
+        auto remote_peer = connection->remotePeer();
+        if( !remote_peer.has_value() )
+          continue;
+
+        auto id = remote_peer.value().toBase58();
+        std::string address;
+        auto remote_address = connection->remoteMultiaddr();
+        if( remote_address.has_value() )
+          address = with_peer_id_component( std::string( remote_address.value().getStringAddress() ), id );
+
+        auto it = peers.find( id );
+        if( it == peers.end() || ( it->second.address.empty() && !address.empty() ) )
+          peers[ id ] = PeerID{ id, address };
+      }
+    }
+    catch( const std::exception& e )
+    {
+      LOG( debug ) << "[p2p/transport] Failed to inspect active connections: " << e.what();
+    }
+    catch( ... )
+    {
+      LOG( debug ) << "[p2p/transport] Failed to inspect active connections: unknown exception";
+    }
+  }
+
   std::vector< PeerID > result;
-  for( const auto& [id, peer]: _connected )
+  result.reserve( peers.size() );
+  for( const auto& [id, peer]: peers )
     result.push_back( peer );
   return result;
 }

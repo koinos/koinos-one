@@ -147,6 +147,9 @@ private:
   std::vector< std::thread > _io_threads;
   std::atomic< bool > _running{ false };
 
+  libp2p::event::Handle _new_connection_subscription;
+  libp2p::event::Handle _peer_disconnected_subscription;
+
   mutable std::mutex _peers_mutex;
   std::map< std::string, PeerID > _connected;
   std::set< std::string > _connecting;

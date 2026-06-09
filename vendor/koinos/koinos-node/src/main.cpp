@@ -34,6 +34,7 @@
 
 #include "core/config.hpp"
 #include "core/event_bus.hpp"
+#include "core/node_version.hpp"
 #include "core/service_registry.hpp"
 
 #include "interfaces/i_block_store.hpp"
@@ -379,7 +380,7 @@ int main( int argc, char** argv )
 
     if( vm.count( VERSION_OPTION ) )
     {
-      std::cout << "koinos_node 0.1.0" << std::endl;
+      std::cout << node::node_name() << " " << node::build_version() << std::endl;
       return EXIT_SUCCESS;
     }
 
@@ -416,7 +417,7 @@ int main( int argc, char** argv )
 
     // ── Initialize logging ──
     koinos::initialize_logging( "koinos_node", {}, cfg.log_level );
-    LOG( info ) << "[node] koinos_node v0.1.0 starting";
+    LOG( info ) << "[node] " << node::node_name() << " v" << node::build_version() << " starting";
     LOG( info ) << "[node] basedir: " << basedir.string();
     LOG( info ) << "[node] config: " << config_path.string();
 

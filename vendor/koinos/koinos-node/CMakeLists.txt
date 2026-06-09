@@ -62,8 +62,32 @@ find_package(koinos_exception CONFIG REQUIRED)
 find_package(koinos_crypto CONFIG REQUIRED)
 find_package(koinos_state_db CONFIG REQUIRED)
 
-# Git version stub (not using koinos_cmake macros)
+# Node build version metadata.
+set(KOINOS_NODE_GIT_COMMIT "unknown")
+set(KOINOS_NODE_DIRTY_SUFFIX "")
+find_package(Git QUIET)
+if(GIT_FOUND)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} -C "${CMAKE_SOURCE_DIR}" rev-parse --short=12 HEAD
+    OUTPUT_VARIABLE KOINOS_NODE_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} -C "${CMAKE_SOURCE_DIR}" status --porcelain
+    OUTPUT_VARIABLE KOINOS_NODE_GIT_STATUS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(KOINOS_NODE_GIT_STATUS)
+    set(KOINOS_NODE_DIRTY_SUFFIX "-dirty")
+  endif()
+endif()
+
+set(KOINOS_NODE_BUILD_VERSION "${PROJECT_VERSION}+${KOINOS_NODE_GIT_COMMIT}${KOINOS_NODE_DIRTY_SUFFIX}")
 file(WRITE "${CMAKE_BINARY_DIR}/generated/git_version.h"
-  "#pragma once\nstatic const char* git_version = \"standalone-0.1.0\";\n")
+  "#pragma once\n"
+  "#define KOINOS_NODE_VERSION \"${PROJECT_VERSION}\"\n"
+  "#define KOINOS_NODE_GIT_COMMIT \"${KOINOS_NODE_GIT_COMMIT}\"\n"
+  "#define KOINOS_NODE_BUILD_VERSION \"${KOINOS_NODE_BUILD_VERSION}\"\n"
+  "static const char* git_version = KOINOS_NODE_BUILD_VERSION;\n")
 
 add_subdirectory(src)

@@ -20,7 +20,11 @@ REPORT_FILE="${MONOLITH_SOAK_REPORT:-$ROOT_DIR/docs/roadmap/monolith/networking/
 OWN_BASEDIR=0
 
 DEFAULT_P2P_PEERS=(
-  "/dns4/seed.koinosfoundation.org/tcp/8888/p2p/QmZjGG6eFnLLSskbgikz956DTpPgodo5P7Dxa32qHYZBBP"
+  "/ip4/46.62.204.73/tcp/8888/p2p/QmPcF1YrxamfKGpyvP6uAZcPxnmK2WUBC4K4N5ZaWky8Sh"
+  "/ip4/37.27.7.221/tcp/8888/p2p/QmY8NBHwoVrxBvrjS3wQoeTmWG4UUKMxmYHss7QYRXktrs"
+  "/ip4/95.216.68.185/tcp/8888/p2p/QmeTy5SE79ksZruNZ1DJJqR6UCe1oZvWcYaUnn6MuYE8Ea"
+  "/ip4/46.62.245.240/tcp/8888/p2p/QmWmxqE6WhcMWZEKwqUAbu87Qgm6JroZLdM4Xmxouu1Mmi"
+  "/ip4/94.130.148.114/tcp/8888/p2p/QmQ841mUuYeCtbZXdEMeKcYCx4CZydgz84zSDqWVCeJ4H8"
 )
 
 if [[ -n "${P2P_PEERS:-}" ]]; then
@@ -66,7 +70,7 @@ chain:
   verify-blocks: false
 p2p:
   listen: ${P2P_LISTEN}
-  seed-reconnect-interval-seconds: 10
+  seed-reconnect-interval-seconds: 60
   peer:
 YAML
 for peer in "${P2P_PEER_LIST[@]}"; do

@@ -4517,12 +4517,6 @@ export function App() {
                         {nodeStatus?.baseDir || nodeSettings.baseDir || t('common.na')}
                       </dd>
                     </div>
-                    <div>
-                      <dt>{t('node.detailRepo')}</dt>
-                      <dd className="mono" title={nodeStatus?.repoPath || nodeSettings.repoPath}>
-                        {nodeStatus?.repoPath || nodeSettings.repoPath || t('common.na')}
-                      </dd>
-                    </div>
                   </dl>
                 </section>
 

@@ -1,5 +1,7 @@
 #include "jsonrpc_server.hpp"
 
+#include "core/node_version.hpp"
+
 #include <algorithm>
 #include <sstream>
 #include <utility>
@@ -592,7 +594,11 @@ void JSONRPCServer::handle_session( tcp::socket socket )
         if( target == "/health" || target == "/healthz" || target == "/" )
         {
           res.result( http::status::ok );
-          res.body() = R"({"status":"ok","node":"koinos_node","version":"0.1.0"})";
+          nlohmann::json health;
+          health[ "status" ]  = "ok";
+          health[ "node" ]    = ::koinos::node::node_name();
+          health[ "version" ] = ::koinos::node::build_version();
+          res.body()          = health.dump();
           res.prepare_payload();
           http::write( socket, res );
           if( res.need_eof() )
@@ -762,8 +768,8 @@ nlohmann::json JSONRPCServer::dispatch( const std::string& service,
   if( service == "node" && method == "get_status" )
   {
     nlohmann::json status;
-    status[ "node" ]    = "koinos_node";
-    status[ "version" ] = "0.1.0";
+    status[ "node" ]    = ::koinos::node::node_name();
+    status[ "version" ] = ::koinos::node::build_version();
     status[ "mode" ]    = "monolith";
 
     if( _chain )

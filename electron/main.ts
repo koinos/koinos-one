@@ -1689,6 +1689,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
         set: [
           { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
           { path: ['p2p', 'listen'], value: mainnet.p2pListen },
+          { path: ['p2p', 'seed-reconnect-interval-seconds'], value: 60 },
           { path: ['p2p', 'peer-discovery'], value: true },
           { path: ['p2p', 'target-peer-count'], value: 20 },
           { path: ['p2p', 'max-peer-candidates'], value: 200 },
@@ -1729,6 +1730,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
         set: [
           { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
           { path: ['p2p', 'listen'], value: mainnet.p2pListen },
+          { path: ['p2p', 'seed-reconnect-interval-seconds'], value: 60 },
           { path: ['p2p', 'peer-discovery'], value: true },
           { path: ['p2p', 'target-peer-count'], value: 20 },
           { path: ['p2p', 'max-peer-candidates'], value: 200 },
@@ -1769,6 +1771,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
         set: [
           { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
           { path: ['p2p', 'listen'], value: mainnet.p2pListen },
+          { path: ['p2p', 'seed-reconnect-interval-seconds'], value: 60 },
           { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
         ]
       },

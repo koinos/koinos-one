@@ -8,13 +8,15 @@ add_library(koinos_node_core
   core/config.cpp
   core/config.hpp
   core/event_bus.hpp
+  core/node_version.hpp
   core/rpc_access_policy.hpp
   core/service_registry.hpp)
 
 target_include_directories(
   koinos_node_core
     PUBLIC
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+      $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated>)
 
 target_link_libraries(
   koinos_node_core
@@ -394,6 +396,7 @@ target_include_directories(
 target_link_libraries(
   koinos_jsonrpc_lib
     PUBLIC
+      koinos_node_core
       koinos_node_interfaces
       koinos_contract_meta_store_lib
       koinos_transaction_store_lib

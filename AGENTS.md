@@ -1,6 +1,6 @@
 # koinosGUI Codex Project Memory
 
-Last updated: 2026-06-07
+Last updated: 2026-06-09
 
 This file is the local project memory for Codex work in this repo. Codex Desktop does not guarantee that arbitrary repo files are always read automatically in every thread, so explicitly ask to read `AGENTS.md` when resuming if the context was compacted or lost.
 
@@ -31,6 +31,10 @@ All project documentation must be written in English, even when discussion with 
 ## Mainnet Safety Guardrail
 
 - Address `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb` is a real funded mainnet producer address. Do not perform any mutating mainnet operation involving this address, including transfers, burns, producer-key registrations, producer setup changes, default-account changes, config writes that would target it, or any transaction signing/submission. Treat it as read-only only, and only inspect it if the user explicitly asks. Before any future `kcli`, GUI, or node operation that can mutate chain or producer state, verify the selected network is not mainnet and verify the target/signer/producer address is not `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb`.
+
+## Merkle Mismatch Recovery Guardrail
+
+- If the monolith reports `block previous state merkle mismatch` or another persistent state merkle mismatch, do not try to recover by clearing `chain/blockchain`, starting from an empty state DB, or forcing a fresh full resync as the first action. Preserve the existing state DB, keep block production disabled, set `chain.verify-blocks: true`, and restart the node as an observer so full block validation can repair/advance the state from the restored database. Only consider moving/deleting the state DB or doing a clean-state rebuild after explicit user approval and clear evidence that validation-based recovery failed. On 2026-06-09 this validation-first recovery worked on the restored mainnet basedir: enabling `verify-blocks: true` indexed the missing 60 blocks and resumed live block application with five peers.
 
 ## Current Monolith Status
 

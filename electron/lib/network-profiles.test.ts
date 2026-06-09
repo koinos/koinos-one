@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  MAINNET_PEER_ADDRESSES,
   TESTNET_PUBLIC_RPC_URLS,
   contractsForNetwork,
   defaultProfilesForNetwork,
@@ -31,5 +32,20 @@ describe('network profiles', () => {
     expect(profile.id).toBe('testnet')
     expect(defaultProfilesForNetwork('testnet')).toEqual(['testnet_observer'])
     expect(primaryPublicRpcUrlForNetwork('testnet')).toBe('https://testnet.koinosfoundation.org/jsonrpc')
+  })
+
+  it('uses corrected mainnet peer ids for GUI presets', () => {
+    const mainnet = resolveNetworkProfile('mainnet')
+
+    expect(mainnet.peerAddresses).toEqual([...MAINNET_PEER_ADDRESSES])
+    expect(mainnet.peerAddresses).toEqual([
+      '/ip4/46.62.204.73/tcp/8888/p2p/QmPcF1YrxamfKGpyvP6uAZcPxnmK2WUBC4K4N5ZaWky8Sh',
+      '/ip4/37.27.7.221/tcp/8888/p2p/QmY8NBHwoVrxBvrjS3wQoeTmWG4UUKMxmYHss7QYRXktrs',
+      '/ip4/95.216.68.185/tcp/8888/p2p/QmeTy5SE79ksZruNZ1DJJqR6UCe1oZvWcYaUnn6MuYE8Ea',
+      '/ip4/46.62.245.240/tcp/8888/p2p/QmWmxqE6WhcMWZEKwqUAbu87Qgm6JroZLdM4Xmxouu1Mmi',
+      '/ip4/94.130.148.114/tcp/8888/p2p/QmQ841mUuYeCtbZXdEMeKcYCx4CZydgz84zSDqWVCeJ4H8'
+    ])
+    expect(mainnet.peerAddresses.join('\n')).not.toContain('QmZjGG6eFnLLSskbgikz956DTpPgodo5P7Dxa32qHYZBBP')
+    expect(mainnet.peerAddresses.join('\n')).not.toContain('QmV8NBHwoVrxBvrjS3wQoeTmWG4UUKMxmYHss7QYRXktrs')
   })
 })
