@@ -117,6 +117,10 @@ const KOIN_DEXSCREENER_PAIR_URL =
   'https://dexscreener.com/ethereum/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
 const KOIN_DEXSCREENER_PAIR_API_URL =
   'https://api.dexscreener.com/latest/dex/pairs/ethereum/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
+const VKOIN_GECKOTERMINAL_POOL_URL =
+  'https://www.geckoterminal.com/eth/pools/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
+const VKOIN_GECKOTERMINAL_POOL_API_URL =
+  'https://api.geckoterminal.com/api/v2/networks/eth/pools/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
 const KOIN_COINMARKETCAP_PRICE_URL = 'https://coinmarketcap.com/currencies/koinos/'
 
 type ProducerKoinPriceSource = {
@@ -513,6 +517,19 @@ export function parseDexScreenerPairPriceUsd(payload: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+export function parseGeckoTerminalPoolPriceUsd(payload: unknown): number | null {
+  const data = payload as {
+    data?: {
+      attributes?: {
+        base_token_price_usd?: string | number | null
+      } | null
+    } | null
+  } | null
+
+  const parsed = Number.parseFloat(`${data?.data?.attributes?.base_token_price_usd ?? ''}`)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
 export function parseCoinMarketCapKoinPriceUsd(html: string): number | null {
   const match =
     html.match(/Koinos price today is \$([0-9]+(?:\.[0-9]+)?)/i) ??
@@ -524,9 +541,18 @@ export function parseCoinMarketCapKoinPriceUsd(html: string): number | null {
 }
 
 export function resolveProducerKoinPriceSource(
+  geckoTerminalPriceUsd: number | null,
   dexPriceUsd: number | null,
   coinMarketCapPriceUsd: number | null
 ): ProducerKoinPriceSource {
+  if (geckoTerminalPriceUsd !== null) {
+    return {
+      priceUsd: geckoTerminalPriceUsd,
+      sourceName: 'GeckoTerminal vKOIN/USDT',
+      sourceUrl: VKOIN_GECKOTERMINAL_POOL_URL
+    }
+  }
+
   if (dexPriceUsd !== null) {
     return {
       priceUsd: dexPriceUsd,
@@ -545,8 +571,23 @@ export function resolveProducerKoinPriceSource(
 
   return {
     priceUsd: null,
-    sourceName: 'DexScreener vKOIN/USDT',
-    sourceUrl: KOIN_DEXSCREENER_PAIR_URL
+    sourceName: 'GeckoTerminal vKOIN/USDT',
+    sourceUrl: VKOIN_GECKOTERMINAL_POOL_URL
+  }
+}
+
+async function fetchGeckoTerminalVkoinPriceUsd(): Promise<number | null> {
+  try {
+    const response = await fetch(VKOIN_GECKOTERMINAL_POOL_API_URL, {
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'Mozilla/5.0'
+      }
+    })
+    if (!response.ok) return null
+    return parseGeckoTerminalPoolPriceUsd(await response.json())
+  } catch {
+    return null
   }
 }
 
@@ -580,12 +621,13 @@ async function fetchCoinMarketCapKoinPriceUsd(): Promise<number | null> {
 }
 
 async function fetchProducerKoinPriceUsd(): Promise<ProducerKoinPriceSource> {
-  const [dexPriceUsd, coinMarketCapPriceUsd] = await Promise.all([
+  const [geckoTerminalPriceUsd, dexPriceUsd, coinMarketCapPriceUsd] = await Promise.all([
+    fetchGeckoTerminalVkoinPriceUsd(),
     fetchDexScreenerKoinPriceUsd(),
     fetchCoinMarketCapKoinPriceUsd()
   ])
 
-  return resolveProducerKoinPriceSource(dexPriceUsd, coinMarketCapPriceUsd)
+  return resolveProducerKoinPriceSource(geckoTerminalPriceUsd, dexPriceUsd, coinMarketCapPriceUsd)
 }
 
 function isMissingProducerPublicKeyRecordError(error: unknown): boolean {
@@ -618,8 +660,8 @@ export function createProducerService(deps: ProducerServiceDeps) {
       output: '',
       rpcUrl,
       rpcSource,
-      priceSourceName: 'DexScreener vKOIN/USDT',
-      priceSourceUrl: KOIN_DEXSCREENER_PAIR_URL,
+      priceSourceName: 'GeckoTerminal vKOIN/USDT',
+      priceSourceUrl: VKOIN_GECKOTERMINAL_POOL_URL,
       producerAddress,
       producerAddressSource,
       configFilePath: configProducer.configFilePath,

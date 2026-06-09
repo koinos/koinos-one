@@ -43,4 +43,12 @@ describe('core contract ABI resolution', () => {
 
     expect(abi?.methods).toHaveProperty('balance_of')
   })
+
+  it('uses the live PoB consensus parameters entry point', () => {
+    const abi = resolveCoreContractAbi(TESTNET_CONTRACTS.pob) as {
+      methods?: Record<string, { entry_point?: number }>
+    } | null
+
+    expect(abi?.methods?.get_consensus_parameters?.entry_point).toBe(1607969807)
+  })
 })

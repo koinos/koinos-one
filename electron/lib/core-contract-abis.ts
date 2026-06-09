@@ -52,7 +52,7 @@ const TESTNET_COMPAT_POB_ABI = {
     get_consensus_parameters: {
       argument: 'pob.get_consensus_parameters_arguments',
       return: 'pob.get_consensus_parameters_result',
-      entry_point: 1607973903,
+      entry_point: 1607969807,
       description: 'Returns the PoB consensus parameters',
       read_only: true
     }

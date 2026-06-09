@@ -13,6 +13,7 @@ import {
   parseCoinMarketCapKoinPriceUsd,
   parseDashboardPerformancePsRow,
   parseDexScreenerPairPriceUsd,
+  parseGeckoTerminalPoolPriceUsd,
   parseLatestP2pPeersSnapshot,
   resolveProducerKoinPriceSource
 } from './producer-service'
@@ -63,21 +64,42 @@ describe('producer-service helpers', () => {
     expect(parseDexScreenerPairPriceUsd({ pair: { priceUsd: '0' } })).toBeNull()
   })
 
+  it('parses vKOIN price from the GeckoTerminal pool response', () => {
+    expect(
+      parseGeckoTerminalPoolPriceUsd({
+        data: {
+          attributes: {
+            base_token_price_usd: '0.00571407782720071'
+          }
+        }
+      })
+    ).toBe(0.00571407782720071)
+
+    expect(parseGeckoTerminalPoolPriceUsd({ data: { attributes: { base_token_price_usd: '0' } } })).toBeNull()
+  })
+
   it('parses KOIN price from CoinMarketCap html', () => {
     expect(parseCoinMarketCapKoinPriceUsd('<script>{"price":0.0046685852362138925}</script>')).toBe(0.0046685852362138925)
     expect(parseCoinMarketCapKoinPriceUsd('<p>Koinos price today is $0.004531 USD</p>')).toBe(0.004531)
     expect(parseCoinMarketCapKoinPriceUsd('<html></html>')).toBeNull()
   })
 
-  it('prefers the DexScreener pair over CoinMarketCap when both are available', () => {
-    expect(resolveProducerKoinPriceSource(0.004531, 0.0046685)).toEqual({
+  it('prefers GeckoTerminal over fallback price sources', () => {
+    expect(resolveProducerKoinPriceSource(0.005714, 0.004531, 0.0046685)).toEqual({
+      priceUsd: 0.005714,
+      sourceName: 'GeckoTerminal vKOIN/USDT',
+      sourceUrl:
+        'https://www.geckoterminal.com/eth/pools/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
+    })
+
+    expect(resolveProducerKoinPriceSource(null, 0.004531, 0.0046685)).toEqual({
       priceUsd: 0.004531,
       sourceName: 'DexScreener vKOIN/USDT',
       sourceUrl:
         'https://dexscreener.com/ethereum/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
     })
 
-    expect(resolveProducerKoinPriceSource(null, 0.0046685)).toEqual({
+    expect(resolveProducerKoinPriceSource(null, null, 0.0046685)).toEqual({
       priceUsd: 0.0046685,
       sourceName: 'CoinMarketCap',
       sourceUrl: 'https://coinmarketcap.com/currencies/koinos/'
