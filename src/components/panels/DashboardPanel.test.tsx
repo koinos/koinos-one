@@ -10,16 +10,18 @@ const translations: Record<string, string> = {
   'dashboard.subtab.peers': 'Peers',
   'dashboard.subtab.forecast': 'Forecast',
   'dashboard.subtab.performance': 'Performance',
-  'dashboard.performance.knodelCpu': 'koinosGUI CPU',
-  'dashboard.performance.knodelRam': 'koinosGUI RAM',
+  'dashboard.performance.telenoCpu': 'Teleno UX CPU',
+  'dashboard.performance.telenoRam': 'Teleno UX RAM',
   'dashboard.performance.servicesCpu': 'Node CPU',
   'dashboard.performance.servicesRam': 'Node RAM',
   'dashboard.performance.freeSystemRam': 'Free system RAM',
+  'dashboard.performance.freeDisk': 'Disk Space',
+  'dashboard.performance.blockchainData': 'Blockchain Data',
   'dashboard.performance.lastSample': 'Last sample',
   'dashboard.performance.hostUptime': 'Host uptime',
   'dashboard.performance.hostCpus': 'Host CPUs',
   'dashboard.performanceTitle': 'Performance',
-  'dashboard.performanceDescription': 'Real-time CPU and memory snapshots for koinosGUI and the managed node process.',
+  'dashboard.performanceDescription': 'Real-time CPU and memory snapshots for Teleno UX and the managed node process.',
   'dashboard.performanceHostSummary': 'Host summary',
   'dashboard.noPerformance': 'No performance snapshot is available yet.',
   'dashboard.col.name': 'Name',
@@ -30,7 +32,7 @@ const translations: Record<string, string> = {
   'dashboard.col.virtual': 'Virtual',
   'dashboard.col.uptime': 'Uptime',
   'dashboard.col.state': 'State',
-  'dashboard.kind.knodel': 'koinosGUI',
+  'dashboard.kind.teleno': 'Teleno UX',
   'dashboard.kind.service': 'Component',
   'common.na': 'N/A',
   'common.loading': 'Loading...'
@@ -65,19 +67,23 @@ describe('DashboardPanel', () => {
             totalMemoryBytes: 16 * 1024 * 1024 * 1024,
             freeMemoryBytes: 6 * 1024 * 1024 * 1024,
             loadAverage: [0.25, 0.5, 0.75],
-            uptimeSeconds: 3661
+            uptimeSeconds: 3661,
+            freeDiskBytes: 128 * 1024 * 1024 * 1024,
+            totalDiskBytes: 512 * 1024 * 1024 * 1024,
+            blockchainDataBytes: 84 * 1024 * 1024 * 1024,
+            blockchainDataPath: '/tmp/.teleno'
           },
           totals: {
-            knodelCpuPercent: 12.5,
-            knodelMemoryBytes: 512 * 1024 * 1024,
+            telenoCpuPercent: 12.5,
+            telenoMemoryBytes: 512 * 1024 * 1024,
             servicesCpuPercent: 6.25,
             servicesMemoryBytes: 256 * 1024 * 1024
           },
           rows: [
             {
-              id: 'knodel:1',
-              label: 'koinosGUI Main',
-              kind: 'knodel',
+              id: 'teleno:1',
+              label: 'Teleno UX Main',
+              kind: 'teleno',
               serviceId: null,
               pid: 111,
               cpuPercent: 12.5,
@@ -85,8 +91,8 @@ describe('DashboardPanel', () => {
               virtualBytes: null,
               uptimeSeconds: 600,
               state: 'Browser',
-              command: '/Applications/koinosGUI.app',
-              managedByKnodel: true
+              command: '/Applications/Teleno UX.app',
+              managedByTeleno: true
             },
             {
               id: 'service:indexer',
@@ -100,7 +106,7 @@ describe('DashboardPanel', () => {
               uptimeSeconds: 300,
               state: 'S',
               command: '/usr/local/bin/indexer',
-              managedByKnodel: true
+              managedByTeleno: true
             }
           ]
         }}
@@ -112,10 +118,12 @@ describe('DashboardPanel', () => {
       />
     )
 
-    expect(html).toContain('koinosGUI CPU')
+    expect(html).toContain('Teleno UX CPU')
     expect(html).toContain('Performance')
     expect(html).toContain('Indexer')
     expect(html).toContain('Component')
+    expect(html).toContain('Blockchain Data')
+    expect(html).toContain('84 GB')
     expect(html).toContain('12.5%')
     expect(html).toContain('512 MB')
     expect(html).toContain('1 GB')

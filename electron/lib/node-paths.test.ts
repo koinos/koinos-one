@@ -30,9 +30,10 @@ afterEach(() => {
 })
 
 describe('electron node paths', () => {
-  it('normalizes the base dir to end with .koinos while preserving .koinosgui', () => {
+  it('normalizes the base dir to end with .koinos while preserving Teleno and legacy app basedirs', () => {
     expect(ensureKoinosBaseDir('~/node-data')).toMatch(/node-data[/\\]\.koinos$/)
     expect(ensureKoinosBaseDir('/tmp/example/.koinos')).toBe('/tmp/example/.koinos')
+    expect(ensureKoinosBaseDir('/tmp/example/.teleno')).toBe('/tmp/example/.teleno')
     expect(ensureKoinosBaseDir('/tmp/example/.koinosgui')).toBe('/tmp/example/.koinosgui')
   })
 
@@ -78,20 +79,20 @@ describe('electron node paths', () => {
   })
 
   it('uses separate default base dirs per network when no base dir is provided', () => {
-    expect(defaultBaseDirForNetwork('mainnet')).toMatch(/\.koinosgui$/)
-    expect(defaultBaseDirForNetwork('testnet')).toMatch(/\.koinosgui[/\\]testnet[/\\]\.koinos$/)
-    expect(normalizeNodeSettings({ network: 'testnet' }).baseDir).toMatch(/\.koinosgui[/\\]testnet[/\\]\.koinos$/)
+    expect(defaultBaseDirForNetwork('mainnet')).toMatch(/\.teleno$/)
+    expect(defaultBaseDirForNetwork('testnet')).toMatch(/\.teleno[/\\]testnet[/\\]\.koinos$/)
+    expect(normalizeNodeSettings({ network: 'testnet' }).baseDir).toMatch(/\.teleno[/\\]testnet[/\\]\.koinos$/)
   })
 
   it('preserves an existing exact node basedir layout instead of appending .koinos', () => {
-    const baseDir = createTempDir('knodel-node-basedir-')
+    const baseDir = createTempDir('teleno-node-basedir-')
     fs.writeFileSync(path.join(baseDir, 'config.yml'), 'global:\n  log-level: info\n')
 
     expect(ensureKoinosBaseDir(baseDir)).toBe(baseDir)
   })
 
   it('selects an existing child basedir layout when the parent folder is entered', () => {
-    const parentDir = createTempDir('knodel-node-parent-')
+    const parentDir = createTempDir('teleno-node-parent-')
     const restoredBaseDir = path.join(parentDir, 'basedir')
     const guiDefaultDir = path.join(parentDir, '.koinos')
     fs.mkdirSync(path.join(restoredBaseDir, 'chain'), { recursive: true })
@@ -121,7 +122,7 @@ describe('electron node paths', () => {
   })
 
   it('builds managed file paths from the repo and base dir settings', () => {
-    const repoPath = createTempDir('knodel-node-paths-')
+    const repoPath = createTempDir('teleno-node-paths-')
     const settings = {
       repoPath,
       baseDir: path.join(repoPath, '.koinos')

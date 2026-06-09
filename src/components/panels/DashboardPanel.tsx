@@ -117,6 +117,8 @@ export function DashboardPanel(props: DashboardPanelProps) {
                   <tr>
                     <th>{t('dashboard.col.rank')}</th>
                     <th>{t('dashboard.col.producer')}</th>
+                    <th>{t('dashboard.col.koin')}</th>
+                    <th>{t('dashboard.col.vhp')}</th>
                     <th>{t('dashboard.col.blocks')}</th>
                     <th>{t('dashboard.col.share')}</th>
                     <th>{t('dashboard.col.lastHeight')}</th>
@@ -126,15 +128,21 @@ export function DashboardPanel(props: DashboardPanelProps) {
                 <tbody>
                   {producersRows.length === 0 ? (
                     <tr>
-                      <td className="empty-cell" colSpan={6}>
+                      <td className="empty-cell" colSpan={8}>
                         {dashboardProducersLoading ? t('common.loading') : t('dashboard.noProducers')}
                       </td>
                     </tr>
                   ) : (
-                    producersRows.map((row: KnodelKoinosNodeDashboardProducerRow, index: number) => (
+                    producersRows.map((row: TelenoNodeDashboardProducerRow, index: number) => (
                       <tr key={`${row.signer}-${row.lastBlockHeight}`}>
                         <td>{index + 1}</td>
                         <td className="mono" title={row.signer}>{shortHash(row.signer, 16, 12)}</td>
+                        <td title={row.koinBalance ?? t('common.na')}>
+                          {formatDecimalValue(row.koinBalance, locale, 2, t('common.na'))}
+                        </td>
+                        <td title={row.vhpBalance ?? t('common.na')}>
+                          {formatDecimalValue(row.vhpBalance, locale, 2, t('common.na'))}
+                        </td>
                         <td>{formatDecimalValue(row.blocks, locale, 0, t('common.na'))}</td>
                         <td>{formatDecimalValue(row.sharePercent, locale, 2, t('common.na'))}%</td>
                         <td>{formatDecimalValue(row.lastBlockHeight, locale, 0, t('common.na'))}</td>
@@ -206,7 +214,7 @@ export function DashboardPanel(props: DashboardPanelProps) {
                       </td>
                     </tr>
                   ) : (
-                    peersRows.map((row: KnodelKoinosNodeDashboardPeerRow) => (
+                    peersRows.map((row: TelenoNodeDashboardPeerRow) => (
                       <tr key={row.address}>
                         <td className="mono" title={row.address}>{row.address}</td>
                         <td>{row.host || t('common.na')}</td>
@@ -298,12 +306,12 @@ export function DashboardPanel(props: DashboardPanelProps) {
 
           <div className="overview-grid">
             <article className="stat-card">
-              <span className="stat-label">{t('dashboard.performance.knodelCpu')}</span>
-              <p className="stat-value">{formatCpuPercent(dashboardPerformance?.totals.knodelCpuPercent, locale, t('common.na'))}</p>
+              <span className="stat-label">{t('dashboard.performance.telenoCpu')}</span>
+              <p className="stat-value">{formatCpuPercent(dashboardPerformance?.totals.telenoCpuPercent, locale, t('common.na'))}</p>
             </article>
             <article className="stat-card">
-              <span className="stat-label">{t('dashboard.performance.knodelRam')}</span>
-              <p className="stat-value">{formatBytes(dashboardPerformance?.totals.knodelMemoryBytes, locale, t('common.na'))}</p>
+              <span className="stat-label">{t('dashboard.performance.telenoRam')}</span>
+              <p className="stat-value">{formatBytes(dashboardPerformance?.totals.telenoMemoryBytes, locale, t('common.na'))}</p>
             </article>
             <article className="stat-card">
               <span className="stat-label">{t('dashboard.performance.servicesCpu')}</span>
@@ -333,6 +341,10 @@ export function DashboardPanel(props: DashboardPanelProps) {
                   ? ` / ${formatBytes(dashboardPerformance.host.totalDiskBytes, locale, '')}`
                   : ''}
               </p>
+            </article>
+            <article className="stat-card" title={dashboardPerformance?.host.blockchainDataPath || undefined}>
+              <span className="stat-label">{t('dashboard.performance.blockchainData')}</span>
+              <p className="stat-value">{formatBytes(dashboardPerformance?.host.blockchainDataBytes, locale, t('common.na'))}</p>
             </article>
             <article className="stat-card">
               <span className="stat-label">{t('dashboard.performance.hostUptime')}</span>
@@ -384,10 +396,10 @@ export function DashboardPanel(props: DashboardPanelProps) {
                       </td>
                     </tr>
                   ) : (
-                    performanceRows.map((row: KnodelKoinosNodeDashboardPerformanceRow) => (
+                    performanceRows.map((row: TelenoNodeDashboardPerformanceRow) => (
                       <tr key={row.id}>
                         <td className="mono" title={row.command || row.label}>{row.label}</td>
-                        <td>{row.kind === 'knodel' ? t('dashboard.kind.knodel') : t('dashboard.kind.service')}</td>
+                        <td>{row.kind === 'teleno' ? t('dashboard.kind.teleno') : t('dashboard.kind.service')}</td>
                         <td>{formatDecimalValue(row.pid, locale, 0, t('common.na'))}</td>
                         <td>{formatCpuPercent(row.cpuPercent, locale, t('common.na'))}</td>
                         <td>{formatBytes(row.rssBytes, locale, t('common.na'))}</td>

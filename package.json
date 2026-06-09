@@ -1,8 +1,8 @@
 {
-  "name": "koinosgui",
+  "name": "teleno",
   "version": "0.10.1",
   "private": true,
-  "description": "koinosGUI desktop app for the monolithic Koinos node (Electron + React + TypeScript)",
+  "description": "Teleno desktop app for the monolithic Koinos node (Electron + React + TypeScript)",
   "author": "pgarciagon",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -37,7 +37,7 @@
     "test:ui:headed": "playwright test tests/ui/node-settings.spec.ts --headed",
     "test:ui:update": "playwright test tests/ui/node-settings.spec.ts --update-snapshots",
     "test:ui:report": "playwright show-report",
-    "test:ui:electron": "npm run build && cross-env KOINOSGUI_PLAYWRIGHT_ELECTRON=1 playwright test --config=playwright.electron.config.ts tests/ui/electron-smoke.spec.ts"
+    "test:ui:electron": "npm run build && cross-env TELENO_PLAYWRIGHT_ELECTRON=1 playwright test --config=playwright.electron.config.ts tests/ui/electron-smoke.spec.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

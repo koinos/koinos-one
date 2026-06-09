@@ -12,44 +12,44 @@ import {
 import { contractsForNetwork, primaryPublicRpcUrlForNetwork, type KoinosNetworkId } from './network-profiles'
 import type {
   ServiceStatus,
-  KoinosNodeDashboardPerformanceHost,
-  KoinosNodeDashboardPerformanceInput,
-  KoinosNodeDashboardPerformanceResult,
-  KoinosNodeDashboardPerformanceRow,
-  KoinosNodeDashboardPeerRow,
-  KoinosNodeDashboardPeersInput,
-  KoinosNodeDashboardPeersResult,
-  KoinosNodeDashboardProducersInput,
-  KoinosNodeDashboardProducersResult,
-  KoinosNodeLogsInput,
-  KoinosNodeLogsResult,
-  KoinosNodeProducerAddressSource,
-  KoinosNodeProducerDeleteResult,
-  KoinosNodeProducerLocalInfoResult,
-  KoinosNodeProducerOverviewInput,
-  KoinosNodeProducerOverviewResult,
-  KoinosNodeProducerProfileResult,
-  KoinosNodeProducerRegisterInput,
-  KoinosNodeProducerRegisterResult,
-  KoinosNodeProducerRegisteredKeyInput,
-  KoinosNodeProducerRegisteredKeyResult,
-  KoinosNodeSettings,
-  KoinosNodeSettingsInput,
-  KoinosNodeStatus,
-  KnodelEncryptedWallet,
-  KnodelProducerProfile,
-  KnodelUnlockedWallet,
-  KnodelUnlockedWalletAccount
+  TelenoNodeDashboardPerformanceHost,
+  TelenoNodeDashboardPerformanceInput,
+  TelenoNodeDashboardPerformanceResult,
+  TelenoNodeDashboardPerformanceRow,
+  TelenoNodeDashboardPeerRow,
+  TelenoNodeDashboardPeersInput,
+  TelenoNodeDashboardPeersResult,
+  TelenoNodeDashboardProducersInput,
+  TelenoNodeDashboardProducersResult,
+  TelenoNodeLogsInput,
+  TelenoNodeLogsResult,
+  TelenoNodeProducerAddressSource,
+  TelenoNodeProducerDeleteResult,
+  TelenoNodeProducerLocalInfoResult,
+  TelenoNodeProducerOverviewInput,
+  TelenoNodeProducerOverviewResult,
+  TelenoNodeProducerProfileResult,
+  TelenoNodeProducerRegisterInput,
+  TelenoNodeProducerRegisterResult,
+  TelenoNodeProducerRegisteredKeyInput,
+  TelenoNodeProducerRegisteredKeyResult,
+  TelenoNodeSettings,
+  TelenoNodeSettingsInput,
+  TelenoNodeStatus,
+  TelenoEncryptedWallet,
+  TelenoProducerProfile,
+  TelenoUnlockedWallet,
+  TelenoUnlockedWalletAccount
 } from './main-types'
 
 type ProducerServiceDeps = {
-  normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
+  normalizeNodeSettings: (input?: TelenoNodeSettingsInput) => TelenoNodeSettings
   producerAddressFromRuntimeConfig: (
-    settings: KoinosNodeSettings
+    settings: TelenoNodeSettings
   ) => { producerAddress: string | null; configFilePath: string; configHasProducer: boolean }
-  loadKnodelWalletFile: () => KnodelEncryptedWallet | null
+  loadTelenoWalletFile: (network?: KoinosNetworkId) => TelenoEncryptedWallet | null
   resolveLocalProducerPublicKey: (
-    settings: KoinosNodeSettings
+    settings: TelenoNodeSettings
   ) => { publicKey: string | null; publicKeyPath: string | null; privateKeyPath: string | null }
   producerRpcTarget: (input?: { network?: KoinosNetworkId; rpcUrl?: string }) => { rpcUrl: string; rpcSource: 'public' | 'local' }
   loadContractWithFetchedAbi: (provider: Provider, contractId: string) => Promise<Contract>
@@ -62,20 +62,20 @@ type ProducerServiceDeps = {
   safeIsChecksumAddress: (value: string | null | undefined) => boolean
   formatWholeUnits: (value: bigint | string | number | null | undefined, decimals?: number) => string | null
   parseWholeUnits: (value: bigint | string | number | null | undefined, decimals?: number) => number | null
-  currentUnlockedProducerWallet: () => KnodelUnlockedWallet | null
-  unlockKnodelWalletSession: (password: string) => KnodelUnlockedWallet | null
-  persistProducerRuntimeConfig: (settings: KoinosNodeSettings, producerAddress: string) => string
-  saveProducerProfile: (profile: KnodelProducerProfile) => string
-  clearProducerProfile: () => boolean
-  loadProducerProfile: () => KnodelProducerProfile | null
-  clearProducerRuntimeConfig: (settings: KoinosNodeSettings) => { configPath: string; cleared: boolean }
-  knodelProducerProfileFilePath: () => string
-  nativeComposeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
-  nativeComposeLogs: (input?: KoinosNodeLogsInput) => Promise<KoinosNodeLogsResult>
+  currentUnlockedProducerWallet: (network?: KoinosNetworkId) => TelenoUnlockedWallet | null
+  unlockTelenoWalletSession: (password: string, network?: KoinosNetworkId) => TelenoUnlockedWallet | null
+  persistProducerRuntimeConfig: (settings: TelenoNodeSettings, producerAddress: string) => string
+  saveProducerProfile: (profile: TelenoProducerProfile, network?: KoinosNetworkId) => string
+  clearProducerProfile: (network?: KoinosNetworkId) => boolean
+  loadProducerProfile: (network?: KoinosNetworkId) => TelenoProducerProfile | null
+  clearProducerRuntimeConfig: (settings: TelenoNodeSettings) => { configPath: string; cleared: boolean }
+  telenoProducerProfileFilePath: (network?: KoinosNetworkId) => string
+  nativeComposeStatus: (input?: TelenoNodeSettingsInput) => Promise<TelenoNodeStatus>
+  nativeComposeLogs: (input?: TelenoNodeLogsInput) => Promise<TelenoNodeLogsResult>
   isComposeServiceRunning: (service: ServiceStatus) => boolean
-  blockProducerPrivateKeyFilePath: (settings: KoinosNodeSettings) => string
+  blockProducerPrivateKeyFilePath: (settings: TelenoNodeSettings) => string
   getAppMetrics: () => ProducerServiceAppMetric[]
-  hostSnapshot: () => KoinosNodeDashboardPerformanceHost
+  hostSnapshot: () => TelenoNodeDashboardPerformanceHost
   now: () => number
   runCommand: (
     command: string,
@@ -179,7 +179,7 @@ export function parseLatestP2pPeersSnapshot(logOutput: string): {
   snapshotAt: number | null
   selfAddress: string | null
   omittedPeerCount: number
-  rows: KoinosNodeDashboardPeerRow[]
+  rows: TelenoNodeDashboardPeerRow[]
 } | null {
   const lines = logOutput.split(/\r?\n/)
   let connectedPeersIndex = -1
@@ -205,7 +205,7 @@ export function parseLatestP2pPeersSnapshot(logOutput: string): {
     }
   }
 
-  const rows: KoinosNodeDashboardPeerRow[] = []
+  const rows: TelenoNodeDashboardPeerRow[] = []
   let omittedPeerCount = 0
   for (let index = connectedPeersIndex + 1; index < lines.length; index += 1) {
     const line = lines[index]
@@ -300,23 +300,23 @@ function sumNullableValues(values: Array<number | null | undefined>): number | n
 }
 
 export function aggregateDashboardPerformanceTotals(
-  rows: KoinosNodeDashboardPerformanceRow[]
-): KoinosNodeDashboardPerformanceResult['totals'] {
-  const knodelRows = rows.filter((row) => row.kind === 'knodel')
+  rows: TelenoNodeDashboardPerformanceRow[]
+): TelenoNodeDashboardPerformanceResult['totals'] {
+  const telenoRows = rows.filter((row) => row.kind === 'teleno')
   const serviceRows = rows.filter((row) => row.kind === 'service')
 
   return {
-    knodelCpuPercent: sumNullableValues(knodelRows.map((row) => row.cpuPercent)),
-    knodelMemoryBytes: sumNullableValues(knodelRows.map((row) => row.rssBytes)),
+    telenoCpuPercent: sumNullableValues(telenoRows.map((row) => row.cpuPercent)),
+    telenoMemoryBytes: sumNullableValues(telenoRows.map((row) => row.rssBytes)),
     servicesCpuPercent: sumNullableValues(serviceRows.map((row) => row.cpuPercent)),
     servicesMemoryBytes: sumNullableValues(serviceRows.map((row) => row.rssBytes))
   }
 }
 
 function resolveUnlockedProducerSigner(
-  wallet: KnodelUnlockedWallet,
+  wallet: TelenoUnlockedWallet,
   signerRef?: string | null
-): KnodelUnlockedWalletAccount | null {
+): TelenoUnlockedWalletAccount | null {
   const requested = `${signerRef || ''}`.trim().toLowerCase()
   if (requested) {
     const exact =
@@ -335,8 +335,8 @@ function resolveUnlockedProducerSigner(
 }
 
 export function sortDashboardPerformanceRows(
-  rows: KoinosNodeDashboardPerformanceRow[]
-): KoinosNodeDashboardPerformanceRow[] {
+  rows: TelenoNodeDashboardPerformanceRow[]
+): TelenoNodeDashboardPerformanceRow[] {
   return [...rows].sort((left, right) => {
     const cpuLeft = left.cpuPercent ?? Number.NEGATIVE_INFINITY
     const cpuRight = right.cpuPercent ?? Number.NEGATIVE_INFINITY
@@ -350,13 +350,13 @@ export function sortDashboardPerformanceRows(
   })
 }
 
-function labelKnodelMetric(metric: ProducerServiceAppMetric): string {
-  if (metric.type === 'Browser') return 'koinosGUI Main'
-  if (metric.type === 'Tab') return 'koinosGUI Renderer'
-  if (metric.type === 'GPU') return 'koinosGUI GPU'
+function labelTelenoMetric(metric: ProducerServiceAppMetric): string {
+  if (metric.type === 'Browser') return 'Teleno UX Main'
+  if (metric.type === 'Tab') return 'Teleno UX Renderer'
+  if (metric.type === 'GPU') return 'Teleno UX GPU'
 
   const suffix = metric.name?.trim() || metric.serviceName?.trim() || metric.type.trim()
-  return suffix ? `koinosGUI ${suffix}` : 'koinosGUI Process'
+  return suffix ? `Teleno UX ${suffix}` : 'Teleno UX Process'
 }
 
 async function sampleDashboardPerformancePs(
@@ -445,6 +445,60 @@ async function sampleDashboardPerformancePs(
   return {
     rowsByPid,
     warning: rowsByPid.size > 0 ? null : 'Could not sample process metrics.'
+  }
+}
+
+async function measureBlockchainDataSize(
+  deps: ProducerServiceDeps,
+  baseDir: string | null | undefined
+): Promise<{ bytes: number | null; path: string | null; warning: string | null }> {
+  const targetPath = baseDir?.trim() || ''
+  if (!targetPath) return { bytes: null, path: null, warning: null }
+
+  try {
+    const stats = fs.statSync(targetPath)
+    if (!stats.isDirectory()) {
+      return { bytes: null, path: targetPath, warning: `Blockchain data path is not a directory: ${targetPath}.` }
+    }
+  } catch {
+    return { bytes: null, path: targetPath, warning: null }
+  }
+
+  try {
+    if (process.platform === 'win32') {
+      const result = await deps.runCommand('powershell', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '$p=$env:TELENO_BLOCKCHAIN_DATA_PATH; ' +
+          'if (Test-Path -LiteralPath $p) { ' +
+          '(Get-ChildItem -LiteralPath $p -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum ' +
+          '}'
+      ], {
+        cwd: process.cwd(),
+        env: { ...process.env, TELENO_BLOCKCHAIN_DATA_PATH: targetPath },
+        timeoutMs: 15000
+      })
+      const bytes = Number.parseInt(result.output.trim(), 10)
+      return {
+        bytes: Number.isFinite(bytes) && bytes >= 0 ? bytes : null,
+        path: targetPath,
+        warning: result.ok ? null : `Could not measure blockchain data size at ${targetPath}.`
+      }
+    }
+
+    const result = await deps.runCommand('du', ['-sk', targetPath], {
+      cwd: process.cwd(),
+      timeoutMs: 15000
+    })
+    const kib = Number.parseInt(result.output.trim().split(/\s+/)[0] ?? '', 10)
+    return {
+      bytes: Number.isFinite(kib) && kib >= 0 ? kib * 1024 : null,
+      path: targetPath,
+      warning: result.ok ? null : `Could not measure blockchain data size at ${targetPath}.`
+    }
+  } catch {
+    return { bytes: null, path: targetPath, warning: `Could not measure blockchain data size at ${targetPath}.` }
   }
 }
 
@@ -540,18 +594,18 @@ function isMissingProducerPublicKeyRecordError(error: unknown): boolean {
 }
 
 export function createProducerService(deps: ProducerServiceDeps) {
-  async function koinosNodeProducerOverview(
-    input?: KoinosNodeProducerOverviewInput
-  ): Promise<KoinosNodeProducerOverviewResult> {
+  async function telenoNodeProducerOverview(
+    input?: TelenoNodeProducerOverviewInput
+  ): Promise<TelenoNodeProducerOverviewResult> {
     const settings = deps.normalizeNodeSettings(input)
     const configProducer = deps.producerAddressFromRuntimeConfig(settings)
-    const wallet = deps.loadKnodelWalletFile()
+    const wallet = deps.loadTelenoWalletFile(settings.network)
     const localProducerKey = deps.resolveLocalProducerPublicKey(settings)
     const { rpcUrl, rpcSource } = deps.producerRpcTarget(input)
     const contracts = contractsForNetwork(settings.network)
     const requestedProducerAddress = `${input?.producerAddress || ''}`.trim()
     const producerAddress = requestedProducerAddress || configProducer.producerAddress || null
-    const producerAddressSource: KoinosNodeProducerAddressSource = requestedProducerAddress
+    const producerAddressSource: TelenoNodeProducerAddressSource = requestedProducerAddress
       ? wallet?.address && requestedProducerAddress.toLowerCase() === wallet.address.toLowerCase()
         ? 'vault'
         : 'config'
@@ -559,7 +613,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         ? 'config'
         : 'none'
 
-    const baseResult: KoinosNodeProducerOverviewResult = {
+    const baseResult: TelenoNodeProducerOverviewResult = {
       ok: true,
       output: '',
       rpcUrl,
@@ -661,7 +715,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         producerActivityAvailable = true
       } catch (error) {
         if (rpcSource === 'local' && isProducerOverviewTimeoutError(error)) {
-          return koinosNodeProducerOverview({
+          return telenoNodeProducerOverview({
             ...settings,
             producerAddress: requestedProducerAddress || undefined,
             rpcUrl: primaryPublicRpcUrlForNetwork(settings.network)
@@ -781,7 +835,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
       baseResult.ok = false
       const message = error instanceof Error ? error.message : 'Could not load producer overview'
       if (rpcSource === 'local' && isProducerOverviewTimeoutError(error)) {
-        return koinosNodeProducerOverview({
+        return telenoNodeProducerOverview({
           ...settings,
           producerAddress: requestedProducerAddress || undefined,
           rpcUrl: primaryPublicRpcUrlForNetwork(settings.network)
@@ -795,9 +849,9 @@ export function createProducerService(deps: ProducerServiceDeps) {
     }
   }
 
-  async function koinosNodeProducerRegisteredKey(
-    input?: KoinosNodeProducerRegisteredKeyInput
-  ): Promise<KoinosNodeProducerRegisteredKeyResult> {
+  async function telenoNodeProducerRegisteredKey(
+    input?: TelenoNodeProducerRegisteredKeyInput
+  ): Promise<TelenoNodeProducerRegisteredKeyResult> {
     const settings = deps.normalizeNodeSettings(input)
     const { rpcUrl, rpcSource } = deps.producerRpcTarget(input)
     const contracts = contractsForNetwork(settings.network)
@@ -806,7 +860,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
       ok: boolean,
       output: string,
       registeredPublicKey: string | null = null
-    ): KoinosNodeProducerRegisteredKeyResult => ({
+    ): TelenoNodeProducerRegisteredKeyResult => ({
       ok,
       output,
       rpcUrl,
@@ -827,7 +881,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
       return respond(true, `Registered producer key loaded for ${producerAddress}.`, registeredPublicKey)
     } catch (error) {
       if (rpcSource === 'local' && isProducerOverviewTimeoutError(error)) {
-        return koinosNodeProducerRegisteredKey({
+        return telenoNodeProducerRegisteredKey({
           ...settings,
           producerAddress: producerAddress || undefined,
           rpcUrl: primaryPublicRpcUrlForNetwork(settings.network)
@@ -850,13 +904,14 @@ export function createProducerService(deps: ProducerServiceDeps) {
     }
   }
 
-  async function koinosNodeDashboardProducers(
-    input?: KoinosNodeDashboardProducersInput
-  ): Promise<KoinosNodeDashboardProducersResult> {
+  async function telenoNodeDashboardProducers(
+    input?: TelenoNodeDashboardProducersInput
+  ): Promise<TelenoNodeDashboardProducersResult> {
     const settings = deps.normalizeNodeSettings(input)
     const { rpcUrl, rpcSource } = deps.producerRpcTarget(input)
+    const contracts = contractsForNetwork(settings.network)
     const windowBlocks = normalizeDashboardProducerWindowBlocks(input?.windowBlocks)
-    const empty = (output: string, headHeight: number | null = null): KoinosNodeDashboardProducersResult => ({
+    const empty = (output: string, headHeight: number | null = null): TelenoNodeDashboardProducersResult => ({
       ok: false,
       output,
       rpcUrl,
@@ -884,7 +939,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         items = await deps.fetchBlocksByHeightPaged(provider, headBlockId, startHeight, headHeight)
       } catch (error) {
         if (rpcSource === 'local' && isProducerOverviewTimeoutError(error)) {
-          return koinosNodeDashboardProducers({
+          return telenoNodeDashboardProducers({
             ...settings,
             rpcUrl: primaryPublicRpcUrlForNetwork(settings.network),
             windowBlocks
@@ -914,7 +969,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         }
       }
 
-      const rows = Array.from(producerStats.entries())
+      const baseRows = Array.from(producerStats.entries())
         .map(([signer, stats]) => ({
           signer,
           blocks: stats.count,
@@ -926,10 +981,55 @@ export function createProducerService(deps: ProducerServiceDeps) {
           if (right.blocks !== left.blocks) return right.blocks - left.blocks
           return right.lastBlockHeight - left.lastBlockHeight
         })
+      let balanceWarning = false
+      let rows = baseRows.map((row) => ({
+        ...row,
+        koinBalance: null as string | null,
+        vhpBalance: null as string | null
+      }))
+
+      try {
+        const [koin, vhp] = await Promise.all([
+          deps.loadContractWithFetchedAbi(provider, contracts.koin),
+          deps.loadContractWithFetchedAbi(provider, contracts.vhp)
+        ])
+
+        rows = await Promise.all(baseRows.map(async (row) => {
+          if (!deps.safeIsChecksumAddress(row.signer)) {
+            return {
+              ...row,
+              koinBalance: null,
+              vhpBalance: null
+            }
+          }
+
+          try {
+            const [koinBalance, vhpBalance] = await Promise.all([
+              koin.functions.balance_of({ owner: row.signer }),
+              vhp.functions.balance_of({ owner: row.signer })
+            ])
+
+            return {
+              ...row,
+              koinBalance: deps.formatWholeUnits((koinBalance.result as { value?: string } | undefined)?.value) || '0',
+              vhpBalance: deps.formatWholeUnits((vhpBalance.result as { value?: string } | undefined)?.value) || '0'
+            }
+          } catch {
+            balanceWarning = true
+            return {
+              ...row,
+              koinBalance: null,
+              vhpBalance: null
+            }
+          }
+        }))
+      } catch {
+        balanceWarning = rows.length > 0
+      }
 
       return {
         ok: true,
-        output: `Loaded ${rows.length} producers from the last ${items.length} blocks via ${rpcUrl}.`,
+        output: `Loaded ${rows.length} producers from the last ${items.length} blocks via ${rpcUrl}.${balanceWarning ? ' Some balances could not be loaded.' : ''}`,
         rpcUrl,
         rpcSource,
         windowBlocks,
@@ -947,8 +1047,8 @@ export function createProducerService(deps: ProducerServiceDeps) {
     }
   }
 
-  async function koinosNodeDashboardPeers(input?: KoinosNodeDashboardPeersInput): Promise<KoinosNodeDashboardPeersResult> {
-    const empty = (output: string): KoinosNodeDashboardPeersResult => ({
+  async function telenoNodeDashboardPeers(input?: TelenoNodeDashboardPeersInput): Promise<TelenoNodeDashboardPeersResult> {
+    const empty = (output: string): TelenoNodeDashboardPeersResult => ({
       ok: false,
       output,
       service: 'p2p',
@@ -999,19 +1099,23 @@ export function createProducerService(deps: ProducerServiceDeps) {
     }
   }
 
-  async function koinosNodeDashboardPerformance(
-    input?: KoinosNodeDashboardPerformanceInput
-  ): Promise<KoinosNodeDashboardPerformanceResult> {
+  async function telenoNodeDashboardPerformance(
+    input?: TelenoNodeDashboardPerformanceInput
+  ): Promise<TelenoNodeDashboardPerformanceResult> {
     const sampledAt = deps.now()
-    const host = deps.hostSnapshot()
-    const empty = (ok: boolean, output: string): KoinosNodeDashboardPerformanceResult => ({
+    const host: TelenoNodeDashboardPerformanceHost = {
+      ...deps.hostSnapshot(),
+      blockchainDataBytes: null,
+      blockchainDataPath: null
+    }
+    const empty = (ok: boolean, output: string): TelenoNodeDashboardPerformanceResult => ({
       ok,
       output,
       sampledAt,
       host,
       totals: {
-        knodelCpuPercent: null,
-        knodelMemoryBytes: null,
+        telenoCpuPercent: null,
+        telenoMemoryBytes: null,
         servicesCpuPercent: null,
         servicesMemoryBytes: null
       },
@@ -1020,12 +1124,16 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
     try {
       const settings = deps.normalizeNodeSettings(input)
+      const blockchainDataSize = await measureBlockchainDataSize(deps, settings.baseDir)
+      host.blockchainDataBytes = blockchainDataSize.bytes
+      host.blockchainDataPath = blockchainDataSize.path
+
       const status = await deps.nativeComposeStatus(settings)
       const appMetrics = deps.getAppMetrics()
-      const knodelRows: KoinosNodeDashboardPerformanceRow[] = appMetrics.map((metric) => ({
-        id: `knodel:${metric.pid}:${metric.creationTime}`,
-        label: labelKnodelMetric(metric),
-        kind: 'knodel',
+      const telenoRows: TelenoNodeDashboardPerformanceRow[] = appMetrics.map((metric) => ({
+        id: `teleno:${metric.pid}:${metric.creationTime}`,
+        label: labelTelenoMetric(metric),
+        kind: 'teleno',
         serviceId: null,
         pid: Number.isFinite(metric.pid) ? metric.pid : null,
         cpuPercent: Number.isFinite(metric.cpu.percentCPUUsage)
@@ -1040,11 +1148,11 @@ export function createProducerService(deps: ProducerServiceDeps) {
           : null,
         state: metric.type || null,
         command: metric.serviceName?.trim() || metric.name?.trim() || null,
-        managedByKnodel: true
+        managedByTeleno: true
       }))
 
       const managedServices = status.services.filter((service) => (
-        service.managedByKnodel &&
+        service.managedByTeleno &&
         typeof service.nativePid === 'number' &&
         service.nativePid > 0
       ))
@@ -1053,7 +1161,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         managedServices.map((service) => service.nativePid as number)
       )
       const unavailableSamples: string[] = []
-      const serviceRows: KoinosNodeDashboardPerformanceRow[] = managedServices.map((service) => {
+      const serviceRows: TelenoNodeDashboardPerformanceRow[] = managedServices.map((service) => {
         const sample = service.nativePid ? psResult.rowsByPid.get(service.nativePid) ?? null : null
         if (!sample) unavailableSamples.push(service.name)
 
@@ -1069,14 +1177,14 @@ export function createProducerService(deps: ProducerServiceDeps) {
           uptimeSeconds: sample?.uptimeSeconds ?? null,
           state: sample?.state ?? service.state ?? null,
           command: sample?.command ?? null,
-          managedByKnodel: service.managedByKnodel
+          managedByTeleno: service.managedByTeleno
         }
       })
 
-      const rows = sortDashboardPerformanceRows([...knodelRows, ...serviceRows])
+      const rows = sortDashboardPerformanceRows([...telenoRows, ...serviceRows])
       const totals = aggregateDashboardPerformanceTotals(rows)
       const notes = [
-        `Sampled ${knodelRows.length} koinosGUI process(es).`,
+        `Sampled ${telenoRows.length} Teleno UX process(es).`,
         managedServices.length > 0
           ? `Tracked ${managedServices.length} managed native service process(es).`
           : 'No managed native service PIDs were active.'
@@ -1094,6 +1202,10 @@ export function createProducerService(deps: ProducerServiceDeps) {
         notes.push(psResult.warning)
       }
 
+      if (blockchainDataSize.warning) {
+        notes.push(blockchainDataSize.warning)
+      }
+
       return {
         ok: true,
         output: notes.join(' '),
@@ -1107,36 +1219,42 @@ export function createProducerService(deps: ProducerServiceDeps) {
     }
   }
 
-  async function koinosNodeProducerProfileGet(): Promise<KoinosNodeProducerProfileResult> {
-    const profile = deps.loadProducerProfile()
+  async function telenoNodeProducerProfileGet(input?: TelenoNodeSettingsInput): Promise<TelenoNodeProducerProfileResult> {
+    const settings = deps.normalizeNodeSettings(input)
+    const profile = deps.loadProducerProfile(settings.network)
     return {
       ok: true,
-      output: profile ? `Producer profile loaded for ${profile.producerAddress}.` : 'No producer profile configured yet.',
-      profileFilePath: deps.knodelProducerProfileFilePath(),
+      output: profile
+        ? `Producer profile loaded for ${settings.network}: ${profile.producerAddress}.`
+        : `No producer profile configured yet for ${settings.network}.`,
+      profileFilePath: deps.telenoProducerProfileFilePath(settings.network),
       profile
     }
   }
 
-  async function koinosNodeProducerProfileClear(): Promise<KoinosNodeProducerProfileResult> {
+  async function telenoNodeProducerProfileClear(input?: TelenoNodeSettingsInput): Promise<TelenoNodeProducerProfileResult> {
+    const settings = deps.normalizeNodeSettings(input)
     try {
-      const cleared = deps.clearProducerProfile()
+      const cleared = deps.clearProducerProfile(settings.network)
       return {
         ok: true,
-        output: cleared ? 'Producer profile cleared.' : 'No producer profile file was found.',
-        profileFilePath: deps.knodelProducerProfileFilePath(),
+        output: cleared
+          ? `Producer profile cleared for ${settings.network}.`
+          : `No producer profile file was found for ${settings.network}.`,
+        profileFilePath: deps.telenoProducerProfileFilePath(settings.network),
         profile: null
       }
     } catch (error) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not clear producer profile',
-        profileFilePath: deps.knodelProducerProfileFilePath(),
-        profile: deps.loadProducerProfile()
+        profileFilePath: deps.telenoProducerProfileFilePath(settings.network),
+        profile: deps.loadProducerProfile(settings.network)
       }
     }
   }
 
-  async function koinosNodeProducerLocalInfo(input?: KoinosNodeSettingsInput): Promise<KoinosNodeProducerLocalInfoResult> {
+  async function telenoNodeProducerLocalInfo(input?: TelenoNodeSettingsInput): Promise<TelenoNodeProducerLocalInfoResult> {
     try {
       const settings = deps.normalizeNodeSettings(input)
       const configProducer = deps.producerAddressFromRuntimeConfig(settings)
@@ -1167,13 +1285,13 @@ export function createProducerService(deps: ProducerServiceDeps) {
     }
   }
 
-  async function koinosNodeProducerDelete(input?: KoinosNodeSettingsInput): Promise<KoinosNodeProducerDeleteResult> {
+  async function telenoNodeProducerDelete(input?: TelenoNodeSettingsInput): Promise<TelenoNodeProducerDeleteResult> {
     const settings = deps.normalizeNodeSettings(input)
     const notes: string[] = []
     let ok = true
 
     try {
-      const clearedProfile = deps.clearProducerProfile()
+      const clearedProfile = deps.clearProducerProfile(settings.network)
       notes.push(clearedProfile ? 'Producer profile cleared.' : 'No producer profile file was found.')
     } catch (error) {
       ok = false
@@ -1195,14 +1313,14 @@ export function createProducerService(deps: ProducerServiceDeps) {
     return {
       ok,
       output: notes.join('\n'),
-      overview: await koinosNodeProducerOverview({ ...settings, producerAddress: '' }),
-      profile: ok ? null : deps.loadProducerProfile()
+      overview: await telenoNodeProducerOverview({ ...settings, producerAddress: '' }),
+      profile: ok ? null : deps.loadProducerProfile(settings.network)
     }
   }
 
-  async function koinosNodeProducerRegister(
-    input?: KoinosNodeProducerRegisterInput
-  ): Promise<KoinosNodeProducerRegisterResult> {
+  async function telenoNodeProducerRegister(
+    input?: TelenoNodeProducerRegisterInput
+  ): Promise<TelenoNodeProducerRegisterResult> {
     const settings = deps.normalizeNodeSettings(input)
     const { rpcUrl } = deps.producerRpcTarget(input)
     const contracts = contractsForNetwork(settings.network)
@@ -1215,15 +1333,15 @@ export function createProducerService(deps: ProducerServiceDeps) {
     const persistProfile = input?.persistProfile !== false
     const localProducerKey = deps.resolveLocalProducerPublicKey(settings)
 
-    const fail = async (message: string): Promise<KoinosNodeProducerRegisterResult> => ({
+    const fail = async (message: string): Promise<TelenoNodeProducerRegisterResult> => ({
       ok: false,
       producerAddress,
       output: message,
-      overview: await koinosNodeProducerOverview({ ...settings, producerAddress, rpcUrl })
+      overview: await telenoNodeProducerOverview({ ...settings, producerAddress, rpcUrl })
     })
 
     if (!producerAddress) {
-      return fail('No producer address available. Configure one in the Producer tab or import an account into koinosGUI.')
+      return fail('No producer address available. Configure one in the Producer tab or import an account into Teleno UX.')
     }
 
     if (!deps.safeIsChecksumAddress(producerAddress)) {
@@ -1234,10 +1352,10 @@ export function createProducerService(deps: ProducerServiceDeps) {
       return fail('No local producer public key was found in BASEDIR/block_producer.')
     }
 
-    let wallet: KnodelUnlockedWallet | null = deps.currentUnlockedProducerWallet()
+    let wallet: TelenoUnlockedWallet | null = deps.currentUnlockedProducerWallet(settings.network)
     if (!wallet && password.trim()) {
       try {
-        wallet = deps.unlockKnodelWalletSession(password)
+        wallet = deps.unlockTelenoWalletSession(password, settings.network)
       } catch {
         return fail('Invalid producer account password.')
       }
@@ -1249,7 +1367,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
     const signerAccount = resolveUnlockedProducerSigner(wallet, signerAccountId)
     if (!signerAccount) {
-      return fail('The selected signer account is not unlocked in this koinosGUI session.')
+      return fail('The selected signer account is not unlocked in this Teleno UX session.')
     }
     if (!signerAccount.privateKey) {
       return fail('The selected signer account is watch-only and cannot register the producer key.')
@@ -1326,7 +1444,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         const configPath = deps.persistProducerRuntimeConfig(settings, producerAddress)
         notes.push(`Updated ${configPath} with block_producer.producer = ${producerAddress}.`)
         if (fs.existsSync(deps.blockProducerPrivateKeyFilePath(settings))) {
-          notes.push('Ensured block_producer.private-key-file = private.key in runtime config.')
+          notes.push('Ensured block_producer.private-key-file = block_producer/private.key in runtime config.')
         }
       }
 
@@ -1336,6 +1454,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
       if (persistProfile) {
         const profilePath = deps.saveProducerProfile({
+          network: settings.network,
           producerAddress,
           registrationSignerAccountId: signerAccount.id,
           burnAccountId: signerAccount.id,
@@ -1344,7 +1463,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
           registeredPublicKey: localProducerKey.publicKey,
           lastRegistrationTxId: registrationTxId,
           updatedAt: new Date().toISOString()
-        })
+        }, settings.network)
         notes.push(`Updated producer profile at ${profilePath}.`)
       }
 
@@ -1352,7 +1471,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         ok: true,
         producerAddress,
         output: notes.join('\n'),
-        overview: await koinosNodeProducerOverview({ ...settings, producerAddress })
+        overview: await telenoNodeProducerOverview({ ...settings, producerAddress })
       }
     } catch (error) {
       return fail(error instanceof Error ? error.message : 'Could not register the producer public key')
@@ -1360,15 +1479,15 @@ export function createProducerService(deps: ProducerServiceDeps) {
   }
 
   return {
-    koinosNodeDashboardPerformance,
-    koinosNodeDashboardPeers,
-    koinosNodeDashboardProducers,
-    koinosNodeProducerDelete,
-    koinosNodeProducerLocalInfo,
-    koinosNodeProducerOverview,
-    koinosNodeProducerProfileClear,
-    koinosNodeProducerProfileGet,
-    koinosNodeProducerRegister,
-    koinosNodeProducerRegisteredKey
+    telenoNodeDashboardPerformance,
+    telenoNodeDashboardPeers,
+    telenoNodeDashboardProducers,
+    telenoNodeProducerDelete,
+    telenoNodeProducerLocalInfo,
+    telenoNodeProducerOverview,
+    telenoNodeProducerProfileClear,
+    telenoNodeProducerProfileGet,
+    telenoNodeProducerRegister,
+    telenoNodeProducerRegisteredKey
   }
 }

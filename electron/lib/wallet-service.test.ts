@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { createKnodelStorage } from './knodel-storage'
+import { createTelenoStorage } from './teleno-storage'
 import { createWalletService, deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-service'
 
 const tempDirs: string[] = []
@@ -23,26 +23,27 @@ afterEach(() => {
 })
 
 function createWalletTestService() {
-  const storage = createKnodelStorage(createTempDir('wallet-service-'))
+  const storage = createTelenoStorage(createTempDir('wallet-service-'))
 
   return {
     storage,
     service: createWalletService({
-      loadKnodelWalletFile: () => storage.loadWalletFile(),
-      knodelProducerWalletFilePath: () => storage.producerWalletFilePath(),
-      currentUnlockedProducerWallet: () => storage.getUnlockedWallet(),
-      saveKnodelWallet: (privateKey, address, password, options) => storage.saveWallet(privateKey, address, password, options),
-      deleteKnodelWallet: () => storage.deleteWallet(),
-      closeKnodelWalletSession: () => storage.closeWalletSession(),
-      unlockKnodelWalletSession: (password) => storage.unlockWalletSession(password),
-      listWalletAccounts: () => storage.listWalletAccounts(),
-      setActiveWalletAccount: (accountId) => storage.setActiveWalletAccount(accountId),
-      createDerivedWalletAccount: (name) => storage.createDerivedWalletAccount(name),
-      importAdditionalWalletAccount: (privateKey, password, name) => storage.importWalletAccount(privateKey, password, name),
-      importWatchWalletAccount: (address, name) => storage.importWatchWalletAccount(address, name),
-      renameWalletAccount: (accountId, name) => storage.renameWalletAccount(accountId, name),
-      removeWalletAccount: (accountId) => storage.removeWalletAccount(accountId),
-      loadWalletAccountSecrets: (accountId) => storage.loadWalletAccountSecrets(accountId),
+      loadTelenoWalletFile: (network) => storage.loadWalletFile(network),
+      telenoProducerWalletFilePath: (network) => storage.producerWalletFilePath(network),
+      currentUnlockedProducerWallet: (network) => storage.getUnlockedWallet(network),
+      saveTelenoWallet: (privateKey, address, password, options) => storage.saveWallet(privateKey, address, password, options),
+      deleteTelenoWallet: (network) => storage.deleteWallet(network),
+      closeTelenoWalletSession: (network) => storage.closeWalletSession(network),
+      unlockTelenoWalletSession: (password, network) => storage.unlockWalletSession(password, network),
+      listWalletAccounts: (network) => storage.listWalletAccounts(network),
+      setActiveWalletAccount: (accountId, network) => storage.setActiveWalletAccount(accountId, network),
+      createDerivedWalletAccount: (name, network) => storage.createDerivedWalletAccount(name, network),
+      importAdditionalWalletAccount: (privateKey, password, name, network) =>
+        storage.importWalletAccount(privateKey, password, name, network),
+      importWatchWalletAccount: (address, name, network) => storage.importWatchWalletAccount(address, name, network),
+      renameWalletAccount: (accountId, name, network) => storage.renameWalletAccount(accountId, name, network),
+      removeWalletAccount: (accountId, network) => storage.removeWalletAccount(accountId, network),
+      loadWalletAccountSecrets: (accountId, network) => storage.loadWalletAccountSecrets(accountId, network),
       resolveWalletRpcUrl: () => 'http://127.0.0.1:8080/',
       resolveWalletQueryAddress: (address, accountId) => storage.resolveWalletQueryAddress(address, accountId),
       parseWalletArgs: (value) => (typeof value === 'string' ? JSON.parse(value) : value || {}),

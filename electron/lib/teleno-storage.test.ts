@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { createKnodelStorage } from './knodel-storage'
+import { createTelenoStorage } from './teleno-storage'
 import { deriveWalletAccountsFromSeed } from './wallet-accounts'
 
 const tempDirs: string[] = []
@@ -22,9 +22,9 @@ afterEach(() => {
   }
 })
 
-describe('knodel storage', () => {
+describe('teleno storage', () => {
   it('persists and reloads public rpc config', () => {
-    const storage = createKnodelStorage(createTempDir('knodel-storage-rpc-'))
+    const storage = createTelenoStorage(createTempDir('teleno-storage-rpc-'))
 
     expect(storage.loadPublicRpcConfig().publicRpcUrls).toEqual([
       'https://api.koinos.io/',
@@ -43,7 +43,7 @@ describe('knodel storage', () => {
   })
 
   it('keeps public rpc config separate per network', () => {
-    const storage = createKnodelStorage(createTempDir('knodel-storage-rpc-network-'))
+    const storage = createTelenoStorage(createTempDir('teleno-storage-rpc-network-'))
 
     const testnetSave = storage.savePublicRpcConfig({
       network: 'testnet',
@@ -72,7 +72,7 @@ describe('knodel storage', () => {
   })
 
   it('persists, unlocks, closes and deletes a wallet', () => {
-    const storage = createKnodelStorage(createTempDir('knodel-storage-wallet-'))
+    const storage = createTelenoStorage(createTempDir('teleno-storage-wallet-'))
 
     const walletFilePath = storage.saveWallet('KOIN_PRIVATE_WIF', '1WalletAddress', 'secret-password', {
       seedPhrase: 'seed words example',
@@ -97,9 +97,10 @@ describe('knodel storage', () => {
   })
 
   it('persists and clears the producer profile', () => {
-    const storage = createKnodelStorage(createTempDir('knodel-storage-profile-'))
+    const storage = createTelenoStorage(createTempDir('teleno-storage-profile-'))
 
     const profilePath = storage.saveProducerProfile({
+      network: 'mainnet',
       producerAddress: '1Producer',
       registrationSignerAccountId: '1Wallet',
       burnAccountId: '1Wallet',
@@ -111,14 +112,14 @@ describe('knodel storage', () => {
     })
 
     expect(profilePath).toContain('producer-profile.v1.json')
-    expect(storage.loadProducerProfile()?.producerAddress).toBe('1Producer')
-    expect(storage.clearProducerProfile()).toBe(true)
-    expect(storage.loadProducerProfile()).toBeNull()
+    expect(storage.loadProducerProfile('mainnet')?.producerAddress).toBe('1Producer')
+    expect(storage.clearProducerProfile('mainnet')).toBe(true)
+    expect(storage.loadProducerProfile('mainnet')).toBeNull()
   })
 
   it('migrates a legacy single-account wallet file to vault v2', () => {
-    const userDataPath = createTempDir('knodel-storage-legacy-')
-    const storage = createKnodelStorage(userDataPath)
+    const userDataPath = createTempDir('teleno-storage-legacy-')
+    const storage = createTelenoStorage(userDataPath)
     const walletFilePath = storage.producerWalletFilePath()
 
     fs.mkdirSync(path.dirname(walletFilePath), { recursive: true })
@@ -158,7 +159,7 @@ describe('knodel storage', () => {
   })
 
   it('manages multiple wallet accounts inside the same vault', () => {
-    const storage = createKnodelStorage(createTempDir('knodel-storage-accounts-'))
+    const storage = createTelenoStorage(createTempDir('teleno-storage-accounts-'))
     const seedPhrase = 'test test test test test test test test test test test junk'
     const [firstAccount] = deriveWalletAccountsFromSeed(seedPhrase, 1)
 

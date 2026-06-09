@@ -347,7 +347,7 @@ int main( int argc, char** argv )
   try
   {
     // ── CLI argument parsing ──
-    po::options_description desc( "koinos_node options" );
+    po::options_description desc( "teleno_node options" );
     desc.add_options()
       ( HELP_OPTION ",h",    "Print help" )
       ( VERSION_OPTION ",v", "Print version" )
@@ -416,7 +416,7 @@ int main( int argc, char** argv )
       cfg.jsonrpc_listen = jrpc;
 
     // ── Initialize logging ──
-    koinos::initialize_logging( "koinos_node", {}, cfg.log_level );
+    koinos::initialize_logging( node::node_name(), {}, cfg.log_level );
     LOG( info ) << "[node] " << node::node_name() << " v" << node::build_version() << " starting";
     LOG( info ) << "[node] basedir: " << basedir.string();
     LOG( info ) << "[node] config: " << config_path.string();
@@ -690,9 +690,24 @@ int main( int argc, char** argv )
     if( cfg.is_enabled( "block_producer" ) )
     {
       // Validate producer config
-      auto key_file = cfg.block_producer_private_key_file;
+      std::filesystem::path key_file = cfg.block_producer_private_key_file;
       if( key_file.empty() )
-        key_file = ( basedir / "block_producer" / "private.key" ).string();
+      {
+        key_file = basedir / "block_producer" / "private.key";
+      }
+      else if( key_file.is_relative() )
+      {
+        if( key_file.has_parent_path() )
+        {
+          key_file = basedir / key_file;
+        }
+        else
+        {
+          auto block_producer_key_file = basedir / "block_producer" / key_file;
+          auto basedir_key_file = basedir / key_file;
+          key_file = std::filesystem::exists( block_producer_key_file ) ? block_producer_key_file : basedir_key_file;
+        }
+      }
 
       if( !std::filesystem::exists( key_file ) )
       {
@@ -1080,7 +1095,7 @@ int main( int argc, char** argv )
       }
     }
 
-    LOG( info ) << "[node] koinos_node ready";
+    LOG( info ) << "[node] " << node::node_name() << " ready";
 
     // ── Periodic metrics (every 60s) ──
     boost::asio::steady_timer metrics_timer( main_ioc );
@@ -1143,7 +1158,7 @@ int main( int argc, char** argv )
     for( auto* h: cf_handles )
       delete h;
 
-    LOG( info ) << "[node] koinos_node shutdown complete";
+    LOG( info ) << "[node] " << node::node_name() << " shutdown complete";
     return EXIT_SUCCESS;
   }
   catch( const std::exception& e )

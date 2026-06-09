@@ -403,13 +403,13 @@ export function nativeServiceBuildDefinitionMap(sourceRoot = resolveDefaultKoino
 }
 
 /**
- * Build definition for the monolithic koinos_node binary.
+ * Build definition for the monolithic Teleno node binary from the upstream koinos-node source tree.
  * Replaces all individual service build definitions when running in monolith mode.
  */
 export function monolithBuildDefinition(sourceRoot = resolveDefaultKoinosSourceRoot()): NativeServiceBuildDefinition {
   if (isPackagedBuild()) {
     return {
-      serviceId: 'koinos-node',
+      serviceId: 'teleno-node',
       repoPath: resolveKoinosBinRoot(),
       buildSystem: 'cmake',
       artifactPath: resolveMonolithBinaryPath(),
@@ -422,7 +422,7 @@ export function monolithBuildDefinition(sourceRoot = resolveDefaultKoinosSourceR
   const buildArgs = ['--build', cmakeBuildDir, '--config', 'Release', '--parallel']
 
   return {
-    serviceId: 'koinos-node',
+    serviceId: 'teleno-node',
     repoPath: path.join(sourceRoot, 'koinos-node'),
     buildSystem: 'cmake',
     artifactPath: path.join(sourceRoot, 'koinos-node', cmakeBuildDir, 'koinos_node' + executableExtension()),

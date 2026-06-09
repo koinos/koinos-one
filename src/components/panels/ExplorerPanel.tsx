@@ -53,7 +53,7 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
       <main className="table-panel" aria-busy={isInitialLoading}>
         <div className="table-panel-header">
           <div className="table-panel-tools-left">
-            <label className="table-select">
+            <label className="table-select explorer-rpc-source-select">
               <span>{t('explorer.rpcSource')}</span>
               <select
                 value={settings.rpcSource}
@@ -111,7 +111,7 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
                     >
                       <td className="mono">#{row.height.toLocaleString(locale)}</td>
                       <td className="mono explorer-block-id" title={row.blockId}>
-                        {row.blockId}
+                        <span>{shortHash(row.blockId, 14, 10)}</span>
                       </td>
                       <td className="mono" title={row.signer || t('common.na')}>
                         {row.signer || t('common.na')}

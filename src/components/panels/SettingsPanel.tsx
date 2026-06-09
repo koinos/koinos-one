@@ -57,7 +57,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
     resetDefaults,
     settingsDirty,
     onBlockedSettingsNavigation,
-    getKoinosNodeBridge,
+    getTelenoNodeBridge,
     nodeComponents
   } = props
 
@@ -71,7 +71,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
     const url = nodeSettings?.blockchainBackupUrl || draftNodeBlockchainBackupUrl
     if (!url || !url.startsWith('http')) return
     setBackupInfoLoading(true)
-    const bridge = getKoinosNodeBridge?.()
+    const bridge = getTelenoNodeBridge?.()
     if (!bridge?.backupInfo) { setBackupInfoLoading(false); return }
     bridge.backupInfo(url)
       .then((info: BackupInfo) => setBackupInfo(info))

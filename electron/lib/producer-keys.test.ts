@@ -23,7 +23,7 @@ afterEach(() => {
 
 describe('producer key helpers', () => {
   it('reads the local public key directly from the block_producer dir', () => {
-    const baseDir = path.join(createTempDir('knodel-producer-keys-'), '.koinos')
+    const baseDir = path.join(createTempDir('teleno-producer-keys-'), '.koinos')
     const producerDir = path.join(baseDir, 'block_producer')
     fs.mkdirSync(producerDir, { recursive: true })
     fs.writeFileSync(path.join(producerDir, 'public.key'), 'LOCAL_PUBLIC_KEY')
@@ -37,7 +37,7 @@ describe('producer key helpers', () => {
   })
 
   it('extracts the producer address from runtime config', () => {
-    const baseDir = path.join(createTempDir('knodel-producer-config-'), '.koinos')
+    const baseDir = path.join(createTempDir('teleno-producer-config-'), '.koinos')
     fs.mkdirSync(baseDir, { recursive: true })
     fs.writeFileSync(
       path.join(baseDir, 'config.yml'),
@@ -52,7 +52,7 @@ describe('producer key helpers', () => {
   })
 
   it('returns an empty producer config state when the file is missing', () => {
-    const baseDir = path.join(createTempDir('knodel-producer-config-empty-'), '.koinos')
+    const baseDir = path.join(createTempDir('teleno-producer-config-empty-'), '.koinos')
     fs.mkdirSync(baseDir, { recursive: true })
 
     expect(producerAddressFromRuntimeConfig({ baseDir })).toEqual({

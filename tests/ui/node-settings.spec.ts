@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
-const SETTINGS_STORAGE_KEY = 'koinosgui.explorer.settings.v1'
-const NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
-const LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
+const SETTINGS_STORAGE_KEY = 'teleno.explorer.settings.v1'
+const NODE_SETTINGS_STORAGE_KEY = 'teleno.node.settings.v1'
+const LANGUAGE_STORAGE_KEY = 'teleno.ui.language.v1'
 
 const CONFIG_YAML = `global:
   log-level: info
@@ -66,7 +66,7 @@ async function installMockBridge(page: Page) {
     window.localStorage.setItem(
       nodeSettingsKey,
       JSON.stringify({
-        repoPath: '/mock/koinosgui',
+        repoPath: '/mock/teleno',
         baseDir: '/mock/basedir',
         profiles: 'mainnet_observer',
         blockchainBackupUrl: 'https://example.invalid/koinos_blockchain_backup.tar.gz'
@@ -94,10 +94,10 @@ async function installMockBridge(page: Page) {
 
     const services = [
       {
-        id: 'koinos-node',
-        name: 'Koinos Node',
-        service: 'koinos-node',
-        runtimeName: 'koinos_node',
+        id: 'teleno-node',
+        name: 'Teleno Node',
+        service: 'teleno-node',
+        runtimeName: 'teleno_node',
         version: null,
         state: 'running',
         status: 'Running (mock)',
@@ -106,7 +106,7 @@ async function installMockBridge(page: Page) {
         lastError: null,
         nativePid: 12345,
         conflictPids: [],
-        managedByKnodel: true
+        managedByTeleno: true
       }
     ]
 
@@ -147,16 +147,16 @@ async function installMockBridge(page: Page) {
       return { ok: true, result: {} }
     }
 
-    window.knodel = {
+    window.teleno = {
       version: '0.10.1',
       appConfig: {
         loadPublicRpcUrls: async () => ({ ok: true, publicRpcUrls: ['https://api.koinos.io/'] }),
         savePublicRpcUrls: async () => ({ ok: true, publicRpcUrls: ['https://api.koinos.io/'] })
       },
-      koinosNode: {
+      telenoNode: {
         defaults: async () => ({
           ok: true,
-          repoPath: '/mock/koinosgui',
+          repoPath: '/mock/teleno',
           baseDir: '/mock/basedir',
           profiles: ['mainnet_observer'],
           blockchainBackupUrl: 'https://example.invalid/koinos_blockchain_backup.tar.gz'
@@ -168,7 +168,7 @@ async function installMockBridge(page: Page) {
           dockerAvailable: false,
           runtimeMode: 'monolith',
           availableRuntimeModes: ['monolith'],
-          repoPath: '/mock/koinosgui',
+          repoPath: '/mock/teleno',
           composeFile: '',
           envFile: '',
           baseDir: '/mock/basedir',

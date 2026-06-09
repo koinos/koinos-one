@@ -1,4 +1,8 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { Provider } from 'koilib'
 
 import {
   aggregateDashboardPerformanceTotals,
@@ -12,7 +16,7 @@ import {
   parseLatestP2pPeersSnapshot,
   resolveProducerKoinPriceSource
 } from './producer-service'
-import type { KoinosNodeStatus } from './main-types'
+import type { TelenoNodeStatus } from './main-types'
 
 describe('producer-service helpers', () => {
   it('detects producer timeout errors', () => {
@@ -148,9 +152,9 @@ describe('producer-service helpers', () => {
   it('aggregates dashboard performance totals by row kind', () => {
     expect(aggregateDashboardPerformanceTotals([
       {
-        id: 'knodel:1',
-        label: 'koinosGUI Main',
-        kind: 'knodel',
+        id: 'teleno:1',
+        label: 'Teleno UX Main',
+        kind: 'teleno',
         serviceId: null,
         pid: 1,
         cpuPercent: 12.5,
@@ -159,7 +163,7 @@ describe('producer-service helpers', () => {
         uptimeSeconds: 60,
         state: 'Browser',
         command: null,
-        managedByKnodel: true
+        managedByTeleno: true
       },
       {
         id: 'service:jsonrpc',
@@ -173,11 +177,11 @@ describe('producer-service helpers', () => {
         uptimeSeconds: 30,
         state: 'S',
         command: '/usr/bin/jsonrpc',
-        managedByKnodel: true
+        managedByTeleno: true
       }
     ])).toEqual({
-      knodelCpuPercent: 12.5,
-      knodelMemoryBytes: 256,
+      telenoCpuPercent: 12.5,
+      telenoMemoryBytes: 256,
       servicesCpuPercent: 7.25,
       servicesMemoryBytes: 512
     })
@@ -185,7 +189,7 @@ describe('producer-service helpers', () => {
 })
 
 function createPerformanceService(overrides: Record<string, unknown> = {}) {
-  const baseStatus: KoinosNodeStatus = {
+  const baseStatus: TelenoNodeStatus = {
     ok: true,
     repoPath: '/tmp/koinos',
     baseDir: '/tmp/.koinos',
@@ -213,7 +217,7 @@ function createPerformanceService(overrides: Record<string, unknown> = {}) {
       configFilePath: '/tmp/koinos/config/config.yml',
       configHasProducer: false
     })),
-    loadKnodelWalletFile: vi.fn(() => null),
+    loadTelenoWalletFile: vi.fn(() => null),
     resolveLocalProducerPublicKey: vi.fn(() => ({
       publicKey: null,
       publicKeyPath: null,
@@ -229,7 +233,7 @@ function createPerformanceService(overrides: Record<string, unknown> = {}) {
     formatWholeUnits: vi.fn(() => null),
     parseWholeUnits: vi.fn(() => null),
     currentUnlockedProducerWallet: vi.fn(() => null),
-    unlockKnodelWalletSession: vi.fn(() => null),
+    unlockTelenoWalletSession: vi.fn(() => null),
     persistProducerRuntimeConfig: vi.fn(() => '/tmp/koinos/config/config.yml'),
     saveProducerProfile: vi.fn(() => '/tmp/producer-profile.json'),
     clearProducerProfile: vi.fn(() => true),
@@ -238,7 +242,7 @@ function createPerformanceService(overrides: Record<string, unknown> = {}) {
       configPath: '/tmp/koinos/config/config.yml',
       cleared: false
     })),
-    knodelProducerProfileFilePath: vi.fn(() => '/tmp/producer-profile.json'),
+    telenoProducerProfileFilePath: vi.fn(() => '/tmp/producer-profile.json'),
     nativeComposeStatus: vi.fn(async () => baseStatus),
     nativeComposeLogs: vi.fn(async () => ({
       ok: true,
@@ -262,7 +266,11 @@ function createPerformanceService(overrides: Record<string, unknown> = {}) {
       totalMemoryBytes: 16 * 1024 * 1024 * 1024,
       freeMemoryBytes: 8 * 1024 * 1024 * 1024,
       loadAverage: [0.25, 0.5, 0.75],
-      uptimeSeconds: 7200
+      uptimeSeconds: 7200,
+      freeDiskBytes: 100 * 1024 * 1024 * 1024,
+      totalDiskBytes: 200 * 1024 * 1024 * 1024,
+      blockchainDataBytes: null,
+      blockchainDataPath: null
     })),
     now: vi.fn(() => 1_000_000),
     runCommand: vi.fn(async () => ({
@@ -280,21 +288,55 @@ function createPerformanceService(overrides: Record<string, unknown> = {}) {
 }
 
 describe('dashboard performance', () => {
+  it('adds the selected BASEDIR blockchain data size to the host snapshot', async () => {
+    const tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-performance-'))
+    const duOutput = process.platform === 'win32'
+      ? '3072\n'
+      : `3\t${tempBaseDir}\n`
+    const runCommand = vi.fn(async () => ({
+      ok: true,
+      code: 0,
+      output: duOutput
+    }))
+    const { service } = createPerformanceService({
+      normalizeNodeSettings: vi.fn(() => ({
+        repoPath: '/tmp/koinos',
+        composeFile: 'docker-compose.yml',
+        envFile: '.env',
+        baseDir: tempBaseDir,
+        profiles: [],
+        blockchainBackupUrl: '',
+        runtimeMode: 'native' as const
+      })),
+      runCommand
+    })
+
+    try {
+      const result = await service.telenoNodeDashboardPerformance()
+
+      expect(result.host.blockchainDataPath).toBe(tempBaseDir)
+      expect(result.host.blockchainDataBytes).toBe(3072)
+      expect(runCommand).toHaveBeenCalled()
+    } finally {
+      fs.rmSync(tempBaseDir, { recursive: true, force: true })
+    }
+  })
+
   it('returns a valid snapshot when no managed services are running', async () => {
     const { service } = createPerformanceService()
 
-    const result = await service.koinosNodeDashboardPerformance()
+    const result = await service.telenoNodeDashboardPerformance()
 
     expect(result.ok).toBe(true)
     expect(result.rows).toHaveLength(1)
     expect(result.rows[0]).toMatchObject({
-      kind: 'knodel',
-      label: 'koinosGUI Main',
+      kind: 'teleno',
+      label: 'Teleno UX Main',
       pid: 101
     })
     expect(result.totals).toEqual({
-      knodelCpuPercent: 14.25,
-      knodelMemoryBytes: 2048 * 1024,
+      telenoCpuPercent: 14.25,
+      telenoMemoryBytes: 2048 * 1024,
       servicesCpuPercent: null,
       servicesMemoryBytes: null
     })
@@ -332,13 +374,13 @@ describe('dashboard performance', () => {
             lastError: null,
             nativePid: 4242,
             conflictPids: [],
-            managedByKnodel: true
+            managedByTeleno: true
           }
         ]
       }))
     })
 
-    const result = await service.koinosNodeDashboardPerformance()
+    const result = await service.telenoNodeDashboardPerformance()
     const serviceRow = result.rows.find((row) => row.serviceId === 'jsonrpc')
 
     expect(result.ok).toBe(true)
@@ -351,5 +393,77 @@ describe('dashboard performance', () => {
       state: 'running'
     })
     expect(result.output).toContain('Process sample unavailable for: JSON-RPC.')
+  })
+})
+
+describe('dashboard producers', () => {
+  it('adds KOIN and VHP balances to ranked producer rows', async () => {
+    const originalGetHeadInfo = (Provider.prototype as any).getHeadInfo
+    ;(Provider.prototype as any).getHeadInfo = vi.fn(async () => ({
+      head_topology: {
+        height: '12',
+        id: '0x1220head'
+      }
+    }))
+
+    const koin = {
+      functions: {
+        balance_of: vi.fn(async ({ owner }: { owner: string }) => ({
+          result: { value: owner === 'producer-a' ? '123456789' : '200000000' }
+        }))
+      }
+    }
+    const vhp = {
+      functions: {
+        balance_of: vi.fn(async ({ owner }: { owner: string }) => ({
+          result: { value: owner === 'producer-a' ? '5000000000' : '6000000000' }
+        }))
+      }
+    }
+
+    const { service } = createPerformanceService({
+      normalizeNodeSettings: vi.fn(() => ({
+        network: 'mainnet',
+        repoPath: '/tmp/koinos',
+        baseDir: '/tmp/.koinos',
+        profiles: [],
+        blockchainBackupUrl: ''
+      })),
+      fetchBlocksByHeightPaged: vi.fn(async () => [
+        { block: { header: { signer: 'producer-a', timestamp: '1000', height: '10' } } },
+        { block: { header: { signer: 'producer-b', timestamp: '1100', height: '11' } } },
+        { block: { header: { signer: 'producer-a', timestamp: '1200', height: '12' } } }
+      ]),
+      loadContractWithFetchedAbi: vi.fn()
+        .mockResolvedValueOnce(koin)
+        .mockResolvedValueOnce(vhp),
+      safeIsChecksumAddress: vi.fn(() => true),
+      formatWholeUnits: vi.fn((value: bigint | string | number | null | undefined) => {
+        if (value === null || value === undefined) return null
+        return `${Number(value) / 100_000_000}`.replace(/\.0$/, '')
+      })
+    })
+
+    try {
+      const result = await service.telenoNodeDashboardProducers({ windowBlocks: 20 })
+
+      expect(result.ok).toBe(true)
+      expect(result.rows).toEqual([
+        expect.objectContaining({
+          signer: 'producer-a',
+          blocks: 2,
+          koinBalance: '1.23456789',
+          vhpBalance: '50'
+        }),
+        expect.objectContaining({
+          signer: 'producer-b',
+          blocks: 1,
+          koinBalance: '2',
+          vhpBalance: '60'
+        })
+      ])
+    } finally {
+      ;(Provider.prototype as any).getHeadInfo = originalGetHeadInfo
+    }
   })
 })

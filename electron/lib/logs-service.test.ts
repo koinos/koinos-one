@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { createLogsService } from './logs-service'
-import type { KoinosNodeStatus, NativeServiceProcessState } from './main-types'
+import type { TelenoNodeStatus, NativeServiceProcessState } from './main-types'
 
-function createMonolithStatus(): KoinosNodeStatus {
+function createMonolithStatus(): TelenoNodeStatus {
   return {
     ok: true,
     repoPath: '/tmp/koinos',
@@ -13,10 +13,10 @@ function createMonolithStatus(): KoinosNodeStatus {
     configDir: '/tmp/koinos/config',
     services: [
       {
-        id: 'koinos-node',
-        name: 'Koinos Node',
-        service: 'koinos-node',
-        runtimeName: 'koinos_node',
+        id: 'teleno-node',
+        name: 'Teleno Node',
+        service: 'teleno-node',
+        runtimeName: 'teleno_node',
         version: null,
         state: 'running',
         status: 'Running',
@@ -25,7 +25,7 @@ function createMonolithStatus(): KoinosNodeStatus {
         lastError: null,
         nativePid: 123,
         conflictPids: [],
-        managedByKnodel: true
+        managedByTeleno: true
       }
     ],
     components: [
@@ -33,16 +33,16 @@ function createMonolithStatus(): KoinosNodeStatus {
       { name: 'jsonrpc', enabled: true, healthy: true }
     ],
     runningServices: 1,
-    output: 'koinos_node running'
+    output: 'teleno_node running'
   }
 }
 
 function createService(output: string, maxNativeServiceLogBytes = 1024 * 1024) {
   const nativeServiceProcesses = new Map<string, NativeServiceProcessState>()
-  nativeServiceProcesses.set('koinos-node', {
-    serviceId: 'koinos-node',
+  nativeServiceProcesses.set('teleno-node', {
+    serviceId: 'teleno-node',
     child: { pid: 123 } as NativeServiceProcessState['child'],
-    runtimeName: 'koinos_node',
+    runtimeName: 'teleno_node',
     cwd: '/tmp/.koinos',
     baseDir: '/tmp/.koinos',
     startedAt: Date.now(),
@@ -113,11 +113,11 @@ describe('logs-service monolith component logs', () => {
     ].join('\n'))
 
     const result = await service.nativeComposeLogsFollowStart(sender as any, { service: 'jsonrpc', tail: 20 })
-    service.appendNativeServiceOutput('koinos-node', '[chain] ignored\n[jsonrpc] streamed\n')
+    service.appendNativeServiceOutput('teleno-node', '[chain] ignored\n[jsonrpc] streamed\n')
 
     expect(result.ok).toBe(true)
     expect(result.service).toBe('jsonrpc')
-    expect(nativeLogsStreamIdsByService.get('koinos-node')?.has(result.streamId)).toBe(true)
+    expect(nativeLogsStreamIdsByService.get('teleno-node')?.has(result.streamId)).toBe(true)
     expect(sender.send).toHaveBeenCalledWith('logs:event', {
       streamId: result.streamId,
       type: 'chunk',
@@ -132,12 +132,12 @@ describe('logs-service monolith component logs', () => {
 
   it('keeps compact metrics rows parseable when the native log buffer is trimmed', async () => {
     const { service, nativeServiceProcesses } = createService('', 512 * 1024)
-    const state = nativeServiceProcesses.get('koinos-node')
+    const state = nativeServiceProcesses.get('teleno-node')
     expect(state).toBeDefined()
 
-    service.appendNativeServiceOutput('koinos-node', `${'x'.repeat(1024 * 1024)}\n`)
+    service.appendNativeServiceOutput('teleno-node', `${'x'.repeat(1024 * 1024)}\n`)
     service.appendNativeServiceOutput(
-      'koinos-node',
+      'teleno-node',
       [
         '[metrics] head_height=42 lib=40 blocks_per_sec=1.250 pending_txs=3 peer_count=2 rss_bytes=1048576 rss_mb=1.000 components=8',
         '[jsonrpc] still visible'

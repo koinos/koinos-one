@@ -6,7 +6,7 @@ import type { WebContents } from 'electron'
 import type { NativeBuildSystem } from './native-tooling'
 import type { KoinosNetworkId } from './network-profiles'
 
-export type KoinosNodeSettingsInput = {
+export type TelenoNodeSettingsInput = {
   network?: KoinosNetworkId
   repoPath?: string
   baseDir?: string
@@ -14,26 +14,26 @@ export type KoinosNodeSettingsInput = {
   blockchainBackupUrl?: string
 }
 
-export type KoinosNodeProducerOverviewInput = KoinosNodeSettingsInput & {
+export type TelenoNodeProducerOverviewInput = TelenoNodeSettingsInput & {
   producerAddress?: string
   rpcUrl?: string
 }
 
-export type KoinosNodeProducerRegisteredKeyInput = KoinosNodeSettingsInput & {
+export type TelenoNodeProducerRegisteredKeyInput = TelenoNodeSettingsInput & {
   producerAddress?: string
   rpcUrl?: string
 }
 
-export type KoinosNodeDashboardProducersInput = KoinosNodeSettingsInput & {
+export type TelenoNodeDashboardProducersInput = TelenoNodeSettingsInput & {
   rpcUrl?: string
   windowBlocks?: number
 }
 
-export type KoinosNodeDashboardPeersInput = KoinosNodeSettingsInput
+export type TelenoNodeDashboardPeersInput = TelenoNodeSettingsInput
 
-export type KoinosNodeDashboardPerformanceInput = KoinosNodeSettingsInput
+export type TelenoNodeDashboardPerformanceInput = TelenoNodeSettingsInput
 
-export type KoinosNodeSettings = {
+export type TelenoNodeSettings = {
   network: KoinosNetworkId
   repoPath: string
   baseDir: string
@@ -55,7 +55,7 @@ export type PublicRpcConfigResult = {
   publicRpcUrlsByNetwork?: Partial<Record<KoinosNetworkId, string[]>>
 }
 
-export type KoinosNodeServicePort = {
+export type TelenoNodeServicePort = {
   host: string | null
   publishedPort: number | null
   targetPort: number | null
@@ -73,15 +73,17 @@ export type ServiceStatus = {
   name: string
   service: string
   runtimeName: string
+  binaryPath?: string | null
+  logPath?: string | null
   version: string | null
   state: string
   status: string
-  ports: KoinosNodeServicePort[]
+  ports: TelenoNodeServicePort[]
   dependsOn: string[]
   lastError: string | null
   nativePid: number | null
   conflictPids: number[]
-  managedByKnodel: boolean
+  managedByTeleno: boolean
 }
 
 export type ComponentHealth = {
@@ -92,7 +94,7 @@ export type ComponentHealth = {
   details?: string
 }
 
-export type KoinosNodeStatus = {
+export type TelenoNodeStatus = {
   ok: boolean
   network?: KoinosNetworkId
   repoPath: string
@@ -106,26 +108,26 @@ export type KoinosNodeStatus = {
   output: string
 }
 
-export type KoinosNodeComponentToggleInput = KoinosNodeSettingsInput & {
+export type TelenoNodeComponentToggleInput = TelenoNodeSettingsInput & {
   component?: string
   enabled?: boolean
 }
 
-export type KoinosNodeComponentToggleResult = {
+export type TelenoNodeComponentToggleResult = {
   ok: boolean
   component: string
   enabled: boolean
   output: string
-  status: KoinosNodeStatus
+  status: TelenoNodeStatus
 }
 
-export type KoinosNodePresetSource = 'profile' | 'features'
+export type TelenoNodePresetSource = 'profile' | 'features'
 
-export type KoinosNodePreset = {
+export type TelenoNodePreset = {
   id: string
   label: string
   network?: KoinosNetworkId
-  source: KoinosNodePresetSource
+  source: TelenoNodePresetSource
   profiles: string[]
   services: string[]
   featureFlags?: Record<string, boolean>
@@ -136,24 +138,24 @@ export type KoinosNodePreset = {
   description: string
 }
 
-export type KoinosNodePresetsResult = {
+export type TelenoNodePresetsResult = {
   ok: boolean
-  presets: KoinosNodePreset[]
+  presets: TelenoNodePreset[]
   output: string
 }
 
-export type KoinosNodeCommandResult = {
+export type TelenoNodeCommandResult = {
   ok: boolean
   action: 'start' | 'stop'
   output: string
-  status: KoinosNodeStatus
+  status: TelenoNodeStatus
 }
 
-export type KoinosNodeBackupRestoreResult = {
+export type TelenoNodeBackupRestoreResult = {
   ok: boolean
-  action: KoinosNodeBackupProgressAction
+  action: TelenoNodeBackupProgressAction
   output: string
-  status: KoinosNodeStatus | string
+  status: TelenoNodeStatus | string
 }
 
 export type BlockchainBackupWorkspacePaths = {
@@ -190,16 +192,16 @@ export type KoinosJsonRpcProxyResult = {
   output: string
 }
 
-export type KoinosNodeProducerAddressSource = 'config' | 'vault' | 'none'
+export type TelenoNodeProducerAddressSource = 'config' | 'vault' | 'none'
 
-export type KoinosNodeProducerRegistrationStatus =
+export type TelenoNodeProducerRegistrationStatus =
   | 'missing-address'
   | 'missing-local-key'
   | 'match'
   | 'mismatch'
   | 'unregistered'
 
-export type KoinosNodeProducerLocalInfoResult = {
+export type TelenoNodeProducerLocalInfoResult = {
   ok: boolean
   output: string
   producerAddress: string | null
@@ -210,7 +212,7 @@ export type KoinosNodeProducerLocalInfoResult = {
   localPrivateKeyPath: string | null
 }
 
-export type KoinosNodeProducerRegisteredKeyResult = {
+export type TelenoNodeProducerRegisteredKeyResult = {
   ok: boolean
   output: string
   rpcUrl: string
@@ -219,7 +221,7 @@ export type KoinosNodeProducerRegisteredKeyResult = {
   registeredPublicKey: string | null
 }
 
-export type KoinosNodeProducerOverviewResult = {
+export type TelenoNodeProducerOverviewResult = {
   ok: boolean
   output: string
   rpcUrl: string
@@ -227,7 +229,7 @@ export type KoinosNodeProducerOverviewResult = {
   priceSourceName: string
   priceSourceUrl: string
   producerAddress: string | null
-  producerAddressSource: KoinosNodeProducerAddressSource
+  producerAddressSource: TelenoNodeProducerAddressSource
   configFilePath: string
   configHasProducer: boolean
   walletAddress: string | null
@@ -236,7 +238,7 @@ export type KoinosNodeProducerOverviewResult = {
   localPublicKeyPath: string | null
   localPrivateKeyPath: string | null
   registeredPublicKey: string | null
-  registrationStatus: KoinosNodeProducerRegistrationStatus
+  registrationStatus: TelenoNodeProducerRegistrationStatus
   koinBalance: string | null
   vhpBalance: string | null
   mana: string | null
@@ -257,7 +259,7 @@ export type KoinosNodeProducerOverviewResult = {
   lastProducedBlockAt: number | null
 }
 
-export type KoinosNodeProducerRegisterInput = KoinosNodeSettingsInput & {
+export type TelenoNodeProducerRegisterInput = TelenoNodeSettingsInput & {
   producerAddress?: string
   rpcUrl?: string
   signerAccountId?: string
@@ -267,29 +269,31 @@ export type KoinosNodeProducerRegisterInput = KoinosNodeSettingsInput & {
   persistProfile?: boolean
 }
 
-export type KoinosNodeProducerRegisterResult = {
+export type TelenoNodeProducerRegisterResult = {
   ok: boolean
   producerAddress: string
   output: string
-  overview: KoinosNodeProducerOverviewResult
+  overview: TelenoNodeProducerOverviewResult
 }
 
-export type KoinosNodeProducerDeleteResult = {
+export type TelenoNodeProducerDeleteResult = {
   ok: boolean
   output: string
-  overview: KoinosNodeProducerOverviewResult
-  profile: KnodelProducerProfile | null
+  overview: TelenoNodeProducerOverviewResult
+  profile: TelenoProducerProfile | null
 }
 
-export type KoinosNodeDashboardProducerRow = {
+export type TelenoNodeDashboardProducerRow = {
   signer: string
+  koinBalance: string | null
+  vhpBalance: string | null
   blocks: number
   sharePercent: number
   lastBlockHeight: number
   lastProducedBlockAt: number | null
 }
 
-export type KoinosNodeDashboardProducersResult = {
+export type TelenoNodeDashboardProducersResult = {
   ok: boolean
   output: string
   rpcUrl: string
@@ -297,17 +301,17 @@ export type KoinosNodeDashboardProducersResult = {
   windowBlocks: number
   analyzedBlocks: number
   headHeight: number | null
-  rows: KoinosNodeDashboardProducerRow[]
+  rows: TelenoNodeDashboardProducerRow[]
 }
 
-export type KoinosNodeDashboardPeerRow = {
+export type TelenoNodeDashboardPeerRow = {
   address: string
   peerId: string | null
   host: string | null
   port: number | null
 }
 
-export type KoinosNodeDashboardPeersResult = {
+export type TelenoNodeDashboardPeersResult = {
   ok: boolean
   output: string
   service: string
@@ -315,13 +319,13 @@ export type KoinosNodeDashboardPeersResult = {
   snapshotAt: number | null
   selfAddress: string | null
   omittedPeerCount: number
-  rows: KoinosNodeDashboardPeerRow[]
+  rows: TelenoNodeDashboardPeerRow[]
 }
 
-export type KoinosNodeDashboardPerformanceRow = {
+export type TelenoNodeDashboardPerformanceRow = {
   id: string
   label: string
-  kind: 'knodel' | 'service'
+  kind: 'teleno' | 'service'
   serviceId: string | null
   pid: number | null
   cpuPercent: number | null
@@ -330,10 +334,10 @@ export type KoinosNodeDashboardPerformanceRow = {
   uptimeSeconds: number | null
   state: string | null
   command: string | null
-  managedByKnodel: boolean
+  managedByTeleno: boolean
 }
 
-export type KoinosNodeDashboardPerformanceHost = {
+export type TelenoNodeDashboardPerformanceHost = {
   cpuCount: number
   totalMemoryBytes: number
   freeMemoryBytes: number
@@ -341,56 +345,58 @@ export type KoinosNodeDashboardPerformanceHost = {
   uptimeSeconds: number
   freeDiskBytes: number | null
   totalDiskBytes: number | null
+  blockchainDataBytes: number | null
+  blockchainDataPath: string | null
 }
 
-export type KoinosNodeDashboardPerformanceTotals = {
-  knodelCpuPercent: number | null
-  knodelMemoryBytes: number | null
+export type TelenoNodeDashboardPerformanceTotals = {
+  telenoCpuPercent: number | null
+  telenoMemoryBytes: number | null
   servicesCpuPercent: number | null
   servicesMemoryBytes: number | null
 }
 
-export type KoinosNodeDashboardPerformanceResult = {
+export type TelenoNodeDashboardPerformanceResult = {
   ok: boolean
   output: string
   sampledAt: number
-  host: KoinosNodeDashboardPerformanceHost
-  totals: KoinosNodeDashboardPerformanceTotals
-  rows: KoinosNodeDashboardPerformanceRow[]
+  host: TelenoNodeDashboardPerformanceHost
+  totals: TelenoNodeDashboardPerformanceTotals
+  rows: TelenoNodeDashboardPerformanceRow[]
 }
 
-export type KoinosNodeProducerProfileResult = {
+export type TelenoNodeProducerProfileResult = {
   ok: boolean
   output: string
   profileFilePath: string
-  profile: KnodelProducerProfile | null
+  profile: TelenoProducerProfile | null
 }
 
-export type KoinosNodeServiceCommandInput = KoinosNodeSettingsInput & {
+export type TelenoNodeServiceCommandInput = TelenoNodeSettingsInput & {
   service?: string
 }
 
-export type KoinosNodeServiceCommandResult = {
+export type TelenoNodeServiceCommandResult = {
   ok: boolean
   action: 'start' | 'stop' | 'restart' | 'kill-conflict'
   service: string
   output: string
-  status: KoinosNodeStatus
+  status: TelenoNodeStatus
 }
 
-export type KoinosNodePresetCommandInput = KoinosNodeSettingsInput & {
+export type TelenoNodePresetCommandInput = TelenoNodeSettingsInput & {
   presetId?: string
 }
 
-export type KoinosNodePresetCommandResult = {
+export type TelenoNodePresetCommandResult = {
   ok: boolean
   action: 'reconcile'
   presetId: string
   output: string
-  status: KoinosNodeStatus
+  status: TelenoNodeStatus
 }
 
-export type KoinosNodeNativeBuildStatus = {
+export type TelenoNodeNativeBuildStatus = {
   serviceId: string
   serviceName: string
   supported: boolean
@@ -405,58 +411,58 @@ export type KoinosNodeNativeBuildStatus = {
   buildCommands: string[]
 }
 
-export type KoinosNodeNativeBuildsResult = {
+export type TelenoNodeNativeBuildsResult = {
   ok: boolean
   sourceRoot: string
-  services: KoinosNodeNativeBuildStatus[]
+  services: TelenoNodeNativeBuildStatus[]
   output: string
 }
 
-export type KoinosNodeNativeBuildCommandInput = {
+export type TelenoNodeNativeBuildCommandInput = {
   serviceId?: string
 }
 
-export type KoinosNodeNativeBuildCommandResult = {
+export type TelenoNodeNativeBuildCommandResult = {
   ok: boolean
   action: 'build-all' | 'build-service'
   serviceId: string | null
   output: string
-  builds: KoinosNodeNativeBuildsResult
+  builds: TelenoNodeNativeBuildsResult
 }
 
-export type KoinosNodeCloneRepoResult = {
+export type TelenoNodeCloneRepoResult = {
   ok: boolean
   repoPath: string
   output: string
 }
 
-export type KoinosNodeManagedFileKind = 'config'
+export type TelenoNodeManagedFileKind = 'config'
 
-export type KoinosNodeFileReadInput = KoinosNodeSettingsInput & {
-  kind: KoinosNodeManagedFileKind
+export type TelenoNodeFileReadInput = TelenoNodeSettingsInput & {
+  kind: TelenoNodeManagedFileKind
 }
 
-export type KoinosNodeFileReadResult = {
+export type TelenoNodeFileReadResult = {
   ok: boolean
-  kind: KoinosNodeManagedFileKind
+  kind: TelenoNodeManagedFileKind
   filePath: string
   content: string
   output: string
 }
 
-export type KoinosNodeFileWriteInput = KoinosNodeSettingsInput & {
-  kind: KoinosNodeManagedFileKind
+export type TelenoNodeFileWriteInput = TelenoNodeSettingsInput & {
+  kind: TelenoNodeManagedFileKind
   content?: string
 }
 
-export type KoinosNodeFileWriteResult = {
+export type TelenoNodeFileWriteResult = {
   ok: boolean
-  kind: KoinosNodeManagedFileKind
+  kind: TelenoNodeManagedFileKind
   filePath: string
   output: string
 }
 
-export type KoinosNodeSelectDirectoryResult = {
+export type TelenoNodeSelectDirectoryResult = {
   ok: boolean
   canceled: boolean
   path: string
@@ -465,7 +471,7 @@ export type KoinosNodeSelectDirectoryResult = {
   output: string
 }
 
-export type KoinosNodeValidateBaseDirResult = {
+export type TelenoNodeValidateBaseDirResult = {
   ok: boolean
   baseDir: string
   restoreWorkspaceParent: string
@@ -473,34 +479,34 @@ export type KoinosNodeValidateBaseDirResult = {
   output: string
 }
 
-export type KoinosNodeBaseDirCopyInput = KoinosNodeSettingsInput & {
+export type TelenoNodeBaseDirCopyInput = TelenoNodeSettingsInput & {
   sourceBaseDir?: string
   targetBaseDir?: string
 }
 
-export type KoinosNodeBaseDirCopyResult = {
+export type TelenoNodeBaseDirCopyResult = {
   ok: boolean
   sourceBaseDir: string
   targetBaseDir: string
   output: string
-  status: KoinosNodeStatus
+  status: TelenoNodeStatus
 }
 
-export type KoinosNodeLogsInput = KoinosNodeSettingsInput & {
+export type TelenoNodeLogsInput = TelenoNodeSettingsInput & {
   service?: string
   tail?: number
 }
 
-export type KoinosNodeLogsResult = {
+export type TelenoNodeLogsResult = {
   ok: boolean
   service: string | null
   tail: number
   output: string
 }
 
-export type KoinosNodeLogsFollowStartInput = KoinosNodeLogsInput
+export type TelenoNodeLogsFollowStartInput = TelenoNodeLogsInput
 
-export type KoinosNodeLogsFollowStartResult = {
+export type TelenoNodeLogsFollowStartResult = {
   ok: boolean
   streamId: string
   service: string | null
@@ -508,16 +514,16 @@ export type KoinosNodeLogsFollowStartResult = {
   output?: string
 }
 
-export type KoinosNodeLogsFollowStopInput = {
+export type TelenoNodeLogsFollowStopInput = {
   streamId?: string
 }
 
-export type KoinosNodeLogsFollowStopResult = {
+export type TelenoNodeLogsFollowStopResult = {
   ok: boolean
   streamId: string | null
 }
 
-export type KoinosNodeLogsFollowEvent = {
+export type TelenoNodeLogsFollowEvent = {
   streamId: string
   type: 'start' | 'chunk' | 'end' | 'error'
   service?: string | null
@@ -527,9 +533,9 @@ export type KoinosNodeLogsFollowEvent = {
   message?: string
 }
 
-export type KoinosNodeBackupProgressAction = 'restore-backup' | 'restore-backup-verify' | 'create-backup'
+export type TelenoNodeBackupProgressAction = 'restore-backup' | 'restore-backup-verify' | 'create-backup'
 
-export type KoinosNodeBackupProgressPhase =
+export type TelenoNodeBackupProgressPhase =
   | 'prepare'
   | 'stop'
   | 'download'
@@ -543,9 +549,9 @@ export type KoinosNodeBackupProgressPhase =
   | 'complete'
   | 'error'
 
-export type KoinosNodeBackupProgressEvent = {
-  action: KoinosNodeBackupProgressAction
-  phase: KoinosNodeBackupProgressPhase
+export type TelenoNodeBackupProgressEvent = {
+  action: TelenoNodeBackupProgressAction
+  phase: TelenoNodeBackupProgressPhase
   progress: number
   message: string
 }
@@ -562,6 +568,8 @@ export type NativeServiceProcessState = {
   serviceId: string
   child: ChildProcessByStdio<null, Readable, Readable>
   runtimeName: string
+  binaryPath?: string | null
+  logPath?: string | null
   cwd: string
   baseDir: string | null
   startedAt: number
@@ -615,30 +623,30 @@ export type ProcessSnapshotEntry = {
   command: string
 }
 
-export type KnodelEncryptedSecret = {
+export type TelenoEncryptedSecret = {
   encrypted: string
   salt: string
   iv: string
   authTag: string
 }
 
-export type KnodelWalletAccountKind = 'derived' | 'imported-wif' | 'watch-only'
+export type TelenoWalletAccountKind = 'derived' | 'imported-wif' | 'watch-only'
 
-export type KnodelEncryptedWalletAccount = {
+export type TelenoEncryptedWalletAccount = {
   id: string
   name: string
-  kind: KnodelWalletAccountKind
+  kind: TelenoWalletAccountKind
   address: string
   createdAt: string
   updatedAt?: string
   derivationPath?: string | null
-  encryptedKey?: KnodelEncryptedSecret | null
+  encryptedKey?: TelenoEncryptedSecret | null
 }
 
-export type KnodelWalletAccountSummary = {
+export type TelenoWalletAccountSummary = {
   id: string
   name: string
-  kind: KnodelWalletAccountKind
+  kind: TelenoWalletAccountKind
   address: string
   derivationPath: string | null
   createdAt: string
@@ -647,22 +655,22 @@ export type KnodelWalletAccountSummary = {
   isActive: boolean
 }
 
-export type KnodelEncryptedWallet = {
+export type TelenoEncryptedWallet = {
   version?: number
   address: string
-  encryptedKey?: KnodelEncryptedSecret | null
-  encryptedSeedPhrase?: KnodelEncryptedSecret | null
+  encryptedKey?: TelenoEncryptedSecret | null
+  encryptedSeedPhrase?: TelenoEncryptedSecret | null
   seedDerivationPath?: string | null
   activeAccountId?: string | null
-  accounts?: KnodelEncryptedWalletAccount[]
+  accounts?: TelenoEncryptedWalletAccount[]
   createdAt?: string
   updatedAt?: string
 }
 
-export type KnodelUnlockedWalletAccount = {
+export type TelenoUnlockedWalletAccount = {
   id: string
   name: string
-  kind: KnodelWalletAccountKind
+  kind: TelenoWalletAccountKind
   address: string
   derivationPath: string | null
   privateKey: string | null
@@ -670,18 +678,19 @@ export type KnodelUnlockedWalletAccount = {
   updatedAt: string | null
 }
 
-export type KnodelUnlockedWallet = {
+export type TelenoUnlockedWallet = {
   address: string
   privateKey: string | null
   seedPhrase: string | null
   seedDerivationPath: string | null
   activeAccountId: string | null
   accountName: string | null
-  accountKind: KnodelWalletAccountKind | null
-  accounts: KnodelUnlockedWalletAccount[]
+  accountKind: TelenoWalletAccountKind | null
+  accounts: TelenoUnlockedWalletAccount[]
 }
 
-export type KnodelProducerProfile = {
+export type TelenoProducerProfile = {
+  network: KoinosNetworkId
   producerAddress: string
   registrationSignerAccountId: string
   burnAccountId: string
@@ -707,9 +716,9 @@ export type WalletOverviewResult = {
   walletCreatedAt: string | null
   activeAccountId: string | null
   activeAccountName: string | null
-  activeAccountKind: KnodelWalletAccountKind | null
+  activeAccountKind: TelenoWalletAccountKind | null
   accountCount: number
-  accounts: KnodelWalletAccountSummary[]
+  accounts: TelenoWalletAccountSummary[]
   unlocked: boolean
   hasSeedPhrase: boolean
 }
@@ -724,6 +733,7 @@ export type WalletGenerateResult = {
 }
 
 export type WalletImportInput = {
+  network?: KoinosNetworkId
   privateKey?: string
   password?: string
   seedPhrase?: string
@@ -752,6 +762,7 @@ export type WalletCloseResult = {
 }
 
 export type WalletUnlockInput = {
+  network?: KoinosNetworkId
   password?: string
 }
 
@@ -796,7 +807,7 @@ export type WalletShowSeedResult = {
   walletAddress: string | null
   accountId: string | null
   accountName: string | null
-  accountKind: KnodelWalletAccountKind | null
+  accountKind: TelenoWalletAccountKind | null
   firstAccountAddress: string | null
   firstAccountPrivateKeyWif: string | null
   firstAccountDerivationPath: string | null
@@ -808,7 +819,7 @@ export type WalletAddressQueryInput = WalletRpcInput & {
   accountId?: string
 }
 
-export type WalletAccountRefInput = {
+export type WalletAccountRefInput = WalletRpcInput & {
   accountId?: string
 }
 
@@ -817,10 +828,40 @@ export type WalletListAccountsResult = {
   output: string
   walletAddress: string | null
   activeAccountId: string | null
-  accounts: KnodelWalletAccountSummary[]
+  accounts: TelenoWalletAccountSummary[]
 }
 
-export type WalletSetActiveAccountInput = {
+export type WalletSetActiveAccountInput = WalletAccountRefInput
+
+export type WalletCreateDerivedAccountInput = WalletRpcInput & {
+  name?: string
+}
+
+export type WalletImportAccountInput = WalletRpcInput & {
+  name?: string
+  privateKey?: string
+  password?: string
+}
+
+export type WalletImportWatchAccountInput = WalletRpcInput & {
+  name?: string
+  address?: string
+}
+
+export type WalletRenameAccountInput = WalletRpcInput & {
+  accountId?: string
+  name?: string
+}
+
+export type WalletRemoveAccountInput = WalletAccountRefInput
+
+export type WalletListAccountsInput = WalletRpcInput
+
+export type WalletCloseInput = WalletRpcInput
+
+export type WalletDeleteInput = WalletRpcInput
+
+export type WalletShowSeedInput = WalletRpcInput & {
   accountId?: string
 }
 
@@ -829,11 +870,7 @@ export type WalletSetActiveAccountResult = {
   output: string
   walletAddress: string | null
   activeAccountId: string | null
-  activeAccount: KnodelWalletAccountSummary | null
-}
-
-export type WalletCreateDerivedAccountInput = {
-  name?: string
+  activeAccount: TelenoWalletAccountSummary | null
 }
 
 export type WalletAccountMutationResult = {
@@ -841,28 +878,8 @@ export type WalletAccountMutationResult = {
   output: string
   walletAddress: string | null
   activeAccountId: string | null
-  account: KnodelWalletAccountSummary | null
-  accounts: KnodelWalletAccountSummary[]
-}
-
-export type WalletImportAccountInput = {
-  name?: string
-  privateKey?: string
-  password?: string
-}
-
-export type WalletImportWatchAccountInput = {
-  name?: string
-  address?: string
-}
-
-export type WalletRenameAccountInput = {
-  accountId?: string
-  name?: string
-}
-
-export type WalletRemoveAccountInput = {
-  accountId?: string
+  account: TelenoWalletAccountSummary | null
+  accounts: TelenoWalletAccountSummary[]
 }
 
 export type WalletBalanceResult = {

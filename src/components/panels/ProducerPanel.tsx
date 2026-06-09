@@ -25,6 +25,7 @@ export function ProducerPanel(props: ProducerPanelProps) {
     producerRegisterDisabled,
     producerRegisterHintClass,
     producerRegisterHintText,
+    producerRegisterActionText,
     nodeProducerActionLoading,
     registerNodeProducer,
     openWalletTab,
@@ -169,7 +170,7 @@ export function ProducerPanel(props: ProducerPanelProps) {
                   }}
                   disabled={producerRegisterDisabled}
                 >
-                  {nodeProducerActionLoading === 'register' ? t('producer.registering') : t('producer.createAction')}
+                  {nodeProducerActionLoading === 'register' ? t('producer.registering') : producerRegisterActionText}
                 </button>
               ) : (
                 <button type="button" className="primary-button" onClick={openWalletTab}>

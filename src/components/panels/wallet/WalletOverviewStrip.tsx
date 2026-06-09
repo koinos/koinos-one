@@ -1,6 +1,6 @@
 type WalletOverviewStripProps = {
   t: (key: string, values?: Record<string, string | number>) => string
-  walletBalance: KnodelWalletBalanceResult | null
+  walletBalance: TelenoWalletBalanceResult | null
   walletBalanceLoading: boolean
   walletBalanceError: string | null
   walletBalanceRefreshedAt: number | null

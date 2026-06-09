@@ -15,6 +15,10 @@ import {
   DEFAULT_PUBLIC_RPC_URLS,
   DEFAULT_SETTINGS,
   LANGUAGE_STORAGE_KEY,
+  LEGACY_LANGUAGE_STORAGE_KEY,
+  LEGACY_NODE_NETWORK_BASEDIRS_STORAGE_KEY,
+  LEGACY_NODE_SETTINGS_STORAGE_KEY,
+  LEGACY_SETTINGS_STORAGE_KEY,
   LOCAL_RPC_SOURCE,
   NODE_NETWORK_BASEDIRS_STORAGE_KEY,
   NODE_SETTINGS_STORAGE_KEY,
@@ -308,9 +312,15 @@ export function formatProducerWalletBalanceError(message: string, rpcUrl: string
   return message
 }
 
+function getStoredItemWithLegacyFallback(storage: Storage, primaryKey: string, legacyKey: string): string | null {
+  const primary = storage.getItem(primaryKey)
+  if (primary !== null) return primary
+  return storage.getItem(legacyKey)
+}
+
 export function loadInitialSettings(): ExplorerSettings {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
+    const raw = getStoredItemWithLegacyFallback(window.localStorage, SETTINGS_STORAGE_KEY, LEGACY_SETTINGS_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS }
     const parsed = JSON.parse(raw) as Partial<ExplorerSettings>
     const publicRpcUrls = sanitizeStoredPublicRpcUrls(
@@ -347,7 +357,11 @@ export function loadInitialSettings(): ExplorerSettings {
 
 export function loadInitialNodeSettings(): NodeManagerSettings {
   try {
-    const raw = window.localStorage.getItem(NODE_SETTINGS_STORAGE_KEY)
+    const raw = getStoredItemWithLegacyFallback(
+      window.localStorage,
+      NODE_SETTINGS_STORAGE_KEY,
+      LEGACY_NODE_SETTINGS_STORAGE_KEY
+    )
     if (!raw) return { ...DEFAULT_NODE_SETTINGS }
     const parsed = JSON.parse(raw) as Partial<NodeManagerSettings>
     const rawProfiles =
@@ -406,7 +420,11 @@ export function loadNodeBaseDirsByNetwork(): NodeBaseDirsByNetwork {
   if (!storage) return {}
 
   try {
-    const raw = storage.getItem(NODE_NETWORK_BASEDIRS_STORAGE_KEY)
+    const raw = getStoredItemWithLegacyFallback(
+      storage,
+      NODE_NETWORK_BASEDIRS_STORAGE_KEY,
+      LEGACY_NODE_NETWORK_BASEDIRS_STORAGE_KEY
+    )
     if (!raw) return {}
     const parsed = JSON.parse(raw) as Partial<Record<KoinosNetworkId, unknown>>
     return {
@@ -488,7 +506,7 @@ export function resolveNodeBaseDirForNetwork(network: KoinosNetworkId, fallbackB
 
 export function loadInitialLanguage(): AppLanguage {
   try {
-    const raw = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
+    const raw = getStoredItemWithLegacyFallback(window.localStorage, LANGUAGE_STORAGE_KEY, LEGACY_LANGUAGE_STORAGE_KEY)
     if (raw) return normalizeAppLanguage(raw)
   } catch {
     // ignore
@@ -509,11 +527,11 @@ export function normalizeNodeBaseDirInput(value: string): string {
   const normalized = trimmed.replace(/[\\/]+$/, '')
   if (!normalized) return DEFAULT_NODE_SETTINGS.baseDir
   const segments = normalized.split(/[\\/]+/).filter(Boolean)
-  if (['.koinos', '.koinosgui', 'basedir'].includes(segments.at(-1) ?? '')) return normalized
+  if (['.koinos', '.koinosgui', '.teleno', 'basedir'].includes(segments.at(-1) ?? '')) return normalized
   return `${normalized}/.koinos`
 }
 
-export function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNodeSettings {
+export function toNodeApiSettings(settings: NodeManagerSettings): TelenoNodeSettings {
   return {
     network: settings.network,
     repoPath: settings.repoPath.trim(),
@@ -523,16 +541,16 @@ export function toNodeApiSettings(settings: NodeManagerSettings): KnodelKoinosNo
   }
 }
 
-export function getKoinosNodeBridge() {
-  return window.knodel?.koinosNode
+export function getTelenoNodeBridge() {
+  return window.teleno?.telenoNode
 }
 
 export function getAppConfigBridge() {
-  return window.knodel?.appConfig
+  return window.teleno?.appConfig
 }
 
 export function getWalletBridge() {
-  return window.knodel?.wallet
+  return window.teleno?.wallet
 }
 
 export function looksLikeNodeErrorOutput(output: string): boolean {
@@ -540,9 +558,9 @@ export function looksLikeNodeErrorOutput(output: string): boolean {
 }
 
 export function nodeServicePortByTarget(
-  service: KnodelKoinosNodeServiceStatus | null | undefined,
+  service: TelenoNodeServiceStatus | null | undefined,
   targetPort: number
-): KnodelKoinosNodeServicePort | null {
+): TelenoNodeServicePort | null {
   return service?.ports.find((port) => port.targetPort === targetPort) ?? null
 }
 
@@ -551,10 +569,10 @@ export function normalizeNodeRpcHost(host: string | null | undefined, fallback =
   return value && value !== '0.0.0.0' && value !== '::' ? value : fallback
 }
 
-export function resolveLocalNodeRpcUrl(nodeStatus: KnodelKoinosNodeStatus | null): string {
+export function resolveLocalNodeRpcUrl(nodeStatus: TelenoNodeStatus | null): string {
   const jsonrpcService =
     nodeStatus?.services.find((service) => service.id === 'jsonrpc') ??
-    nodeStatus?.services.find((service) => service.id === 'koinos-node') ??
+    nodeStatus?.services.find((service) => service.id === 'teleno-node') ??
     null
   const jsonrpcPort =
     nodeServicePortByTarget(jsonrpcService, 8080) ??
@@ -566,7 +584,7 @@ export function resolveLocalNodeRpcUrl(nodeStatus: KnodelKoinosNodeStatus | null
   return `http://${host}:${port}/`
 }
 
-export function resolveProducerRpcUrl(nodeStatus: KnodelKoinosNodeStatus | null, publicRpcUrl: string): string {
+export function resolveProducerRpcUrl(nodeStatus: TelenoNodeStatus | null, publicRpcUrl: string): string {
   const jsonrpcService = nodeStatus?.services.find((service) => service.id === 'jsonrpc') ?? null
   const contractMetaStoreService = nodeStatus?.services.find((service) => service.id === 'contract_meta_store') ?? null
   return jsonrpcService &&
@@ -577,32 +595,32 @@ export function resolveProducerRpcUrl(nodeStatus: KnodelKoinosNodeStatus | null,
     : publicRpcUrl
 }
 
-export function resolveExplorerRpcUrl(settings: ExplorerSettings, nodeStatus: KnodelKoinosNodeStatus | null): string {
+export function resolveExplorerRpcUrl(settings: ExplorerSettings, nodeStatus: TelenoNodeStatus | null): string {
   if (settings.rpcSource !== LOCAL_RPC_SOURCE) return settings.rpcSource
   return resolveLocalNodeRpcUrl(nodeStatus)
 }
 
-export function isNodeServiceRunning(service: KnodelKoinosNodeServiceStatus): boolean {
+export function isNodeServiceRunning(service: TelenoNodeServiceStatus): boolean {
   return /running|up/i.test(`${service.state} ${service.status}`) && !service.lastError
 }
 
-export function formatNodeServicePorts(service: KnodelKoinosNodeServiceStatus): string {
+export function formatNodeServicePorts(service: TelenoNodeServiceStatus): string {
   if (!service.ports.length) return '-'
   return service.ports
     .map((port) => port.label || `${port.targetPort ?? '?'}${port.protocol ? `/${port.protocol}` : ''}`)
     .join(', ')
 }
 
-export function formatNodeServiceType(_service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
+export function formatNodeServiceType(_service: TelenoNodeServiceStatus, language: AppLanguage): string {
   return translate(language, 'common.runtimeNative')
 }
 
-export function formatNodeServiceVersion(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
+export function formatNodeServiceVersion(service: TelenoNodeServiceStatus, language: AppLanguage): string {
   return service.version?.trim() || translate(language, 'common.unknown')
 }
 
 export function formatNodeServiceTooltip(
-  service: KnodelKoinosNodeServiceStatus,
+  service: TelenoNodeServiceStatus,
   capabilities: NodeServiceCapabilities,
   language: AppLanguage
 ): string {
@@ -659,7 +677,7 @@ export function expandNodeProfiles(profiles: string[]): string[] {
   return normalizeStringList(profiles)
 }
 
-export function formatNodeServiceRuntimeDetail(service: KnodelKoinosNodeServiceStatus, language: AppLanguage): string {
+export function formatNodeServiceRuntimeDetail(service: TelenoNodeServiceStatus, language: AppLanguage): string {
   if (service.nativePid) {
     return translate(language, 'node.serviceRuntimeDetail.pid', {
       runtime: service.runtimeName,
@@ -675,7 +693,7 @@ export function formatNodeServiceRuntimeDetail(service: KnodelKoinosNodeServiceS
   return service.runtimeName
 }
 
-export function canKillNodeConflict(service: KnodelKoinosNodeServiceStatus): boolean {
+export function canKillNodeConflict(service: TelenoNodeServiceStatus): boolean {
   return service.runtimeType === 'native' && service.id !== 'amqp' && service.conflictPids.length > 0
 }
 
@@ -694,7 +712,7 @@ export function sameProfiles(left: string[], right: string[]): boolean {
   return sameStringList(expandNodeProfiles(left), expandNodeProfiles(right))
 }
 
-export function formatPresetProfiles(preset: KnodelKoinosNodePreset, language: AppLanguage): string {
+export function formatPresetProfiles(preset: TelenoNodePreset, language: AppLanguage): string {
   return preset.profiles.length ? preset.profiles.join(', ') : translate(language, 'common.core')
 }
 
@@ -704,7 +722,7 @@ export function basenameFromPath(input: string | null): string {
   return parts[parts.length - 1] || input
 }
 
-export function formatNativeBuildSystem(buildSystem: KnodelKoinosNativeBuildSystem | null): string {
+export function formatNativeBuildSystem(buildSystem: TelenoNativeBuildSystem | null): string {
   if (buildSystem === 'cmake') return 'CMake'
   if (buildSystem === 'go') return 'Go'
   if (buildSystem === 'yarn') return 'Yarn'
@@ -712,7 +730,7 @@ export function formatNativeBuildSystem(buildSystem: KnodelKoinosNativeBuildSyst
 }
 
 export function formatNativeBuildStatus(
-  build: KnodelKoinosNodeNativeBuildStatus,
+  build: TelenoNodeNativeBuildStatus,
   language: AppLanguage
 ): { label: string; className: string } {
   if (!build.supported) {
@@ -734,7 +752,7 @@ export function formatNativeBuildStatus(
   return { label: translate(language, 'node.buildStatus.pending'), className: 'is-pending' }
 }
 
-export function formatNativeBuildTooltip(build: KnodelKoinosNodeNativeBuildStatus, language: AppLanguage): string {
+export function formatNativeBuildTooltip(build: TelenoNodeNativeBuildStatus, language: AppLanguage): string {
   const lines = [translate(language, 'node.buildTooltip.service', { value: build.serviceName })]
 
   if (build.repoPath) lines.push(translate(language, 'node.buildTooltip.repo', { value: build.repoPath }))
@@ -917,7 +935,7 @@ export async function rpcCall<T>(
   params: Record<string, unknown>,
   signal: AbortSignal
 ): Promise<T> {
-  const bridge = getKoinosNodeBridge()
+  const bridge = getTelenoNodeBridge()
   if (bridge?.rpcCall) {
     if (signal.aborted) {
       throw new DOMException('The operation was aborted.', 'AbortError')

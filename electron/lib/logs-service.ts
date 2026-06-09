@@ -5,15 +5,15 @@ import { spawn } from 'node:child_process'
 import type { WebContents } from 'electron'
 
 import type {
-  KoinosNodeLogsFollowEvent,
-  KoinosNodeLogsFollowStartInput,
-  KoinosNodeLogsFollowStartResult,
-  KoinosNodeLogsFollowStopResult,
-  KoinosNodeLogsInput,
-  KoinosNodeLogsResult,
-  KoinosNodeSettings,
-  KoinosNodeSettingsInput,
-  KoinosNodeStatus,
+  TelenoNodeLogsFollowEvent,
+  TelenoNodeLogsFollowStartInput,
+  TelenoNodeLogsFollowStartResult,
+  TelenoNodeLogsFollowStopResult,
+  TelenoNodeLogsInput,
+  TelenoNodeLogsResult,
+  TelenoNodeSettings,
+  TelenoNodeSettingsInput,
+  TelenoNodeStatus,
   LogsFollowSession,
   NativeServiceProcessState
 } from './main-types'
@@ -21,10 +21,10 @@ import type {
 type LogsServiceDeps = {
   logsFollowEventChannel: string
   maxNativeServiceLogBytes: number
-  normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
-  assertRepoReady: (settings: KoinosNodeSettings) => void
+  normalizeNodeSettings: (input?: TelenoNodeSettingsInput) => TelenoNodeSettings
+  assertRepoReady: (settings: TelenoNodeSettings) => void
   nativeAmqpHomebrewLogFiles: () => string[]
-  nativeComposeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
+  nativeComposeStatus: (input?: TelenoNodeSettingsInput) => Promise<TelenoNodeStatus>
   toManagedServiceId: (service: string) => string
   nativeAmqpUsesBrewService: () => boolean
   sortManagedServiceIds: (serviceIds: Iterable<string>) => string[]
@@ -40,7 +40,7 @@ export function normalizeLogsTail(inputTail: unknown, fallback = 200): number {
   return Number.isFinite(tailRaw) ? Math.min(2000, Math.max(20, Math.trunc(tailRaw))) : fallback
 }
 
-function sendLogsFollowEvent(sender: WebContents, channel: string, payload: KoinosNodeLogsFollowEvent): void {
+function sendLogsFollowEvent(sender: WebContents, channel: string, payload: TelenoNodeLogsFollowEvent): void {
   if (sender.isDestroyed()) return
   sender.send(channel, payload)
 }
@@ -76,7 +76,7 @@ export function filterLogsByComponent(logs: string, component: string): string {
 }
 
 export function createLogsService(deps: LogsServiceDeps) {
-  function resolveLogTarget(status: KoinosNodeStatus, service: string): { service: string; nativeServiceId: string; component: string | null } | null {
+  function resolveLogTarget(status: TelenoNodeStatus, service: string): { service: string; nativeServiceId: string; component: string | null } | null {
     if (!service) return null
 
     const serviceId = deps.toManagedServiceId(service)
@@ -89,7 +89,7 @@ export function createLogsService(deps: LogsServiceDeps) {
       }
     }
 
-    const monolithService = status.services.find((candidate) => candidate.id === 'koinos-node')
+    const monolithService = status.services.find((candidate) => candidate.id === 'teleno-node')
     const targetComponent = status.components.find((candidate) => candidate.name === serviceId)
     if (monolithService && targetComponent) {
       return {
@@ -113,7 +113,7 @@ export function createLogsService(deps: LogsServiceDeps) {
       .join('\n\n')
   }
 
-  function stopLogsFollowStream(streamId: string): KoinosNodeLogsFollowStopResult {
+  function stopLogsFollowStream(streamId: string): TelenoNodeLogsFollowStopResult {
     const session = deps.logsFollowSessions.get(streamId)
     if (!session) {
       return { ok: false, streamId: null }
@@ -132,6 +132,15 @@ export function createLogsService(deps: LogsServiceDeps) {
     const text = String(chunk)
     if (!text) return
 
+    if (state.logPath) {
+      try {
+        fs.mkdirSync(path.dirname(state.logPath), { recursive: true })
+        fs.appendFileSync(state.logPath, text, 'utf8')
+      } catch {
+        // Keep the in-memory stream alive even if the durable log file cannot be written.
+      }
+    }
+
     state.output = trimNativeLogBuffer(`${state.output}${text}`, deps.maxNativeServiceLogBytes)
     state.lastOutputAt = Date.now()
 
@@ -145,7 +154,7 @@ export function createLogsService(deps: LogsServiceDeps) {
         continue
       }
 
-      const output = serviceId === 'koinos-node' && session.service && session.service !== serviceId
+      const output = serviceId === 'teleno-node' && session.service && session.service !== serviceId
         ? filterLogsByComponent(text, session.service)
         : text
       if (!output) continue
@@ -186,7 +195,7 @@ export function createLogsService(deps: LogsServiceDeps) {
     service: string,
     tail: number,
     streamId: string
-  ): KoinosNodeLogsFollowStartResult {
+  ): TelenoNodeLogsFollowStartResult {
     const logFiles = deps.nativeAmqpHomebrewLogFiles()
     if (logFiles.length === 0) {
       sendLogsFollowEvent(sender, deps.logsFollowEventChannel, {
@@ -279,7 +288,7 @@ export function createLogsService(deps: LogsServiceDeps) {
     }
   }
 
-  async function nativeComposeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNodeLogsResult> {
+  async function nativeComposeLogs(input?: TelenoNodeLogsInput): Promise<TelenoNodeLogsResult> {
     const settings = deps.normalizeNodeSettings(input)
     const service = input?.service?.trim() || ''
     const tail = normalizeLogsTail(input?.tail)
@@ -338,8 +347,8 @@ export function createLogsService(deps: LogsServiceDeps) {
 
   async function nativeComposeLogsFollowStart(
     sender: WebContents,
-    input?: KoinosNodeLogsFollowStartInput
-  ): Promise<KoinosNodeLogsFollowStartResult> {
+    input?: TelenoNodeLogsFollowStartInput
+  ): Promise<TelenoNodeLogsFollowStartResult> {
     const settings = deps.normalizeNodeSettings(input)
     const service = input?.service?.trim() || ''
     const tail = normalizeLogsTail(input?.tail)

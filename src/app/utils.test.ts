@@ -111,24 +111,25 @@ describe('URL normalization', () => {
 })
 
 describe('node path and state helpers', () => {
-  it('normalizes base dir to end with .koinos while preserving .koinosgui', () => {
+  it('normalizes base dir to end with .koinos while preserving Teleno and legacy app basedirs', () => {
     expect(normalizeNodeBaseDirInput('~/data')).toBe('~/data/.koinos')
     expect(normalizeNodeBaseDirInput('~/data/.koinos/')).toBe('~/data/.koinos')
+    expect(normalizeNodeBaseDirInput('~/.teleno/')).toBe('~/.teleno')
     expect(normalizeNodeBaseDirInput('~/.koinosgui/')).toBe('~/.koinosgui')
   })
 
   it('stores and resolves node base dirs independently per network', () => {
     withMockLocalStorage(() => {
-      storeNodeBaseDirForNetwork('testnet', '/Volumes/external/knodel-testnet-producer/basedir')
+      storeNodeBaseDirForNetwork('testnet', '/Volumes/external/teleno-testnet-producer/basedir')
 
-      expect(resolveNodeBaseDirForNetwork('testnet')).toBe('/Volumes/external/knodel-testnet-producer/basedir')
+      expect(resolveNodeBaseDirForNetwork('testnet')).toBe('/Volumes/external/teleno-testnet-producer/basedir')
       expect(resolveNodeBaseDirForNetwork('mainnet')).toBe(defaultNodeBaseDirForNetwork('mainnet'))
     })
   })
 
   it('does not store a known testnet base dir as the mainnet base dir', () => {
     withMockLocalStorage(() => {
-      const testnetBaseDir = '/Volumes/external/knodel-testnet-producer/basedir'
+      const testnetBaseDir = '/Volumes/external/teleno-testnet-producer/basedir'
 
       storeNodeBaseDirForNetwork('testnet', testnetBaseDir)
       storeNodeBaseDirForNetwork('mainnet', testnetBaseDir)
@@ -142,7 +143,7 @@ describe('node path and state helpers', () => {
     withMockLocalStorage((store) => {
       store.set(
         NODE_NETWORK_BASEDIRS_STORAGE_KEY,
-        JSON.stringify({ mainnet: '/Volumes/external/knodel-testnet-producer/basedir' })
+        JSON.stringify({ mainnet: '/Volumes/external/teleno-testnet-producer/basedir' })
       )
 
       expect(resolveNodeBaseDirForNetwork('mainnet')).toBe(defaultNodeBaseDirForNetwork('mainnet'))
@@ -156,7 +157,7 @@ describe('node path and state helpers', () => {
         JSON.stringify({
           network: 'mainnet',
           repoPath: '/tmp/koinos',
-          baseDir: '/Volumes/external/knodel-testnet-producer/basedir',
+          baseDir: '/Volumes/external/teleno-testnet-producer/basedir',
           profiles: 'mainnet_observer',
           blockchainBackupUrl: 'https://example.com/backup.tar.gz'
         })
@@ -208,7 +209,7 @@ describe('node path and state helpers', () => {
           ]
         }
       ]
-    } as unknown as KnodelKoinosNodeStatus
+    } as unknown as TelenoNodeStatus
 
     expect(resolveLocalNodeRpcUrl(status)).toBe('http://127.0.0.1:18080/')
   })
@@ -239,7 +240,7 @@ describe('node path and state helpers', () => {
           ports: []
         }
       ]
-    } as unknown as KnodelKoinosNodeStatus
+    } as unknown as TelenoNodeStatus
 
     expect(resolveProducerRpcUrl(status, 'https://api.koinos.io/')).toBe('http://127.0.0.1:18080/')
   })
@@ -263,7 +264,7 @@ describe('node path and state helpers', () => {
           ]
         }
       ]
-    } as unknown as KnodelKoinosNodeStatus
+    } as unknown as TelenoNodeStatus
 
     expect(resolveProducerRpcUrl(status, 'https://api.koinos.io/')).toBe('https://api.koinos.io/')
   })

@@ -4,7 +4,7 @@ const { execFileSync } = require('node:child_process')
 
 const projectRoot = path.resolve(__dirname, '..')
 const brandingDir = path.join(projectRoot, 'assets', 'branding')
-const sourcePath = path.join(brandingDir, 'logo.png')
+const sourcePath = path.join(projectRoot, 'assets', 'newbranding', 'icon.png')
 const iconsetDir = path.join(brandingDir, 'icon.iconset')
 const iconPath = path.join(brandingDir, 'icon.icns')
 

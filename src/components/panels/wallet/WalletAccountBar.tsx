@@ -4,7 +4,7 @@ type WalletAccountBarProps = {
   t: (key: string, values?: Record<string, string | number>) => string
   hasWalletControls: boolean
   walletActionLoading: string | null
-  accounts: KnodelWalletAccountSummary[]
+  accounts: TelenoWalletAccountSummary[]
   activeAccountId: string
   activeWalletCanSign: boolean
   canCreateDerivedAccount: boolean

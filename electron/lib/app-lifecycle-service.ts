@@ -2,7 +2,7 @@ import path from 'node:path'
 
 import { BrowserWindow, dialog, type MessageBoxOptions, type MessageBoxReturnValue } from 'electron'
 
-import type { KoinosNodeSettingsInput, KoinosNodeStatus, NativeServiceProcessState } from './main-types'
+import type { TelenoNodeSettingsInput, TelenoNodeStatus, NativeServiceProcessState } from './main-types'
 
 type AppLifecycleServiceDeps = {
   isDev: boolean
@@ -10,10 +10,10 @@ type AppLifecycleServiceDeps = {
   preloadPath: string
   nodeSettingsStorageKey: string
   languageStorageKey: string
-  parsePersistedNodeSettings: (input: unknown) => KoinosNodeSettingsInput | undefined
-  koinosNodeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
-  isComposeServiceRunning: (service: KoinosNodeStatus['services'][number]) => boolean
-  koinosNodeAction: (action: 'start' | 'stop', input?: KoinosNodeSettingsInput) => Promise<unknown>
+  parsePersistedNodeSettings: (input: unknown) => TelenoNodeSettingsInput | undefined
+  telenoNodeStatus: (input?: TelenoNodeSettingsInput) => Promise<TelenoNodeStatus>
+  isComposeServiceRunning: (service: TelenoNodeStatus['services'][number]) => boolean
+  telenoNodeAction: (action: 'start' | 'stop', input?: TelenoNodeSettingsInput) => Promise<unknown>
   nativeServiceProcesses: Map<string, NativeServiceProcessState>
   getLogsFollowStreamIds: () => string[]
   stopLogsFollowStream: (streamId: string) => void
@@ -43,13 +43,13 @@ function localizedShutdownCopy(language: string | null | undefined): {
   if (spanish) {
     return {
       confirmTitle: 'Detener nodo antes de cerrar',
-      confirmMessage: 'koinosGUI debe detener los servicios activos del nodo antes de cerrar.',
+      confirmMessage: 'Teleno debe detener los servicios activos del nodo antes de cerrar.',
       confirmDetailPrefix: 'Servicios activos',
       confirmAction: 'Detener y cerrar',
       cancelAction: 'Cancelar',
-      stoppingWindowTitle: 'koinosGUI - Deteniendo nodo...',
+      stoppingWindowTitle: 'Teleno - Deteniendo nodo...',
       stopFailedTitle: 'No se pudo detener el nodo',
-      stopFailedMessage: 'koinosGUI no pudo detener todos los servicios antes de cerrar.',
+      stopFailedMessage: 'Teleno no pudo detener todos los servicios antes de cerrar.',
       stopFailedDetailPrefix: 'Salida del stop',
       keepOpenAction: 'Mantener abierta',
       forceCloseAction: 'Forzar cierre'
@@ -58,13 +58,13 @@ function localizedShutdownCopy(language: string | null | undefined): {
 
   return {
     confirmTitle: 'Stop node before closing',
-    confirmMessage: 'koinosGUI needs to stop running node services before it closes.',
+    confirmMessage: 'Teleno needs to stop running node services before it closes.',
     confirmDetailPrefix: 'Running services',
     confirmAction: 'Stop and close',
     cancelAction: 'Cancel',
-    stoppingWindowTitle: 'koinosGUI - Stopping node...',
+    stoppingWindowTitle: 'Teleno - Stopping node...',
     stopFailedTitle: 'Could not stop the node',
-    stopFailedMessage: 'koinosGUI could not stop all managed services before closing.',
+    stopFailedMessage: 'Teleno could not stop all managed services before closing.',
     stopFailedDetailPrefix: 'Stop output',
     keepOpenAction: 'Keep open',
     forceCloseAction: 'Force close'
@@ -74,7 +74,7 @@ function localizedShutdownCopy(language: string | null | undefined): {
 export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
   async function loadRendererShutdownContext(
     win: BrowserWindow | null
-  ): Promise<{ nodeSettings?: KoinosNodeSettingsInput; language: string | null }> {
+  ): Promise<{ nodeSettings?: TelenoNodeSettingsInput; language: string | null }> {
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
       return { language: null }
     }
@@ -105,7 +105,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     }
   }
 
-  function listRunningManagedServiceNames(status: KoinosNodeStatus): string[] {
+  function listRunningManagedServiceNames(status: TelenoNodeStatus): string[] {
     return status.services.filter(deps.isComposeServiceRunning).map((service) => service.name)
   }
 
@@ -140,7 +140,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
   async function confirmNodeShutdownBeforeQuit(win: BrowserWindow | null): Promise<boolean> {
     const { nodeSettings, language } = await loadRendererShutdownContext(win)
     const copy = localizedShutdownCopy(language)
-    const status = await deps.koinosNodeStatus(nodeSettings)
+    const status = await deps.telenoNodeStatus(nodeSettings)
     const runningServiceNames = listRunningManagedServiceNames(status)
     const needsManagedShutdown = status.runningServices > 0 || deps.nativeServiceProcesses.size > 0
     const runningServiceCount = Math.max(status.runningServices, runningServiceNames.length, deps.nativeServiceProcesses.size)
@@ -177,7 +177,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     const restoreWindow = withShutdownWindowState(win, copy.stoppingWindowTitle)
 
     try {
-      const stopResult = (await deps.koinosNodeAction('stop', nodeSettings)) as { ok?: boolean; output?: string }
+      const stopResult = (await deps.telenoNodeAction('stop', nodeSettings)) as { ok?: boolean; output?: string }
       if (stopResult.ok) return true
 
       const failure = await showMessageBoxForWindow(win, {
@@ -240,7 +240,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
       const message = error instanceof Error ? error.message : 'Could not prepare the app shutdown.'
       void showMessageBoxForWindow(win, {
         type: 'error',
-        title: 'koinosGUI',
+        title: 'Teleno',
         message,
         buttons: ['OK'],
         defaultId: 0,
@@ -253,6 +253,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
 
   function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
+      title: 'Teleno',
       width: 1280,
       height: 800,
       icon: path.join(__dirname, '../../assets/branding/icon.png'),

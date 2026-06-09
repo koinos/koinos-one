@@ -34,6 +34,13 @@ type RuntimeProducerIdentityInput = {
   registeredPublicKey?: string | null
 }
 
+type ProducerPublicKeyRegistrationInput = {
+  localPublicKey?: string | null
+  registeredPublicKey?: string | null
+}
+
+export type ProducerPublicKeyRegistrationState = 'unknown' | 'unregistered' | 'match' | 'mismatch'
+
 export function hasRuntimeProducerIdentity(input: RuntimeProducerIdentityInput): boolean {
   return Boolean(
     `${input.configuredAddress || ''}`.trim() ||
@@ -42,7 +49,18 @@ export function hasRuntimeProducerIdentity(input: RuntimeProducerIdentityInput):
   )
 }
 
-export function isProducerSetupComplete(profile: KnodelKoinosNodeProducerProfileResult | null | undefined): boolean {
+export function getProducerPublicKeyRegistrationState(
+  input: ProducerPublicKeyRegistrationInput
+): ProducerPublicKeyRegistrationState {
+  const localPublicKey = `${input.localPublicKey || ''}`.trim()
+  const registeredPublicKey = `${input.registeredPublicKey || ''}`.trim()
+
+  if (!localPublicKey) return 'unknown'
+  if (!registeredPublicKey) return 'unregistered'
+  return registeredPublicKey === localPublicKey ? 'match' : 'mismatch'
+}
+
+export function isProducerSetupComplete(profile: TelenoNodeProducerProfileResult | null | undefined): boolean {
   return Boolean(profile?.ok && profile.profile?.producerAddress && profile.profile?.registrationSignerAccountId)
 }
 

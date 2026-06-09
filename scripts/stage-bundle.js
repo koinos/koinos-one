@@ -2,7 +2,7 @@
 // ============================================================================
 // Stage Bundle for Installer (Cross-Platform)
 // ============================================================================
-// Collects monolith release artifacts into build/bundle-staging/koinos/ for
+// Collects monolith release artifacts into build/bundle-staging/teleno/ for
 // electron-builder to bundle as extraResources.
 //
 // Supports Windows (.exe, build-win/) and macOS/Linux (no ext, build/).
@@ -15,7 +15,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const VENDOR = path.join(ROOT, 'vendor', 'koinos');
-const STAGING = path.join(ROOT, 'build', 'bundle-staging', 'koinos');
+const STAGING = path.join(ROOT, 'build', 'bundle-staging', 'teleno');
 const BIN_DIR = path.join(STAGING, 'bin');
 const CONFIG_DIR = path.join(STAGING, 'config');
 const ABI_DIR = path.join(STAGING, 'abis');
@@ -82,7 +82,7 @@ function copyDirRecursive(src, dest) {
 const platformLabel = isWindows ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux';
 
 console.log('============================================================================');
-console.log(`Staging koinosGUI monolith bundle for ${platformLabel} installer`);
+console.log(`Staging Teleno monolith bundle for ${platformLabel} installer`);
 console.log(`  Platform: ${platformLabel} (ext: "${EXT}", cpp build dir: ${CPP_BUILD_DIR})`);
 console.log(`  Vendor:   ${VENDOR}`);
 console.log(`  Staging:  ${STAGING}`);
@@ -96,15 +96,15 @@ ensureDir(BIN_DIR);
 ensureDir(CONFIG_DIR);
 ensureDir(ABI_DIR);
 
-// --- Monolithic koinos_node ---
-console.log('=== Monolithic Node ===');
+// --- Monolithic Teleno node ---
+console.log('=== Monolithic Teleno Node ===');
 copyFirstExistingChecked(
   [
     path.join(VENDOR, 'koinos-node', CPP_BUILD_DIR, 'koinos_node' + EXT),
     path.join(VENDOR, 'koinos-node', CPP_BUILD_DIR, 'src', 'koinos_node' + EXT),
   ],
-  path.join(BIN_DIR, 'koinos_node' + EXT),
-  'koinos_node'
+  path.join(BIN_DIR, 'teleno_node' + EXT),
+  'teleno_node'
 );
 
 // --- Config templates ---
@@ -154,7 +154,7 @@ console.log(`Staging complete: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
   console.log(`\nWARNING: Some artifacts are missing. The installer will be incomplete.`);
   if (isWindows) {
-    console.log('Build koinos_node.exe into vendor\\koinos\\koinos-node\\build-win\\ before staging.');
+    console.log('Build koinos_node.exe into vendor\\koinos\\koinos-node\\build-win\\ before staging; it will be staged as teleno_node.exe.');
   } else {
     console.log('Build the monolith first: ./scripts/build-cpp-libp2p-koinos.sh');
   }

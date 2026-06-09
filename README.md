@@ -1,11 +1,11 @@
-# koinosGUI
+# Teleno
 
-Desktop app for operating the monolithic **Koinos** node. It includes the dashboard, block explorer, wallet, producer tools, local configuration, and lifecycle management for the single `koinos_node` process.
+Teleno is a desktop app for operating a monolithic **Koinos** node implementation. It includes Teleno UX, the dashboard, block explorer, wallet, producer tools, local configuration, and lifecycle management for the single `teleno_node` runtime.
 
 ## Stack
 
-- **Desktop app:** Electron + React + TypeScript
-- **Koinos node:** monolithic `koinos_node`
+- **Desktop app:** Teleno, built with Electron + React + TypeScript
+- **Node runtime:** monolithic `teleno_node`
 - **Runtime model:** one local process with in-process Koinos components
 - **Platforms:** macOS first, Windows planned
 
@@ -26,7 +26,7 @@ git submodule update --init --recursive
 
 ## Build The Monolithic Node
 
-The monolithic node lives under `vendor/koinos/koinos-node`.
+The upstream C++ source tree lives under `vendor/koinos/koinos-node`. CMake still builds the upstream target as `koinos_node`; packaging stages that binary as `teleno_node`.
 
 ```bash
 cmake -S vendor/koinos/koinos-node -B vendor/koinos/koinos-node/build
@@ -65,7 +65,7 @@ Electron UI
   |
   +-- electron/main.ts
         |
-        +-- koinos_node
+        +-- teleno_node
               |
               +-- chain, mempool, p2p, block store, jsonrpc, grpc,
                   account history, transaction store, contract metadata,

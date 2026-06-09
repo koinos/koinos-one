@@ -23,7 +23,7 @@ type WalletCreateDraft = {
 type WalletSecretsResult = {
   accountId?: string | null
   accountName?: string | null
-  accountKind?: KnodelWalletAccountKind | null
+  accountKind?: TelenoWalletAccountKind | null
   firstAccountAddress?: string | null
   firstAccountPrivateKeyWif?: string | null
   firstAccountDerivationPath?: string | null
@@ -123,7 +123,7 @@ export function WalletPanel(props: WalletPanelProps) {
   const [watchAccountAddress, setWatchAccountAddress] = useState('')
   const [derivedAccountName, setDerivedAccountName] = useState('')
   const [renameAccountName, setRenameAccountName] = useState('')
-  const [selectedAccountForEdit, setSelectedAccountForEdit] = useState<KnodelWalletAccountSummary | null>(null)
+  const [selectedAccountForEdit, setSelectedAccountForEdit] = useState<TelenoWalletAccountSummary | null>(null)
 
   const createDraftRequestIdRef = useRef(0)
   const showSeedRequestIdRef = useRef(0)
@@ -272,13 +272,13 @@ export function WalletPanel(props: WalletPanelProps) {
     setSendModalOpen(true)
   }
 
-  const openRenameModalForAccount = (account: KnodelWalletAccountSummary) => {
+  const openRenameModalForAccount = (account: TelenoWalletAccountSummary) => {
     setSelectedAccountForEdit(account)
     setRenameAccountName(account.name)
     setRenameAccountModalOpen(true)
   }
 
-  const openRemoveModalForAccount = (account: KnodelWalletAccountSummary) => {
+  const openRemoveModalForAccount = (account: TelenoWalletAccountSummary) => {
     setSelectedAccountForEdit(account)
     setRemoveAccountModalOpen(true)
   }

@@ -34,6 +34,6 @@ export function inspectBaseDirIdentity(baseDir: string): BaseDirIdentity {
   };
 }
 
-export function isExistingKoinosNodeBaseDir(baseDir: string): boolean {
+export function isExistingTelenoNodeBaseDir(baseDir: string): boolean {
   return inspectBaseDirIdentity(baseDir).exactNodeLayout;
 }

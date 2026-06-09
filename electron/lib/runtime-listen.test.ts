@@ -9,7 +9,7 @@ import { normalizeConnectHost, parseListenEndpoint, resolveRuntimeListenPorts } 
 const tempDirs: string[] = []
 
 function tempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'koinosgui-runtime-listen-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-runtime-listen-'))
   tempDirs.push(dir)
   return dir
 }

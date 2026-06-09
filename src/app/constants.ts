@@ -1,10 +1,14 @@
 import type { ExplorerSettings, NodeManagerSettings } from './types'
 import { MAINNET_PUBLIC_RPC_URLS } from './network'
 
-export const SETTINGS_STORAGE_KEY = 'koinosgui.explorer.settings.v1'
-export const NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
-export const NODE_NETWORK_BASEDIRS_STORAGE_KEY = 'koinosgui.koinos-node.network-basedirs.v1'
-export const LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
+export const SETTINGS_STORAGE_KEY = 'teleno.explorer.settings.v1'
+export const NODE_SETTINGS_STORAGE_KEY = 'teleno.node.settings.v1'
+export const NODE_NETWORK_BASEDIRS_STORAGE_KEY = 'teleno.node.network-basedirs.v1'
+export const LANGUAGE_STORAGE_KEY = 'teleno.ui.language.v1'
+export const LEGACY_SETTINGS_STORAGE_KEY = 'koinosgui.explorer.settings.v1'
+export const LEGACY_NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
+export const LEGACY_NODE_NETWORK_BASEDIRS_STORAGE_KEY = 'koinosgui.koinos-node.network-basedirs.v1'
+export const LEGACY_LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
 export const LOCAL_RPC_SOURCE = 'local'
 export const DEFAULT_PUBLIC_RPC_URLS = MAINNET_PUBLIC_RPC_URLS
 export const LOCAL_NODE_RPC_FALLBACK_URL = 'http://127.0.0.1:8080/'
@@ -29,15 +33,15 @@ export const DEFAULT_SETTINGS = {
 export const DEFAULT_NODE_SETTINGS = {
   network: 'mainnet',
   repoPath: '/Users/pgarcgo/code/koinos_code/koinos',
-  baseDir: '~/.koinosgui',
+  baseDir: '~/.teleno',
   profiles: 'mainnet_observer',
   blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
 } as const satisfies NodeManagerSettings
 
 export const DEFAULT_NODE_BASEDIR_BY_NETWORK = {
   mainnet: DEFAULT_NODE_SETTINGS.baseDir,
-  testnet: '~/.koinosgui/testnet/.koinos',
-  custom: '~/.koinosgui/custom/.koinos'
+  testnet: '~/.teleno/testnet/.koinos',
+  custom: '~/.teleno/custom/.koinos'
 } as const satisfies Record<NodeManagerSettings['network'], string>
 
 export const DEFAULT_NODE_PROFILES_BY_NETWORK = {

@@ -1,7 +1,7 @@
 type WalletPortfolioTabProps = {
   t: (key: string, values?: Record<string, string | number>) => string
   nativeTokenSymbol: string
-  walletBalance: KnodelWalletBalanceResult | null
+  walletBalance: TelenoWalletBalanceResult | null
   activeWalletCanSign: boolean
   isBusy: boolean
   onOpenSend: () => void

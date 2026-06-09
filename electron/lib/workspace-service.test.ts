@@ -5,17 +5,17 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createWorkspaceService } from './workspace-service'
-import type { KoinosNodeSettings, KoinosNodeSettingsInput } from './main-types'
+import type { TelenoNodeSettings, TelenoNodeSettingsInput } from './main-types'
 
 const tempDirs: string[] = []
 
 function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'knodel-workspace-service-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-workspace-service-'))
   tempDirs.push(dir)
   return dir
 }
 
-function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSettings {
+function normalizeNodeSettings(input?: TelenoNodeSettingsInput): TelenoNodeSettings {
   return {
     network: input?.network || 'mainnet',
     repoPath: input?.repoPath || '',
@@ -28,8 +28,8 @@ function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSetti
 function createService() {
   return createWorkspaceService({
     normalizeNodeSettings,
-    configDirPath: (settings: KoinosNodeSettings) => path.join(settings.repoPath, 'config'),
-    configExampleDirPath: (settings: KoinosNodeSettings) => path.join(settings.repoPath, 'config-example'),
+    configDirPath: (settings: TelenoNodeSettings) => path.join(settings.repoPath, 'config'),
+    configExampleDirPath: (settings: TelenoNodeSettings) => path.join(settings.repoPath, 'config-example'),
     managedFilePath: (settings: { repoPath: string }, _kind: string) =>
       path.join(settings.repoPath, 'config', 'config.yml'),
     baseDirConfigFilePath: (settings: { baseDir: string }) =>

@@ -32,11 +32,19 @@ import type {
   NodeServiceContextMenuState
 } from './app/types'
 import {
+  getProducerPublicKeyRegistrationState,
   getProducerSetupBlockReason,
   isProducerActivelyProducingFromLogs,
   isProducerSetupComplete,
   resolveProducerTargetAddress
 } from './app/producer'
+import {
+  DEFAULT_LOG_COMPONENT_FILTERS,
+  LOG_LEVEL_FILTERS,
+  filterLogOutput,
+  listLogComponents,
+  type LogLevelFilter
+} from './app/log-filters'
 import {
   canKillNodeConflict,
   clamp,
@@ -46,17 +54,15 @@ import {
   filterBlocksByProducer,
   defaultNodeProfilesForNetwork,
   formatDateTime,
+  formatDurationSeconds,
   formatExplorerRpcSourceTarget,
   formatNodeServicePorts,
-  formatNodeServiceRuntimeDetail,
   formatNodeServiceTooltip,
-  formatNodeServiceType,
-  formatNodeServiceVersion,
   formatPresetProfiles,
   formatProducerWalletBalanceError,
   formatTime,
   getAppConfigBridge,
-  getKoinosNodeBridge,
+  getTelenoNodeBridge,
   getWalletBridge,
   isNodeServiceRunning,
   loadInitialLanguage,
@@ -94,6 +100,8 @@ import type { AutoRestartState, IndexerProgress, P2pRestartState } from './app/c
 import { KOINOS_NETWORK_OPTIONS, nativeTokenSymbolForNetwork, publicRpcUrlsForNetwork, type KoinosNetworkId } from './app/network'
 import pkg from '../package.json'
 
+const telenoLogoUrl = new URL('../assets/newbranding/logo.png', import.meta.url).href
+
 type WalletActivityEntry = {
   id: string
   title: string
@@ -106,7 +114,7 @@ type WalletActivityEntry = {
 }
 
 type WalletBalanceCacheEntry = {
-  balance: KnodelWalletBalanceResult
+  balance: TelenoWalletBalanceResult
   refreshedAt: number
 }
 
@@ -126,13 +134,13 @@ function formatNetworkLabel(network: KoinosNetworkId): string {
   return KOINOS_NETWORK_OPTIONS.find((option) => option.id === network)?.label ?? network
 }
 
-function findKoinosNodeConflictService(
-  status: KnodelKoinosNodeStatus | null
-): KnodelKoinosNodeServiceStatus | null {
+function findTelenoNodeConflictService(
+  status: TelenoNodeStatus | null
+): TelenoNodeServiceStatus | null {
   return (
     status?.services.find(
       (service) =>
-        service.id === 'koinos-node' &&
+        service.id === 'teleno-node' &&
         service.state === 'conflict' &&
         (service.conflictPids?.length ?? 0) > 0
     ) ?? null
@@ -176,7 +184,7 @@ function walletBalanceCacheKeys(network: KoinosNetworkId, address?: string | nul
 }
 
 export function App() {
-  const appVersion = window.knodel?.version?.trim() || pkg.version
+  const appVersion = window.teleno?.version?.trim() || pkg.version
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
   const [savedLanguage, setSavedLanguage] = useState<AppLanguage>(() => language)
@@ -224,7 +232,7 @@ export function App() {
   const [nodeBaseDirPickerLoading, setNodeBaseDirPickerLoading] = useState(false)
   const [nodeBaseDirValidationLoading, setNodeBaseDirValidationLoading] = useState(false)
   const [nodeBaseDirValidation, setNodeBaseDirValidation] = useState<NodeBaseDirValidationState | null>(null)
-  const [nodeStatus, setNodeStatus] = useState<KnodelKoinosNodeStatus | null>(null)
+  const [nodeStatus, setNodeStatus] = useState<TelenoNodeStatus | null>(null)
   const [nodeStatusLoading, setNodeStatusLoading] = useState(false)
   const [nodeActionLoading, setNodeActionLoading] = useState<NodeAction | null>(null)
   const [nodeRestoreBackupLoading, setNodeRestoreBackupLoading] = useState(false)
@@ -232,31 +240,31 @@ export function App() {
   const [nodeCreateBackupLoading, setNodeCreateBackupLoading] = useState(false)
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
-  const [nodeProducerOverview, setNodeProducerOverview] = useState<KnodelKoinosNodeProducerOverviewResult | null>(null)
+  const [nodeProducerOverview, setNodeProducerOverview] = useState<TelenoNodeProducerOverviewResult | null>(null)
   const [nodeProducerLoading, setNodeProducerLoading] = useState(false)
   const [nodeProducerError, setNodeProducerError] = useState<string | null>(null)
-  const [producerLocalInfo, setProducerLocalInfo] = useState<KnodelKoinosNodeProducerLocalInfoResult | null>(null)
+  const [producerLocalInfo, setProducerLocalInfo] = useState<TelenoNodeProducerLocalInfoResult | null>(null)
   const [producerPreviewRegisteredPublicKey, setProducerPreviewRegisteredPublicKey] = useState<string | null>(null)
   const [producerRecentBlocks, setProducerRecentBlocks] = useState<BlockRow[]>([])
   const [producerRecentBlocksLoading, setProducerRecentBlocksLoading] = useState(false)
   const [producerRecentBlocksError, setProducerRecentBlocksError] = useState<string | null>(null)
-  const [dashboardProducers, setDashboardProducers] = useState<KnodelKoinosNodeDashboardProducersResult | null>(null)
+  const [dashboardProducers, setDashboardProducers] = useState<TelenoNodeDashboardProducersResult | null>(null)
   const [dashboardProducersLoading, setDashboardProducersLoading] = useState(false)
   const [dashboardProducersError, setDashboardProducersError] = useState<string | null>(null)
-  const [dashboardPeers, setDashboardPeers] = useState<KnodelKoinosNodeDashboardPeersResult | null>(null)
+  const [dashboardPeers, setDashboardPeers] = useState<TelenoNodeDashboardPeersResult | null>(null)
   const [dashboardPeersLoading, setDashboardPeersLoading] = useState(false)
   const [dashboardPeersError, setDashboardPeersError] = useState<string | null>(null)
-  const [dashboardPerformance, setDashboardPerformance] = useState<KnodelKoinosNodeDashboardPerformanceResult | null>(null)
+  const [dashboardPerformance, setDashboardPerformance] = useState<TelenoNodeDashboardPerformanceResult | null>(null)
   const [dashboardPerformanceLoading, setDashboardPerformanceLoading] = useState(false)
   const [dashboardPerformanceError, setDashboardPerformanceError] = useState<string | null>(null)
   const [nodeProducerActionLoading, setNodeProducerActionLoading] = useState<NodeProducerActionState>(null)
   const [nodeProducerAddressDraft, setNodeProducerAddressDraft] = useState('')
   const [producerUnlockPassword, setProducerUnlockPassword] = useState('')
-  const [nodePresets, setNodePresets] = useState<KnodelKoinosNodePreset[]>([])
+  const [nodePresets, setNodePresets] = useState<TelenoNodePreset[]>([])
   const [nodePresetsLoading, setNodePresetsLoading] = useState(false)
   const [nodePresetsError, setNodePresetsError] = useState<string | null>(null)
   const [nodePresetActionLoading, setNodePresetActionLoading] = useState<string | null>(null)
-  const [nodeNativeBuilds, setNodeNativeBuilds] = useState<KnodelKoinosNodeNativeBuildsResult | null>(null)
+  const [nodeNativeBuilds, setNodeNativeBuilds] = useState<TelenoNodeNativeBuildsResult | null>(null)
   const [nodeNativeBuildsLoading, setNodeNativeBuildsLoading] = useState(false)
   const [nodeNativeBuildsError, setNodeNativeBuildsError] = useState<string | null>(null)
   const [nodeNativeBuildActionLoading, setNodeNativeBuildActionLoading] = useState<NodeNativeBuildActionState | null>(
@@ -275,6 +283,8 @@ export function App() {
   const [nodeBackupProgress, setNodeBackupProgress] = useState<NodeBackupProgressState | null>(null)
   const [nodeLogsService, setNodeLogsService] = useState<string>('')
   const [nodeLogsTail, setNodeLogsTail] = useState<string>('200')
+  const [nodeLogsLevelFilter, setNodeLogsLevelFilter] = useState<LogLevelFilter>('all')
+  const [nodeLogsComponentFilter, setNodeLogsComponentFilter] = useState<string>('all')
   const [nodeLogsOutput, setNodeLogsOutput] = useState<string>('')
   const [nodeLogsLoading, setNodeLogsLoading] = useState(false)
   const [nodeLogsError, setNodeLogsError] = useState<string | null>(null)
@@ -291,8 +301,8 @@ export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
   const [dashboardSubtab, setDashboardSubtab] = useState<DashboardSubtab>('producers')
   const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
-  const [walletOverview, setWalletOverview] = useState<KnodelWalletOverviewResult | null>(null)
-  const [producerSigningWalletBalance, setProducerSigningWalletBalance] = useState<KnodelWalletBalanceResult | null>(null)
+  const [walletOverview, setWalletOverview] = useState<TelenoWalletOverviewResult | null>(null)
+  const [producerSigningWalletBalance, setProducerSigningWalletBalance] = useState<TelenoWalletBalanceResult | null>(null)
   const [producerSigningWalletBalanceNetwork, setProducerSigningWalletBalanceNetwork] = useState<KoinosNetworkId | null>(null)
   const [walletLoading, setWalletLoading] = useState(false)
   const [producerSigningWalletBalanceLoading, setProducerSigningWalletBalanceLoading] = useState(false)
@@ -318,7 +328,7 @@ export function App() {
   const [walletBurnTargetAddressDraft, setWalletBurnTargetAddressDraft] = useState('')
   const [walletBurnDryRun, setWalletBurnDryRun] = useState(true)
   const [walletBurnUseFreeMana, setWalletBurnUseFreeMana] = useState(false)
-  const [producerProfile, setProducerProfile] = useState<KnodelKoinosNodeProducerProfileResult | null>(null)
+  const [producerProfile, setProducerProfile] = useState<TelenoNodeProducerProfileResult | null>(null)
   const [producerUseWalletAddress, setProducerUseWalletAddress] = useState(true)
   const [producerAllowDelegatedSigner, setProducerAllowDelegatedSigner] = useState(false)
   const [producerFooterState, setProducerFooterState] = useState<'unknown' | 'producing'>('unknown')
@@ -332,7 +342,7 @@ export function App() {
   const t = useMemo(() => {
     return (key: string, values?: Record<string, string | number>) => translate(language, key, values)
   }, [language])
-  const hasNodeControls = Boolean(getKoinosNodeBridge())
+  const hasNodeControls = Boolean(getTelenoNodeBridge())
   const hasWalletControls = Boolean(getWalletBridge())
   const effectiveExplorerRpcUrl = useMemo(
     () => resolveExplorerRpcUrl(settings, nodeStatus),
@@ -622,7 +632,7 @@ export function App() {
 
   useEffect(() => {
     if (activeTab !== 'producer' && activeTab !== 'wallet' && !(activeTab === 'dashboard' && dashboardSubtab === 'forecast')) return
-    if (!getKoinosNodeBridge()) return
+    if (!getTelenoNodeBridge()) return
     void refreshProducerProfile()
   }, [activeTab, dashboardSubtab])
 
@@ -781,16 +791,16 @@ export function App() {
       pre.scrollTop = pre.scrollHeight
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [nodeLogsModalOpen, nodeLogsOutput])
+  }, [nodeLogsModalOpen, nodeLogsOutput, nodeLogsLevelFilter, nodeLogsComponentFilter])
 
   useEffect(() => {
     if (!hasNodeControls) return
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.onLogsFollowEvent) return
 
     const unsubscribe = bridge.onLogsFollowEvent((event) => {
       if (!event || typeof event !== 'object') return
-      const payload = event as KnodelKoinosNodeLogsFollowEvent
+      const payload = event as TelenoNodeLogsFollowEvent
       if (!payload.streamId || payload.streamId !== nodeLogsStreamIdRef.current) return
 
       if (payload.type === 'start') {
@@ -831,12 +841,12 @@ export function App() {
 
   useEffect(() => {
     if (!hasNodeControls) return
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.onBackupProgressEvent) return
 
     const unsubscribe = bridge.onBackupProgressEvent((event) => {
       if (!event || typeof event !== 'object') return
-      const payload = event as KnodelKoinosNodeBackupProgressEvent
+      const payload = event as TelenoNodeBackupProgressEvent
       if (!payload.action || typeof payload.progress !== 'number') return
 
       setNodeBackupProgress({
@@ -865,7 +875,7 @@ export function App() {
     let disposed = false
 
     const loadNodePresets = async () => {
-      const bridge = getKoinosNodeBridge()
+      const bridge = getTelenoNodeBridge()
       if (!bridge?.presets) return
       setNodePresetsLoading(true)
       setNodePresetsError(null)
@@ -883,7 +893,7 @@ export function App() {
     }
 
     const loadInitialNodeStatus = async () => {
-      const bridge = getKoinosNodeBridge()
+      const bridge = getTelenoNodeBridge()
       if (!bridge) return
       setNodeStatusLoading(true)
       try {
@@ -920,7 +930,7 @@ export function App() {
     let disposed = false
 
     const loadNativeBuilds = async () => {
-      const bridge = getKoinosNodeBridge()
+      const bridge = getTelenoNodeBridge()
       if (!bridge?.nativeBuilds) return
       setNodeNativeBuildsLoading(true)
       setNodeNativeBuildsError(null)
@@ -949,7 +959,7 @@ export function App() {
 
   useEffect(() => {
     if (!hasNodeControls) return
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge) return
 
     let disposed = false
@@ -1099,12 +1109,28 @@ export function App() {
     () => new Map(nodeComponents.map((component) => [component.name, component] as const)),
     [nodeComponents]
   )
+  const nodeLogsKnownComponents = useMemo(
+    () => [
+      ...DEFAULT_LOG_COMPONENT_FILTERS,
+      ...nodeComponents.map((component) => component.name)
+    ],
+    [nodeComponents]
+  )
+  const nodeLogsComponentOptions = useMemo(
+    () => listLogComponents(nodeLogsOutput, nodeLogsKnownComponents),
+    [nodeLogsOutput, nodeLogsKnownComponents]
+  )
+  useEffect(() => {
+    if (nodeLogsComponentFilter !== 'all' && !nodeLogsComponentOptions.includes(nodeLogsComponentFilter)) {
+      setNodeLogsComponentFilter('all')
+    }
+  }, [nodeLogsComponentFilter, nodeLogsComponentOptions])
   const nodeServiceById = useMemo(
     () => new Map(nodeServices.map((service) => [service.id, service] as const)),
     [nodeServices]
   )
   const nodeProfileDependentsByServiceId = useMemo(() => {
-    const dependents = new Map<string, KnodelKoinosNodeServiceStatus[]>()
+    const dependents = new Map<string, TelenoNodeServiceStatus[]>()
 
     for (const service of nodeServices) {
       for (const dependencyId of service.dependsOn) {
@@ -1198,9 +1224,6 @@ export function App() {
   const nodePrimaryTooltip = nodePrimaryService && nodePrimaryCapabilities
     ? formatNodeServiceTooltip(nodePrimaryService, nodePrimaryCapabilities, language)
     : ''
-  const nodePrimaryRuntimeDetail = nodePrimaryService
-    ? formatNodeServiceRuntimeDetail(nodePrimaryService, language)
-    : t('common.runtimeNative')
   const nodePrimaryVersion = nodePrimaryService?.version?.trim() || t('common.na')
   const nodePrimaryPid = nodePrimaryService?.nativePid
     ? `${nodePrimaryService.nativePid}`
@@ -1208,6 +1231,8 @@ export function App() {
       ? nodePrimaryService.conflictPids.join(', ')
       : t('common.na')
   const nodePrimaryPorts = nodePrimaryService ? formatNodeServicePorts(nodePrimaryService) : t('common.na')
+  const nodePrimaryBinaryPath = nodePrimaryService?.binaryPath?.trim() || t('common.na')
+  const nodePrimaryLogPath = nodePrimaryService?.logPath?.trim() || t('common.na')
   const nodeP2pPort = nodePrimaryService?.ports.find((port) => {
     const label = `${port.label} ${port.targetPort ?? ''} ${port.publishedPort ?? ''}`
     return /8888/.test(label)
@@ -1230,7 +1255,7 @@ export function App() {
   const nodeHasPartialOutage = nodeRunningCount > 0 && nodeHasStoppedServices
   const isLocalRpc = settings.rpcSource === 'local'
   const localNodeNotRunning = isLocalRpc && nodeRunningCount === 0
-  const presetMatchesNodeState = (preset: KnodelKoinosNodePreset) => {
+  const presetMatchesNodeState = (preset: TelenoNodePreset) => {
     if (preset.featureFlags) {
       return nodeRunningCount > 0 && Object.entries(preset.featureFlags).every(([component, enabled]) => {
         return nodeComponentByName.get(component)?.enabled === enabled
@@ -1343,6 +1368,12 @@ export function App() {
     producerProfile?.profile?.registeredPublicKey ||
     producerPreviewRegisteredPublicKey ||
     null
+  const producerPublicKeyRegistrationState = getProducerPublicKeyRegistrationState({
+    localPublicKey: producerLocalPublicKey,
+    registeredPublicKey: producerRegisteredPublicKey
+  })
+  const producerPublicKeyAlreadyRegistered = producerPublicKeyRegistrationState === 'match'
+  const producerPublicKeyRegisteredWithAnotherKey = producerPublicKeyRegistrationState === 'mismatch'
   const producerConfiguredAddress =
     producerProfile?.profile?.producerAddress?.trim() ||
     producerLocalInfo?.producerAddress?.trim() ||
@@ -1402,7 +1433,7 @@ export function App() {
     hasLocalPublicKey: Boolean(producerLocalPublicKey),
     hasTargetAddress: Boolean(effectiveProducerTargetAddress),
     isWalletBalanceLoading: producerSigningWalletBalanceLoading,
-    hasEnoughMana: signingWalletHasRegistrationMana,
+    hasEnoughMana: producerPublicKeyAlreadyRegistered ? true : signingWalletHasRegistrationMana,
     useWalletAddress: producerUseWalletAddress,
     producerAdvancedMode
   })
@@ -1432,16 +1463,24 @@ export function App() {
     if (!effectiveProducerTargetAddress) return t('producer.registerNeedsAddress')
     if (!producerUseWalletAddress && !producerAdvancedMode) return t('settings.producerAdvancedHelpOff')
     if (!producerLocalPublicKey) return t('producer.registerNeedsLocalKey')
+    if (producerPublicKeyAlreadyRegistered) return t('producer.registerHintExisting')
+    if (producerPublicKeyRegisteredWithAnotherKey) return t('producer.registerHintReplace')
     return t('producer.registerHint')
   })()
+  const producerRegisterActionText = producerPublicKeyRegisteredWithAnotherKey
+      ? t('producer.replaceRegisteredKeyAction')
+      : t('producer.createAction')
   const producerRegisterDisabled =
     !hasNodeControls ||
     nodeProducerActionLoading !== null ||
     nodeProducerLoading ||
     Boolean(producerSigningWalletBalanceError) ||
+    producerPublicKeyAlreadyRegistered ||
     producerSetupBlockedReason !== null
   const producerRegisterHintClass =
-    producerSetupBlockedReason === 'wallet-balance-loading'
+    producerPublicKeyAlreadyRegistered
+      ? 'is-ok'
+      : producerSetupBlockedReason === 'wallet-balance-loading'
       ? ''
       : producerRegisterDisabled
         ? 'is-error'
@@ -1476,6 +1515,15 @@ export function App() {
   const blocksPerSecLabel = blocksPerSecond !== null && blocksPerSecond > 0 && showChainSyncProgress && !showIndexerProgress
     ? ` · ${blocksPerSecond} blk/s`
     : ''
+  const chainSyncEtaLabel =
+    syncGapBlocks !== null &&
+    syncGapBlocks > 0 &&
+    blocksPerSecond !== null &&
+    blocksPerSecond > 0 &&
+    showChainSyncProgress &&
+    !showIndexerProgress
+      ? ` · ${t('status.syncEta', { eta: formatDurationSeconds(syncGapBlocks / blocksPerSecond) })}`
+      : ''
   const indexerPercentLabel = showIndexerProgress
     ? indexerProgress!.percent >= 99
       ? indexerProgress!.percent.toFixed(2)
@@ -1496,7 +1544,7 @@ export function App() {
           current: localChainHead.height.toLocaleString(locale),
           target: publicChainHead.height.toLocaleString(locale),
           percent: chainSyncPercentLabel
-        }) + blocksPerSecLabel
+        }) + blocksPerSecLabel + chainSyncEtaLabel
       : hasNodeControls &&
           nodeRunningCount > 0 &&
           !nodeHasPartialOutage &&
@@ -1590,7 +1638,7 @@ export function App() {
     const timer = window.setInterval(() => {
       if (disposed) return
 
-      const bridge = getKoinosNodeBridge()
+      const bridge = getTelenoNodeBridge()
       const now = Date.now()
 	      const {
 	        localChainHead: lHead,
@@ -1601,7 +1649,7 @@ export function App() {
 	      } = autoRestartDepsRef.current
 	      const gap = (pHead?.height ?? 0) - (lHead?.height ?? 0)
 	      const syncGapExists = gap > SYNC_GAP_BLOCK_THRESHOLD
-	      const monolithService = services.find((service) => service.id === 'koinos-node') ?? null
+	      const monolithService = services.find((service) => service.id === 'teleno-node') ?? null
 	      const resolveRestartService = (componentService: string) =>
 	        services.some((service) => service.id === componentService) ? componentService : monolithService?.id ?? componentService
 	      const chainRestartService = resolveRestartService('chain')
@@ -1757,7 +1805,7 @@ export function App() {
 
   // Poll chain logs for indexer progress when RPC is not available
   useEffect(() => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.logs || !hasNodeControls || nodeRunningCount === 0) {
       setIndexerProgress(null)
       setIndexerBlocksPerSec(null)
@@ -1819,7 +1867,7 @@ export function App() {
   }, [hasNodeControls, nodeRunningCount, localChainHead, nodeSettings]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.logs || !hasNodeControls || !blockProducerRunning || !producerSetupComplete) {
       setProducerFooterState('unknown')
       return
@@ -1866,7 +1914,7 @@ export function App() {
   ])
 
   const syncNodeStatusState = (
-    status: KnodelKoinosNodeStatus,
+    status: TelenoNodeStatus,
     options?: { preserveOutputOnSuccess?: boolean }
   ) => {
     setNodeStatus(status)
@@ -1885,7 +1933,7 @@ export function App() {
   }
 
   const refreshNodeStatus = async (settingsOverride?: NodeManagerSettings) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge) return
     const effectiveSettings = settingsOverride ?? nodeSettings
     setNodeStatusLoading(true)
@@ -1901,7 +1949,7 @@ export function App() {
   }
 
   const refreshNodeNativeBuilds = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.nativeBuilds) return
     setNodeNativeBuildsLoading(true)
     setNodeNativeBuildsError(null)
@@ -1919,7 +1967,7 @@ export function App() {
   }
   void refreshNodeNativeBuilds
 
-  const resolveNodeSettingsForPreset = (preset: KnodelKoinosNodePreset): NodeManagerSettings => {
+  const resolveNodeSettingsForPreset = (preset: TelenoNodePreset): NodeManagerSettings => {
     const nextProfiles = preset.profiles.join(',')
     const nextNetwork = preset.network ?? nodeSettings.network
     const nextBaseDir =
@@ -1930,7 +1978,7 @@ export function App() {
     return { ...nodeSettings, network: nextNetwork, baseDir: nextBaseDir, profiles: nextProfiles }
   }
 
-  const applyNodePreset = (preset: KnodelKoinosNodePreset) => {
+  const applyNodePreset = (preset: TelenoNodePreset) => {
     const nextSettings = resolveNodeSettingsForPreset(preset)
     const nextProfiles = nextSettings.profiles
     const nextNetwork = nextSettings.network
@@ -1958,8 +2006,8 @@ export function App() {
     void refreshNodeStatus(nextSettings)
   }
 
-  const reconcileNodePreset = async (preset: KnodelKoinosNodePreset) => {
-    const bridge = getKoinosNodeBridge()
+  const reconcileNodePreset = async (preset: TelenoNodePreset) => {
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.presetReconcile) return
 
     setNodePresetActionLoading(preset.id)
@@ -2023,7 +2071,7 @@ export function App() {
   }
 
   const cloneKoinosRepo = async (targetRepoPath: string) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.cloneRepo) return
 
     const repoPath = targetRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
@@ -2054,8 +2102,8 @@ export function App() {
   const refreshNodeProducerOverview = async (
     settingsOverride?: NodeManagerSettings,
     producerAddressOverride?: string
-  ): Promise<KnodelKoinosNodeProducerOverviewResult | null> => {
-    const bridge = getKoinosNodeBridge()
+  ): Promise<TelenoNodeProducerOverviewResult | null> => {
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.producerOverview) return null
 
     setNodeProducerLoading(true)
@@ -2090,8 +2138,8 @@ export function App() {
 
   const refreshProducerLocalInfo = async (
     settingsOverride?: NodeManagerSettings
-  ): Promise<KnodelKoinosNodeProducerLocalInfoResult | null> => {
-    const bridge = getKoinosNodeBridge()
+  ): Promise<TelenoNodeProducerLocalInfoResult | null> => {
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.producerLocalInfo) return null
 
     try {
@@ -2108,7 +2156,7 @@ export function App() {
     producerAddressOverride?: string,
     rpcUrlOverride?: string
   ): Promise<string | null> => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.producerRegisteredKey) return null
     const producerAddress = producerAddressOverride?.trim() || activeWalletAddress || ''
 
@@ -2175,7 +2223,7 @@ export function App() {
   }
 
   const refreshDashboardProducers = async (settingsOverride?: NodeManagerSettings) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.dashboardProducers) return
 
     setDashboardProducersLoading(true)
@@ -2198,7 +2246,7 @@ export function App() {
   }
 
   const refreshDashboardPeers = async (settingsOverride?: NodeManagerSettings) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.dashboardPeers) return
 
     setDashboardPeersLoading(true)
@@ -2219,7 +2267,7 @@ export function App() {
   }
 
   const refreshDashboardPerformance = async (settingsOverride?: NodeManagerSettings) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.dashboardPerformance) return
 
     setDashboardPerformanceLoading(true)
@@ -2370,7 +2418,7 @@ export function App() {
   ])
 
   const registerNodeProducer = async (producerAddressOverride?: string) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.producerRegister) return
 
     try {
@@ -2465,7 +2513,7 @@ export function App() {
   }
 
   const deleteNodeProducer = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.producerDelete) return false
 
     setNodeProducerActionLoading('delete')
@@ -2506,7 +2554,7 @@ export function App() {
     setWalletError(null)
 
     try {
-      const result = await bridge.unlock({ password: producerUnlockPassword })
+      const result = await bridge.unlock({ password: producerUnlockPassword, network: nodeSettings.network })
       setWalletResultTitle(t('producer.unlockTitle'))
       setWalletResultData(result)
 
@@ -2549,7 +2597,8 @@ export function App() {
       const privateKey = privateKeyOverride === undefined ? walletImportPrivateKey.trim() : privateKeyOverride.trim()
       const importResult = await bridge.importWallet({
         privateKey,
-        password
+        password,
+        network: nodeSettings.network
       })
 
       if (importResult.ok && importResult.address) {
@@ -2623,7 +2672,8 @@ export function App() {
         privateKey: derivedAccount.privateKeyWif,
         password,
         seedPhrase,
-        derivationPath: derivedAccount.derivationPath
+        derivationPath: derivedAccount.derivationPath,
+        network: nodeSettings.network
       })
       const seedImportResult = {
         ok: importResult.ok,
@@ -2700,7 +2750,8 @@ export function App() {
         privateKey: generatedWallet.privateKeyWif,
         password,
         seedPhrase: generatedWallet.seedPhrase,
-        derivationPath: generatedWallet.derivationPath || undefined
+        derivationPath: generatedWallet.derivationPath || undefined,
+        network: nodeSettings.network
       })
       const createResult = {
         ok: importResult.ok,
@@ -2778,7 +2829,7 @@ export function App() {
     }
 
     try {
-      return await bridge.showSeed()
+      return await bridge.showSeed({ network: nodeSettings.network })
     } catch (error) {
       return {
         ok: false,
@@ -2858,7 +2909,7 @@ export function App() {
     }
 
     try {
-      const result = await bridge.setActiveAccount({ accountId: requestedAccountId })
+      const result = await bridge.setActiveAccount({ accountId: requestedAccountId, network: nodeSettings.network })
       setWalletResultTitle(t('wallet.accountsTitle'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.accountsTitle'), result, result.activeAccountId || requestedAccountId)
@@ -2911,7 +2962,7 @@ export function App() {
     setWalletActionLoading('wallet-create-derived-account')
     setWalletError(null)
     try {
-      const result = await bridge.createDerivedAccount({ name: name.trim() || undefined })
+      const result = await bridge.createDerivedAccount({ name: name.trim() || undefined, network: nodeSettings.network })
       setWalletResultTitle(t('wallet.createDerivedAccountAction'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.createDerivedAccountAction'), result, result.activeAccountId)
@@ -2956,7 +3007,8 @@ export function App() {
       const result = await bridge.importAccount({
         privateKey: privateKey.trim(),
         password,
-        name: name.trim() || undefined
+        name: name.trim() || undefined,
+        network: nodeSettings.network
       })
       setWalletResultTitle(t('wallet.importAccountAction'))
       setWalletResultData(result)
@@ -2989,7 +3041,8 @@ export function App() {
     try {
       const result = await bridge.importWatchAccount({
         address: address.trim(),
-        name: name.trim() || undefined
+        name: name.trim() || undefined,
+        network: nodeSettings.network
       })
       setWalletResultTitle(t('wallet.importWatchAction'))
       setWalletResultData(result)
@@ -3018,7 +3071,7 @@ export function App() {
     setWalletActionLoading('wallet-rename-account')
     setWalletError(null)
     try {
-      const result = await bridge.renameAccount({ accountId, name: name.trim() })
+      const result = await bridge.renameAccount({ accountId, name: name.trim(), network: nodeSettings.network })
       setWalletResultTitle(t('wallet.renameAccountAction'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.renameAccountAction'), result, accountId)
@@ -3045,7 +3098,7 @@ export function App() {
     setWalletActionLoading('wallet-remove-account')
     setWalletError(null)
     try {
-      const result = await bridge.removeAccount({ accountId })
+      const result = await bridge.removeAccount({ accountId, network: nodeSettings.network })
       setWalletResultTitle(t('wallet.removeAccountAction'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.removeAccountAction'), result, accountId)
@@ -3074,7 +3127,7 @@ export function App() {
     setWalletError(null)
 
     try {
-      const result = await bridge.deleteWallet()
+      const result = await bridge.deleteWallet({ network: nodeSettings.network })
       setWalletResultTitle(t('wallet.deleteTitle'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.deleteTitle'), result)
@@ -3151,7 +3204,7 @@ export function App() {
   }
 
   const refreshProducerProfile = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.producerProfileGet) {
       setProducerProfile(null)
       return
@@ -3170,7 +3223,7 @@ export function App() {
   }
 
   const clearProducerSetup = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.producerProfileClear) return
     try {
       const result = await bridge.producerProfileClear()
@@ -3188,7 +3241,7 @@ export function App() {
       silent?: boolean
       rpcUrlOverride?: string
     }
-  ): Promise<KnodelWalletBalanceResult | null> => {
+  ): Promise<TelenoWalletBalanceResult | null> => {
     const bridge = getWalletBridge()
     if (!bridge?.balance) return null
     const silent = Boolean(options?.silent)
@@ -3368,8 +3421,8 @@ export function App() {
   }
 
   const currentDraftNodeApiSettings = (
-    overrides?: Partial<KnodelKoinosNodeSettings>
-  ): KnodelKoinosNodeSettings => {
+    overrides?: Partial<TelenoNodeSettings>
+  ): TelenoNodeSettings => {
     return {
       network: overrides?.network ?? draftNodeNetwork,
       repoPath: overrides?.repoPath ?? draftNodeRepoPath.trim(),
@@ -3380,7 +3433,7 @@ export function App() {
   }
 
   const validateDraftNodeBaseDir = async (baseDirInput: string) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     const rawBaseDir = baseDirInput.trim() || DEFAULT_NODE_SETTINGS.baseDir
     if (!bridge?.validateBaseDir) {
       const normalizedBaseDir = normalizeNodeBaseDirInput(rawBaseDir)
@@ -3390,7 +3443,7 @@ export function App() {
         restoreWorkspaceParent: normalizedBaseDir.replace(/[\\/]+\.koinos$/, '') || normalizedBaseDir,
         writable: true,
         output: ''
-      } satisfies KnodelKoinosNodeValidateBaseDirResult
+      } satisfies TelenoNodeValidateBaseDirResult
     }
 
     setNodeBaseDirValidationLoading(true)
@@ -3409,7 +3462,7 @@ export function App() {
   }
 
   const pickNodeBaseDir = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.selectBaseDir) return
 
     setNodeBaseDirPickerLoading(true)
@@ -3447,7 +3500,7 @@ export function App() {
   }
 
   const loadNodeManagedFile = async (kind: 'config') => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.fileRead) return
 
     setNodeFileEditorLoading(true)
@@ -3488,7 +3541,7 @@ export function App() {
   }
 
   const saveNodeManagedFile = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.fileWrite) return
 
     setNodeFileEditorSaving(true)
@@ -3516,6 +3569,8 @@ export function App() {
 
   const openServiceLogsModal = (serviceId: string) => {
     setNodeLogsService(serviceId)
+    setNodeLogsLevelFilter('all')
+    setNodeLogsComponentFilter('all')
     setNodeLogsModalOpen(true)
     setNodeServiceContextMenu(null)
     setNodeLogsError(null)
@@ -3525,7 +3580,7 @@ export function App() {
   }
 
   const stopNodeLogsStream = async (streamIdOverride?: string | null) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.logsFollowStop) return
 
     const streamId = (streamIdOverride ?? nodeLogsStreamIdRef.current)?.trim() || ''
@@ -3544,7 +3599,7 @@ export function App() {
   }
 
   const refreshNodeLogs = async (serviceOverride?: string) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.logsFollowStart || !bridge?.logs) return
 
     const tail = clamp(Number.parseInt(nodeLogsTail, 10) || 200, 20, 2000)
@@ -3607,13 +3662,28 @@ export function App() {
     }
   }, [nodeLogsModalOpen, nodeLogsService, nodeLogsTail, nodeSettings, hasNodeControls])
 
-  const renderedNodeLogsOutput = useMemo(
-    () => (nodeLogsOutput ? renderAnsiLog(nodeLogsOutput) : null),
-    [nodeLogsOutput]
+  const filteredNodeLogsOutput = useMemo(
+    () => filterLogOutput(nodeLogsOutput, {
+      level: nodeLogsLevelFilter,
+      component: nodeLogsComponentFilter
+    }),
+    [nodeLogsOutput, nodeLogsLevelFilter, nodeLogsComponentFilter]
   )
+  const renderedNodeLogsOutput = useMemo(
+    () => (filteredNodeLogsOutput ? renderAnsiLog(filteredNodeLogsOutput) : null),
+    [filteredNodeLogsOutput]
+  )
+  const formatNodeLogsComponentFilterLabel = (component: string) => {
+    if (component === 'all') return t('node.logsComponentAll')
+    const labelKey = `config.field.features.${component}`
+    const label = t(labelKey)
+    return label === labelKey
+      ? component.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+      : label
+  }
 
   const runNodeAction = async (action: NodeAction) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge) return
     setNodeActionLoading(action)
     setNodeError(null)
@@ -3645,7 +3715,7 @@ export function App() {
   }
 
   const runNodeRestoreBackup = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreBackup) return
 
     setNodeRestoreBackupLoading(true)
@@ -3680,7 +3750,7 @@ export function App() {
   void runNodeRestoreBackup
 
   const runNodeRestoreBackupVerify = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreBackupVerify) return
 
     setNodeRestoreBackupVerifyLoading(true)
@@ -3714,7 +3784,7 @@ export function App() {
   }
 
   const runCreateBackup = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.createBackup) return
 
     setNodeCreateBackupLoading(true)
@@ -3740,7 +3810,7 @@ export function App() {
   }
 
   const runCancelBackup = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.cancelCreateBackup) return
     try {
       await bridge.cancelCreateBackup()
@@ -3748,7 +3818,7 @@ export function App() {
   }
 
   const runRestoreLocalBackup = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreLocalBackup) return
 
     setNodeRestoreBackupLoading(true)
@@ -3774,7 +3844,7 @@ export function App() {
   }
 
   const restartNodeForNewBaseDir = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge || !nodeBaseDirChangeDialog) return
 
     setNodeBaseDirRestartLoading(true)
@@ -3800,7 +3870,7 @@ export function App() {
   }
 
   const copyNodeBaseDirData = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.copyBaseDirData || !nodeBaseDirChangeDialog) return
 
     setNodeBaseDirCopyLoading(true)
@@ -3829,7 +3899,7 @@ export function App() {
   }
 
   const runNodeServiceAction = async (serviceId: string, action: NodeServiceAction) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     const serviceStart = bridge?.serviceStart
     const serviceStop = bridge?.serviceStop
     const serviceRestart = bridge?.serviceRestart
@@ -3901,7 +3971,7 @@ export function App() {
     }
   }
 
-  const openNodeConflictDialog = (service: KnodelKoinosNodeServiceStatus) => {
+  const openNodeConflictDialog = (service: TelenoNodeServiceStatus) => {
     if (!canKillNodeConflict(service)) return
     setNodeServiceContextMenu(null)
     setNodeConflictDialog({
@@ -3913,7 +3983,7 @@ export function App() {
   }
 
   const runNodeKillConflict = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.serviceKillConflict || !nodeConflictDialog) return
 
     setNodeConflictKillLoading(nodeConflictDialog.serviceId)
@@ -3942,7 +4012,7 @@ export function App() {
   }
 
   const runNodeNativeBuildAll = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.nativeBuildAll) return
 
     setNodeNativeBuildActionLoading('all')
@@ -3965,7 +4035,7 @@ export function App() {
   void runNodeNativeBuildAll
 
   const runNodeNativeBuildService = async (serviceId: string) => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge?.nativeBuildService || !serviceId.trim()) return
 
     setNodeNativeBuildActionLoading(serviceId)
@@ -4026,12 +4096,12 @@ export function App() {
       const networkChanged = previousNetwork !== network
       const baseDirChanged = previousBaseDir !== baseDir
       const previousNodeWasRunning = (nodeStatus?.services ?? []).some(
-        (service) => service.managedByKnodel || isNodeServiceRunning(service)
+        (service) => service.managedByTeleno || isNodeServiceRunning(service)
       )
       let networkStopOutput = ''
 
       if (networkChanged) {
-        const bridge = getKoinosNodeBridge()
+        const bridge = getTelenoNodeBridge()
         if (bridge?.stop) {
           setNodeActionLoading('stop')
           setNodeError(null)
@@ -4046,7 +4116,7 @@ export function App() {
               throw new Error(output)
             }
 
-            const conflictService = findKoinosNodeConflictService(stopResult.status)
+            const conflictService = findTelenoNodeConflictService(stopResult.status)
             if (conflictService && bridge.serviceKillConflict) {
               const killResult = await bridge.serviceKillConflict({
                 ...toNodeApiSettings(previousNodeSettings),
@@ -4178,8 +4248,7 @@ export function App() {
       <div className="app-chrome">
         <nav className="tabs-bar" aria-label={t('sections.aria')}>
           <div className="app-brand" aria-label={t('app.name')}>
-            <span className="app-brand-mark" aria-hidden="true">K</span>
-            <span className="app-brand-name">koinosGUI</span>
+            <img className="app-brand-logo" src={telenoLogoUrl} alt="" aria-hidden="true" />
             {(activeTab === 'settings' ? draftNodeNetwork : nodeSettings.network) === 'testnet' && (
               <span className="app-brand-network">(Testnet)</span>
             )}
@@ -4313,7 +4382,7 @@ export function App() {
           resetDefaults={resetDefaults}
           settingsDirty={settingsDirty}
           onBlockedSettingsNavigation={() => setSettingsUnsavedDialogOpen(true)}
-          getKoinosNodeBridge={getKoinosNodeBridge}
+          getTelenoNodeBridge={getTelenoNodeBridge}
           nodeComponents={nodeComponents}
         />
       )}
@@ -4472,13 +4541,6 @@ export function App() {
               }}
             >
               <div className="node-control-top">
-                <div className="node-control-title">
-                  <span className="eyebrow">{t('node.singleEyebrow')}</span>
-                  <h3>{t('node.singleName')}</h3>
-                  <p>
-                    {(selectedNodePreset?.label ?? t('node.presetCustomLabel'))} · {nodePrimaryRuntimeDetail}
-                  </p>
-                </div>
                 <span className={`node-service-status ${nodePrimaryStatusTone}`.trim()} title={nodePrimaryService.status}>
                   <span className="node-service-dot" aria-hidden="true" />
                   {nodePrimaryService.state}
@@ -4515,6 +4577,18 @@ export function App() {
                       <dt>{t('node.detailBaseDir')}</dt>
                       <dd className="mono" title={nodeStatus?.baseDir || nodeSettings.baseDir}>
                         {nodeStatus?.baseDir || nodeSettings.baseDir || t('common.na')}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('node.detailBinaryPath')}</dt>
+                      <dd className="mono" title={nodePrimaryBinaryPath}>
+                        {nodePrimaryBinaryPath}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('node.detailLogPath')}</dt>
+                      <dd className="mono" title={nodePrimaryLogPath}>
+                        {nodePrimaryLogPath}
                       </dd>
                     </div>
                   </dl>
@@ -4963,6 +5037,34 @@ export function App() {
                   />
                 </label>
 
+                <label className="node-field node-field-log-filter">
+                  <span>{t('node.logsLevel')}</span>
+                  <select
+                    value={nodeLogsLevelFilter}
+                    onChange={(event) => setNodeLogsLevelFilter(event.target.value as LogLevelFilter)}
+                  >
+                    {LOG_LEVEL_FILTERS.map((level) => (
+                      <option key={level} value={level}>
+                        {t(`node.logsLevel.${level}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="node-field node-field-log-filter">
+                  <span>{t('node.logsComponent')}</span>
+                  <select
+                    value={nodeLogsComponentFilter}
+                    onChange={(event) => setNodeLogsComponentFilter(event.target.value)}
+                  >
+                    {nodeLogsComponentOptions.map((component) => (
+                      <option key={component} value={component}>
+                        {formatNodeLogsComponentFilterLabel(component)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <button
                   type="button"
                   className="ghost-button"
@@ -4983,7 +5085,9 @@ export function App() {
 
               <pre ref={nodeLogsPreRef} className="node-log-pre log-modal-pre ansi-log-pre">
                 {nodeLogsOutput
-                  ? renderedNodeLogsOutput
+                  ? filteredNodeLogsOutput.trim()
+                    ? renderedNodeLogsOutput
+                    : t('node.noLogsForFilters')
                   : nodeLogsLoading
                     ? t('node.connectingLogs')
                     : t('node.waitingLogs')}
@@ -5033,6 +5137,7 @@ export function App() {
           producerRegisterDisabled={producerRegisterDisabled}
           producerRegisterHintClass={producerRegisterHintClass}
           producerRegisterHintText={producerRegisterHintText}
+          producerRegisterActionText={producerRegisterActionText}
           setNodeProducerAddressDraft={setNodeProducerAddressDraft}
           producerSigningWalletBalanceError={producerSigningWalletBalanceError}
           producerSetupComplete={producerSetupComplete}

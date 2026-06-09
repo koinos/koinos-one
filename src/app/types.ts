@@ -62,7 +62,7 @@ export type NodeConflictDialogState = {
 
 export type NodeBackupProgressState = {
   action: 'restore-backup' | 'restore-backup-verify' | 'create-backup'
-  phase: KnodelKoinosNodeBackupProgressEvent['phase']
+  phase: TelenoNodeBackupProgressEvent['phase']
   progress: number
   message: string
   updatedAt: number

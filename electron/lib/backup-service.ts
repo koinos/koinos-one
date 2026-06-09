@@ -15,24 +15,24 @@ import type {
   BlockchainBackupWorkspacePaths,
   KoinosJsonRpcProxyInput,
   KoinosJsonRpcProxyResult,
-  KoinosNodeBackupProgressAction,
-  KoinosNodeBackupProgressEvent,
-  KoinosNodeBackupProgressPhase,
-  KoinosNodeBackupRestoreResult,
-  KoinosNodeBaseDirCopyInput,
-  KoinosNodeBaseDirCopyResult,
-  KoinosNodeCommandResult,
-  KoinosNodeSelectDirectoryResult,
-  KoinosNodeServicePort,
-  KoinosNodeSettings,
-  KoinosNodeSettingsInput,
-  KoinosNodeStatus,
-  KoinosNodeValidateBaseDirResult
+  TelenoNodeBackupProgressAction,
+  TelenoNodeBackupProgressEvent,
+  TelenoNodeBackupProgressPhase,
+  TelenoNodeBackupRestoreResult,
+  TelenoNodeBaseDirCopyInput,
+  TelenoNodeBaseDirCopyResult,
+  TelenoNodeCommandResult,
+  TelenoNodeSelectDirectoryResult,
+  TelenoNodeServicePort,
+  TelenoNodeSettings,
+  TelenoNodeSettingsInput,
+  TelenoNodeStatus,
+  TelenoNodeValidateBaseDirResult
 } from './main-types'
 import { directoryHasEntries } from './workspace-service'
 
 const BLOCKCHAIN_BACKUP_REQUIRED_DIRS = ['chain', 'block_store'] as const
-const LAST_BACKUP_PATH_FILE = '.knodel-last-backup-path'
+const LAST_BACKUP_PATH_FILE = '.teleno-last-backup-path'
 
 function readLastBackupPath(): string | null {
   try {
@@ -49,7 +49,7 @@ function saveLastBackupPath(backupFilePath: string): void {
   } catch { /* ignore */ }
 }
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
-const BLOCKCHAIN_BACKUP_CACHE_DIR = '.knodel-blockchain-backup-cache'
+const BLOCKCHAIN_BACKUP_CACHE_DIR = '.teleno-blockchain-backup-cache'
 
 // ── Config.yml verify-blocks helper ──
 
@@ -92,24 +92,24 @@ function readConfigVerifyBlocks(baseDir: string): boolean | null {
 type ServiceDefinition = Record<string, unknown>
 
 type BackupServiceDeps = {
-  normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
-  assertRepoReady: (settings: KoinosNodeSettings) => void
-  ensureKoinosConfigFiles: (settings: KoinosNodeSettings) => { configReady: boolean; output: string }
-  ensureBaseDirKoinosRuntimeFiles: (settings: KoinosNodeSettings) => string
-  validateNodeBaseDirAccess: (input?: KoinosNodeSettingsInput) => KoinosNodeValidateBaseDirResult
+  normalizeNodeSettings: (input?: TelenoNodeSettingsInput) => TelenoNodeSettings
+  assertRepoReady: (settings: TelenoNodeSettings) => void
+  ensureKoinosConfigFiles: (settings: TelenoNodeSettings) => { configReady: boolean; output: string }
+  ensureBaseDirKoinosRuntimeFiles: (settings: TelenoNodeSettings) => string
+  validateNodeBaseDirAccess: (input?: TelenoNodeSettingsInput) => TelenoNodeValidateBaseDirResult
   restoreWorkspaceParentPath: (baseDir: string) => string
   ensureKoinosBaseDir: (baseDir: string) => string
-  readServiceDefinitions: (settings: KoinosNodeSettings) => Map<string, ServiceDefinition>
+  readServiceDefinitions: (settings: TelenoNodeSettings) => Map<string, ServiceDefinition>
   selectedManagedComposeServiceIds: (
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceDefinitions: Map<string, ServiceDefinition>
   ) => string[]
   composeServicePortByTarget: (
     definition: ServiceDefinition | undefined,
     targetPort: number
-  ) => KoinosNodeServicePort | null
-  koinosNodeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
-  koinosNodeAction: (action: 'start' | 'stop', input?: KoinosNodeSettingsInput) => Promise<KoinosNodeCommandResult>
+  ) => TelenoNodeServicePort | null
+  telenoNodeStatus: (input?: TelenoNodeSettingsInput) => Promise<TelenoNodeStatus>
+  telenoNodeAction: (action: 'start' | 'stop', input?: TelenoNodeSettingsInput) => Promise<TelenoNodeCommandResult>
   runCommand: (
     command: string,
     args: string[],
@@ -847,7 +847,7 @@ async function extractBlockchainBackupDirectories(
 function restoreBlockchainBackupPayload(
   payloadRoot: string,
   restoreDirectories: string[],
-  settings: KoinosNodeSettings
+  settings: TelenoNodeSettings
 ): string[] {
   fs.mkdirSync(settings.baseDir, { recursive: true })
 
@@ -888,15 +888,15 @@ function restoreBlockchainBackupPayload(
   return restored
 }
 
-function sendBackupProgressEvent(sender: WebContents | null | undefined, payload: KoinosNodeBackupProgressEvent): void {
+function sendBackupProgressEvent(sender: WebContents | null | undefined, payload: TelenoNodeBackupProgressEvent): void {
   if (!sender || sender.isDestroyed()) return
-  sender.send('knodel:koinos-node:backup-progress:event', payload)
+  sender.send('teleno:node:backup-progress:event', payload)
 }
 
 function createBackupProgressReporter(
   sender: WebContents | null | undefined,
-  action: KoinosNodeBackupProgressAction
-): (phase: KoinosNodeBackupProgressPhase, progress: number, message: string) => void {
+  action: TelenoNodeBackupProgressAction
+): (phase: TelenoNodeBackupProgressPhase, progress: number, message: string) => void {
   return (phase, progress, message) => {
     sendBackupProgressEvent(sender, {
       action,
@@ -908,7 +908,7 @@ function createBackupProgressReporter(
 }
 
 function localNodeJsonRpcUrl(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceDefinitions: Map<string, ServiceDefinition>,
   composeServicePortByTarget: BackupServiceDeps['composeServicePortByTarget']
 ): string {
@@ -1037,7 +1037,7 @@ export function createBackupService(deps: BackupServiceDeps) {
   }
 
   async function waitForLocalNodeJsonRpcVerification(
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceDefinitions: Map<string, ServiceDefinition>,
     timeoutMs = 120000
   ): Promise<{ ok: boolean; output: string }> {
@@ -1076,12 +1076,12 @@ export function createBackupService(deps: BackupServiceDeps) {
     }
   }
 
-  async function koinosNodeRestoreBackup(
-    input?: KoinosNodeSettingsInput,
+  async function telenoNodeRestoreBackup(
+    input?: TelenoNodeSettingsInput,
     sender?: WebContents,
-    progressAction: KoinosNodeBackupProgressAction = 'restore-backup',
+    progressAction: TelenoNodeBackupProgressAction = 'restore-backup',
     completeOnSuccess = true
-  ): Promise<KoinosNodeBackupRestoreResult> {
+  ): Promise<TelenoNodeBackupRestoreResult> {
     const settings = deps.normalizeNodeSettings(input)
     const notes: string[] = []
     const reportProgress = createBackupProgressReporter(sender, progressAction)
@@ -1097,7 +1097,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           ok: false,
           action: progressAction,
           output: [...notes, baseDirValidation.output].filter(Boolean).join('\n'),
-          status: await deps.koinosNodeStatus(settings)
+          status: await deps.telenoNodeStatus(settings)
         }
       }
 
@@ -1108,7 +1108,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         `Writable BASEDIR confirmed. Temporary restore workspace: ${baseDirValidation.restoreWorkspaceParent}`
       )
       reportProgress('stop', 8, 'Stopping node before restoring backup')
-      const stopResult = await deps.koinosNodeAction('stop', input)
+      const stopResult = await deps.telenoNodeAction('stop', input)
 
       if (stopResult.output) notes.push(stopResult.output)
       if (!stopResult.ok) {
@@ -1143,7 +1143,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           output: [...notes, checksumResult.output || 'No se pudo obtener el checksum SHA-256 del backup blockchain']
             .filter(Boolean)
             .join('\n'),
-          status: await deps.koinosNodeStatus(settings)
+          status: await deps.telenoNodeStatus(settings)
         }
       }
       notes.push(checksumResult.output)
@@ -1173,7 +1173,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           ok: false,
           action: progressAction,
           output: [...notes, archiveResult.output || 'No se pudo descargar el backup blockchain'].filter(Boolean).join('\n'),
-          status: await deps.koinosNodeStatus(settings)
+          status: await deps.telenoNodeStatus(settings)
         }
       }
       reportProgress('checksum', 64, 'SHA-256 checksum verified for backup archive')
@@ -1191,7 +1191,7 @@ export function createBackupService(deps: BackupServiceDeps) {
             output: [...notes, payloadRootResult.output || 'No se pudo localizar el payload del backup blockchain']
               .filter(Boolean)
               .join('\n'),
-            status: await deps.koinosNodeStatus(settings)
+            status: await deps.telenoNodeStatus(settings)
           }
         }
         payloadRootRelativePath = payloadRootResult.payloadRootRelativePath
@@ -1212,7 +1212,7 @@ export function createBackupService(deps: BackupServiceDeps) {
             output: [...notes, archiveDirectoriesResult.output || 'No se pudieron listar los directorios del backup']
               .filter(Boolean)
               .join('\n'),
-            status: await deps.koinosNodeStatus(settings)
+            status: await deps.telenoNodeStatus(settings)
           }
         }
         restoreDirectories = archiveDirectoriesResult.directories
@@ -1243,7 +1243,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           ok: false,
           action: progressAction,
           output: [...notes, extractResult.output || 'No se pudo descargar o extraer el backup'].filter(Boolean).join('\n'),
-          status: await deps.koinosNodeStatus(settings)
+          status: await deps.telenoNodeStatus(settings)
         }
       }
       notes.push(extractResult.output)
@@ -1264,7 +1264,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           ok: false,
           action: progressAction,
           output: [...notes, payloadError].filter(Boolean).join('\n'),
-          status: await deps.koinosNodeStatus(settings)
+          status: await deps.telenoNodeStatus(settings)
         }
       }
 
@@ -1283,7 +1283,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       const verifyResult = setConfigVerifyBlocks(settings.baseDir, true)
       notes.push(verifyResult.output)
 
-      const status = await deps.koinosNodeStatus(settings)
+      const status = await deps.telenoNodeStatus(settings)
       if (completeOnSuccess) {
         reportProgress('complete', 100, `Backup restored into ${settings.baseDir}. verify-blocks enabled for safe re-sync.`)
       }
@@ -1300,15 +1300,15 @@ export function createBackupService(deps: BackupServiceDeps) {
         ok: false,
         action: progressAction,
         output: [...notes, message].filter(Boolean).join('\n'),
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     }
   }
 
-  async function koinosNodeRestoreBackupAndVerify(
-    input?: KoinosNodeSettingsInput,
+  async function telenoNodeRestoreBackupAndVerify(
+    input?: TelenoNodeSettingsInput,
     sender?: WebContents
-  ): Promise<KoinosNodeBackupRestoreResult> {
+  ): Promise<TelenoNodeBackupRestoreResult> {
     const settings = deps.normalizeNodeSettings(input)
     const notes: string[] = []
     const reportProgress = createBackupProgressReporter(sender, 'restore-backup-verify')
@@ -1326,12 +1326,12 @@ export function createBackupService(deps: BackupServiceDeps) {
           ok: false,
           action: 'restore-backup-verify',
           output: [...notes, message].filter(Boolean).join('\n'),
-          status: await deps.koinosNodeStatus(settings)
+          status: await deps.telenoNodeStatus(settings)
         }
       }
 
       reportProgress('prepare', 0, `Preparing restore + verify for ${settings.baseDir}`)
-      const restoreResult = await koinosNodeRestoreBackup(settings, sender, 'restore-backup-verify', false)
+      const restoreResult = await telenoNodeRestoreBackup(settings, sender, 'restore-backup-verify', false)
       if (restoreResult.output) notes.push(restoreResult.output)
       if (!restoreResult.ok) {
         return {
@@ -1343,7 +1343,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       }
 
       reportProgress('start', 84, 'Starting node after backup restore')
-      const startResult = await deps.koinosNodeAction('start', settings)
+      const startResult = await deps.telenoNodeAction('start', settings)
       if (startResult.output) notes.push(startResult.output)
       if (!startResult.ok) {
         reportProgress('error', 84, startResult.output || 'No se pudo arrancar el nodo tras restaurar el backup')
@@ -1358,7 +1358,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       reportProgress('verify', 92, 'Verifying local JSON-RPC response from chain.get_head_info')
       const verificationResult = await waitForLocalNodeJsonRpcVerification(settings, serviceDefinitions)
       notes.push(verificationResult.output)
-      const status = await deps.koinosNodeStatus(settings)
+      const status = await deps.telenoNodeStatus(settings)
       reportProgress(
         verificationResult.ok ? 'complete' : 'error',
         verificationResult.ok ? 100 : 96,
@@ -1378,12 +1378,12 @@ export function createBackupService(deps: BackupServiceDeps) {
         ok: false,
         action: 'restore-backup-verify',
         output: [...notes, message].filter(Boolean).join('\n'),
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     }
   }
 
-  async function copyNodeBaseDirData(input?: KoinosNodeBaseDirCopyInput): Promise<KoinosNodeBaseDirCopyResult> {
+  async function copyNodeBaseDirData(input?: TelenoNodeBaseDirCopyInput): Promise<TelenoNodeBaseDirCopyResult> {
     const settings = deps.normalizeNodeSettings(input)
     const sourceBaseDir = deps.ensureKoinosBaseDir(input?.sourceBaseDir || '')
     const targetBaseDir = deps.ensureKoinosBaseDir(input?.targetBaseDir || settings.baseDir)
@@ -1395,7 +1395,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         sourceBaseDir,
         targetBaseDir,
         output: 'Parametro sourceBaseDir invalido',
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     }
 
@@ -1405,7 +1405,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         sourceBaseDir,
         targetBaseDir,
         output: 'El origen y destino del BASEDIR son el mismo',
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     }
 
@@ -1415,7 +1415,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         sourceBaseDir,
         targetBaseDir,
         output: `No existe el BASEDIR origen: ${sourceBaseDir}`,
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     }
 
@@ -1425,7 +1425,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         sourceBaseDir,
         targetBaseDir,
         output: `El BASEDIR origen esta vacio: ${sourceBaseDir}`,
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     }
 
@@ -1435,7 +1435,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         sourceBaseDir,
         targetBaseDir,
         output: `El BASEDIR destino ya contiene datos: ${targetBaseDir}. Usa Restore Backup o vacia la carpeta antes de copiar.`,
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     }
 
@@ -1452,7 +1452,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         sourceBaseDir,
         targetBaseDir,
         output: outputs.filter(Boolean).join('\n'),
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     } catch (error) {
       return {
@@ -1462,12 +1462,12 @@ export function createBackupService(deps: BackupServiceDeps) {
         output: [...outputs, error instanceof Error ? error.message : 'No se pudo copiar el BASEDIR']
           .filter(Boolean)
           .join('\n'),
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     }
   }
 
-  async function selectNodeBaseDir(input?: KoinosNodeSettingsInput): Promise<KoinosNodeSelectDirectoryResult> {
+  async function selectNodeBaseDir(input?: TelenoNodeSettingsInput): Promise<TelenoNodeSelectDirectoryResult> {
     const settings = deps.normalizeNodeSettings(input)
     const focusedWindow = BrowserWindow.getFocusedWindow()
 
@@ -1527,10 +1527,10 @@ export function createBackupService(deps: BackupServiceDeps) {
   }
 
   async function restoreFromLocalFile(
-    input: KoinosNodeSettingsInput | undefined,
+    input: TelenoNodeSettingsInput | undefined,
     sender: WebContents
-  ): Promise<KoinosNodeBackupRestoreResult> {
-    const action: KoinosNodeBackupProgressAction = 'restore-backup'
+  ): Promise<TelenoNodeBackupRestoreResult> {
+    const action: TelenoNodeBackupProgressAction = 'restore-backup'
     const reportProgress = createBackupProgressReporter(sender, action)
     const notes: string[] = []
 
@@ -1569,7 +1569,7 @@ export function createBackupService(deps: BackupServiceDeps) {
 
       // 3. Stop services
       reportProgress('stop', 8, 'Parando servicios antes de restaurar...')
-      const stopResult = await deps.koinosNodeAction('stop', input)
+      const stopResult = await deps.telenoNodeAction('stop', input)
       if (stopResult.output) notes.push(stopResult.output)
       if (!stopResult.ok) {
         reportProgress('error', 8, stopResult.output || 'No se pudieron parar los servicios')
@@ -1586,14 +1586,14 @@ export function createBackupService(deps: BackupServiceDeps) {
       const payloadRootResult = await discoverBlockchainBackupPayloadRootInArchive(archivePath)
       if (!payloadRootResult.ok || payloadRootResult.payloadRootRelativePath === undefined) {
         reportProgress('error', 20, payloadRootResult.output || 'No se pudo localizar el payload del backup')
-        await deps.koinosNodeAction('start', input)
-        return { ok: false, action, output: [...notes, payloadRootResult.output].filter(Boolean).join('\n'), status: await deps.koinosNodeStatus(settings) }
+        await deps.telenoNodeAction('start', input)
+        return { ok: false, action, output: [...notes, payloadRootResult.output].filter(Boolean).join('\n'), status: await deps.telenoNodeStatus(settings) }
       }
       const payloadRootRelativePath = payloadRootResult.payloadRootRelativePath
       notes.push(payloadRootResult.output)
 
       // 6. Determine restorable directories
-      //    For local backups (created by Knodel), skip the expensive full tar listing
+      //    For local backups (created by Teleno), skip the expensive full tar listing
       //    and use the known required directories directly.
       reportProgress('extract', 22, 'Determinando directorios a restaurar...')
       const restoreDirectories = [...BLOCKCHAIN_BACKUP_REQUIRED_DIRS] as string[]
@@ -1602,7 +1602,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       // 7. Extract to temp workspace
       const baseDirValidation = deps.validateNodeBaseDirAccess(settings)
       const restoreWorkspaceParent = baseDirValidation.restoreWorkspaceParent || path.join(settings.baseDir, '..')
-      const extractDir = path.join(restoreWorkspaceParent, '.knodel-local-restore-tmp')
+      const extractDir = path.join(restoreWorkspaceParent, '.teleno-local-restore-tmp')
       fs.rmSync(extractDir, { recursive: true, force: true })
       fs.mkdirSync(extractDir, { recursive: true })
 
@@ -1633,8 +1633,8 @@ export function createBackupService(deps: BackupServiceDeps) {
       if (!extractResult.ok) {
         reportProgress('error', 70, extractResult.output || 'No se pudo extraer el backup')
         fs.rmSync(extractDir, { recursive: true, force: true })
-        await deps.koinosNodeAction('start', input)
-        return { ok: false, action, output: [...notes, extractResult.output].filter(Boolean).join('\n'), status: await deps.koinosNodeStatus(settings) }
+        await deps.telenoNodeAction('start', input)
+        return { ok: false, action, output: [...notes, extractResult.output].filter(Boolean).join('\n'), status: await deps.telenoNodeStatus(settings) }
       }
       notes.push(extractResult.output)
 
@@ -1648,8 +1648,8 @@ export function createBackupService(deps: BackupServiceDeps) {
         const err = `El backup no contiene los directorios esperados (${BLOCKCHAIN_BACKUP_REQUIRED_DIRS.join(', ')})`
         reportProgress('error', 75, err)
         fs.rmSync(extractDir, { recursive: true, force: true })
-        await deps.koinosNodeAction('start', input)
-        return { ok: false, action, output: [...notes, err].filter(Boolean).join('\n'), status: await deps.koinosNodeStatus(settings) }
+        await deps.telenoNodeAction('start', input)
+        return { ok: false, action, output: [...notes, err].filter(Boolean).join('\n'), status: await deps.telenoNodeStatus(settings) }
       }
 
       const restoredDirs = restoreBlockchainBackupPayload(finalPayloadRoot, restoreDirectories, settings)
@@ -1674,19 +1674,19 @@ export function createBackupService(deps: BackupServiceDeps) {
       }
 
       reportProgress('start', 92, 'Reiniciando servicios...')
-      await deps.koinosNodeAction('start', input)
+      await deps.telenoNodeAction('start', input)
 
       reportProgress('complete', 100, `Backup restaurado desde ${path.basename(archivePath)}. verify-blocks activado para re-sync seguro.`)
       return {
         ok: true,
         action,
         output: notes.filter(Boolean).join('\n'),
-        status: await deps.koinosNodeStatus(settings)
+        status: await deps.telenoNodeStatus(settings)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error restaurando backup local'
       reportProgress('error', 0, message)
-      try { await deps.koinosNodeAction('start', input) } catch { /* best effort */ }
+      try { await deps.telenoNodeAction('start', input) } catch { /* best effort */ }
       return { ok: false, action, output: [...notes, message].filter(Boolean).join('\n'), status: 'error' }
     }
   }
@@ -1694,7 +1694,7 @@ export function createBackupService(deps: BackupServiceDeps) {
   // ── Cancel support for createLocalBackup ──
   let activeBackupTarProcess: ChildProcess | null = null
   let activeBackupCancelled = false
-  let activeBackupInput: KoinosNodeSettingsInput | undefined
+  let activeBackupInput: TelenoNodeSettingsInput | undefined
   let activeBackupSender: WebContents | null = null
 
   function cancelCreateBackup(): { ok: boolean; output: string } {
@@ -1760,16 +1760,16 @@ export function createBackupService(deps: BackupServiceDeps) {
   }
 
   async function createLocalBackup(
-    input: KoinosNodeSettingsInput | undefined,
+    input: TelenoNodeSettingsInput | undefined,
     sender: WebContents
-  ): Promise<KoinosNodeBackupRestoreResult> {
-    const action: KoinosNodeBackupProgressAction = 'create-backup'
+  ): Promise<TelenoNodeBackupRestoreResult> {
+    const action: TelenoNodeBackupProgressAction = 'create-backup'
     activeBackupCancelled = false
     activeBackupInput = input
     activeBackupSender = sender
 
-    function emitProgress(phase: KoinosNodeBackupProgressPhase, progress: number, message: string) {
-      sender.send('knodel:koinos-node:backup-progress:event', { action, phase, progress, message } satisfies KoinosNodeBackupProgressEvent)
+    function emitProgress(phase: TelenoNodeBackupProgressPhase, progress: number, message: string) {
+      sender.send('teleno:node:backup-progress:event', { action, phase, progress, message } satisfies TelenoNodeBackupProgressEvent)
     }
 
     function checkCancelled(): boolean {
@@ -1781,11 +1781,11 @@ export function createBackupService(deps: BackupServiceDeps) {
       if (manifestPath) try { fs.unlinkSync(manifestPath) } catch { /* ignore */ }
       if (destPath) try { fs.unlinkSync(destPath) } catch { /* ignore */ }
       if (destPath) try { fs.unlinkSync(`${destPath}.sha256`) } catch { /* ignore */ }
-      try { await deps.koinosNodeAction('start', input) } catch { /* best effort */ }
+      try { await deps.telenoNodeAction('start', input) } catch { /* best effort */ }
       activeBackupTarProcess = null
       activeBackupSender = null
       emitProgress('complete', 0, 'Backup cancelado por el usuario')
-      return { ok: false, action, output: 'Backup cancelado por el usuario', status: 'cancelled' } as KoinosNodeBackupRestoreResult
+      return { ok: false, action, output: 'Backup cancelado por el usuario', status: 'cancelled' } as TelenoNodeBackupRestoreResult
     }
 
     try {
@@ -1827,7 +1827,7 @@ export function createBackupService(deps: BackupServiceDeps) {
 
       // 3. Stop services to ensure atomic snapshot
       emitProgress('stop', 10, 'Parando servicios para garantizar consistencia...')
-      const stopResult = await deps.koinosNodeAction('stop', input)
+      const stopResult = await deps.telenoNodeAction('stop', input)
       if (!stopResult.ok) {
         emitProgress('error', 10, `No se pudieron parar los servicios: ${stopResult.output}`)
         activeBackupSender = null
@@ -1842,7 +1842,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       const blockStoreDir = path.join(baseDir, 'block_store')
       if (!fs.existsSync(chainDir) || !fs.existsSync(blockStoreDir)) {
         emitProgress('error', 20, 'No se encontraron los directorios chain/ y block_store/')
-        await deps.koinosNodeAction('start', input)
+        await deps.telenoNodeAction('start', input)
         activeBackupSender = null
         return { ok: false, action, output: 'Directorios chain/ o block_store/ no existen en BASEDIR', status: 'error' }
       }
@@ -1854,7 +1854,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         created: new Date().toISOString(),
         basedir: baseDir,
         directories: ['chain', 'block_store'],
-        knodel_version: process.env.npm_package_version || 'unknown',
+        teleno_version: process.env.npm_package_version || 'unknown',
         // Consistency metadata: height recorded before stopping services
         snapshot_chain_height: snapshotChainHeight || null,
         snapshot_chain_head_id: snapshotChainHeadId || null,
@@ -1894,7 +1894,7 @@ export function createBackupService(deps: BackupServiceDeps) {
               const availGB = (availableKb / (1024 * 1024)).toFixed(1)
               const needGB = (estimatedCompressedBytes / (1024 ** 3)).toFixed(1)
               emitProgress('error', 28, `Espacio insuficiente: ~${needGB} GB necesarios, solo ${availGB} GB disponibles en ${destDir}`)
-              await deps.koinosNodeAction('start', input)
+              await deps.telenoNodeAction('start', input)
               try { fs.unlinkSync(manifestPath) } catch { /* ignore */ }
               activeBackupSender = null
               return { ok: false, action, output: `Espacio insuficiente: ~${needGB} GB necesarios, solo ${availGB} GB disponibles`, status: 'error' }
@@ -1932,7 +1932,7 @@ export function createBackupService(deps: BackupServiceDeps) {
 
       if (!tarResult.ok) {
         emitProgress('error', 50, `Error al comprimir: ${tarResult.output}`)
-        await deps.koinosNodeAction('start', input)
+        await deps.telenoNodeAction('start', input)
         activeBackupSender = null
         return { ok: false, action, output: `Error al comprimir: ${tarResult.output}`, status: 'error' }
       }
@@ -1957,7 +1957,7 @@ export function createBackupService(deps: BackupServiceDeps) {
 
       // 10. Restart services
       emitProgress('start', 90, 'Reiniciando servicios...')
-      await deps.koinosNodeAction('start', input)
+      await deps.telenoNodeAction('start', input)
 
       activeBackupSender = null
       emitProgress('complete', 100, `Backup creado: ${path.basename(destPath)} (${sizeGB} GB)`)
@@ -1970,13 +1970,13 @@ export function createBackupService(deps: BackupServiceDeps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       emitProgress('error', 0, `Error creando backup: ${message}`)
-      try { await deps.koinosNodeAction('start', input) } catch { /* best effort restart */ }
+      try { await deps.telenoNodeAction('start', input) } catch { /* best effort restart */ }
       activeBackupSender = null
       return { ok: false, action, output: message, status: 'error' }
     }
   }
 
-  function getVerifyBlocks(input?: KoinosNodeSettingsInput): { ok: boolean; enabled: boolean | null; output: string } {
+  function getVerifyBlocks(input?: TelenoNodeSettingsInput): { ok: boolean; enabled: boolean | null; output: string } {
     try {
       const settings = deps.normalizeNodeSettings(input)
       const enabled = readConfigVerifyBlocks(settings.baseDir)
@@ -1986,7 +1986,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     }
   }
 
-  function setVerifyBlocks(input?: KoinosNodeSettingsInput & { enabled?: boolean }): { ok: boolean; output: string } {
+  function setVerifyBlocks(input?: TelenoNodeSettingsInput & { enabled?: boolean }): { ok: boolean; output: string } {
     try {
       const settings = deps.normalizeNodeSettings(input)
       const enabled = input?.enabled ?? false
@@ -1998,8 +1998,8 @@ export function createBackupService(deps: BackupServiceDeps) {
 
   return {
     koinosJsonRpcProxy,
-    koinosNodeRestoreBackup,
-    koinosNodeRestoreBackupAndVerify,
+    telenoNodeRestoreBackup,
+    telenoNodeRestoreBackupAndVerify,
     createLocalBackup,
     cancelCreateBackup,
     restoreFromLocalFile,

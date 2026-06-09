@@ -21,14 +21,14 @@ import {
   FREE_MANA_METER_ADDRESS,
   FREE_MANA_SHARER_ADDRESS,
   KOINOS_GIT_CLONE_URL,
-  KNODEL_CONFIG_DIR,
-  KNODEL_ENCRYPTION_ALGORITHM,
-  KNODEL_KEY_LENGTH,
-  KNODEL_PBKDF2_ITERATIONS,
-  KNODEL_PRODUCER_PROFILE_FILE,
-  KNODEL_PRODUCER_WALLET_FILE,
-  KNODEL_PUBLIC_RPCS_FILE,
-  KNODEL_SECURE_STORAGE_DIR,
+  TELENO_CONFIG_DIR,
+  TELENO_ENCRYPTION_ALGORITHM,
+  TELENO_KEY_LENGTH,
+  TELENO_PBKDF2_ITERATIONS,
+  TELENO_PRODUCER_PROFILE_FILE,
+  TELENO_PRODUCER_WALLET_FILE,
+  TELENO_PUBLIC_RPCS_FILE,
+  TELENO_SECURE_STORAGE_DIR,
   LANGUAGE_STORAGE_KEY,
   NODE_SETTINGS_STORAGE_KEY,
   PRODUCER_DAY_WINDOW_MS,
@@ -37,13 +37,14 @@ import {
   resolveAmqpBrokerPath,
   resolveAmqpBrokerConfigPath,
   resolveMonolithBinaryPath,
+  TELENO_NODE_BINARY_NAME,
   MONOLITH_CORE_COMPONENTS,
   MONOLITH_OPTIONAL_COMPONENTS,
   resolveKoinosRestRoot,
   isPackagedBuild
 } from './lib/constants'
 import { createAppLifecycleService } from './lib/app-lifecycle-service'
-import { createKnodelStorage } from './lib/knodel-storage'
+import { createTelenoStorage } from './lib/teleno-storage'
 import { createBackupService } from './lib/backup-service'
 import { deriveMonolithComponentHealth } from './lib/component-health'
 import {
@@ -67,7 +68,8 @@ import {
   MAINNET_PEER_ADDRESSES,
   TESTNET_PEER_ADDRESSES,
   primaryPublicRpcUrlForNetwork,
-  resolveNetworkProfile
+  resolveNetworkProfile,
+  type KoinosNetworkId
 } from './lib/network-profiles'
 import {
   normalizeConnectHost,
@@ -97,66 +99,66 @@ import type {
   BlockchainBackupWorkspacePaths,
   KoinosJsonRpcProxyInput,
   KoinosJsonRpcProxyResult,
-  KoinosNodeBackupProgressAction,
-  KoinosNodeBackupProgressEvent,
-  KoinosNodeBackupProgressPhase,
-  KoinosNodeBackupRestoreResult,
-  KoinosNodeBaseDirCopyInput,
-  KoinosNodeBaseDirCopyResult,
-  KoinosNodeCloneRepoResult,
-  KoinosNodeCommandResult,
-  KoinosNodeDashboardPerformanceInput,
-  KoinosNodeDashboardPerformanceResult,
-  KoinosNodeDashboardPeersInput,
-  KoinosNodeDashboardPeerRow,
-  KoinosNodeDashboardPeersResult,
-  KoinosNodeDashboardProducersInput,
-  KoinosNodeDashboardProducersResult,
-  KoinosNodeFileReadInput,
-  KoinosNodeFileReadResult,
-  KoinosNodeFileWriteInput,
-  KoinosNodeFileWriteResult,
-  KoinosNodeLogsFollowEvent,
-  KoinosNodeLogsFollowStartInput,
-  KoinosNodeLogsFollowStartResult,
-  KoinosNodeLogsFollowStopInput,
-  KoinosNodeLogsFollowStopResult,
-  KoinosNodeLogsInput,
-  KoinosNodeLogsResult,
-  KoinosNodeManagedFileKind,
-  KoinosNodeNativeBuildCommandInput,
-  KoinosNodeNativeBuildCommandResult,
-  KoinosNodeNativeBuildsResult,
-  KoinosNodeNativeBuildStatus,
-  KoinosNodePreset,
-  KoinosNodePresetCommandInput,
-  KoinosNodePresetCommandResult,
-  KoinosNodePresetsResult,
-  KoinosNodeProducerDeleteResult,
-  KoinosNodeProducerAddressSource,
-  KoinosNodeProducerLocalInfoResult,
-  KoinosNodeProducerOverviewInput,
-  KoinosNodeProducerOverviewResult,
-  KoinosNodeProducerProfileResult,
-  KoinosNodeProducerRegisterInput,
-  KoinosNodeProducerRegisterResult,
-  KoinosNodeProducerRegisteredKeyInput,
-  KoinosNodeProducerRegisteredKeyResult,
-  KoinosNodeSelectDirectoryResult,
+  TelenoNodeBackupProgressAction,
+  TelenoNodeBackupProgressEvent,
+  TelenoNodeBackupProgressPhase,
+  TelenoNodeBackupRestoreResult,
+  TelenoNodeBaseDirCopyInput,
+  TelenoNodeBaseDirCopyResult,
+  TelenoNodeCloneRepoResult,
+  TelenoNodeCommandResult,
+  TelenoNodeDashboardPerformanceInput,
+  TelenoNodeDashboardPerformanceResult,
+  TelenoNodeDashboardPeersInput,
+  TelenoNodeDashboardPeerRow,
+  TelenoNodeDashboardPeersResult,
+  TelenoNodeDashboardProducersInput,
+  TelenoNodeDashboardProducersResult,
+  TelenoNodeFileReadInput,
+  TelenoNodeFileReadResult,
+  TelenoNodeFileWriteInput,
+  TelenoNodeFileWriteResult,
+  TelenoNodeLogsFollowEvent,
+  TelenoNodeLogsFollowStartInput,
+  TelenoNodeLogsFollowStartResult,
+  TelenoNodeLogsFollowStopInput,
+  TelenoNodeLogsFollowStopResult,
+  TelenoNodeLogsInput,
+  TelenoNodeLogsResult,
+  TelenoNodeManagedFileKind,
+  TelenoNodeNativeBuildCommandInput,
+  TelenoNodeNativeBuildCommandResult,
+  TelenoNodeNativeBuildsResult,
+  TelenoNodeNativeBuildStatus,
+  TelenoNodePreset,
+  TelenoNodePresetCommandInput,
+  TelenoNodePresetCommandResult,
+  TelenoNodePresetsResult,
+  TelenoNodeProducerDeleteResult,
+  TelenoNodeProducerAddressSource,
+  TelenoNodeProducerLocalInfoResult,
+  TelenoNodeProducerOverviewInput,
+  TelenoNodeProducerOverviewResult,
+  TelenoNodeProducerProfileResult,
+  TelenoNodeProducerRegisterInput,
+  TelenoNodeProducerRegisterResult,
+  TelenoNodeProducerRegisteredKeyInput,
+  TelenoNodeProducerRegisteredKeyResult,
+  TelenoNodeSelectDirectoryResult,
   ComponentHealth,
-  KoinosNodeComponentToggleInput,
-  KoinosNodeComponentToggleResult,
-  KoinosNodeServiceCommandInput,
-  KoinosNodeServiceCommandResult,
-  KoinosNodeServicePort,
-  KoinosNodeSettings,
-  KoinosNodeSettingsInput,
-  KoinosNodeStatus,
-  KoinosNodeValidateBaseDirResult,
-  KnodelEncryptedSecret,
-  KnodelEncryptedWallet,
-  KnodelProducerProfile,
-  KnodelUnlockedWallet,
+  TelenoNodeComponentToggleInput,
+  TelenoNodeComponentToggleResult,
+  TelenoNodeServiceCommandInput,
+  TelenoNodeServiceCommandResult,
+  TelenoNodeServicePort,
+  TelenoNodeSettings,
+  TelenoNodeSettingsInput,
+  TelenoNodeStatus,
+  TelenoNodeValidateBaseDirResult,
+  TelenoEncryptedSecret,
+  TelenoEncryptedWallet,
+  TelenoProducerProfile,
+  TelenoUnlockedWallet,
   LogsFollowSession,
   ManagedKoinosServiceDefinition,
   NativeBuildToolStatus,
@@ -192,6 +194,7 @@ import type {
   WalletImportInput,
   WalletImportResult,
   WalletImportWatchAccountInput,
+  WalletListAccountsInput,
   WalletListAccountsResult,
   WalletOverviewResult,
   WalletReadContractInput,
@@ -202,6 +205,7 @@ import type {
   WalletScalarResult,
   WalletSetActiveAccountInput,
   WalletSetActiveAccountResult,
+  WalletShowSeedInput,
   WalletShowSeedResult,
   WalletTokenBalanceInput,
   WalletTokenBalanceResult,
@@ -218,7 +222,7 @@ import { createProducerService } from './lib/producer-service'
 import { producerAddressFromRuntimeConfig, resolveLocalProducerPublicKey } from './lib/producer-keys'
 import { createCachedContractLoader } from './lib/contract-loader'
 import { resolveCoreContractAbi } from './lib/core-contract-abis'
-import { registerKnodelIpcHandlers } from './lib/ipc-handlers'
+import { registerTelenoIpcHandlers } from './lib/ipc-handlers'
 import { createLogsService } from './lib/logs-service'
 import { createNativeBuildService } from './lib/native-build-service'
 import { createNativeRuntimeService } from './lib/native-runtime-service'
@@ -226,14 +230,14 @@ import { createWalletService } from './lib/wallet-service'
 import { createWorkspaceService } from './lib/workspace-service'
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL
-app.setName('koinosGUI')
+app.setName('Teleno')
 let appShutdownInProgress = false
 let appShutdownApproved = false
 let mainWindow: BrowserWindow | null = null
-const knodelStorage = createKnodelStorage(app.getPath('userData'))
+const telenoStorage = createTelenoStorage(app.getPath('userData'))
 
-const LOGS_FOLLOW_EVENT_CHANNEL = 'knodel:koinos-node:logs-follow:event'
-const BACKUP_PROGRESS_EVENT_CHANNEL = 'knodel:koinos-node:backup-progress:event'
+const LOGS_FOLLOW_EVENT_CHANNEL = 'teleno:node:logs-follow:event'
+const BACKUP_PROGRESS_EVENT_CHANNEL = 'teleno:node:backup-progress:event'
 const logsFollowSessions = new Map<string, LogsFollowSession>()
 const nativeServiceProcesses = new Map<string, NativeServiceProcessState>()
 const nativeLogsStreamIdsByService = new Map<string, Set<string>>()
@@ -243,8 +247,13 @@ const MAX_NATIVE_SERVICE_LOG_BYTES = 512 * 1024
 const NATIVE_AMQP_STARTUP_TIMEOUT_MS = 90000
 const MONOLITH_DEFAULT_DISABLED_FEATURES: readonly string[] = []
 
+function nativeServiceLogFilePath(serviceId: string): string {
+  const safeServiceId = serviceId.replace(/[^a-z0-9_.-]+/gi, '-')
+  return path.join(app.getPath('userData'), 'logs', `${safeServiceId}.log`)
+}
+
 // ---------------------------------------------------------------------------
-// Monolith mode: single koinos_node binary with in-process Koinos components
+// Monolith mode: single Teleno node binary with in-process Koinos components
 // ---------------------------------------------------------------------------
 
 /** True when the monolith binary is available (built or bundled). */
@@ -302,27 +311,28 @@ function shouldUseMonolithMode(): boolean {
 
 function monolithFallbackMessage(reason: string): string {
   return [
-    'Monolith startup failed. koinosGUI manages only the monolithic koinos_node runtime.',
+    `Monolith startup failed. Teleno UX manages only the monolithic ${TELENO_NODE_BINARY_NAME} runtime.`,
     reason
   ].filter(Boolean).join('\n')
 }
 
 function activateMonolithFallback(reason: string): string {
-  monolithFallbackReason = reason.trim() || 'koinos_node failed to start'
+  monolithFallbackReason = reason.trim() || `${TELENO_NODE_BINARY_NAME} failed to start`
   return monolithFallbackMessage(monolithFallbackReason)
 }
 
-/** Start the monolithic koinos_node binary. */
+/** Start the monolithic Teleno node binary. */
 async function startMonolithProcess(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   enabledFeatures: string[],
   disabledFeatures: string[]
 ): Promise<{ ok: boolean; output: string }> {
   if (monolithProcessState && !monolithProcessState.closed) {
-    return { ok: true, output: 'koinos_node ya estaba activo' }
+    return { ok: true, output: `${TELENO_NODE_BINARY_NAME} ya estaba activo` }
   }
 
   const binaryPath = resolveMonolithBinaryPath()
+  const logPath = nativeServiceLogFilePath('teleno-node')
   if (!fs.existsSync(binaryPath)) {
     return { ok: false, output: `Monolith binary not found: ${binaryPath}` }
   }
@@ -342,15 +352,15 @@ async function startMonolithProcess(
   if (lockOwners.length > 0) {
     return {
       ok: false,
-      output: describeBaseDirLockConflict(settings, 'koinos-node', lockOwners)
+      output: describeBaseDirLockConflict(settings, 'teleno-node', lockOwners)
     }
   }
   const processSnapshot = await listProcessSnapshot()
-  const conflictingProcesses = detectExternalNativeServiceProcesses(settings, 'koinos-node', processSnapshot)
+  const conflictingProcesses = detectExternalNativeServiceProcesses(settings, 'teleno-node', processSnapshot)
   if (conflictingProcesses.length > 0) {
     return {
       ok: false,
-      output: describeExternalNativeServiceConflict(settings, 'koinos-node', conflictingProcesses)
+      output: describeExternalNativeServiceConflict(settings, 'teleno-node', conflictingProcesses)
     }
   }
 
@@ -383,9 +393,11 @@ async function startMonolithProcess(
   })
 
   const state: NativeServiceProcessState = {
-    serviceId: 'koinos-node',
+    serviceId: 'teleno-node',
     child,
-    runtimeName: 'koinos_node',
+    runtimeName: TELENO_NODE_BINARY_NAME,
+    binaryPath,
+    logPath,
     cwd: settings.baseDir,
     baseDir: settings.baseDir,
     startedAt: Date.now(),
@@ -396,21 +408,27 @@ async function startMonolithProcess(
     stopRequested: false,
     closed: false
   }
+  try {
+    fs.mkdirSync(path.dirname(logPath), { recursive: true })
+    fs.appendFileSync(logPath, `\n=== ${TELENO_NODE_BINARY_NAME} start ${new Date().toISOString()} pid=${child.pid ?? 'n/a'} basedir=${settings.baseDir} ===\n`, 'utf8')
+  } catch {
+    // The in-memory log buffer is still authoritative for the UI if the file cannot be opened.
+  }
   monolithProcessState = state
   // Also register in the service processes map so existing code can find it
-  nativeServiceProcesses.set('koinos-node', state)
+  nativeServiceProcesses.set('teleno-node', state)
 
   child.stdout.on('data', (chunk: Buffer | string) => {
-    appendNativeServiceOutput('koinos-node', chunk)
+    appendNativeServiceOutput('teleno-node', chunk)
   })
 
   child.stderr.on('data', (chunk: Buffer | string) => {
-    appendNativeServiceOutput('koinos-node', chunk)
+    appendNativeServiceOutput('teleno-node', chunk)
   })
 
   child.on('error', (error) => {
     state.lastError = error.message
-    appendNativeServiceOutput('koinos-node', `${error.message}\n`)
+    appendNativeServiceOutput('teleno-node', `${error.message}\n`)
   })
 
   child.on('close', (code, signal) => {
@@ -418,12 +436,12 @@ async function startMonolithProcess(
     state.exitCode = code
     if (!state.stopRequested && (code !== 0 || signal)) {
       state.lastError = state.lastError || `Exited with code ${code ?? 'null'}${signal ? ` (${signal})` : ''}`
-      appendNativeServiceOutput('koinos-node', `${state.lastError}\n`)
+      appendNativeServiceOutput('teleno-node', `${state.lastError}\n`)
     }
     if (state.stopRequested && code === 0) {
       state.lastError = null
     }
-    closeNativeLogStreamsForService('koinos-node', code)
+    closeNativeLogStreamsForService('teleno-node', code)
   })
 
   const jsonrpcReady = await waitForTcpListener(jsonrpcHost, jsonrpcPort, 30000)
@@ -431,27 +449,27 @@ async function startMonolithProcess(
   if (state.closed) {
     return {
       ok: false,
-      output: tailTextLines(state.output, 80) || state.lastError || 'koinos_node exited during startup'
+      output: tailTextLines(state.output, 80) || state.lastError || `${TELENO_NODE_BINARY_NAME} exited during startup`
     }
   }
 
   if (!jsonrpcReady) {
     return {
       ok: true,
-      output: `Started koinos_node (pid ${child.pid ?? 'n/a'}) — jsonrpc ${jsonrpcHost}:${jsonrpcPort} not yet ready`
+      output: `Started ${TELENO_NODE_BINARY_NAME} (pid ${child.pid ?? 'n/a'}) — jsonrpc ${jsonrpcHost}:${jsonrpcPort} not yet ready`
     }
   }
 
   return {
     ok: true,
-    output: `Started koinos_node (pid ${child.pid ?? 'n/a'}) on ${settings.network} (${jsonrpcHost}:${jsonrpcPort})`
+    output: `Started ${TELENO_NODE_BINARY_NAME} (pid ${child.pid ?? 'n/a'}) on ${settings.network} (${jsonrpcHost}:${jsonrpcPort})`
   }
 }
 
-/** Stop the monolithic koinos_node binary. */
+/** Stop the monolithic Teleno node binary. */
 async function stopMonolithProcess(): Promise<{ ok: boolean; output: string }> {
   if (!monolithProcessState || monolithProcessState.closed) {
-    return { ok: true, output: 'koinos_node ya estaba detenido' }
+    return { ok: true, output: `${TELENO_NODE_BINARY_NAME} ya estaba detenido` }
   }
 
   const state = monolithProcessState
@@ -461,12 +479,12 @@ async function stopMonolithProcess(): Promise<{ ok: boolean; output: string }> {
   try {
     state.child.kill('SIGTERM')
   } catch (error) {
-    return { ok: false, output: error instanceof Error ? error.message : 'No se pudo detener koinos_node' }
+    return { ok: false, output: error instanceof Error ? error.message : `No se pudo detener ${TELENO_NODE_BINARY_NAME}` }
   }
 
   const closeCode = await waitForChildClose(state.child, 15000)
   if (closeCode !== null || state.closed) {
-    return { ok: true, output: `Stopped koinos_node (pid ${pid ?? 'n/a'})` }
+    return { ok: true, output: `Stopped ${TELENO_NODE_BINARY_NAME} (pid ${pid ?? 'n/a'})` }
   }
 
   if (process.platform === 'win32' && pid) {
@@ -479,14 +497,14 @@ async function stopMonolithProcess(): Promise<{ ok: boolean; output: string }> {
     }
   }
 
-  return { ok: true, output: `Force-stopped koinos_node (pid ${pid ?? 'n/a'})` }
+  return { ok: true, output: `Force-stopped ${TELENO_NODE_BINARY_NAME} (pid ${pid ?? 'n/a'})` }
 }
 
 /**
  * Parse component health from monolith log output.
  * The monolith emits lines like: [chain] INFO Listening...
  */
-function parseMonolithComponentHealth(settings?: KoinosNodeSettings): ComponentHealth[] {
+function parseMonolithComponentHealth(settings?: TelenoNodeSettings): ComponentHealth[] {
   const output = monolithProcessState?.output || ''
   const isRunning = monolithProcessState != null && !monolithProcessState.closed
   const featureFlags = settings ? readMonolithFeatureConfig(settings) : null
@@ -558,7 +576,7 @@ function monolithFeatureCliArgs(featureFlags: Record<string, boolean>): { enable
   return { enabled, disabled }
 }
 
-function readMonolithFeatureConfig(settings: KoinosNodeSettings): Record<string, boolean> | null {
+function readMonolithFeatureConfig(settings: TelenoNodeSettings): Record<string, boolean> | null {
   const configPath = path.join(settings.baseDir, 'config.yml')
   if (!fs.existsSync(configPath)) return null
 
@@ -584,9 +602,9 @@ function readMonolithFeatureConfig(settings: KoinosNodeSettings): Record<string,
 }
 
 function writeMonolithFeatureConfig(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   featureFlags: Record<string, boolean>,
-  configPatch?: KoinosNodePreset['configPatch']
+  configPatch?: TelenoNodePreset['configPatch']
 ): string {
   ensureKoinosConfigFiles(settings)
   ensureBaseDirKoinosRuntimeFiles(settings)
@@ -609,7 +627,7 @@ function writeMonolithFeatureConfig(
 }
 const BLOCKCHAIN_BACKUP_REQUIRED_DIRS = ['chain', 'block_store'] as const
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
-const BLOCKCHAIN_BACKUP_CACHE_DIR = '.knodel-blockchain-backup-cache'
+const BLOCKCHAIN_BACKUP_CACHE_DIR = '.teleno-blockchain-backup-cache'
 const nativeVersionResolver = createNativeVersionResolver({
   cache: nativeServiceVersionCache,
   findExecutableInPath,
@@ -630,8 +648,8 @@ const workspaceService = createWorkspaceService({
   runCommand
 })
 
-function currentUnlockedProducerWallet(): KnodelUnlockedWallet | null {
-  return knodelStorage.getUnlockedWallet() as KnodelUnlockedWallet | null
+function currentUnlockedProducerWallet(network?: KoinosNetworkId): TelenoUnlockedWallet | null {
+  return telenoStorage.getUnlockedWallet(network) as TelenoUnlockedWallet | null
 }
 
 async function loadContractWithFetchedAbi(provider: Provider, contractId: string): Promise<Contract> {
@@ -641,7 +659,7 @@ async function loadContractWithFetchedAbi(provider: Provider, contractId: string
 const producerService = createProducerService({
   normalizeNodeSettings,
   producerAddressFromRuntimeConfig,
-  loadKnodelWalletFile,
+  loadTelenoWalletFile,
   resolveLocalProducerPublicKey,
   producerRpcTarget,
   loadContractWithFetchedAbi,
@@ -650,13 +668,13 @@ const producerService = createProducerService({
   formatWholeUnits,
   parseWholeUnits,
   currentUnlockedProducerWallet,
-  unlockKnodelWalletSession,
+  unlockTelenoWalletSession,
   persistProducerRuntimeConfig,
   saveProducerProfile,
   clearProducerProfile,
   loadProducerProfile,
   clearProducerRuntimeConfig,
-  knodelProducerProfileFilePath,
+  telenoProducerProfileFilePath,
   nativeComposeStatus,
   nativeComposeLogs,
   isComposeServiceRunning,
@@ -679,7 +697,9 @@ const producerService = createProducerService({
       loadAverage: os.loadavg(),
       uptimeSeconds: os.uptime(),
       freeDiskBytes,
-      totalDiskBytes
+      totalDiskBytes,
+      blockchainDataBytes: null,
+      blockchainDataPath: null
     }
   },
   now: () => Date.now(),
@@ -687,22 +707,27 @@ const producerService = createProducerService({
 })
 
 const walletService = createWalletService({
-  loadKnodelWalletFile,
-  knodelProducerWalletFilePath,
+  loadTelenoWalletFile,
+  telenoProducerWalletFilePath,
   currentUnlockedProducerWallet,
-  saveKnodelWallet,
-  deleteKnodelWallet,
-  closeKnodelWalletSession,
-  unlockKnodelWalletSession,
-  listWalletAccounts: () => knodelStorage.listWalletAccounts(),
-  setActiveWalletAccount: (accountId: string) => knodelStorage.setActiveWalletAccount(accountId),
-  createDerivedWalletAccount: (name?: string) => knodelStorage.createDerivedWalletAccount(name),
-  importAdditionalWalletAccount: (privateKey: string, password: string, name?: string) =>
-    knodelStorage.importWalletAccount(privateKey, password, name),
-  importWatchWalletAccount: (address: string, name?: string) => knodelStorage.importWatchWalletAccount(address, name),
-  renameWalletAccount: (accountId: string, name: string) => knodelStorage.renameWalletAccount(accountId, name),
-  removeWalletAccount: (accountId: string) => knodelStorage.removeWalletAccount(accountId),
-  loadWalletAccountSecrets: (accountId?: string) => knodelStorage.loadWalletAccountSecrets(accountId),
+  saveTelenoWallet,
+  deleteTelenoWallet,
+  closeTelenoWalletSession,
+  unlockTelenoWalletSession,
+  listWalletAccounts: (network?: KoinosNetworkId) => telenoStorage.listWalletAccounts(network),
+  setActiveWalletAccount: (accountId: string, network?: KoinosNetworkId) =>
+    telenoStorage.setActiveWalletAccount(accountId, network),
+  createDerivedWalletAccount: (name?: string, network?: KoinosNetworkId) =>
+    telenoStorage.createDerivedWalletAccount(name, network),
+  importAdditionalWalletAccount: (privateKey: string, password: string, name?: string, network?: KoinosNetworkId) =>
+    telenoStorage.importWalletAccount(privateKey, password, name, network),
+  importWatchWalletAccount: (address: string, name?: string, network?: KoinosNetworkId) =>
+    telenoStorage.importWatchWalletAccount(address, name, network),
+  renameWalletAccount: (accountId: string, name: string, network?: KoinosNetworkId) =>
+    telenoStorage.renameWalletAccount(accountId, name, network),
+  removeWalletAccount: (accountId: string, network?: KoinosNetworkId) => telenoStorage.removeWalletAccount(accountId, network),
+  loadWalletAccountSecrets: (accountId?: string, network?: KoinosNetworkId) =>
+    telenoStorage.loadWalletAccountSecrets(accountId, network),
   resolveWalletRpcUrl,
   resolveWalletQueryAddress,
   parseWalletArgs,
@@ -752,15 +777,15 @@ const backupService = createBackupService({
   readServiceDefinitions: readNativeServiceDefinitions as any,
   selectedManagedComposeServiceIds: selectedManagedComposeServiceIds as any,
   composeServicePortByTarget: composeServicePortByTarget as any,
-  koinosNodeStatus,
-  koinosNodeAction,
+  telenoNodeStatus,
+  telenoNodeAction,
   runCommand
 })
 
 // Service IDs for managed Koinos node services.
 /** Local service definition used to describe ports, dependencies, and profiles for each managed service. */
 type NativeServiceDefinition = {
-  ports: KoinosNodeServicePort[]
+  ports: TelenoNodeServicePort[]
   dependsOn: string[]
   profiles: string[]
   [key: string]: unknown
@@ -833,9 +858,9 @@ const appLifecycleService = createAppLifecycleService({
   nodeSettingsStorageKey: NODE_SETTINGS_STORAGE_KEY,
   languageStorageKey: LANGUAGE_STORAGE_KEY,
   parsePersistedNodeSettings,
-  koinosNodeStatus,
+  telenoNodeStatus,
   isComposeServiceRunning,
-  koinosNodeAction,
+  telenoNodeAction,
   nativeServiceProcesses,
   getLogsFollowStreamIds: () => [...logsFollowSessions.keys()],
   stopLogsFollowStream: (streamId) => {
@@ -920,8 +945,8 @@ const HUNTER_DARWIN_PATCHED_ABSEIL_END_REPLACEMENT = [
   ''
 ].join('\n')
 
-function knodelNativeBuildCacheDir(): string {
-  return path.join(os.homedir(), '.knodel', 'native-build-cache')
+function telenoNativeBuildCacheDir(): string {
+  return path.join(os.homedir(), '.teleno', 'native-build-cache')
 }
 
 function sha1File(filePath: string): string {
@@ -968,7 +993,7 @@ function findExistingHunterZlibTarball(): string | null {
 }
 
 async function ensureHunterDarwinPatchedZlibTarball(): Promise<{ tarballPath: string; sha1: string }> {
-  const cacheDir = knodelNativeBuildCacheDir()
+  const cacheDir = telenoNativeBuildCacheDir()
   const upstreamTarballPath = path.join(cacheDir, `zlib-${HUNTER_DARWIN_PATCHED_ZLIB_VERSION}-upstream.tar.gz`)
   const patchedTarballPath = path.join(cacheDir, HUNTER_DARWIN_PATCHED_ZLIB_FILENAME)
 
@@ -994,7 +1019,7 @@ async function ensureHunterDarwinPatchedZlibTarball(): Promise<{ tarballPath: st
     fs.writeFileSync(upstreamTarballPath, buffer)
   }
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'knodel-zlib-patch-'))
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-zlib-patch-'))
   const extractResult = await runCommand('tar', ['-xzf', upstreamTarballPath, '-C', tempDir], { cwd: tempDir })
   if (!extractResult.ok) {
     throw new Error(extractResult.output || 'No se pudo extraer el tarball de zlib')
@@ -1040,7 +1065,7 @@ function findExistingHunterKoinosExceptionTarball(): string | null {
 }
 
 async function ensureHunterDarwinPatchedAbseilTarball(): Promise<{ tarballPath: string; sha1: string }> {
-  const cacheDir = knodelNativeBuildCacheDir()
+  const cacheDir = telenoNativeBuildCacheDir()
   const upstreamTarballPath = path.join(cacheDir, `abseil-${HUNTER_DARWIN_PATCHED_ABSEIL_VERSION}-upstream.tar.gz`)
   const patchedTarballPath = path.join(cacheDir, HUNTER_DARWIN_PATCHED_ABSEIL_FILENAME)
 
@@ -1066,7 +1091,7 @@ async function ensureHunterDarwinPatchedAbseilTarball(): Promise<{ tarballPath: 
     fs.writeFileSync(upstreamTarballPath, buffer)
   }
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'knodel-abseil-patch-'))
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-abseil-patch-'))
   const extractResult = await runCommand('tar', ['-xzf', upstreamTarballPath, '-C', tempDir], { cwd: tempDir })
   if (!extractResult.ok) {
     throw new Error(extractResult.output || 'No se pudo extraer el tarball de abseil')
@@ -1111,7 +1136,7 @@ async function ensureHunterDarwinPatchedAbseilTarball(): Promise<{ tarballPath: 
 }
 
 async function ensureHunterDarwinPatchedKoinosExceptionTarball(): Promise<{ tarballPath: string; sha1: string }> {
-  const cacheDir = knodelNativeBuildCacheDir()
+  const cacheDir = telenoNativeBuildCacheDir()
   const upstreamTarballPath = path.join(
     cacheDir,
     `koinos-exception-${HUNTER_DARWIN_PATCHED_KOINOS_EXCEPTION_VERSION}-upstream.tar.gz`
@@ -1140,7 +1165,7 @@ async function ensureHunterDarwinPatchedKoinosExceptionTarball(): Promise<{ tarb
     fs.writeFileSync(upstreamTarballPath, buffer)
   }
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'knodel-koinos-exception-patch-'))
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-koinos-exception-patch-'))
   const extractResult = await runCommand('tar', ['-xzf', upstreamTarballPath, '-C', tempDir], { cwd: tempDir })
   if (!extractResult.ok) {
     throw new Error(extractResult.output || 'No se pudo extraer el tarball de koinos_exception')
@@ -1254,16 +1279,16 @@ async function resolveNativeServiceVersion(
   return nativeVersionResolver.resolveNativeServiceVersion(serviceId, definition)
 }
 
-function validateNodeBaseDirAccess(input?: KoinosNodeSettingsInput): KoinosNodeValidateBaseDirResult {
+function validateNodeBaseDirAccess(input?: TelenoNodeSettingsInput): TelenoNodeValidateBaseDirResult {
   return workspaceService.validateNodeBaseDirAccess(input)
 }
 
-function normalizeNodeSettings(input?: KoinosNodeSettingsInput): KoinosNodeSettings {
-  return buildNormalizedNodeSettings(input) as KoinosNodeSettings
+function normalizeNodeSettings(input?: TelenoNodeSettingsInput): TelenoNodeSettings {
+  return buildNormalizedNodeSettings(input) as TelenoNodeSettings
 }
 
-function parsePersistedNodeSettings(input: unknown): KoinosNodeSettingsInput | undefined {
-  return parseStoredNodeSettings(input) as KoinosNodeSettingsInput | undefined
+function parsePersistedNodeSettings(input: unknown): TelenoNodeSettingsInput | undefined {
+  return parseStoredNodeSettings(input) as TelenoNodeSettingsInput | undefined
 }
 
 function cleanupAppRuntimeResources(): void {
@@ -1274,64 +1299,65 @@ async function requestOrderedAppShutdown(win: BrowserWindow | null): Promise<voi
   return appLifecycleService.requestOrderedAppShutdown(win)
 }
 
-function knodelProducerWalletFilePath(): string {
-  return knodelStorage.producerWalletFilePath()
+function telenoProducerWalletFilePath(network?: KoinosNetworkId): string {
+  return telenoStorage.producerWalletFilePath(network)
 }
 
-function knodelProducerProfileFilePath(): string {
-  return knodelStorage.producerProfileFilePath()
+function telenoProducerProfileFilePath(network?: KoinosNetworkId): string {
+  return telenoStorage.producerProfileFilePath(network)
 }
 
 function loadPublicRpcConfig(): PublicRpcConfigResult {
-  return knodelStorage.loadPublicRpcConfig() as PublicRpcConfigResult
+  return telenoStorage.loadPublicRpcConfig() as PublicRpcConfigResult
 }
 
 function savePublicRpcConfig(input?: PublicRpcConfigInput): PublicRpcConfigResult {
-  return knodelStorage.savePublicRpcConfig(input) as PublicRpcConfigResult
+  return telenoStorage.savePublicRpcConfig(input) as PublicRpcConfigResult
 }
 
-function loadKnodelWalletFile(): KnodelEncryptedWallet | null {
-  return knodelStorage.loadWalletFile() as KnodelEncryptedWallet | null
+function loadTelenoWalletFile(network?: KoinosNetworkId): TelenoEncryptedWallet | null {
+  return telenoStorage.loadWalletFile(network) as TelenoEncryptedWallet | null
 }
 
-function loadProducerProfile(): KnodelProducerProfile | null {
-  return knodelStorage.loadProducerProfile() as KnodelProducerProfile | null
+function loadProducerProfile(network?: KoinosNetworkId): TelenoProducerProfile | null {
+  return telenoStorage.loadProducerProfile(network) as TelenoProducerProfile | null
 }
 
-function saveProducerProfile(profile: KnodelProducerProfile): string {
-  return knodelStorage.saveProducerProfile(profile)
+function saveProducerProfile(profile: TelenoProducerProfile, network?: KoinosNetworkId): string {
+  return telenoStorage.saveProducerProfile(profile, network)
 }
 
-function clearProducerProfile(): boolean {
-  return knodelStorage.clearProducerProfile()
+function clearProducerProfile(network?: KoinosNetworkId): boolean {
+  return telenoStorage.clearProducerProfile(network)
 }
 
-function loadKnodelWallet(password: string): KnodelUnlockedWallet | null {
-  return knodelStorage.loadWallet(password) as KnodelUnlockedWallet | null
+function loadTelenoWallet(password: string, network?: KoinosNetworkId): TelenoUnlockedWallet | null {
+  return telenoStorage.loadWallet(password, network) as TelenoUnlockedWallet | null
 }
 
-function unlockKnodelWalletSession(password: string): KnodelUnlockedWallet | null {
-  return knodelStorage.unlockWalletSession(password) as KnodelUnlockedWallet | null
+function unlockTelenoWalletSession(password: string, network?: KoinosNetworkId): TelenoUnlockedWallet | null {
+  return telenoStorage.unlockWalletSession(password, network) as TelenoUnlockedWallet | null
 }
 
-function saveKnodelWallet(
+function saveTelenoWallet(
   privateKey: string,
   address: string,
   password: string,
   options?: {
     seedPhrase?: string
     derivationPath?: string
+    network?: KoinosNetworkId
   }
 ): string {
-  return knodelStorage.saveWallet(privateKey, address, password, options)
+  return telenoStorage.saveWallet(privateKey, address, password, options)
 }
 
-function deleteKnodelWallet(): boolean {
-  return knodelStorage.deleteWallet()
+function deleteTelenoWallet(network?: KoinosNetworkId): boolean {
+  return telenoStorage.deleteWallet(network)
 }
 
-function closeKnodelWalletSession(): string | null {
-  return knodelStorage.closeWalletSession()
+function closeTelenoWalletSession(network?: KoinosNetworkId): string | null {
+  return telenoStorage.closeWalletSession(network)
 }
 
 function resolveWalletRpcUrl(input?: WalletRpcInput): string {
@@ -1367,7 +1393,7 @@ function parseWalletArgs(value: WalletReadContractInput['args']): Record<string,
 }
 
 function resolveWalletQueryAddress(address?: string, accountId?: string): string | null {
-  return knodelStorage.resolveWalletQueryAddress(address, accountId)
+  return telenoStorage.resolveWalletQueryAddress(address, accountId)
 }
 
 function fixFetchedAbi(abi: unknown): unknown {
@@ -1504,7 +1530,7 @@ function parseLatestP2pPeersSnapshot(logOutput: string): {
   snapshotAt: number | null
   selfAddress: string | null
   omittedPeerCount: number
-  rows: KoinosNodeDashboardPeerRow[]
+  rows: TelenoNodeDashboardPeerRow[]
 } | null {
   const lines = logOutput.split(/\r?\n/)
   let connectedPeersIndex = -1
@@ -1530,7 +1556,7 @@ function parseLatestP2pPeersSnapshot(logOutput: string): {
     }
   }
 
-  const rows: KoinosNodeDashboardPeerRow[] = []
+  const rows: TelenoNodeDashboardPeerRow[] = []
   let omittedPeerCount = 0
   for (let index = connectedPeersIndex + 1; index < lines.length; index += 1) {
     const line = lines[index]
@@ -1567,7 +1593,7 @@ function parseLatestP2pPeersSnapshot(logOutput: string): {
 async function fetchCoinMarketCapKoinPriceUsd(): Promise<number | null> {
   try {
     const response = await fetch('https://coinmarketcap.com/currencies/koinos/', {
-      headers: { 'user-agent': 'Mozilla/5.0 (koinosGUI Producer Panel)' }
+      headers: { 'user-agent': 'Mozilla/5.0 (Teleno UX Producer Panel)' }
     })
     if (!response.ok) return null
     const html = await response.text()
@@ -1615,12 +1641,12 @@ function upsertBlockProducerConfigValue(content: string, key: string, value: str
   return `${lines.join('\n').replace(/\n+$/, '')}\n`
 }
 
-function persistProducerRuntimeConfig(settings: KoinosNodeSettings, producerAddress: string): string {
+function persistProducerRuntimeConfig(settings: TelenoNodeSettings, producerAddress: string): string {
   const configPath = baseDirConfigFilePath(settings)
   const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : ''
   let nextContent = upsertBlockProducerConfigValue(existing, 'producer', producerAddress)
   if (fs.existsSync(blockProducerPrivateKeyFilePath(settings))) {
-    nextContent = upsertBlockProducerConfigValue(nextContent, 'private-key-file', 'private.key')
+    nextContent = upsertBlockProducerConfigValue(nextContent, 'private-key-file', 'block_producer/private.key')
   }
   fs.writeFileSync(configPath, nextContent)
   return configPath
@@ -1654,7 +1680,7 @@ function commentBlockProducerConfigValue(content: string, key: string): { conten
   return { content, changed: false }
 }
 
-function clearProducerRuntimeConfig(settings: KoinosNodeSettings): { configPath: string; cleared: boolean } {
+function clearProducerRuntimeConfig(settings: TelenoNodeSettings): { configPath: string; cleared: boolean } {
   const configPath = baseDirConfigFilePath(settings)
   if (!fs.existsSync(configPath)) {
     return { configPath, cleared: false }
@@ -1669,21 +1695,21 @@ function clearProducerRuntimeConfig(settings: KoinosNodeSettings): { configPath:
   return { configPath, cleared: next.changed }
 }
 
-function assertRepoReady(settings: KoinosNodeSettings): void {
+function assertRepoReady(settings: TelenoNodeSettings): void {
   workspaceService.assertRepoReady(settings)
 }
 
-function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
+function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
   const mainnet = resolveNetworkProfile('mainnet')
   const testnet = resolveNetworkProfile('testnet')
-  const presets: KoinosNodePreset[] = [
+  const presets: TelenoNodePreset[] = [
     {
       id: 'profile:mainnet_observer',
       label: 'Mainnet Observer',
       network: 'mainnet',
       source: 'features',
       profiles: ['mainnet_observer'],
-      services: ['koinos-node'],
+      services: ['teleno-node'],
       featureFlags: { ...MONOLITH_OBSERVER_FEATURES },
       configPatch: {
         set: [
@@ -1707,7 +1733,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
       network: 'testnet',
       source: 'features',
       profiles: ['testnet_observer'],
-      services: ['koinos-node'],
+      services: ['teleno-node'],
       featureFlags: { ...MONOLITH_OBSERVER_FEATURES },
       configPatch: {
         set: [
@@ -1724,7 +1750,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
       network: 'mainnet',
       source: 'features',
       profiles: ['mainnet_full_node'],
-      services: ['koinos-node'],
+      services: ['teleno-node'],
       featureFlags: { ...MONOLITH_FULL_NODE_FEATURES },
       configPatch: {
         set: [
@@ -1748,7 +1774,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
       network: 'testnet',
       source: 'features',
       profiles: ['testnet_full_node'],
-      services: ['koinos-node'],
+      services: ['teleno-node'],
       featureFlags: { ...MONOLITH_FULL_NODE_FEATURES },
       configPatch: {
         set: [
@@ -1765,7 +1791,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
       network: 'mainnet',
       source: 'features',
       profiles: ['block_producer'],
-      services: ['koinos-node'],
+      services: ['teleno-node'],
       featureFlags: { ...MONOLITH_PRODUCER_FEATURES },
       configPatch: {
         set: [
@@ -1783,7 +1809,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
       network: 'testnet',
       source: 'features',
       profiles: ['testnet_producer'],
-      services: ['koinos-node'],
+      services: ['teleno-node'],
       featureFlags: { ...MONOLITH_PRODUCER_FEATURES },
       configPatch: {
         set: [
@@ -1800,7 +1826,7 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
       network: 'custom',
       source: 'features',
       profiles: ['custom_advanced'],
-      services: ['koinos-node'],
+      services: ['teleno-node'],
       featureFlags: { ...MONOLITH_CUSTOM_ADVANCED_FEATURES },
       description: 'Advanced operator preset with optional query/index services enabled and block production disabled.'
     }
@@ -1809,11 +1835,11 @@ function buildProfilePresets(settings: KoinosNodeSettings): KoinosNodePreset[] {
   return presets.filter((preset) => preset.network === settings.network)
 }
 
-function ensureKoinosConfigFiles(settings: KoinosNodeSettings): { configReady: boolean; output: string } {
+function ensureKoinosConfigFiles(settings: TelenoNodeSettings): { configReady: boolean; output: string } {
   return workspaceService.ensureKoinosConfigFiles(settings)
 }
 
-function ensureBaseDirKoinosRuntimeFiles(settings: KoinosNodeSettings): string {
+function ensureBaseDirKoinosRuntimeFiles(settings: TelenoNodeSettings): string {
   return workspaceService.ensureBaseDirKoinosRuntimeFiles(settings)
 }
 
@@ -2007,8 +2033,9 @@ function nativeServiceCommandHints(serviceId: string): string[] {
     hints.add(path.basename(buildDefinition.artifactPath))
   }
 
-  if (serviceId === 'koinos-node') {
+  if (serviceId === 'teleno-node') {
     hints.add(path.basename(resolveMonolithBinaryPath()))
+    hints.add(TELENO_NODE_BINARY_NAME)
     hints.add('koinos_node')
   }
 
@@ -2022,7 +2049,7 @@ function nativeServiceCommandHints(serviceId: string): string[] {
 }
 
 function detectExternalNativeServiceProcesses(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceId: string,
   processSnapshot: ProcessSnapshotEntry[],
   excludePids: number[] = []
@@ -2045,7 +2072,7 @@ function detectExternalNativeServiceProcesses(
 }
 
 function describeExternalNativeServiceConflict(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceId: string,
   processes: ProcessSnapshotEntry[]
 ): string {
@@ -2083,7 +2110,7 @@ function parseLsofProcessOwners(raw: string): ProcessSnapshotEntry[] {
 }
 
 async function detectBaseDirLockOwners(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   excludePids: number[] = []
 ): Promise<ProcessSnapshotEntry[]> {
   if (process.platform === 'win32') return []
@@ -2103,12 +2130,12 @@ async function detectBaseDirLockOwners(
 }
 
 function describeBaseDirLockConflict(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceId: string,
   owners: ProcessSnapshotEntry[]
 ): string {
   const ownerList = owners.map((entry) => `${entry.command || 'unknown'} (pid ${entry.pid})`).join(', ')
-  return `External ${serviceId} is already using BASEDIR ${settings.baseDir} (${ownerList}). koinosGUI will not start a second node against the same RocksDB database. Stop that process first, or choose a different BASEDIR.`
+  return `External ${serviceId} is already using BASEDIR ${settings.baseDir} (${ownerList}). Teleno UX will not start a second node against the same RocksDB database. Stop that process first, or choose a different BASEDIR.`
 }
 
 function uniqueProcessSnapshotEntries(entries: ProcessSnapshotEntry[]): ProcessSnapshotEntry[] {
@@ -2121,14 +2148,14 @@ function uniqueProcessSnapshotEntries(entries: ProcessSnapshotEntry[]): ProcessS
 }
 
 async function detectMonolithConflictProcesses(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   excludePids: number[] = []
 ): Promise<ProcessSnapshotEntry[]> {
   const lockOwners = await detectBaseDirLockOwners(settings, excludePids)
   const processSnapshot = await listProcessSnapshot()
   const conflictingProcesses = detectExternalNativeServiceProcesses(
     settings,
-    'koinos-node',
+    'teleno-node',
     processSnapshot,
     excludePids
   )
@@ -2136,7 +2163,7 @@ async function detectMonolithConflictProcesses(
   return uniqueProcessSnapshotEntries([...lockOwners, ...conflictingProcesses])
 }
 
-async function killMonolithConflictProcesses(settings: KoinosNodeSettings): Promise<NativeConflictKillResult> {
+async function killMonolithConflictProcesses(settings: TelenoNodeSettings): Promise<NativeConflictKillResult> {
   const trackedPid =
     monolithProcessState && !monolithProcessState.closed && monolithProcessState.child.pid
       ? [monolithProcessState.child.pid]
@@ -2146,7 +2173,7 @@ async function killMonolithConflictProcesses(settings: KoinosNodeSettings): Prom
   if (conflictingProcesses.length === 0) {
     return {
       ok: true,
-      output: 'No conflicting koinos-node process was detected'
+      output: 'No conflicting teleno-node process was detected'
     }
   }
 
@@ -2154,7 +2181,7 @@ async function killMonolithConflictProcesses(settings: KoinosNodeSettings): Prom
   for (const processEntry of conflictingProcesses) {
     try {
       process.kill(processEntry.pid, 'SIGTERM')
-      termOutputs.push(`SIGTERM sent to pid ${processEntry.pid} (koinos-node)`)
+      termOutputs.push(`SIGTERM sent to pid ${processEntry.pid} (teleno-node)`)
     } catch (error) {
       termOutputs.push(
         `Could not send SIGTERM to pid ${processEntry.pid}: ${error instanceof Error ? error.message : 'unknown error'}`
@@ -2169,7 +2196,7 @@ async function killMonolithConflictProcesses(settings: KoinosNodeSettings): Prom
   for (const processEntry of remainingAfterTerm) {
     try {
       process.kill(processEntry.pid, 'SIGKILL')
-      killOutputs.push(`SIGKILL sent to pid ${processEntry.pid} (koinos-node)`)
+      killOutputs.push(`SIGKILL sent to pid ${processEntry.pid} (teleno-node)`)
     } catch (error) {
       killOutputs.push(
         `Could not send SIGKILL to pid ${processEntry.pid}: ${error instanceof Error ? error.message : 'unknown error'}`
@@ -2188,15 +2215,15 @@ async function killMonolithConflictProcesses(settings: KoinosNodeSettings): Prom
     output: [
       ...killOutputs,
       remainingAfterKill.length === 0
-        ? 'Conflicting koinos-node processes terminated'
-        : `Still conflicting koinos-node pids: ${remainingAfterKill.map((entry) => entry.pid).join(', ')}`
+        ? 'Conflicting teleno-node processes terminated'
+        : `Still conflicting teleno-node pids: ${remainingAfterKill.map((entry) => entry.pid).join(', ')}`
     ]
       .filter(Boolean)
       .join('\n')
   }
 }
 
-function nativeManagedProcessRegistryOutput(settings?: KoinosNodeSettings): string {
+function nativeManagedProcessRegistryOutput(settings?: TelenoNodeSettings): string {
   const lines = sortManagedServiceIds(nativeServiceProcesses.keys())
     .map((serviceId) => {
       const state = nativeServiceProcesses.get(serviceId)
@@ -2214,7 +2241,7 @@ function nativeManagedProcessRegistryOutput(settings?: KoinosNodeSettings): stri
 }
 
 async function killConflictingNativeServiceProcesses(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceId: string
 ): Promise<NativeConflictKillResult> {
   const trackedState = nativeServiceProcesses.get(serviceId)
@@ -2340,17 +2367,17 @@ function tcpListenerOwnedByRabbitmq(listener: TcpListenerOwner): boolean {
   return /beam\.smp|rabbitmq-server/i.test(listener.command)
 }
 
-async function nativeBuildStatus(): Promise<KoinosNodeNativeBuildsResult> {
+async function nativeBuildStatus(): Promise<TelenoNodeNativeBuildsResult> {
   return nativeBuildService.monolithBuildStatus()
 }
 
-async function nativeBuildAll(): Promise<KoinosNodeNativeBuildCommandResult> {
+async function nativeBuildAll(): Promise<TelenoNodeNativeBuildCommandResult> {
   const result = await nativeBuildService.monolithBuildAll()
   if (result.ok && result.builds.ok) monolithFallbackReason = null
   return result
 }
 
-async function nativeBuildServiceAction(input?: KoinosNodeNativeBuildCommandInput): Promise<KoinosNodeNativeBuildCommandResult> {
+async function nativeBuildServiceAction(input?: TelenoNodeNativeBuildCommandInput): Promise<TelenoNodeNativeBuildCommandResult> {
   const result = await nativeBuildService.monolithBuildServiceAction(input)
   if (result.ok && result.builds.ok) monolithFallbackReason = null
   return result
@@ -2360,7 +2387,7 @@ function normalizeLogsTail(inputTail: unknown, fallback = 200): number {
   return logsService.normalizeLogsTail(inputTail, fallback)
 }
 
-function stopLogsFollowStream(streamId: string): KoinosNodeLogsFollowStopResult {
+function stopLogsFollowStream(streamId: string): TelenoNodeLogsFollowStopResult {
   return logsService.stopLogsFollowStream(streamId)
 }
 
@@ -2384,7 +2411,7 @@ function sortManagedServiceIds(serviceIds: Iterable<string>): string[] {
 }
 
 function selectedManagedComposeServiceIds(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceDefinitions: Map<string, NativeServiceDefinition>
 ): string[] {
   return sortManagedServiceIds(
@@ -2433,53 +2460,53 @@ function tailTextLines(text: string, tail: number): string {
 function composeServicePortByTarget(
   definition: NativeServiceDefinition | undefined,
   targetPort: number
-): KoinosNodeServicePort | null {
+): TelenoNodeServicePort | null {
   return definition?.ports.find((port) => port.targetPort === targetPort) ?? null
 }
 
-function nativeServiceConnectHost(port: KoinosNodeServicePort | null, fallback = '127.0.0.1'): string {
+function nativeServiceConnectHost(port: TelenoNodeServicePort | null, fallback = '127.0.0.1'): string {
   if (!port?.host || port.host === '0.0.0.0') return fallback
   return port.host
 }
 
-function nativeServiceBindHost(port: KoinosNodeServicePort | null, fallback = '127.0.0.1'): string {
+function nativeServiceBindHost(port: TelenoNodeServicePort | null, fallback = '127.0.0.1'): string {
   return port?.host || fallback
 }
 
-function nativeAmqpRuntimeDir(settings: KoinosNodeSettings): string {
+function nativeAmqpRuntimeDir(settings: TelenoNodeSettings): string {
   const baseDir = path.isAbsolute(settings.baseDir) ? settings.baseDir : path.join(os.homedir(), settings.baseDir)
   return path.join(baseDir, 'amqp')
 }
 
-function nativeAmqpConfigPath(settings: KoinosNodeSettings): string {
+function nativeAmqpConfigPath(settings: TelenoNodeSettings): string {
   return path.join(nativeAmqpRuntimeDir(settings), 'rabbitmq.conf')
 }
 
-function nativeAmqpEnabledPluginsPath(settings: KoinosNodeSettings): string {
+function nativeAmqpEnabledPluginsPath(settings: TelenoNodeSettings): string {
   return path.join(nativeAmqpRuntimeDir(settings), 'enabled_plugins')
 }
 
-function nativeAmqpMnesiaDir(settings: KoinosNodeSettings): string {
+function nativeAmqpMnesiaDir(settings: TelenoNodeSettings): string {
   return path.join(nativeAmqpRuntimeDir(settings), 'mnesia')
 }
 
-function nativeAmqpLogsDir(settings: KoinosNodeSettings): string {
+function nativeAmqpLogsDir(settings: TelenoNodeSettings): string {
   return path.join(nativeAmqpRuntimeDir(settings), 'logs')
 }
 
-function nativeAmqpNodeToken(settings: KoinosNodeSettings): string {
+function nativeAmqpNodeToken(settings: TelenoNodeSettings): string {
   return createHash('sha1').update(path.resolve(settings.baseDir)).digest('hex').slice(0, 8)
 }
 
-function nativeAmqpNodeName(settings: KoinosNodeSettings): string {
-  return `knodelrabbit${nativeAmqpNodeToken(settings)}@localhost`
+function nativeAmqpNodeName(settings: TelenoNodeSettings): string {
+  return `telenorabbit${nativeAmqpNodeToken(settings)}@localhost`
 }
 
-function nativeAmqpDistPort(settings: KoinosNodeSettings): number {
+function nativeAmqpDistPort(settings: TelenoNodeSettings): number {
   return 26672 + (parseInt(nativeAmqpNodeToken(settings).slice(0, 4), 16) % 1000)
 }
 
-function nativeRabbitmqListenerValue(port: KoinosNodeServicePort | null, fallbackPort: number): string {
+function nativeRabbitmqListenerValue(port: TelenoNodeServicePort | null, fallbackPort: number): string {
   const host = port?.host?.trim() || ''
   const publishedPort = port?.publishedPort ?? fallbackPort
   if (!host || host === '0.0.0.0') return String(publishedPort)
@@ -2487,7 +2514,7 @@ function nativeRabbitmqListenerValue(port: KoinosNodeServicePort | null, fallbac
 }
 
 function ensureNativeAmqpRuntimeFiles(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceDefinitions: Map<string, NativeServiceDefinition>
 ): { configPath: string; enabledPluginsPath: string; mnesiaDir: string; logsDir: string } {
   const runtimeDir = nativeAmqpRuntimeDir(settings)
@@ -2506,7 +2533,7 @@ function ensureNativeAmqpRuntimeFiles(
   const amqpAdminPort = composeServicePortByTarget(serviceDefinitions.get('amqp'), 15672)
   const configLines = [
     sourceConfig,
-    '# Generated by koinosGUI for native runtime compatibility',
+    '# Generated by Teleno UX for native runtime compatibility',
     `listeners.tcp.default = ${nativeRabbitmqListenerValue(amqpPort, 5672)}`,
     amqpAdminPort?.host && amqpAdminPort.host !== '0.0.0.0' ? `management.tcp.ip = ${amqpAdminPort.host}` : '',
     `management.tcp.port = ${amqpAdminPort?.publishedPort ?? 15672}`
@@ -2524,7 +2551,7 @@ function ensureNativeAmqpRuntimeFiles(
 }
 
 function nativeAmqpEnv(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceDefinitions: Map<string, NativeServiceDefinition>
 ): NodeJS.ProcessEnv {
   const runtimeFiles = ensureNativeAmqpRuntimeFiles(settings, serviceDefinitions)
@@ -2801,7 +2828,7 @@ async function stopNativeServiceProcess(serviceId: string): Promise<NativeServic
 }
 
 function nativeServiceLaunchSpec(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceId: string,
   serviceDefinitions: Map<string, NativeServiceDefinition>
 ): NativeServiceLaunchSpec {
@@ -2916,7 +2943,7 @@ function nativeServiceLaunchSpec(
 }
 
 async function startNativeServiceProcess(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceId: string,
   serviceDefinitions: Map<string, NativeServiceDefinition>
 ): Promise<{ ok: boolean; output: string }> {
@@ -3185,7 +3212,7 @@ function isComposeServiceRunning(service: ServiceStatus): boolean {
  * Build native service definitions from known Koinos service metadata.
  * Hardcoded native service definitions with ports, dependencies, and profiles.
  */
-function readNativeServiceDefinitions(settings: KoinosNodeSettings): Map<string, NativeServiceDefinition> {
+function readNativeServiceDefinitions(settings: TelenoNodeSettings): Map<string, NativeServiceDefinition> {
   const defs = new Map<string, NativeServiceDefinition>()
   const runtimePorts = resolveRuntimeListenPorts(settings)
   const p2pPort = runtimePorts.p2p.port ?? 8888
@@ -3220,7 +3247,7 @@ function composeServiceMatchesProfiles(definition: NativeServiceDefinition, prof
 }
 
 async function nativeServiceStatusFromProcessState(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceId: string,
   serviceDefinition: NativeServiceDefinition,
   state: NativeServiceProcessState | undefined,
@@ -3263,7 +3290,7 @@ async function nativeServiceStatusFromProcessState(
       lastError: `Component is still using BASEDIR ${state.baseDir}. Restart it to move it to ${settings.baseDir}.`,
       nativePid: state.child.pid ?? null,
       conflictPids: [],
-      managedByKnodel: true
+      managedByTeleno: true
     }
   }
 
@@ -3281,7 +3308,7 @@ async function nativeServiceStatusFromProcessState(
       lastError: null,
       nativePid: state.child.pid ?? null,
       conflictPids: [],
-      managedByKnodel: true
+      managedByTeleno: true
     }
   }
 
@@ -3299,7 +3326,7 @@ async function nativeServiceStatusFromProcessState(
       lastError: describeExternalNativeServiceConflict(settings, serviceId, conflictingProcesses),
       nativePid: null,
       conflictPids: conflictingProcesses.map((entry) => entry.pid),
-      managedByKnodel: false
+      managedByTeleno: false
     }
   }
 
@@ -3317,7 +3344,7 @@ async function nativeServiceStatusFromProcessState(
       lastError: amqpRuntimeMissing,
       nativePid: null,
       conflictPids: [],
-      managedByKnodel: false
+      managedByTeleno: false
     }
   }
 
@@ -3335,7 +3362,7 @@ async function nativeServiceStatusFromProcessState(
       lastError: buildDefinition ? `Falta el artefacto nativo: ${buildDefinition.artifactPath}` : 'Sin build nativo',
       nativePid: null,
       conflictPids: [],
-      managedByKnodel: false
+      managedByTeleno: false
     }
   }
 
@@ -3353,7 +3380,7 @@ async function nativeServiceStatusFromProcessState(
       lastError: state.lastError || `Exited with code ${state.exitCode ?? 'null'}`,
       nativePid: state.child.pid ?? null,
       conflictPids: [],
-      managedByKnodel: true
+      managedByTeleno: true
     }
   }
 
@@ -3370,12 +3397,12 @@ async function nativeServiceStatusFromProcessState(
     lastError: null,
     nativePid: null,
     conflictPids: [],
-    managedByKnodel: false
+    managedByTeleno: false
   }
 }
 
 async function nativeAmqpBrewComposeStatus(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   serviceDefinition: NativeServiceDefinition
 ): Promise<ServiceStatus> {
   const runtimeName = 'brew services rabbitmq'
@@ -3395,7 +3422,7 @@ async function nativeAmqpBrewComposeStatus(
       lastError: 'No se encontro rabbitmq-server para el runtime native',
       nativePid: null,
       conflictPids: [],
-      managedByKnodel: false
+      managedByTeleno: false
     }
   }
 
@@ -3414,7 +3441,7 @@ async function nativeAmqpBrewComposeStatus(
       lastError: brewState.output,
       nativePid: null,
       conflictPids: [],
-      managedByKnodel: false
+      managedByTeleno: false
     }
   }
 
@@ -3438,7 +3465,7 @@ async function nativeAmqpBrewComposeStatus(
       lastError: null,
       nativePid: null,
       conflictPids: [],
-      managedByKnodel: false
+      managedByTeleno: false
     }
   }
 
@@ -3456,7 +3483,7 @@ async function nativeAmqpBrewComposeStatus(
       lastError: `rabbitmq esta marcado como ${brewState.status}, pero los puertos 5672/15672 aun no estan listos`,
       nativePid: null,
       conflictPids: [],
-      managedByKnodel: false
+      managedByTeleno: false
     }
   }
 
@@ -3473,17 +3500,19 @@ async function nativeAmqpBrewComposeStatus(
     lastError: null,
     nativePid: null,
     conflictPids: [],
-    managedByKnodel: false
+    managedByTeleno: false
   }
 }
 
-async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<KoinosNodeStatus> {
+async function nativeComposeStatus(input?: TelenoNodeSettingsInput): Promise<TelenoNodeStatus> {
   const settings = normalizeNodeSettings(input)
   const configDir = configDirPath(settings)
 
   // Monolith mode: single process status with component health
   if (shouldUseMonolithMode() || (monolithProcessState && !monolithProcessState.closed)) {
     const isRunning = monolithProcessState != null && !monolithProcessState.closed
+    const binaryPath = monolithProcessState?.binaryPath || resolveMonolithBinaryPath()
+    const logPath = monolithProcessState?.logPath || nativeServiceLogFilePath('teleno-node')
     const runtimePorts = resolveRuntimeListenPorts(settings)
     const jsonrpcPort = runtimePorts.jsonrpc.port ?? 8080
     const p2pPort = runtimePorts.p2p.port ?? 8888
@@ -3492,21 +3521,23 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
     const lockOwners = await detectBaseDirLockOwners(settings, trackedPid)
     const conflictingProcesses = lockOwners.length > 0
       ? []
-      : detectExternalNativeServiceProcesses(settings, 'koinos-node', processSnapshot, trackedPid)
+      : detectExternalNativeServiceProcesses(settings, 'teleno-node', processSnapshot, trackedPid)
     const hasConflict = lockOwners.length > 0 || conflictingProcesses.length > 0
     const conflictDescription = lockOwners.length > 0
-      ? describeBaseDirLockConflict(settings, 'koinos-node', lockOwners)
+      ? describeBaseDirLockConflict(settings, 'teleno-node', lockOwners)
       : conflictingProcesses.length > 0
-        ? describeExternalNativeServiceConflict(settings, 'koinos-node', conflictingProcesses)
+        ? describeExternalNativeServiceConflict(settings, 'teleno-node', conflictingProcesses)
         : null
     const conflictPids = (lockOwners.length > 0 ? lockOwners : conflictingProcesses)
       .map((entry) => entry.pid)
       .filter((pid, index, allPids) => allPids.indexOf(pid) === index)
     const monolithService: ServiceStatus = {
-      id: 'koinos-node',
-      name: 'Koinos Node',
-      service: 'koinos-node',
-      runtimeName: 'koinos_node',
+      id: 'teleno-node',
+      name: 'Teleno Node',
+      service: 'teleno-node',
+      runtimeName: TELENO_NODE_BINARY_NAME,
+      binaryPath,
+      logPath,
       version: null,
       state: hasConflict ? 'conflict' : isRunning ? 'running' : 'stopped',
       status: hasConflict
@@ -3524,7 +3555,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
       lastError: conflictDescription ?? monolithProcessState?.lastError ?? null,
       nativePid: hasConflict ? null : isRunning ? monolithProcessState?.child.pid ?? null : null,
       conflictPids,
-      managedByKnodel: !hasConflict
+      managedByTeleno: !hasConflict
     }
 
     return {
@@ -3539,8 +3570,8 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
       components: parseMonolithComponentHealth(settings),
       runningServices: isRunning ? 1 : 0,
       output: conflictDescription ?? (isRunning
-        ? `koinos_node running (pid ${monolithProcessState?.child.pid ?? 'n/a'})`
-        : 'koinos_node stopped')
+        ? `${TELENO_NODE_BINARY_NAME} running (pid ${monolithProcessState?.child.pid ?? 'n/a'})`
+        : `${TELENO_NODE_BINARY_NAME} stopped`)
     }
   }
 
@@ -3630,7 +3661,7 @@ async function nativeComposeStatus(input?: KoinosNodeSettingsInput): Promise<Koi
   }
 }
 
-async function composePresets(input?: KoinosNodeSettingsInput): Promise<KoinosNodePresetsResult> {
+async function composePresets(input?: TelenoNodeSettingsInput): Promise<TelenoNodePresetsResult> {
   const settings = normalizeNodeSettings(input)
 
   try {
@@ -3656,14 +3687,14 @@ function listsEqual(left: string[], right: string[]): boolean {
   return left.every((value, index) => value === right[index])
 }
 
-function findProfileDependents(status: KoinosNodeStatus, serviceId: string): ServiceStatus[] {
+function findProfileDependents(status: TelenoNodeStatus, serviceId: string): ServiceStatus[] {
   return status.services.filter((candidate) => candidate.id !== serviceId && candidate.dependsOn.includes(serviceId))
 }
 
 async function resolvePresetOrThrow(
-  settings: KoinosNodeSettings,
+  settings: TelenoNodeSettings,
   presetId: string
-): Promise<{ preset: KoinosNodePreset; settings: KoinosNodeSettings }> {
+): Promise<{ preset: TelenoNodePreset; settings: TelenoNodeSettings }> {
   const presetsResult = await composePresets(settings)
   const preset = presetsResult.presets.find((candidate) => candidate.id === presetId)
   if (!preset) {
@@ -3684,7 +3715,7 @@ async function resolvePresetOrThrow(
   }
 }
 
-function prepareNativeStartNotes(settings: KoinosNodeSettings, initialNotes: string[] = []): string[] {
+function prepareNativeStartNotes(settings: TelenoNodeSettings, initialNotes: string[] = []): string[] {
   const notes = [...initialNotes]
   const prep = ensureKoinosConfigFiles(settings)
   notes.push(prep.output)
@@ -3693,62 +3724,62 @@ function prepareNativeStartNotes(settings: KoinosNodeSettings, initialNotes: str
   return notes
 }
 
-async function nativeRuntimeDockerConflictCheck(_settings: KoinosNodeSettings): Promise<{ ok: boolean; output: string }> {
+async function nativeRuntimeDockerConflictCheck(_settings: TelenoNodeSettings): Promise<{ ok: boolean; output: string }> {
   return { ok: true, output: '' }
 }
 
 async function nativeComposeAction(
   action: 'start' | 'stop',
-  input?: KoinosNodeSettingsInput
-): Promise<KoinosNodeCommandResult> {
+  input?: TelenoNodeSettingsInput
+): Promise<TelenoNodeCommandResult> {
   return nativeRuntimeService.nativeComposeAction(action, input)
 }
 
 async function nativeComposeServiceAction(
   action: 'start' | 'stop' | 'restart' | 'kill-conflict',
-  input?: KoinosNodeServiceCommandInput
-): Promise<KoinosNodeServiceCommandResult> {
+  input?: TelenoNodeServiceCommandInput
+): Promise<TelenoNodeServiceCommandResult> {
   return nativeRuntimeService.nativeComposeServiceAction(action, input)
 }
 
 async function nativeComposePresetReconcile(
-  input?: KoinosNodePresetCommandInput
-): Promise<KoinosNodePresetCommandResult> {
+  input?: TelenoNodePresetCommandInput
+): Promise<TelenoNodePresetCommandResult> {
   return nativeRuntimeService.nativeComposePresetReconcile(input)
 }
 
-async function cloneKoinosRepo(input?: KoinosNodeSettingsInput): Promise<KoinosNodeCloneRepoResult> {
+async function cloneKoinosRepo(input?: TelenoNodeSettingsInput): Promise<TelenoNodeCloneRepoResult> {
   return workspaceService.cloneKoinosRepo(input)
 }
 
-async function readKoinosManagedFile(input: KoinosNodeFileReadInput): Promise<KoinosNodeFileReadResult> {
+async function readKoinosManagedFile(input: TelenoNodeFileReadInput): Promise<TelenoNodeFileReadResult> {
   return workspaceService.readKoinosManagedFile(input)
 }
 
-async function writeKoinosManagedFile(input: KoinosNodeFileWriteInput): Promise<KoinosNodeFileWriteResult> {
+async function writeKoinosManagedFile(input: TelenoNodeFileWriteInput): Promise<TelenoNodeFileWriteResult> {
   return workspaceService.writeKoinosManagedFile(input)
 }
 
-async function nativeComposeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNodeLogsResult> {
+async function nativeComposeLogs(input?: TelenoNodeLogsInput): Promise<TelenoNodeLogsResult> {
   return logsService.nativeComposeLogs(input)
 }
 
 async function nativeComposeLogsFollowStart(
   sender: Electron.WebContents,
-  input?: KoinosNodeLogsFollowStartInput
-): Promise<KoinosNodeLogsFollowStartResult> {
+  input?: TelenoNodeLogsFollowStartInput
+): Promise<TelenoNodeLogsFollowStartResult> {
   return logsService.nativeComposeLogsFollowStart(sender, input)
 }
 
-async function koinosNodeStatus(input?: KoinosNodeSettingsInput): Promise<KoinosNodeStatus> {
+async function telenoNodeStatus(input?: TelenoNodeSettingsInput): Promise<TelenoNodeStatus> {
   const settings = normalizeNodeSettings(input)
   return nativeComposeStatus(settings)
 }
 
-async function koinosNodeAction(
+async function telenoNodeAction(
   action: 'start' | 'stop',
-  input?: KoinosNodeSettingsInput
-): Promise<KoinosNodeCommandResult> {
+  input?: TelenoNodeSettingsInput
+): Promise<TelenoNodeCommandResult> {
   const settings = normalizeNodeSettings(input)
 
   // Use monolith mode when the binary is available and not disabled by a startup fallback.
@@ -3768,21 +3799,21 @@ async function koinosNodeAction(
   return nativeComposeAction(action, settings)
 }
 
-async function koinosNodeServiceAction(
+async function telenoNodeServiceAction(
   action: 'start' | 'stop' | 'restart' | 'kill-conflict',
-  input?: KoinosNodeServiceCommandInput
-): Promise<KoinosNodeServiceCommandResult> {
+  input?: TelenoNodeServiceCommandInput
+): Promise<TelenoNodeServiceCommandResult> {
   if (shouldUseMonolithMode()) {
     const settings = normalizeNodeSettings(input)
-    const service = input?.service?.trim() || 'koinos-node'
+    const service = input?.service?.trim() || 'teleno-node'
 
-    if (service !== 'koinos-node') {
+    if (service !== 'teleno-node') {
       const status = await nativeComposeStatus(settings)
       return {
         ok: false,
         action,
         service,
-        output: `Monolith mode manages a single koinos-node process; ${service} is a component, not a standalone service`,
+        output: `Monolith mode manages a single teleno-node process; ${service} is a component, not a standalone service`,
         status
       }
     }
@@ -3817,7 +3848,7 @@ async function koinosNodeServiceAction(
   }
 
   const service = input?.service?.trim() || ''
-  if (service === 'koinos-node') {
+  if (service === 'teleno-node') {
     const settings = normalizeNodeSettings(input)
     let result: { ok: boolean; output: string }
     if (action === 'stop') {
@@ -3830,7 +3861,7 @@ async function koinosNodeServiceAction(
         output: [stopResult.output, startResult.output].filter(Boolean).join('\n')
       }
     } else if (action === 'kill-conflict') {
-      result = { ok: true, output: 'Native multi-service mode has no koinos-node process to kill' }
+      result = { ok: true, output: 'Native multi-service mode has no teleno-node process to kill' }
     } else {
       result = await nativeComposeAction('start', settings)
     }
@@ -3846,9 +3877,9 @@ async function koinosNodeServiceAction(
   return nativeComposeServiceAction(action, input)
 }
 
-async function koinosNodeComponentToggle(
-  input?: KoinosNodeComponentToggleInput
-): Promise<KoinosNodeComponentToggleResult> {
+async function telenoNodeComponentToggle(
+  input?: TelenoNodeComponentToggleInput
+): Promise<TelenoNodeComponentToggleResult> {
   const settings = normalizeNodeSettings(input)
   const component = input?.component?.trim() || ''
   const enabled = input?.enabled ?? true
@@ -3908,9 +3939,9 @@ async function koinosNodeComponentToggle(
   }
 }
 
-async function koinosNodePresetReconcile(
-  input?: KoinosNodePresetCommandInput
-): Promise<KoinosNodePresetCommandResult> {
+async function telenoNodePresetReconcile(
+  input?: TelenoNodePresetCommandInput
+): Promise<TelenoNodePresetCommandResult> {
   if (shouldUseMonolithMode()) {
     const initialSettings = normalizeNodeSettings(input)
     const presetId = input?.presetId?.trim() || ''
@@ -3925,7 +3956,7 @@ async function koinosNodePresetReconcile(
     }
 
     let presetSettings = initialSettings
-    let preset: KoinosNodePreset | null = null
+    let preset: TelenoNodePreset | null = null
 
     try {
       const resolved = await resolvePresetOrThrow(initialSettings, presetId)
@@ -3948,7 +3979,7 @@ async function koinosNodePresetReconcile(
       const { enabled, disabled } = monolithFeatureCliArgs(featureFlags)
       const stopResult = monolithProcessState && !monolithProcessState.closed
         ? await stopMonolithProcess()
-        : { ok: true, output: 'koinos_node ya estaba detenido' }
+        : { ok: true, output: `${TELENO_NODE_BINARY_NAME} ya estaba detenido` }
       const startResult = await startMonolithProcess(presetSettings, enabled, disabled)
       const output = [
         `Updated monolith feature flags in ${configPath}`,
@@ -3977,26 +4008,26 @@ async function koinosNodePresetReconcile(
   return nativeComposePresetReconcile(input)
 }
 
-async function koinosNodeRestoreBackup(
-  input?: KoinosNodeSettingsInput,
+async function telenoNodeRestoreBackup(
+  input?: TelenoNodeSettingsInput,
   sender?: Electron.WebContents,
-  progressAction: KoinosNodeBackupProgressAction = 'restore-backup',
+  progressAction: TelenoNodeBackupProgressAction = 'restore-backup',
   completeOnSuccess = true
-): Promise<KoinosNodeBackupRestoreResult> {
-  return backupService.koinosNodeRestoreBackup(input, sender, progressAction, completeOnSuccess)
+): Promise<TelenoNodeBackupRestoreResult> {
+  return backupService.telenoNodeRestoreBackup(input, sender, progressAction, completeOnSuccess)
 }
 
-async function koinosNodeRestoreBackupAndVerify(
-  input?: KoinosNodeSettingsInput,
+async function telenoNodeRestoreBackupAndVerify(
+  input?: TelenoNodeSettingsInput,
   sender?: Electron.WebContents
-): Promise<KoinosNodeBackupRestoreResult> {
-  return backupService.koinosNodeRestoreBackupAndVerify(input, sender)
+): Promise<TelenoNodeBackupRestoreResult> {
+  return backupService.telenoNodeRestoreBackupAndVerify(input, sender)
 }
 
 async function createLocalBackup(
-  input?: KoinosNodeSettingsInput,
+  input?: TelenoNodeSettingsInput,
   sender?: Electron.WebContents
-): Promise<KoinosNodeBackupRestoreResult> {
+): Promise<TelenoNodeBackupRestoreResult> {
   return backupService.createLocalBackup(input, sender!)
 }
 
@@ -4004,26 +4035,26 @@ function cancelCreateBackup(): { ok: boolean; output: string } {
   return backupService.cancelCreateBackup()
 }
 
-function getVerifyBlocks(input?: KoinosNodeSettingsInput): { ok: boolean; enabled: boolean | null; output: string } {
+function getVerifyBlocks(input?: TelenoNodeSettingsInput): { ok: boolean; enabled: boolean | null; output: string } {
   return backupService.getVerifyBlocks(input)
 }
 
-function setVerifyBlocks(input?: KoinosNodeSettingsInput & { enabled?: boolean }): { ok: boolean; output: string } {
+function setVerifyBlocks(input?: TelenoNodeSettingsInput & { enabled?: boolean }): { ok: boolean; output: string } {
   return backupService.setVerifyBlocks(input)
 }
 
 async function restoreFromLocalFile(
-  input?: KoinosNodeSettingsInput,
+  input?: TelenoNodeSettingsInput,
   sender?: Electron.WebContents
-): Promise<KoinosNodeBackupRestoreResult> {
+): Promise<TelenoNodeBackupRestoreResult> {
   return backupService.restoreFromLocalFile(input, sender!)
 }
 
-async function copyNodeBaseDirData(input?: KoinosNodeBaseDirCopyInput): Promise<KoinosNodeBaseDirCopyResult> {
+async function copyNodeBaseDirData(input?: TelenoNodeBaseDirCopyInput): Promise<TelenoNodeBaseDirCopyResult> {
   return backupService.copyNodeBaseDirData(input)
 }
 
-async function selectNodeBaseDir(input?: KoinosNodeSettingsInput): Promise<KoinosNodeSelectDirectoryResult> {
+async function selectNodeBaseDir(input?: TelenoNodeSettingsInput): Promise<TelenoNodeSelectDirectoryResult> {
   return backupService.selectNodeBaseDir(input)
 }
 
@@ -4031,56 +4062,56 @@ async function koinosJsonRpcProxy(input?: KoinosJsonRpcProxyInput): Promise<Koin
   return backupService.koinosJsonRpcProxy(input)
 }
 
-async function koinosNodeProducerOverview(input?: KoinosNodeProducerOverviewInput): Promise<KoinosNodeProducerOverviewResult> {
-  return producerService.koinosNodeProducerOverview(input)
+async function telenoNodeProducerOverview(input?: TelenoNodeProducerOverviewInput): Promise<TelenoNodeProducerOverviewResult> {
+  return producerService.telenoNodeProducerOverview(input)
 }
 
-async function koinosNodeProducerRegisteredKey(
-  input?: KoinosNodeProducerRegisteredKeyInput
-): Promise<KoinosNodeProducerRegisteredKeyResult> {
-  return producerService.koinosNodeProducerRegisteredKey(input)
+async function telenoNodeProducerRegisteredKey(
+  input?: TelenoNodeProducerRegisteredKeyInput
+): Promise<TelenoNodeProducerRegisteredKeyResult> {
+  return producerService.telenoNodeProducerRegisteredKey(input)
 }
 
-async function koinosNodeDashboardProducers(
-  input?: KoinosNodeDashboardProducersInput
-): Promise<KoinosNodeDashboardProducersResult> {
-  return producerService.koinosNodeDashboardProducers(input)
+async function telenoNodeDashboardProducers(
+  input?: TelenoNodeDashboardProducersInput
+): Promise<TelenoNodeDashboardProducersResult> {
+  return producerService.telenoNodeDashboardProducers(input)
 }
 
-async function koinosNodeDashboardPeers(input?: KoinosNodeDashboardPeersInput): Promise<KoinosNodeDashboardPeersResult> {
-  return producerService.koinosNodeDashboardPeers(input)
+async function telenoNodeDashboardPeers(input?: TelenoNodeDashboardPeersInput): Promise<TelenoNodeDashboardPeersResult> {
+  return producerService.telenoNodeDashboardPeers(input)
 }
 
-async function koinosNodeDashboardPerformance(
-  input?: KoinosNodeDashboardPerformanceInput
-): Promise<KoinosNodeDashboardPerformanceResult> {
-  return producerService.koinosNodeDashboardPerformance(input)
+async function telenoNodeDashboardPerformance(
+  input?: TelenoNodeDashboardPerformanceInput
+): Promise<TelenoNodeDashboardPerformanceResult> {
+  return producerService.telenoNodeDashboardPerformance(input)
 }
 
-async function koinosNodeProducerProfileGet(): Promise<KoinosNodeProducerProfileResult> {
-  return producerService.koinosNodeProducerProfileGet()
+async function telenoNodeProducerProfileGet(): Promise<TelenoNodeProducerProfileResult> {
+  return producerService.telenoNodeProducerProfileGet()
 }
 
-async function koinosNodeProducerProfileClear(): Promise<KoinosNodeProducerProfileResult> {
-  return producerService.koinosNodeProducerProfileClear()
+async function telenoNodeProducerProfileClear(): Promise<TelenoNodeProducerProfileResult> {
+  return producerService.telenoNodeProducerProfileClear()
 }
 
-async function koinosNodeProducerLocalInfo(
-  input?: KoinosNodeSettingsInput
-): Promise<KoinosNodeProducerLocalInfoResult> {
-  return producerService.koinosNodeProducerLocalInfo(input)
+async function telenoNodeProducerLocalInfo(
+  input?: TelenoNodeSettingsInput
+): Promise<TelenoNodeProducerLocalInfoResult> {
+  return producerService.telenoNodeProducerLocalInfo(input)
 }
 
-async function koinosNodeProducerDelete(
-  input?: KoinosNodeSettingsInput
-): Promise<KoinosNodeProducerDeleteResult> {
-  return producerService.koinosNodeProducerDelete(input)
+async function telenoNodeProducerDelete(
+  input?: TelenoNodeSettingsInput
+): Promise<TelenoNodeProducerDeleteResult> {
+  return producerService.telenoNodeProducerDelete(input)
 }
 
-async function koinosNodeProducerRegister(
-  input?: KoinosNodeProducerRegisterInput
-): Promise<KoinosNodeProducerRegisterResult> {
-  return producerService.koinosNodeProducerRegister(input)
+async function telenoNodeProducerRegister(
+  input?: TelenoNodeProducerRegisterInput
+): Promise<TelenoNodeProducerRegisterResult> {
+  return producerService.telenoNodeProducerRegister(input)
 }
 
 async function walletOverview(input?: WalletRpcInput): Promise<WalletOverviewResult> {
@@ -4191,19 +4222,19 @@ async function walletTransferKoin(input?: WalletTransferKoinInput): Promise<Wall
   return walletService.walletTransferKoin(input)
 }
 
-async function koinosNodeLogs(input?: KoinosNodeLogsInput): Promise<KoinosNodeLogsResult> {
+async function telenoNodeLogs(input?: TelenoNodeLogsInput): Promise<TelenoNodeLogsResult> {
   return nativeComposeLogs(input)
 }
 
-async function koinosNodeLogsFollowStart(
+async function telenoNodeLogsFollowStart(
   sender: Electron.WebContents,
-  input?: KoinosNodeLogsFollowStartInput
-): Promise<KoinosNodeLogsFollowStartResult> {
+  input?: TelenoNodeLogsFollowStartInput
+): Promise<TelenoNodeLogsFollowStartResult> {
   return nativeComposeLogsFollowStart(sender, input)
 }
 
 function registerIpcHandlers() {
-  return registerKnodelIpcHandlers(ipcMain, {
+  return registerTelenoIpcHandlers(ipcMain, {
     loadPublicRpcConfig,
     savePublicRpcConfig,
     getNodeDefaults: () => {
@@ -4215,30 +4246,30 @@ function registerIpcHandlers() {
     selectNodeBaseDir,
     validateNodeBaseDirAccess,
     copyNodeBaseDirData,
-    koinosNodeStatus,
+    telenoNodeStatus,
     composePresets,
     nativeBuildStatus,
     nativeBuildAll,
     nativeBuildServiceAction,
-    koinosNodeAction,
-    koinosNodeRestoreBackup,
-    koinosNodeRestoreBackupAndVerify,
+    telenoNodeAction,
+    telenoNodeRestoreBackup,
+    telenoNodeRestoreBackupAndVerify,
     createLocalBackup,
     cancelCreateBackup,
     restoreFromLocalFile,
     getVerifyBlocks,
     setVerifyBlocks,
     koinosJsonRpcProxy,
-    koinosNodeDashboardProducers,
-    koinosNodeDashboardPeers,
-    koinosNodeDashboardPerformance,
-    koinosNodeProducerOverview,
-    koinosNodeProducerRegisteredKey,
-    koinosNodeProducerLocalInfo,
-    koinosNodeProducerRegister,
-    koinosNodeProducerProfileGet,
-    koinosNodeProducerProfileClear,
-    koinosNodeProducerDelete,
+    telenoNodeDashboardProducers,
+    telenoNodeDashboardPeers,
+    telenoNodeDashboardPerformance,
+    telenoNodeProducerOverview,
+    telenoNodeProducerRegisteredKey,
+    telenoNodeProducerLocalInfo,
+    telenoNodeProducerRegister,
+    telenoNodeProducerProfileGet,
+    telenoNodeProducerProfileClear,
+    telenoNodeProducerDelete,
     walletOverview,
     walletGenerate,
     walletImport,
@@ -4266,11 +4297,11 @@ function registerIpcHandlers() {
     walletBurn,
     walletTransferVhp,
     walletTransferKoin,
-    koinosNodeServiceAction,
-    koinosNodeComponentToggle,
-    koinosNodePresetReconcile,
-    koinosNodeLogs,
-    koinosNodeLogsFollowStart,
+    telenoNodeServiceAction,
+    telenoNodeComponentToggle,
+    telenoNodePresetReconcile,
+    telenoNodeLogs,
+    telenoNodeLogsFollowStart,
     stopLogsFollowStream
   })
 }

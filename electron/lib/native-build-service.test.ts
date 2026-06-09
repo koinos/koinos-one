@@ -9,7 +9,7 @@ import { artifactUpdatedAt, firstOutputLine } from './native-build-service'
 const tempDirs: string[] = []
 
 function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'knodel-native-build-service-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-native-build-service-'))
   tempDirs.push(dir)
   return dir
 }

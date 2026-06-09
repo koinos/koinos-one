@@ -5,13 +5,13 @@ import {
   FREE_MANA_METER_ADDRESS,
   FREE_MANA_SHARER_ADDRESS
 } from './constants'
-import { contractsForNetwork } from './network-profiles'
+import { contractsForNetwork, normalizeKoinosNetworkId, type KoinosNetworkId } from './network-profiles'
 import type {
-  KnodelEncryptedWallet,
-  KnodelProducerProfile,
-  KnodelUnlockedWalletAccount,
-  KnodelUnlockedWallet,
-  KnodelWalletAccountSummary,
+  TelenoEncryptedWallet,
+  TelenoProducerProfile,
+  TelenoUnlockedWalletAccount,
+  TelenoUnlockedWallet,
+  TelenoWalletAccountSummary,
   WalletAddressInput,
   WalletAccountMutationResult,
   WalletCreateDerivedAccountInput,
@@ -35,6 +35,7 @@ import type {
   WalletImportInput,
   WalletImportResult,
   WalletImportWatchAccountInput,
+  WalletListAccountsInput,
   WalletListAccountsResult,
   WalletOverviewResult,
   WalletReadContractInput,
@@ -45,6 +46,7 @@ import type {
   WalletScalarResult,
   WalletSetActiveAccountInput,
   WalletSetActiveAccountResult,
+  WalletShowSeedInput,
   WalletShowSeedResult,
   WalletTokenBalanceInput,
   WalletTokenBalanceResult,
@@ -58,32 +60,38 @@ import type {
 import { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-accounts'
 
 type WalletServiceDeps = {
-  loadKnodelWalletFile: () => KnodelEncryptedWallet | null
-  knodelProducerWalletFilePath: () => string
-  currentUnlockedProducerWallet: () => KnodelUnlockedWallet | null
-  saveKnodelWallet: (
+  loadTelenoWalletFile: (network?: KoinosNetworkId) => TelenoEncryptedWallet | null
+  telenoProducerWalletFilePath: (network?: KoinosNetworkId) => string
+  currentUnlockedProducerWallet: (network?: KoinosNetworkId) => TelenoUnlockedWallet | null
+  saveTelenoWallet: (
     privateKey: string,
     address: string,
     password: string,
-    options?: { seedPhrase?: string; derivationPath?: string }
+    options?: { seedPhrase?: string; derivationPath?: string; network?: KoinosNetworkId }
   ) => string
-  deleteKnodelWallet: () => boolean
-  closeKnodelWalletSession: () => string | null
-  unlockKnodelWalletSession: (password: string) => KnodelUnlockedWallet | null
-  listWalletAccounts: () => KnodelWalletAccountSummary[]
-  setActiveWalletAccount: (accountId: string) => KnodelWalletAccountSummary | null
-  createDerivedWalletAccount: (name?: string) => KnodelWalletAccountSummary | null
-  importAdditionalWalletAccount: (privateKey: string, password: string, name?: string) => KnodelWalletAccountSummary | null
-  importWatchWalletAccount: (address: string, name?: string) => KnodelWalletAccountSummary | null
-  renameWalletAccount: (accountId: string, name: string) => KnodelWalletAccountSummary | null
-  removeWalletAccount: (accountId: string) => KnodelWalletAccountSummary[] | null
+  deleteTelenoWallet: (network?: KoinosNetworkId) => boolean
+  closeTelenoWalletSession: (network?: KoinosNetworkId) => string | null
+  unlockTelenoWalletSession: (password: string, network?: KoinosNetworkId) => TelenoUnlockedWallet | null
+  listWalletAccounts: (network?: KoinosNetworkId) => TelenoWalletAccountSummary[]
+  setActiveWalletAccount: (accountId: string, network?: KoinosNetworkId) => TelenoWalletAccountSummary | null
+  createDerivedWalletAccount: (name?: string, network?: KoinosNetworkId) => TelenoWalletAccountSummary | null
+  importAdditionalWalletAccount: (
+    privateKey: string,
+    password: string,
+    name?: string,
+    network?: KoinosNetworkId
+  ) => TelenoWalletAccountSummary | null
+  importWatchWalletAccount: (address: string, name?: string, network?: KoinosNetworkId) => TelenoWalletAccountSummary | null
+  renameWalletAccount: (accountId: string, name: string, network?: KoinosNetworkId) => TelenoWalletAccountSummary | null
+  removeWalletAccount: (accountId: string, network?: KoinosNetworkId) => TelenoWalletAccountSummary[] | null
   loadWalletAccountSecrets: (
-    accountId?: string
+    accountId?: string,
+    network?: KoinosNetworkId
   ) => {
     walletAddress: string | null
     accountId: string | null
     accountName: string | null
-    accountKind: KnodelWalletAccountSummary['kind'] | null
+    accountKind: TelenoWalletAccountSummary['kind'] | null
     accountAddress: string | null
     privateKeyWif: string | null
     derivationPath: string | null
@@ -95,7 +103,7 @@ type WalletServiceDeps = {
   loadContractWithFetchedAbi: (provider: Provider, contractId: string) => Promise<Contract>
   formatWholeUnits: (value: bigint | string | number | null | undefined, decimals?: number) => string | null
   safeIsChecksumAddress: (value: string | null | undefined) => boolean
-  loadProducerProfile: () => KnodelProducerProfile | null
+  loadProducerProfile: (network?: KoinosNetworkId) => TelenoProducerProfile | null
   updateConfigProducerAddress?: (address: string) => void
 }
 
@@ -185,17 +193,17 @@ async function prepareWalletTransactionWithFreeMana(params: {
 }
 
 function activeWalletSummary(
-  wallet: KnodelEncryptedWallet | null,
-  accounts: KnodelWalletAccountSummary[]
-): KnodelWalletAccountSummary | null {
+  wallet: TelenoEncryptedWallet | null,
+  accounts: TelenoWalletAccountSummary[]
+): TelenoWalletAccountSummary | null {
   const activeId = `${wallet?.activeAccountId || ''}`.trim()
   return accounts.find((account) => account.id === activeId) || accounts[0] || null
 }
 
 function resolveUnlockedWalletAccount(
-  wallet: KnodelUnlockedWallet,
+  wallet: TelenoUnlockedWallet,
   requestedAccountId?: string | null
-): KnodelUnlockedWalletAccount | null {
+): TelenoUnlockedWalletAccount | null {
   const accountId = `${requestedAccountId || ''}`.trim()
   if (accountId) {
     const exact = wallet.accounts.find((account) => account.id === accountId)
@@ -206,16 +214,21 @@ function resolveUnlockedWalletAccount(
   return wallet.accounts.find((account) => account.id === activeAccountId) || wallet.accounts[0] || null
 }
 
+function walletNetwork(input?: WalletRpcInput): KoinosNetworkId {
+  return normalizeKoinosNetworkId(input?.network)
+}
+
 export function createWalletService(deps: WalletServiceDeps) {
   async function walletOverview(input?: WalletRpcInput): Promise<WalletOverviewResult> {
-    const wallet = deps.loadKnodelWalletFile()
-    const accounts = deps.listWalletAccounts()
+    const network = walletNetwork(input)
+    const wallet = deps.loadTelenoWalletFile(network)
+    const accounts = deps.listWalletAccounts(network)
     const activeAccount = activeWalletSummary(wallet, accounts)
     return {
       ok: true,
-      output: wallet ? `Wallet vault stored for ${wallet.address}` : 'No wallet stored in koinosGUI yet.',
+      output: wallet ? `Wallet vault stored for ${wallet.address}` : 'No wallet stored in Teleno UX yet.',
       rpcUrl: deps.resolveWalletRpcUrl(input),
-      walletFilePath: deps.knodelProducerWalletFilePath(),
+      walletFilePath: deps.telenoProducerWalletFilePath(network),
       walletExists: Boolean(wallet),
       walletAddress: wallet?.address || null,
       walletCreatedAt: wallet?.createdAt || null,
@@ -224,7 +237,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       activeAccountKind: activeAccount?.kind || null,
       accountCount: accounts.length,
       accounts,
-      unlocked: Boolean(wallet && deps.currentUnlockedProducerWallet()?.activeAccountId),
+      unlocked: Boolean(wallet && deps.currentUnlockedProducerWallet(network)?.activeAccountId),
       hasSeedPhrase: Boolean(wallet?.encryptedSeedPhrase)
     }
   }
@@ -257,6 +270,7 @@ export function createWalletService(deps: WalletServiceDeps) {
   }
 
   async function walletImport(input?: WalletImportInput): Promise<WalletImportResult> {
+    const network = walletNetwork(input)
     try {
       const privateKey = `${input?.privateKey || ''}`.trim()
       const password = `${input?.password || ''}`
@@ -266,9 +280,10 @@ export function createWalletService(deps: WalletServiceDeps) {
       if (password.length < 8) throw new Error('Password must be at least 8 characters long.')
       const signer = Signer.fromWif(privateKey)
       const address = signer.getAddress()
-      const walletFilePath = deps.saveKnodelWallet(privateKey, address, password, {
+      const walletFilePath = deps.saveTelenoWallet(privateKey, address, password, {
         seedPhrase: seedPhrase || undefined,
-        derivationPath: derivationPath || undefined
+        derivationPath: derivationPath || undefined,
+        network
       })
 
       // Auto-set producer address in config.yml when wallet is created
@@ -292,18 +307,19 @@ export function createWalletService(deps: WalletServiceDeps) {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not import producer account',
         address: null,
-        walletFilePath: deps.knodelProducerWalletFilePath(),
+        walletFilePath: deps.telenoProducerWalletFilePath(network),
         unlocked: false
       }
     }
   }
 
-  async function walletListAccounts(): Promise<WalletListAccountsResult> {
-    const wallet = deps.loadKnodelWalletFile()
-    const accounts = deps.listWalletAccounts()
+  async function walletListAccounts(input?: WalletListAccountsInput): Promise<WalletListAccountsResult> {
+    const network = walletNetwork(input)
+    const wallet = deps.loadTelenoWalletFile(network)
+    const accounts = deps.listWalletAccounts(network)
     return {
       ok: true,
-      output: wallet ? `Loaded ${accounts.length} wallet account(s).` : 'No wallet stored in koinosGUI yet.',
+      output: wallet ? `Loaded ${accounts.length} wallet account(s).` : 'No wallet stored in Teleno UX yet.',
       walletAddress: wallet?.address || null,
       activeAccountId: wallet?.activeAccountId || null,
       accounts
@@ -311,11 +327,12 @@ export function createWalletService(deps: WalletServiceDeps) {
   }
 
   async function walletSetActiveAccount(input?: WalletSetActiveAccountInput): Promise<WalletSetActiveAccountResult> {
+    const network = walletNetwork(input)
     try {
       const accountId = `${input?.accountId || ''}`.trim()
       if (!accountId) throw new Error('Account id is required.')
-      const account = deps.setActiveWalletAccount(accountId)
-      const wallet = deps.loadKnodelWalletFile()
+      const account = deps.setActiveWalletAccount(accountId, network)
+      const wallet = deps.loadTelenoWalletFile(network)
       if (!account || !wallet) throw new Error('Could not set the active wallet account.')
       return {
         ok: true,
@@ -328,161 +345,167 @@ export function createWalletService(deps: WalletServiceDeps) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not set active wallet account',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
-        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
+        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
         activeAccount: null
       }
     }
   }
 
   async function walletCreateDerivedAccount(input?: WalletCreateDerivedAccountInput): Promise<WalletAccountMutationResult> {
+    const network = walletNetwork(input)
     try {
-      const wallet = deps.loadKnodelWalletFile()
-      if (!wallet) throw new Error('No wallet stored in koinosGUI yet.')
-      if (!deps.currentUnlockedProducerWallet()?.seedPhrase) {
+      const wallet = deps.loadTelenoWalletFile(network)
+      if (!wallet) throw new Error('No wallet stored in Teleno UX yet.')
+      if (!deps.currentUnlockedProducerWallet(network)?.seedPhrase) {
         throw new Error('Unlock a seed-backed wallet first to derive another account.')
       }
-      const account = deps.createDerivedWalletAccount(input?.name)
+      const account = deps.createDerivedWalletAccount(input?.name, network)
       if (!account) throw new Error('Could not create a derived wallet account.')
       return {
         ok: true,
         output: `Created derived wallet account ${account.name}.`,
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         activeAccountId: account.id,
         account,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     } catch (error) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not create a derived wallet account',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
-        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
+        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
         account: null,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     }
   }
 
   async function walletImportAccount(input?: WalletImportAccountInput): Promise<WalletAccountMutationResult> {
+    const network = walletNetwork(input)
     try {
-      const wallet = deps.loadKnodelWalletFile()
-      if (!wallet) throw new Error('No wallet stored in koinosGUI yet.')
+      const wallet = deps.loadTelenoWalletFile(network)
+      if (!wallet) throw new Error('No wallet stored in Teleno UX yet.')
       const privateKey = `${input?.privateKey || ''}`.trim()
       const password = `${input?.password || ''}`
       if (!privateKey) throw new Error('Private key is required.')
       if (password.length < 8) throw new Error('Password must be at least 8 characters long.')
-      const account = deps.importAdditionalWalletAccount(privateKey, password, input?.name)
+      const account = deps.importAdditionalWalletAccount(privateKey, password, input?.name, network)
       if (!account) throw new Error('Could not import the wallet account.')
       return {
         ok: true,
         output: `Imported wallet account ${account.name}.`,
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         activeAccountId: account.id,
         account,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     } catch (error) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not import the wallet account',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
-        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
+        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
         account: null,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     }
   }
 
   async function walletImportWatchAccount(input?: WalletImportWatchAccountInput): Promise<WalletAccountMutationResult> {
+    const network = walletNetwork(input)
     try {
-      const wallet = deps.loadKnodelWalletFile()
-      if (!wallet) throw new Error('No wallet stored in koinosGUI yet.')
+      const wallet = deps.loadTelenoWalletFile(network)
+      if (!wallet) throw new Error('No wallet stored in Teleno UX yet.')
       const address = `${input?.address || ''}`.trim()
       if (!address) throw new Error('Address is required.')
-      const account = deps.importWatchWalletAccount(address, input?.name)
+      const account = deps.importWatchWalletAccount(address, input?.name, network)
       if (!account) throw new Error('Could not import the watch-only account.')
       return {
         ok: true,
         output: `Imported watch-only account ${account.name}.`,
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         activeAccountId: account.id,
         account,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     } catch (error) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not import the watch-only account',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
-        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
+        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
         account: null,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     }
   }
 
   async function walletRenameAccount(input?: WalletRenameAccountInput): Promise<WalletAccountMutationResult> {
+    const network = walletNetwork(input)
     try {
       const accountId = `${input?.accountId || ''}`.trim()
       const name = `${input?.name || ''}`.trim()
       if (!accountId) throw new Error('Account id is required.')
       if (!name) throw new Error('Account name is required.')
-      const account = deps.renameWalletAccount(accountId, name)
+      const account = deps.renameWalletAccount(accountId, name, network)
       if (!account) throw new Error('Could not rename the wallet account.')
       return {
         ok: true,
         output: `Renamed wallet account to ${account.name}.`,
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
-        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
+        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
         account,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     } catch (error) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not rename the wallet account',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
-        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
+        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
         account: null,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     }
   }
 
   async function walletRemoveAccount(input?: WalletRemoveAccountInput): Promise<WalletAccountMutationResult> {
+    const network = walletNetwork(input)
     try {
       const accountId = `${input?.accountId || ''}`.trim()
       if (!accountId) throw new Error('Account id is required.')
-      const accounts = deps.removeWalletAccount(accountId)
+      const accounts = deps.removeWalletAccount(accountId, network)
       if (!accounts) throw new Error('Could not remove the wallet account.')
       return {
         ok: true,
         output: 'Wallet account removed.',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
-        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
-        account: activeWalletSummary(deps.loadKnodelWalletFile(), accounts),
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
+        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
+        account: activeWalletSummary(deps.loadTelenoWalletFile(network), accounts),
         accounts
       }
     } catch (error) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not remove the wallet account',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
-        activeAccountId: deps.loadKnodelWalletFile()?.activeAccountId ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
+        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
         account: null,
-        accounts: deps.listWalletAccounts()
+        accounts: deps.listWalletAccounts(network)
       }
     }
   }
 
-  async function walletShowSeed(): Promise<WalletShowSeedResult> {
+  async function walletShowSeed(input?: WalletShowSeedInput): Promise<WalletShowSeedResult> {
+    const network = walletNetwork(input)
     try {
-      const walletFile = deps.loadKnodelWalletFile()
+      const walletFile = deps.loadTelenoWalletFile(network)
       if (!walletFile) {
         return {
           ok: false,
-          output: 'No producer account stored in koinosGUI yet.',
+          output: 'No producer account stored in Teleno UX yet.',
           walletAddress: null,
           accountId: null,
           accountName: null,
@@ -494,7 +517,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         }
       }
 
-      const unlockedWallet = deps.currentUnlockedProducerWallet()
+      const unlockedWallet = deps.currentUnlockedProducerWallet(network)
       if (!unlockedWallet || unlockedWallet.address !== walletFile.address) {
         return {
           ok: false,
@@ -510,7 +533,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         }
       }
 
-      const secrets = deps.loadWalletAccountSecrets()
+      const secrets = deps.loadWalletAccountSecrets(input?.accountId, network)
       const seedPhrase = secrets.seedPhrase?.trim() || null
       if (!seedPhrase) {
         return {
@@ -543,7 +566,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not load stored wallet secrets',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         accountId: null,
         accountName: null,
         accountKind: null,
@@ -555,39 +578,41 @@ export function createWalletService(deps: WalletServiceDeps) {
     }
   }
 
-  async function walletDelete(): Promise<WalletDeleteResult> {
+  async function walletDelete(input?: WalletRpcInput): Promise<WalletDeleteResult> {
+    const network = walletNetwork(input)
     try {
-      const deleted = deps.deleteKnodelWallet()
+      const deleted = deps.deleteTelenoWallet(network)
       return {
         ok: deleted,
         output: deleted ? 'Producer account deleted.' : 'No producer account stored.',
-        walletFilePath: deps.knodelProducerWalletFilePath()
+        walletFilePath: deps.telenoProducerWalletFilePath(network)
       }
     } catch (error) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not delete producer account',
-        walletFilePath: deps.knodelProducerWalletFilePath()
+        walletFilePath: deps.telenoProducerWalletFilePath(network)
       }
     }
   }
 
-  async function walletClose(): Promise<WalletCloseResult> {
+  async function walletClose(input?: WalletRpcInput): Promise<WalletCloseResult> {
+    const network = walletNetwork(input)
     try {
-      const walletFile = deps.loadKnodelWalletFile()
+      const walletFile = deps.loadTelenoWalletFile(network)
       if (!walletFile) {
         return {
           ok: false,
-          output: 'No producer account stored in koinosGUI yet.',
+          output: 'No producer account stored in Teleno UX yet.',
           walletAddress: null,
           unlocked: false
         }
       }
 
-      const walletAddress = deps.closeKnodelWalletSession()
+      const walletAddress = deps.closeTelenoWalletSession(network)
       return {
         ok: true,
-        output: `Producer account closed for this koinosGUI session: ${walletAddress || walletFile.address}.`,
+        output: `Producer account closed for this Teleno UX session: ${walletAddress || walletFile.address}.`,
         walletAddress: walletAddress || walletFile.address,
         unlocked: false
       }
@@ -595,19 +620,20 @@ export function createWalletService(deps: WalletServiceDeps) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not close producer account',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         unlocked: false
       }
     }
   }
 
   async function walletUnlock(input?: WalletUnlockInput): Promise<WalletUnlockResult> {
+    const network = walletNetwork(input)
     try {
-      const walletFile = deps.loadKnodelWalletFile()
+      const walletFile = deps.loadTelenoWalletFile(network)
       if (!walletFile) {
         return {
           ok: false,
-          output: 'No producer account stored in koinosGUI yet.',
+          output: 'No producer account stored in Teleno UX yet.',
           walletAddress: null,
           unlocked: false
         }
@@ -623,7 +649,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         }
       }
 
-      const wallet = deps.unlockKnodelWalletSession(password)
+      const wallet = deps.unlockTelenoWalletSession(password, network)
       if (!wallet) {
         return {
           ok: false,
@@ -635,7 +661,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
       return {
         ok: true,
-        output: `Producer account unlocked for this koinosGUI session: ${wallet.address}.`,
+        output: `Producer account unlocked for this Teleno UX session: ${wallet.address}.`,
         walletAddress: wallet.address,
         unlocked: true
       }
@@ -643,7 +669,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not unlock producer account',
-        walletAddress: deps.loadKnodelWalletFile()?.address ?? null,
+        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         unlocked: false
       }
     }
@@ -1006,13 +1032,14 @@ export function createWalletService(deps: WalletServiceDeps) {
   }
 
   async function walletBurn(input?: WalletBurnInput): Promise<WalletBurnResult> {
+    const network = walletNetwork(input)
     const rpcUrl = deps.resolveWalletRpcUrl(input)
-    const contracts = contractsForNetwork(input?.network ?? 'mainnet')
+    const contracts = contractsForNetwork(network)
     const dryRun = Boolean(input?.dryRun)
     const useFreeMana = Boolean(input?.useFreeMana)
     const requestedAccountId = `${input?.accountId || ''}`.trim()
     const useProducerBurnAccount = input?.useProducerBurnAccount !== false
-    const producerProfile = deps.loadProducerProfile()
+    const producerProfile = deps.loadProducerProfile(network)
     const requestedTargetAddress = `${input?.targetAddress || ''}`.trim()
     const fail = (output: string): WalletBurnResult => ({
       ok: false,
@@ -1032,8 +1059,8 @@ export function createWalletService(deps: WalletServiceDeps) {
       txId: null
     })
 
-    const walletFile = deps.loadKnodelWalletFile()
-    if (!walletFile) return fail('No producer account stored in koinosGUI yet.')
+    const walletFile = deps.loadTelenoWalletFile(network)
+    if (!walletFile) return fail('No producer account stored in Teleno UX yet.')
 
     const hasPercent = typeof input?.percent === 'number' && Number.isFinite(input.percent)
     const hasAmount = typeof input?.amount === 'number' && Number.isFinite(input.amount)
@@ -1042,10 +1069,10 @@ export function createWalletService(deps: WalletServiceDeps) {
 
     try {
       const password = `${input?.password || ''}`
-      const wallet = deps.currentUnlockedProducerWallet() || (password ? deps.unlockKnodelWalletSession(password) : null)
+      const wallet = deps.currentUnlockedProducerWallet(network) || (password ? deps.unlockTelenoWalletSession(password, network) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Producer tab.')
       const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
-      if (!signingAccount) return fail('Selected wallet account is not unlocked in this koinosGUI session.')
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Teleno UX session.')
       if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
       if (useProducerBurnAccount) {
         if (!producerProfile?.burnAccountId) return fail('No producer burn account is configured yet.')
@@ -1217,8 +1244,9 @@ export function createWalletService(deps: WalletServiceDeps) {
   }
 
   async function walletTransferVhp(input?: WalletTransferVhpInput): Promise<WalletTransferVhpResult> {
+    const network = walletNetwork(input)
     const rpcUrl = deps.resolveWalletRpcUrl(input)
-    const contracts = contractsForNetwork(input?.network ?? 'mainnet')
+    const contracts = contractsForNetwork(network)
     const dryRun = Boolean(input?.dryRun)
     const useFreeMana = Boolean(input?.useFreeMana)
     const toAddress = `${input?.toAddress || ''}`.trim()
@@ -1240,15 +1268,15 @@ export function createWalletService(deps: WalletServiceDeps) {
     const amount = typeof input?.amount === 'number' && Number.isFinite(input.amount) ? Number(input.amount) : NaN
     if (!Number.isFinite(amount) || amount <= 0) return fail('Transfer amount must be greater than zero.')
 
-    const walletFile = deps.loadKnodelWalletFile()
-    if (!walletFile) return fail('No producer account stored in koinosGUI yet.')
+    const walletFile = deps.loadTelenoWalletFile(network)
+    if (!walletFile) return fail('No producer account stored in Teleno UX yet.')
 
     try {
       const password = `${input?.password || ''}`
-      const wallet = deps.currentUnlockedProducerWallet() || (password ? deps.unlockKnodelWalletSession(password) : null)
+      const wallet = deps.currentUnlockedProducerWallet(network) || (password ? deps.unlockTelenoWalletSession(password, network) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Wallet tab.')
       const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
-      if (!signingAccount) return fail('Selected wallet account is not unlocked in this koinosGUI session.')
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Teleno UX session.')
       if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
 
       const provider = new Provider([rpcUrl])
@@ -1348,8 +1376,9 @@ export function createWalletService(deps: WalletServiceDeps) {
   }
 
   async function walletTransferKoin(input?: WalletTransferKoinInput): Promise<WalletTransferKoinResult> {
+    const network = walletNetwork(input)
     const rpcUrl = deps.resolveWalletRpcUrl(input)
-    const contracts = contractsForNetwork(input?.network ?? 'mainnet')
+    const contracts = contractsForNetwork(network)
     const dryRun = Boolean(input?.dryRun)
     const useFreeMana = Boolean(input?.useFreeMana)
     const toAddress = `${input?.toAddress || ''}`.trim()
@@ -1371,15 +1400,15 @@ export function createWalletService(deps: WalletServiceDeps) {
     const amount = typeof input?.amount === 'number' && Number.isFinite(input.amount) ? Number(input.amount) : NaN
     if (!Number.isFinite(amount) || amount <= 0) return fail('Transfer amount must be greater than zero.')
 
-    const walletFile = deps.loadKnodelWalletFile()
-    if (!walletFile) return fail('No producer account stored in koinosGUI yet.')
+    const walletFile = deps.loadTelenoWalletFile(network)
+    if (!walletFile) return fail('No producer account stored in Teleno UX yet.')
 
     try {
       const password = `${input?.password || ''}`
-      const wallet = deps.currentUnlockedProducerWallet() || (password ? deps.unlockKnodelWalletSession(password) : null)
+      const wallet = deps.currentUnlockedProducerWallet(network) || (password ? deps.unlockTelenoWalletSession(password, network) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Wallet tab.')
       const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
-      if (!signingAccount) return fail('Selected wallet account is not unlocked in this koinosGUI session.')
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Teleno UX session.')
       if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
 
       const provider = new Provider([rpcUrl])

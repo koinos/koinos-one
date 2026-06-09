@@ -5,13 +5,13 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const STAGING = path.resolve(process.env.PACKAGE_STAGING_DIR || path.join(ROOT, 'build', 'bundle-staging', 'koinos'));
+const STAGING = path.resolve(process.env.PACKAGE_STAGING_DIR || path.join(ROOT, 'build', 'bundle-staging', 'teleno'));
 const targetPlatform = (process.env.PACKAGE_TARGET_PLATFORM || process.platform).toLowerCase();
 const isWindowsTarget = targetPlatform === 'win32' || targetPlatform === 'windows' || targetPlatform === 'win';
 const ext = isWindowsTarget ? '.exe' : '';
 
 const requiredBinaries = [
-  'koinos_node',
+  'teleno_node',
 ].map((name) => path.join('bin', `${name}${ext}`));
 
 const requiredFiles = [
@@ -75,7 +75,7 @@ function dirSizeBytes(dir) {
 }
 
 console.log('============================================================================');
-console.log('Verifying koinosGUI package staging');
+console.log('Verifying Teleno package staging');
 console.log(`  Staging: ${STAGING}`);
 console.log(`  Target:  ${targetPlatform}`);
 console.log('============================================================================');

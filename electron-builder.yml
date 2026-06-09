@@ -1,6 +1,6 @@
 forceCodeSigning: false
-appId: io.koinosgui.desktop
-productName: koinosGUI
+appId: io.teleno.desktop
+productName: Teleno
 directories:
   buildResources: assets/branding
   output: release
@@ -27,7 +27,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 extraResources:
-  - from: build/bundle-staging/koinos
-    to: koinos
+  - from: build/bundle-staging/teleno
+    to: teleno
     filter:
       - "**/*"

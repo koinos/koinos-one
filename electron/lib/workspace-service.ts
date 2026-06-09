@@ -4,21 +4,21 @@ import path from 'node:path'
 import { KOINOS_GIT_CLONE_URL, isPackagedBuild, resolveKoinosConfigRoot } from './constants'
 import { inspectBaseDirIdentity } from './basedir-identity'
 import type {
-  KoinosNodeCloneRepoResult,
-  KoinosNodeFileReadInput,
-  KoinosNodeFileReadResult,
-  KoinosNodeFileWriteInput,
-  KoinosNodeFileWriteResult,
-  KoinosNodeSettings,
-  KoinosNodeSettingsInput,
-  KoinosNodeValidateBaseDirResult
+  TelenoNodeCloneRepoResult,
+  TelenoNodeFileReadInput,
+  TelenoNodeFileReadResult,
+  TelenoNodeFileWriteInput,
+  TelenoNodeFileWriteResult,
+  TelenoNodeSettings,
+  TelenoNodeSettingsInput,
+  TelenoNodeValidateBaseDirResult
 } from './main-types'
 
 type WorkspaceServiceDeps = {
-  normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
-  configDirPath: (settings: KoinosNodeSettings) => string
-  configExampleDirPath: (settings: KoinosNodeSettings) => string
-  managedFilePath: (settings: KoinosNodeSettings, kind: 'config') => string
+  normalizeNodeSettings: (input?: TelenoNodeSettingsInput) => TelenoNodeSettings
+  configDirPath: (settings: TelenoNodeSettings) => string
+  configExampleDirPath: (settings: TelenoNodeSettings) => string
+  managedFilePath: (settings: TelenoNodeSettings, kind: 'config') => string
   baseDirConfigFilePath: (settings: { baseDir: string }) => string
   restoreWorkspaceParentPath: (baseDir: string) => string
   verifyWritableDirectory: (dirPath: string) => void
@@ -34,11 +34,11 @@ export function directoryHasEntries(dirPath: string): boolean {
 }
 
 export function createWorkspaceService(deps: WorkspaceServiceDeps) {
-  function assertRepoReady(_settings: KoinosNodeSettings): void {
+  function assertRepoReady(_settings: TelenoNodeSettings): void {
     // In native mode, services are bundled — no external repo checkout needed
   }
 
-  function ensureKoinosConfigFiles(settings: KoinosNodeSettings): { configReady: boolean; output: string } {
+  function ensureKoinosConfigFiles(settings: TelenoNodeSettings): { configReady: boolean; output: string } {
     const configDir = deps.configDirPath(settings)
     const exampleDir = deps.configExampleDirPath(settings)
 
@@ -69,7 +69,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
     return { configReady: true, output }
   }
 
-  function ensureBaseDirKoinosRuntimeFiles(settings: KoinosNodeSettings): string {
+  function ensureBaseDirKoinosRuntimeFiles(settings: TelenoNodeSettings): string {
     const cfgDir = deps.configDirPath(settings)
     const identity = inspectBaseDirIdentity(settings.baseDir)
     const mappings = [
@@ -120,7 +120,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
     return notes.join('\n') || 'BASEDIR runtime files already present'
   }
 
-  function validateNodeBaseDirAccess(input?: KoinosNodeSettingsInput): KoinosNodeValidateBaseDirResult {
+  function validateNodeBaseDirAccess(input?: TelenoNodeSettingsInput): TelenoNodeValidateBaseDirResult {
     const settings = deps.normalizeNodeSettings(input)
     const restoreWorkspaceParent = deps.restoreWorkspaceParentPath(settings.baseDir)
 
@@ -159,7 +159,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
     }
   }
 
-  async function cloneKoinosRepo(input?: KoinosNodeSettingsInput): Promise<KoinosNodeCloneRepoResult> {
+  async function cloneKoinosRepo(input?: TelenoNodeSettingsInput): Promise<TelenoNodeCloneRepoResult> {
     const settings = deps.normalizeNodeSettings(input)
     const repoPath = settings.repoPath
 
@@ -234,7 +234,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
     }
   }
 
-  async function readKoinosManagedFile(input: KoinosNodeFileReadInput): Promise<KoinosNodeFileReadResult> {
+  async function readKoinosManagedFile(input: TelenoNodeFileReadInput): Promise<TelenoNodeFileReadResult> {
     const settings = deps.normalizeNodeSettings(input)
     const kind: 'config' = 'config'
     // Prefer BASEDIR config (the active running config) over the repo template
@@ -262,7 +262,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
     }
   }
 
-  async function writeKoinosManagedFile(input: KoinosNodeFileWriteInput): Promise<KoinosNodeFileWriteResult> {
+  async function writeKoinosManagedFile(input: TelenoNodeFileWriteInput): Promise<TelenoNodeFileWriteResult> {
     const settings = deps.normalizeNodeSettings(input)
     const kind: 'config' = 'config'
     // Write to BASEDIR config (the active running config) when available

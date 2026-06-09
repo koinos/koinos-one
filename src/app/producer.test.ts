@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  getProducerPublicKeyRegistrationState,
   getProducerSetupBlockReason,
   hasRuntimeProducerIdentity,
   isProducerActivelyProducingFromLogs,
@@ -62,6 +63,28 @@ describe('producer setup helpers', () => {
     })).toBe(false)
   })
 
+  it('classifies producer public key registration state', () => {
+    expect(getProducerPublicKeyRegistrationState({
+      localPublicKey: '',
+      registeredPublicKey: 'AjyRegistered'
+    })).toBe('unknown')
+
+    expect(getProducerPublicKeyRegistrationState({
+      localPublicKey: 'AjyLocal',
+      registeredPublicKey: ''
+    })).toBe('unregistered')
+
+    expect(getProducerPublicKeyRegistrationState({
+      localPublicKey: ' AjyLocal ',
+      registeredPublicKey: 'AjyLocal'
+    })).toBe('match')
+
+    expect(getProducerPublicKeyRegistrationState({
+      localPublicKey: 'AjyLocal',
+      registeredPublicKey: 'AjyOther'
+    })).toBe('mismatch')
+  })
+
   it('detects setup completion from profile data', () => {
     const profile = {
       ok: true,
@@ -77,7 +100,7 @@ describe('producer setup helpers', () => {
         lastRegistrationTxId: null,
         updatedAt: '2026-03-05T00:00:00.000Z'
       }
-    } satisfies KnodelKoinosNodeProducerProfileResult
+    } satisfies TelenoNodeProducerProfileResult
 
     expect(isProducerSetupComplete(profile)).toBe(true)
     expect(isProducerSetupComplete(null)).toBe(false)

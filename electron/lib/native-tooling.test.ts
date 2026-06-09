@@ -23,7 +23,7 @@ describe('native tooling helpers', () => {
     const definition = monolithBuildDefinition('/tmp/koinos-source')
     const configureArgs = definition.cmakeConfigureArgs ?? []
 
-    expect(definition.serviceId).toBe('koinos-node')
+    expect(definition.serviceId).toBe('teleno-node')
     expect(definition.artifactPath).toBe(path.join('/tmp/koinos-source', 'koinos-node', 'build', 'koinos_node'))
     expect(configureArgs).toContain('KOINOS_ENABLE_LIBP2P=ON')
     expect(configureArgs).toContain(`CMAKE_PROJECT_INCLUDE=${path.join('/tmp/koinos-source', 'koinos-node', 'cmake', 'cpp-libp2p-koinos-prelude.cmake')}`)

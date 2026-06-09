@@ -6,7 +6,7 @@ namespace koinos::node {
 
 inline constexpr const char* node_name()
 {
-  return "koinos_node";
+  return "teleno_node";
 }
 
 inline constexpr const char* semantic_version()

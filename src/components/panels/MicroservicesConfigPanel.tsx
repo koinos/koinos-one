@@ -12,7 +12,7 @@ import {
   type IgnoredLegacyConfigEntry,
   type ConfigSection
 } from '../../app/koinos-config-schema'
-import { getKoinosNodeBridge, toNodeApiSettings } from '../../app/utils'
+import { getTelenoNodeBridge, toNodeApiSettings } from '../../app/utils'
 import type { NodeManagerSettings } from '../../app/types'
 
 type ComponentHealthEntry = {
@@ -47,7 +47,7 @@ export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, components, 
   const bannerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadConfig = useCallback(async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge) return
     setLoading(true)
     setError(null)
@@ -83,7 +83,7 @@ export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, components, 
   }, [])
 
   const saveConfig = async () => {
-    const bridge = getKoinosNodeBridge()
+    const bridge = getTelenoNodeBridge()
     if (!bridge) return
     setSaving(true)
     setError(null)

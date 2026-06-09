@@ -9,25 +9,25 @@ import {
   primaryPublicRpcUrlForNetwork,
 } from './network-profiles'
 
-export const DEFAULT_BASEDIR = path.join(os.homedir(), '.koinosgui')
+export const DEFAULT_BASEDIR = path.join(os.homedir(), '.teleno')
 export const DEFAULT_BLOCKCHAIN_BACKUP_URL = MAINNET_BLOCKCHAIN_BACKUP_URL
 export const PUBLIC_KOINOS_RPC_URL = primaryPublicRpcUrlForNetwork('mainnet')
 export const DEFAULT_PUBLIC_RPC_URLS = MAINNET_PUBLIC_RPC_URLS
-export const NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
-export const LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
+export const NODE_SETTINGS_STORAGE_KEY = 'teleno.node.settings.v1'
+export const LANGUAGE_STORAGE_KEY = 'teleno.ui.language.v1'
 export const KOIN_CONTRACT_ADDRESS = MAINNET_CONTRACTS.koin
 export const VHP_CONTRACT_ADDRESS = MAINNET_CONTRACTS.vhp
 export const POB_CONTRACT_ADDRESS = MAINNET_CONTRACTS.pob
 export const FREE_MANA_SHARER_ADDRESS = '162GhJwsciDiKsgwzj2t6VoFHt3RMzGKdG'
 export const FREE_MANA_METER_ADDRESS = '1MqveNK3piSGPHGocsRUCVhpCPLgQA58K9'
-export const KNODEL_SECURE_STORAGE_DIR = 'secure-storage'
-export const KNODEL_CONFIG_DIR = 'config'
-export const KNODEL_PRODUCER_WALLET_FILE = 'producer-wallet.json'
-export const KNODEL_PRODUCER_PROFILE_FILE = 'producer-profile.v1.json'
-export const KNODEL_PUBLIC_RPCS_FILE = 'public-rpcs.json'
-export const KNODEL_ENCRYPTION_ALGORITHM = 'aes-256-gcm'
-export const KNODEL_KEY_LENGTH = 32
-export const KNODEL_PBKDF2_ITERATIONS = 100000
+export const TELENO_SECURE_STORAGE_DIR = 'secure-storage'
+export const TELENO_CONFIG_DIR = 'config'
+export const TELENO_PRODUCER_WALLET_FILE = 'producer-wallet.json'
+export const TELENO_PRODUCER_PROFILE_FILE = 'producer-profile.v1.json'
+export const TELENO_PUBLIC_RPCS_FILE = 'public-rpcs.json'
+export const TELENO_ENCRYPTION_ALGORITHM = 'aes-256-gcm'
+export const TELENO_KEY_LENGTH = 32
+export const TELENO_PBKDF2_ITERATIONS = 100000
 export const PRODUCER_DAY_WINDOW_MS = 24 * 60 * 60 * 1000
 export const BLOCK_STORE_PAGE_SIZE = 1000
 export const DASHBOARD_PRODUCER_WINDOW_BLOCKS_DEFAULT = 200
@@ -35,6 +35,8 @@ export const DASHBOARD_PRODUCER_WINDOW_BLOCKS_MIN = 20
 export const DASHBOARD_PRODUCER_WINDOW_BLOCKS_MAX = 5000
 export const DASHBOARD_PEER_LOG_TAIL = 2000
 export const KOINOS_GIT_CLONE_URL = 'https://github.com/koinos/koinos'
+export const TELENO_NODE_BINARY_NAME = 'teleno_node'
+export const UPSTREAM_KOINOS_NODE_BINARY_NAME = 'koinos_node'
 
 // Resolved at runtime relative to the app root (see platform.ts)
 export function resolveDefaultKoinosSourceRoot(): string {
@@ -54,7 +56,7 @@ export function isPackagedBuild(): boolean {
 /** Root directory for bundled Koinos binaries (packaged) or vendor source (dev). */
 export function resolveKoinosBinRoot(): string {
   if (isPackagedBuild()) {
-    return path.join(process.resourcesPath!, 'koinos', 'bin')
+    return path.join(process.resourcesPath!, 'teleno', 'bin')
   }
   return resolveDefaultKoinosSourceRoot()
 }
@@ -62,7 +64,7 @@ export function resolveKoinosBinRoot(): string {
 /** Root directory for bundled koinos-rest standalone app (packaged only). */
 export function resolveKoinosRestRoot(): string {
   if (isPackagedBuild()) {
-    return path.join(process.resourcesPath!, 'koinos', 'rest')
+    return path.join(process.resourcesPath!, 'teleno', 'rest')
   }
   return path.join(resolveDefaultKoinosSourceRoot(), 'koinos-rest')
 }
@@ -70,7 +72,7 @@ export function resolveKoinosRestRoot(): string {
 /** Root directory for bundled config templates (packaged only). */
 export function resolveKoinosConfigRoot(): string {
   if (isPackagedBuild()) {
-    return path.join(process.resourcesPath!, 'koinos', 'config')
+    return path.join(process.resourcesPath!, 'teleno', 'config')
   }
   return path.join(resolveDefaultKoinosSourceRoot(), 'koinos', 'config-example')
 }
@@ -79,7 +81,7 @@ export function resolveKoinosConfigRoot(): string {
 export function resolveAmqpBrokerPath(): string {
   const ext = executableExtension()
   if (isPackagedBuild()) {
-    return path.join(process.resourcesPath!, 'koinos', 'bin', 'garagemq' + ext)
+    return path.join(process.resourcesPath!, 'teleno', 'bin', 'garagemq' + ext)
   }
   return path.resolve(__dirname, '..', '..', 'vendor', 'amqp-broker', 'garagemq' + ext)
 }
@@ -87,22 +89,25 @@ export function resolveAmqpBrokerPath(): string {
 /** Path to GarageMQ config template. @deprecated Use monolith mode config instead. */
 export function resolveAmqpBrokerConfigPath(): string {
   if (isPackagedBuild()) {
-    return path.join(process.resourcesPath!, 'koinos', 'config', 'amqp', 'garagemq.yaml')
+    return path.join(process.resourcesPath!, 'teleno', 'config', 'amqp', 'garagemq.yaml')
   }
   return path.resolve(__dirname, '..', '..', 'vendor', 'amqp-broker', 'etc', 'config.yaml')
 }
 
-/** Path to the monolithic koinos_node binary. */
+/** Path to the monolithic Teleno node binary. */
 export function resolveMonolithBinaryPath(): string {
   const ext = executableExtension()
   if (isPackagedBuild()) {
-    return path.join(process.resourcesPath!, 'koinos', 'bin', 'koinos_node' + ext)
+    return path.join(process.resourcesPath!, 'teleno', 'bin', TELENO_NODE_BINARY_NAME + ext)
   }
 
-  const primaryPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', 'koinos_node' + ext)
+  const telenoAliasPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', TELENO_NODE_BINARY_NAME + ext)
+  if (fs.existsSync(telenoAliasPath)) return telenoAliasPath
+
+  const primaryPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', UPSTREAM_KOINOS_NODE_BINARY_NAME + ext)
   if (fs.existsSync(primaryPath)) return primaryPath
 
-  const nestedPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', 'src', 'koinos_node' + ext)
+  const nestedPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', 'src', UPSTREAM_KOINOS_NODE_BINARY_NAME + ext)
   return nestedPath
 }
 

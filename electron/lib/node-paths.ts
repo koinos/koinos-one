@@ -7,7 +7,7 @@ import {
   DEFAULT_PUBLIC_RPC_URLS,
   resolveDefaultKoinosRepoPath
 } from './constants'
-import { isExistingKoinosNodeBaseDir } from './basedir-identity'
+import { isExistingTelenoNodeBaseDir } from './basedir-identity'
 import {
   defaultProfilesForNetwork,
   normalizeKoinosNetworkId,
@@ -30,14 +30,17 @@ export function ensureKoinosBaseDir(inputPath: string): string {
   const absoluteCandidate = path.isAbsolute(trimmedTrailingSeparators)
     ? trimmedTrailingSeparators
     : path.join(os.homedir(), trimmedTrailingSeparators)
-  if (isExistingKoinosNodeBaseDir(absoluteCandidate)) return absoluteCandidate
+  if (isExistingTelenoNodeBaseDir(absoluteCandidate)) return absoluteCandidate
 
   const existingChildBaseDir = ['basedir', '.koinos']
     .map((childName) => path.join(absoluteCandidate, childName))
-    .find((candidate) => isExistingKoinosNodeBaseDir(candidate))
+    .find((candidate) => isExistingTelenoNodeBaseDir(candidate))
   if (existingChildBaseDir) return existingChildBaseDir
 
-  const withSuffix = trimmedTrailingSeparators.endsWith('.koinos') || trimmedTrailingSeparators.endsWith('.koinosgui')
+  const withSuffix =
+    trimmedTrailingSeparators.endsWith('.koinos') ||
+    trimmedTrailingSeparators.endsWith('.koinosgui') ||
+    trimmedTrailingSeparators.endsWith('.teleno')
     ? trimmedTrailingSeparators
     : path.join(trimmedTrailingSeparators, '.koinos')
   // Always return an absolute path — relative paths cause failures in packaged builds

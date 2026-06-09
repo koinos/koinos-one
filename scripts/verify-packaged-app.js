@@ -13,7 +13,7 @@ const ext = isWindowsTarget ? '.exe' : '';
 function defaultPackagedAppDir() {
   if (isMacTarget) {
     const archDir = process.arch === 'arm64' ? 'mac-arm64' : 'mac';
-    return path.join(ROOT, 'release', archDir, 'koinosGUI.app');
+    return path.join(ROOT, 'release', archDir, 'Teleno.app');
   }
   if (isWindowsTarget) {
     return path.join(ROOT, 'release', 'win-unpacked');
@@ -24,15 +24,15 @@ function defaultPackagedAppDir() {
 const APP_DIR = path.resolve(process.env.PACKAGED_APP_DIR || defaultPackagedAppDir());
 const RESOURCES_DIR = isMacTarget ? path.join(APP_DIR, 'Contents', 'Resources') : path.join(APP_DIR, 'resources');
 const APP_EXECUTABLE = isMacTarget
-  ? path.join(APP_DIR, 'Contents', 'MacOS', 'koinosGUI')
-  : path.join(APP_DIR, `koinosGUI${ext}`);
+  ? path.join(APP_DIR, 'Contents', 'MacOS', 'Teleno')
+  : path.join(APP_DIR, `Teleno${ext}`);
 
 const requiredFiles = [
   path.join(RESOURCES_DIR, 'app.asar'),
-  path.join(RESOURCES_DIR, 'koinos', 'bin', `koinos_node${ext}`),
-  path.join(RESOURCES_DIR, 'koinos', 'config', 'config.yml'),
-  path.join(RESOURCES_DIR, 'koinos', 'config', 'genesis_data.json'),
-  path.join(RESOURCES_DIR, 'koinos', 'config', 'koinos_descriptors.pb'),
+  path.join(RESOURCES_DIR, 'teleno', 'bin', `teleno_node${ext}`),
+  path.join(RESOURCES_DIR, 'teleno', 'config', 'config.yml'),
+  path.join(RESOURCES_DIR, 'teleno', 'config', 'genesis_data.json'),
+  path.join(RESOURCES_DIR, 'teleno', 'config', 'koinos_descriptors.pb'),
   APP_EXECUTABLE,
 ];
 
@@ -75,7 +75,7 @@ function dirSizeBytes(dir) {
 }
 
 console.log('============================================================================');
-console.log('Verifying koinosGUI packaged app');
+console.log('Verifying Teleno packaged app');
 console.log(`  App:       ${APP_DIR}`);
 console.log(`  Resources: ${RESOURCES_DIR}`);
 console.log(`  Target:    ${targetPlatform}`);
@@ -85,7 +85,7 @@ if (!fs.existsSync(APP_DIR) || !fs.statSync(APP_DIR).isDirectory()) {
   fail(`packaged app directory missing: ${APP_DIR}`);
 } else {
   for (const filePath of requiredFiles) {
-    if (filePath === APP_EXECUTABLE || filePath.endsWith(`${path.sep}koinos_node${ext}`)) {
+    if (filePath === APP_EXECUTABLE || filePath.endsWith(`${path.sep}teleno_node${ext}`)) {
       requireExecutable(filePath);
     } else {
       requireFile(filePath);
@@ -102,5 +102,5 @@ if (failures.length > 0) {
 }
 
 const appSizeMb = (dirSizeBytes(APP_DIR) / (1024 * 1024)).toFixed(1);
-const resourceSizeMb = (dirSizeBytes(path.join(RESOURCES_DIR, 'koinos')) / (1024 * 1024)).toFixed(1);
-console.log(`Packaged app verification passed: ${requiredFiles.length} required files, app ${appSizeMb} MB, koinos resources ${resourceSizeMb} MB.`);
+const resourceSizeMb = (dirSizeBytes(path.join(RESOURCES_DIR, 'teleno')) / (1024 * 1024)).toFixed(1);
+console.log(`Packaged app verification passed: ${requiredFiles.length} required files, app ${appSizeMb} MB, Teleno resources ${resourceSizeMb} MB.`);

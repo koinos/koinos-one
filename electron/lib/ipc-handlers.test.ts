@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { registerKnodelIpcHandlers } from './ipc-handlers'
+import { registerTelenoIpcHandlers } from './ipc-handlers'
 
 type FakeHandler = (event: { sender: unknown }, input?: unknown) => Promise<unknown>
 
@@ -33,25 +33,25 @@ function createDeps() {
     selectNodeBaseDir: vi.fn(async () => ({ ok: true })),
     validateNodeBaseDirAccess: vi.fn(async () => ({ ok: true })),
     copyNodeBaseDirData: vi.fn(async () => ({ ok: true })),
-    koinosNodeStatus: vi.fn(async () => ({ ok: true })),
+    telenoNodeStatus: vi.fn(async () => ({ ok: true })),
     composePresets: vi.fn(async () => ({ ok: true })),
     nativeBuildStatus: vi.fn(async () => ({ ok: true })),
     nativeBuildAll: vi.fn(async () => ({ ok: true })),
     nativeBuildServiceAction: vi.fn(async () => ({ ok: true })),
-    koinosNodeAction: vi.fn(async () => ({ ok: true })),
-    koinosNodeRestoreBackup: vi.fn(async () => ({ ok: true })),
-    koinosNodeRestoreBackupAndVerify: vi.fn(async () => ({ ok: true })),
+    telenoNodeAction: vi.fn(async () => ({ ok: true })),
+    telenoNodeRestoreBackup: vi.fn(async () => ({ ok: true })),
+    telenoNodeRestoreBackupAndVerify: vi.fn(async () => ({ ok: true })),
     koinosJsonRpcProxy: vi.fn(async () => ({ ok: true })),
-    koinosNodeDashboardProducers: vi.fn(async () => ({ ok: true })),
-    koinosNodeDashboardPeers: vi.fn(async () => ({ ok: true })),
-    koinosNodeDashboardPerformance: vi.fn(async () => ({ ok: true, rows: [] })),
-    koinosNodeProducerOverview: vi.fn(async () => ({ ok: true })),
-    koinosNodeProducerRegisteredKey: vi.fn(async () => ({ ok: true })),
-    koinosNodeProducerLocalInfo: vi.fn(async () => ({ ok: true })),
-    koinosNodeProducerRegister: vi.fn(async () => ({ ok: true })),
-    koinosNodeProducerProfileGet: vi.fn(async () => ({ ok: true })),
-    koinosNodeProducerProfileClear: vi.fn(async () => ({ ok: true })),
-    koinosNodeProducerDelete: vi.fn(async () => ({ ok: true })),
+    telenoNodeDashboardProducers: vi.fn(async () => ({ ok: true })),
+    telenoNodeDashboardPeers: vi.fn(async () => ({ ok: true })),
+    telenoNodeDashboardPerformance: vi.fn(async () => ({ ok: true, rows: [] })),
+    telenoNodeProducerOverview: vi.fn(async () => ({ ok: true })),
+    telenoNodeProducerRegisteredKey: vi.fn(async () => ({ ok: true })),
+    telenoNodeProducerLocalInfo: vi.fn(async () => ({ ok: true })),
+    telenoNodeProducerRegister: vi.fn(async () => ({ ok: true })),
+    telenoNodeProducerProfileGet: vi.fn(async () => ({ ok: true })),
+    telenoNodeProducerProfileClear: vi.fn(async () => ({ ok: true })),
+    telenoNodeProducerDelete: vi.fn(async () => ({ ok: true })),
     walletOverview: vi.fn(async () => ({ ok: true })),
     walletGenerate: vi.fn(async () => ({ ok: true })),
     walletImport: vi.fn(async () => ({ ok: true })),
@@ -79,11 +79,11 @@ function createDeps() {
     walletBurn: vi.fn(async () => ({ ok: true })),
     walletTransferVhp: vi.fn(async () => ({ ok: true })),
     walletTransferKoin: vi.fn(async () => ({ ok: true })),
-    koinosNodeServiceAction: vi.fn(async () => ({ ok: true })),
-    koinosNodeComponentToggle: vi.fn(async () => ({ ok: true, component: '', enabled: true, output: '', status: {} })),
-    koinosNodePresetReconcile: vi.fn(async () => ({ ok: true })),
-    koinosNodeLogs: vi.fn(async () => ({ ok: true })),
-    koinosNodeLogsFollowStart: vi.fn(async () => ({ ok: true })),
+    telenoNodeServiceAction: vi.fn(async () => ({ ok: true })),
+    telenoNodeComponentToggle: vi.fn(async () => ({ ok: true, component: '', enabled: true, output: '', status: {} })),
+    telenoNodePresetReconcile: vi.fn(async () => ({ ok: true })),
+    telenoNodeLogs: vi.fn(async () => ({ ok: true })),
+    telenoNodeLogsFollowStart: vi.fn(async () => ({ ok: true })),
     stopLogsFollowStream: vi.fn(async () => ({ ok: true, streamId: 'stream-1' }))
   }
 }
@@ -93,9 +93,9 @@ describe('ipc-handlers', () => {
     const ipcMain = createFakeIpcMain()
     const deps = createDeps()
 
-    registerKnodelIpcHandlers(ipcMain as any, deps as any)
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
 
-    const defaults = await ipcMain.handlers.get('knodel:koinos-node:defaults')?.({ sender: {} })
+    const defaults = await ipcMain.handlers.get('teleno:node:defaults')?.({ sender: {} })
     expect(defaults).toEqual({ ok: true, baseDir: '/tmp' })
     expect(deps.getNodeDefaults).toHaveBeenCalledTimes(1)
   })
@@ -104,9 +104,9 @@ describe('ipc-handlers', () => {
     const ipcMain = createFakeIpcMain()
     const deps = createDeps()
 
-    registerKnodelIpcHandlers(ipcMain as any, deps as any)
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
 
-    const result = await ipcMain.handlers.get('knodel:koinos-node:file-read')?.({ sender: {} }, { kind: 'bogus' })
+    const result = await ipcMain.handlers.get('teleno:node:file-read')?.({ sender: {} }, { kind: 'bogus' })
     expect(result).toEqual({
       ok: false,
       kind: 'config',
@@ -121,27 +121,27 @@ describe('ipc-handlers', () => {
     const ipcMain = createFakeIpcMain()
     const deps = createDeps()
 
-    registerKnodelIpcHandlers(ipcMain as any, deps as any)
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
 
     const payload = { repoPath: '/tmp/koinos' }
-    const result = await ipcMain.handlers.get('knodel:koinos-node:dashboard-performance')?.({ sender: {} }, payload)
+    const result = await ipcMain.handlers.get('teleno:node:dashboard-performance')?.({ sender: {} }, payload)
 
     expect(result).toEqual({ ok: true, rows: [] })
-    expect(deps.koinosNodeDashboardPerformance).toHaveBeenCalledWith(payload)
+    expect(deps.telenoNodeDashboardPerformance).toHaveBeenCalledWith(payload)
   })
 
   it('registers the wallet account handlers', async () => {
     const ipcMain = createFakeIpcMain()
     const deps = createDeps()
 
-    registerKnodelIpcHandlers(ipcMain as any, deps as any)
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
 
     const setActivePayload = { accountId: 'acc_1' }
-    await ipcMain.handlers.get('knodel:wallet:set-active-account')?.({ sender: {} }, setActivePayload)
+    await ipcMain.handlers.get('teleno:wallet:set-active-account')?.({ sender: {} }, setActivePayload)
     expect(deps.walletSetActiveAccount).toHaveBeenCalledWith(setActivePayload)
 
     const importWatchPayload = { address: '1WatchOnlyAddress', name: 'Observer' }
-    await ipcMain.handlers.get('knodel:wallet:import-watch-account')?.({ sender: {} }, importWatchPayload)
+    await ipcMain.handlers.get('teleno:wallet:import-watch-account')?.({ sender: {} }, importWatchPayload)
     expect(deps.walletImportWatchAccount).toHaveBeenCalledWith(importWatchPayload)
   })
 })

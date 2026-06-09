@@ -1,6 +1,6 @@
 type WalletLockedStateProps = {
   t: (key: string, values?: Record<string, string | number>) => string
-  walletOverview: KnodelWalletOverviewResult | null
+  walletOverview: TelenoWalletOverviewResult | null
   walletUnlockPassword: string
   setWalletUnlockPassword: (value: string) => void
   unlockWalletAccount: () => void

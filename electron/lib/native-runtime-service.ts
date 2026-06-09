@@ -1,14 +1,14 @@
 import type {
-  KoinosNodeCommandResult,
-  KoinosNodePreset,
-  KoinosNodePresetCommandInput,
-  KoinosNodePresetCommandResult,
-  KoinosNodeServicePort,
-  KoinosNodeServiceCommandInput,
-  KoinosNodeServiceCommandResult,
-  KoinosNodeSettings,
-  KoinosNodeSettingsInput,
-  KoinosNodeStatus,
+  TelenoNodeCommandResult,
+  TelenoNodePreset,
+  TelenoNodePresetCommandInput,
+  TelenoNodePresetCommandResult,
+  TelenoNodeServicePort,
+  TelenoNodeServiceCommandInput,
+  TelenoNodeServiceCommandResult,
+  TelenoNodeSettings,
+  TelenoNodeSettingsInput,
+  TelenoNodeStatus,
   NativeConflictKillResult,
   ServiceStatus,
   TcpListenerOwner
@@ -24,12 +24,12 @@ type ServiceDefinition = Record<string, unknown>
 
 type NativeRuntimeServiceDeps = {
   nativeAmqpStartupTimeoutMs: number
-  normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
-  assertRepoReady: (settings: KoinosNodeSettings) => void
-  prepareNativeStartNotes: (settings: KoinosNodeSettings, notes: string[]) => string[]
-  nativeRuntimeDockerConflictCheck: (settings: KoinosNodeSettings) => Promise<{ ok: boolean; output: string }>
+  normalizeNodeSettings: (input?: TelenoNodeSettingsInput) => TelenoNodeSettings
+  assertRepoReady: (settings: TelenoNodeSettings) => void
+  prepareNativeStartNotes: (settings: TelenoNodeSettings, notes: string[]) => string[]
+  nativeRuntimeDockerConflictCheck: (settings: TelenoNodeSettings) => Promise<{ ok: boolean; output: string }>
   selectedManagedComposeServiceIds: (
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceDefinitions: Map<string, ServiceDefinition>
   ) => string[]
   sortManagedServiceIds: (serviceIds: Iterable<string>) => string[]
@@ -39,7 +39,7 @@ type NativeRuntimeServiceDeps = {
   ) => string[]
   nativeAmqpUsesBrewService: () => boolean
   startNativeServiceProcess: (
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceId: string,
     serviceDefinitions: Map<string, ServiceDefinition>
   ) => Promise<{ ok: boolean; output: string }>
@@ -50,37 +50,37 @@ type NativeRuntimeServiceDeps = {
     args: string[],
     options: { cwd: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }
   ) => Promise<{ ok: boolean; code: number | null; output: string }>
-  composeServicePortByTarget: (definition: ServiceDefinition | undefined, targetPort: number) => KoinosNodeServicePort | null
+  composeServicePortByTarget: (definition: ServiceDefinition | undefined, targetPort: number) => TelenoNodeServicePort | null
   nativeRabbitmqCtlExecutable: () => string | null
   nativeRabbitmqServerExecutable: () => string | null
   waitForTcpListener: (host: string, port: number, timeoutMs: number) => Promise<boolean>
   waitForTcpListenerClosed: (host: string, port: number, timeoutMs: number) => Promise<boolean>
-  nativeServiceConnectHost: (port: KoinosNodeServicePort | null, fallback?: string) => string
+  nativeServiceConnectHost: (port: TelenoNodeServicePort | null, fallback?: string) => string
   listTcpListenerOwners: (ports: number[]) => Promise<TcpListenerOwner[]>
   tcpListenerOwnedByRabbitmq: (listener: TcpListenerOwner) => boolean
   describeTcpListenerOwners: (listeners: TcpListenerOwner[]) => string
-  nativeComposeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
+  nativeComposeStatus: (input?: TelenoNodeSettingsInput) => Promise<TelenoNodeStatus>
   toManagedServiceId: (service: string) => string
   serviceDisplayName: (serviceId: string) => string
-  findProfileDependents: (status: KoinosNodeStatus, serviceId: string) => ServiceStatus[]
+  findProfileDependents: (status: TelenoNodeStatus, serviceId: string) => ServiceStatus[]
   isComposeServiceRunning: (service: ServiceStatus) => boolean
-  nativeManagedProcessRegistryOutput: (settings?: KoinosNodeSettings) => string
+  nativeManagedProcessRegistryOutput: (settings?: TelenoNodeSettings) => string
   killConflictingNativeServiceProcesses: (
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceId: string
   ) => Promise<NativeConflictKillResult>
   resolvePresetOrThrow: (
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     presetId: string
-  ) => Promise<{ preset: KoinosNodePreset; settings: KoinosNodeSettings }>
+  ) => Promise<{ preset: TelenoNodePreset; settings: TelenoNodeSettings }>
   listsEqual: (left: string[], right: string[]) => boolean
   nativeServiceProcesses: Map<string, unknown>
-  readServiceDefinitions: (settings: KoinosNodeSettings) => Map<string, ServiceDefinition>
+  readServiceDefinitions: (settings: TelenoNodeSettings) => Map<string, ServiceDefinition>
 }
 
 export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
   async function startNativeAmqpBrewService(
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceDefinitions: Map<string, ServiceDefinition>
   ): Promise<{ ok: boolean; output: string }> {
     const brewExecutable = deps.findExecutableInPath('brew')
@@ -147,7 +147,7 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
   }
 
   async function stopNativeAmqpBrewService(
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceDefinitions: Map<string, ServiceDefinition>
   ): Promise<{ ok: boolean; output: string }> {
     const brewExecutable = deps.findExecutableInPath('brew')
@@ -268,7 +268,7 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
   }
 
   async function startNativeServices(
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceIds: string[],
     serviceDefinitions: Map<string, ServiceDefinition>
   ): Promise<{ ok: boolean; output: string }> {
@@ -295,7 +295,7 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
   }
 
   async function stopNativeServices(
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     serviceIds: string[],
     serviceDefinitions: Map<string, ServiceDefinition>
   ): Promise<{ ok: boolean; output: string }> {
@@ -319,8 +319,8 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
 
   async function nativeComposeAction(
     action: 'start' | 'stop',
-    input?: KoinosNodeSettingsInput
-  ): Promise<KoinosNodeCommandResult> {
+    input?: TelenoNodeSettingsInput
+  ): Promise<TelenoNodeCommandResult> {
     const settings = deps.normalizeNodeSettings(input)
     deps.assertRepoReady(settings)
     const serviceDefinitions = deps.readServiceDefinitions(settings)
@@ -365,8 +365,8 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
 
   async function nativeComposeServiceAction(
     action: 'start' | 'stop' | 'restart' | 'kill-conflict',
-    input?: KoinosNodeServiceCommandInput
-  ): Promise<KoinosNodeServiceCommandResult> {
+    input?: TelenoNodeServiceCommandInput
+  ): Promise<TelenoNodeServiceCommandResult> {
     const settings = deps.normalizeNodeSettings(input)
     const service = input?.service?.trim() || ''
     if (!service) {
@@ -489,7 +489,7 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
     }
   }
 
-  async function nativeComposePresetReconcile(input?: KoinosNodePresetCommandInput): Promise<KoinosNodePresetCommandResult> {
+  async function nativeComposePresetReconcile(input?: TelenoNodePresetCommandInput): Promise<TelenoNodePresetCommandResult> {
     const initialSettings = deps.normalizeNodeSettings(input)
     const presetId = input?.presetId?.trim() || ''
     if (!presetId) {
@@ -503,7 +503,7 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
     }
 
     let presetSettings = initialSettings
-    let preset: KoinosNodePreset | null = null
+    let preset: TelenoNodePreset | null = null
 
     try {
       const resolved = await deps.resolvePresetOrThrow(initialSettings, presetId)
@@ -576,21 +576,21 @@ export function createNativeRuntimeService(deps: NativeRuntimeServiceDeps) {
 }
 
 // ---------------------------------------------------------------------------
-// Monolith runtime service — manages a single koinos_node process
+// Monolith runtime service — manages a single teleno_node process
 // ---------------------------------------------------------------------------
 
 type MonolithRuntimeServiceDeps = {
-  normalizeNodeSettings: (input?: KoinosNodeSettingsInput) => KoinosNodeSettings
-  assertRepoReady: (settings: KoinosNodeSettings) => void
-  prepareNativeStartNotes: (settings: KoinosNodeSettings, notes: string[]) => string[]
-  nativeRuntimeDockerConflictCheck: (settings: KoinosNodeSettings) => Promise<{ ok: boolean; output: string }>
+  normalizeNodeSettings: (input?: TelenoNodeSettingsInput) => TelenoNodeSettings
+  assertRepoReady: (settings: TelenoNodeSettings) => void
+  prepareNativeStartNotes: (settings: TelenoNodeSettings, notes: string[]) => string[]
+  nativeRuntimeDockerConflictCheck: (settings: TelenoNodeSettings) => Promise<{ ok: boolean; output: string }>
   startMonolithProcess: (
-    settings: KoinosNodeSettings,
+    settings: TelenoNodeSettings,
     enabledFeatures: string[],
     disabledFeatures: string[]
   ) => Promise<{ ok: boolean; output: string }>
   stopMonolithProcess: () => Promise<{ ok: boolean; output: string }>
-  monolithComposeStatus: (input?: KoinosNodeSettingsInput) => Promise<KoinosNodeStatus>
+  monolithComposeStatus: (input?: TelenoNodeSettingsInput) => Promise<TelenoNodeStatus>
   waitForTcpListener: (host: string, port: number, timeoutMs: number) => Promise<boolean>
   monolithProcess: { pid: number | null; closed: boolean } | null
 }
@@ -598,8 +598,8 @@ type MonolithRuntimeServiceDeps = {
 export function createMonolithRuntimeService(deps: MonolithRuntimeServiceDeps) {
   async function monolithAction(
     action: 'start' | 'stop',
-    input?: KoinosNodeSettingsInput
-  ): Promise<KoinosNodeCommandResult> {
+    input?: TelenoNodeSettingsInput
+  ): Promise<TelenoNodeCommandResult> {
     const settings = deps.normalizeNodeSettings(input)
     deps.assertRepoReady(settings)
 
@@ -635,13 +635,13 @@ export function createMonolithRuntimeService(deps: MonolithRuntimeServiceDeps) {
   }
 
   async function monolithComponentToggle(
-    input?: KoinosNodeSettingsInput & { component?: string; enabled?: boolean }
+    input?: TelenoNodeSettingsInput & { component?: string; enabled?: boolean }
   ): Promise<{
     ok: boolean
     component: string
     enabled: boolean
     output: string
-    status: KoinosNodeStatus
+    status: TelenoNodeStatus
   }> {
     const settings = deps.normalizeNodeSettings(input)
     const component = input?.component?.trim() || ''

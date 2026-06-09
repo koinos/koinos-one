@@ -2,18 +2,18 @@ type WalletAccountsTabProps = {
   t: (key: string, values?: Record<string, string | number>) => string
   hasWalletControls: boolean
   walletActionLoading: string | null
-  accounts: KnodelWalletAccountSummary[]
+  accounts: TelenoWalletAccountSummary[]
   activeAccountId: string
   canCreateDerivedAccount: boolean
   onSetActiveAccount: (accountId: string) => void
   onOpenCreateAccount: () => void
   onOpenImportWif: () => void
   onOpenImportWatch: () => void
-  onOpenRenameAccount: (account: KnodelWalletAccountSummary) => void
-  onOpenRemoveAccount: (account: KnodelWalletAccountSummary) => void
+  onOpenRenameAccount: (account: TelenoWalletAccountSummary) => void
+  onOpenRemoveAccount: (account: TelenoWalletAccountSummary) => void
 }
 
-function accountKindLabel(t: WalletAccountsTabProps['t'], kind: KnodelWalletAccountSummary['kind']): string {
+function accountKindLabel(t: WalletAccountsTabProps['t'], kind: TelenoWalletAccountSummary['kind']): string {
   switch (kind) {
     case 'derived':
       return t('wallet.accountKindDerived')

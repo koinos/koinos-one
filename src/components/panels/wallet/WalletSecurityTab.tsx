@@ -1,7 +1,7 @@
 type WalletSecretsResult = {
   accountId?: string | null
   accountName?: string | null
-  accountKind?: KnodelWalletAccountKind | null
+  accountKind?: TelenoWalletAccountKind | null
   firstAccountAddress?: string | null
   firstAccountPrivateKeyWif?: string | null
   firstAccountDerivationPath?: string | null
@@ -10,7 +10,7 @@ type WalletSecretsResult = {
 
 type WalletSecurityTabProps = {
   t: (key: string, values?: Record<string, string | number>) => string
-  activeAccount: KnodelWalletAccountSummary | null
+  activeAccount: TelenoWalletAccountSummary | null
   hasWalletControls: boolean
   walletActionLoading: string | null
   loading: boolean

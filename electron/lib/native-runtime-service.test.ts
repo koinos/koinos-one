@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import { createNativeRuntimeService } from './native-runtime-service'
 import type {
-  KoinosNodeSettings,
-  KoinosNodeStatus,
+  TelenoNodeSettings,
+  TelenoNodeStatus,
   ServiceStatus,
   NativeServiceProcessState
 } from './main-types'
 
-function createSettings(): KoinosNodeSettings {
+function createSettings(): TelenoNodeSettings {
   return {
     network: 'mainnet',
     repoPath: '/tmp/koinos',
@@ -18,7 +18,7 @@ function createSettings(): KoinosNodeSettings {
   }
 }
 
-function createStatus(serviceOverrides?: Partial<ServiceStatus>): KoinosNodeStatus {
+function createStatus(serviceOverrides?: Partial<ServiceStatus>): TelenoNodeStatus {
   return {
     ok: true,
     network: 'mainnet',
@@ -41,7 +41,7 @@ function createStatus(serviceOverrides?: Partial<ServiceStatus>): KoinosNodeStat
         lastError: null,
         nativePid: 123,
         conflictPids: [],
-        managedByKnodel: true,
+        managedByTeleno: true,
         ...serviceOverrides
       }
     ],
@@ -60,7 +60,7 @@ function createService(overrides?: Partial<Parameters<typeof createNativeRuntime
     normalizeNodeSettings: () => settings,
     assertRepoReady: () => {},
     readServiceDefinitions: () => new Map<string, Record<string, unknown>>(),
-    prepareNativeStartNotes: (_settings: KoinosNodeSettings, notes: string[]) => notes,
+    prepareNativeStartNotes: (_settings: TelenoNodeSettings, notes: string[]) => notes,
     nativeRuntimeDockerConflictCheck: async () => ({ ok: true, output: '' }),
     selectedManagedComposeServiceIds: () => ['chain'],
     sortManagedServiceIds: (ids) => [...ids],
