@@ -1,19 +1,19 @@
-# koinosGUI Codex Project Memory
+# Teleno Codex Project Memory
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 This file is the local project memory for Codex work in this repo. Codex Desktop does not guarantee that arbitrary repo files are always read automatically in every thread, so explicitly ask to read `AGENTS.md` when resuming if the context was compacted or lost.
 
-This repository is the independent `koinosGUI` codebase. It is copied from Knodel, but it owns the monolithic Koinos node app. Knodel remains the microservice app in its own repository.
+This repository is the independent `teleno` codebase. It is copied from Knodel, but it owns the monolithic Koinos node app. Knodel remains the microservice app in its own repository.
 
 ## Active Project Boundary
 
-- Active monolith repository: `/Users/pgarcgo/code/koinosgui`
-- Active remote: `https://github.com/pgarciagon/koinosgui.git`
+- Active monolith repository: `/Users/pgarcgo/code/teleno`
+- Active remote: `https://github.com/pgarciagon/teleno.git`
 - Active branch for the current release track: `main`
-- `koinosGUI` owns the independent monolithic Koinos node app, including monolith build scripts, monolith runtime fixes, mainnet/testnet canary reports, monolith roadmap docs, and monolith release packaging.
+- `Teleno` owns the independent monolithic Koinos node app, including monolith build scripts, monolith runtime fixes, mainnet/testnet canary reports, monolith roadmap docs, and monolith release packaging.
 - `Knodel` owns the separate microservice app and must not receive monolith-track work unless the user explicitly asks for a Knodel/microservice change.
-- If a resumed Codex session starts in `/Users/pgarcgo/code/knodel`, switch to `/Users/pgarcgo/code/koinosgui` before editing, committing, pushing, building, or launching monolith work.
+- If a resumed Codex session starts in `/Users/pgarcgo/code/knodel`, switch to `/Users/pgarcgo/code/teleno` before editing, committing, pushing, building, or launching monolith work.
 - Historical notes below may still mention Knodel paths or result directories because this project was split from Knodel. Treat those as inherited historical evidence unless the note explicitly refers to the separate microservice app.
 
 ## Latest Repository Correction
