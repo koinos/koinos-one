@@ -2,7 +2,7 @@ const express = require('express');
 const { ensureDb } = require('./db');
 
 const app = express();
-const PORT = process.env.KNODEL_API_PORT || 8787;
+const PORT = process.env.TELENO_API_PORT || 8787;
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
@@ -23,4 +23,4 @@ app.get('/blocks/:height', (req, res) => {
   res.json(row);
 });
 
-app.listen(PORT, () => console.log(`[knodel-api] listening on ${PORT}`));
+app.listen(PORT, () => console.log(`[teleno-api] listening on ${PORT}`));

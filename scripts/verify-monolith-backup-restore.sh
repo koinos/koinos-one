@@ -10,7 +10,7 @@ IMPORTER_BIN="${MONOLITH_BLOCK_STORE_IMPORTER:-$NODE_DIR/build/import_block_stor
 
 DEFAULT_BACKUP_URL="https://seed.koinosfoundation.org/backups/koinos-backup.tar.gz"
 BACKUP_URL="${MONOLITH_BACKUP_URL:-$DEFAULT_BACKUP_URL}"
-WORKDIR="${MONOLITH_RESTORE_WORKDIR:-/Volumes/external/knodel-monolith-restore}"
+WORKDIR="${MONOLITH_RESTORE_WORKDIR:-/Volumes/external/teleno-monolith-restore}"
 BASEDIR="${MONOLITH_RESTORE_BASEDIR:-$WORKDIR/basedir}"
 ARCHIVE_PATH="${MONOLITH_BACKUP_ARCHIVE:-$WORKDIR/koinos-backup.tar.gz}"
 REPORT_FILE="${MONOLITH_RESTORE_REPORT:-$ROOT_DIR/docs/roadmap/monolith/backup-restore/MONOLITH_BACKUP_RESTORE_REPORT.md}"
@@ -303,7 +303,7 @@ verify_node() {
       cat "$LOG_FILE" >&2 || true
       fail "koinos_node exited before JSON-RPC verification"
     fi
-    if head_json="$(jsonrpc_head_info 2>/tmp/knodel-monolith-restore-rpc.err)"; then
+    if head_json="$(jsonrpc_head_info 2>/tmp/teleno-monolith-restore-rpc.err)"; then
       append_report "## JSON-RPC Verification"
       append_report ""
       append_report "\`\`\`json"
@@ -319,7 +319,7 @@ verify_node() {
   kill "$node_pid" 2>/dev/null || true
   wait "$node_pid" 2>/dev/null || true
   cat "$LOG_FILE" >&2 || true
-  fail "chain.get_head_info did not verify within 120s: $(cat /tmp/knodel-monolith-restore-rpc.err 2>/dev/null || true)"
+  fail "chain.get_head_info did not verify within 120s: $(cat /tmp/teleno-monolith-restore-rpc.err 2>/dev/null || true)"
 }
 
 run_dry_run() {

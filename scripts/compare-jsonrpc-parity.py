@@ -60,7 +60,7 @@ def rpc_call(url: str, method: str, params: dict[str, Any], timeout: float) -> d
     req = urllib.request.Request(
         url,
         data=payload,
-        headers={"Content-Type": "application/json", "User-Agent": "knodel-jsonrpc-parity/1.0"},
+        headers={"Content-Type": "application/json", "User-Agent": "teleno-jsonrpc-parity/1.0"},
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:

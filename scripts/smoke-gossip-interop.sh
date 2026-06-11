@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 P2P_FIXTURES_DIR="${P2P_FIXTURES_DIR:-$ROOT_DIR/compat/koinos-p2p-fixtures}"
 NODE_DIR="$ROOT_DIR/node/teleno-node"
-LOG_FILE="$(mktemp -t knodel-gossip-fixture.XXXXXX.log)"
+LOG_FILE="$(mktemp -t teleno-gossip-fixture.XXXXXX.log)"
 
 cleanup() {
   if [[ -n "${FIXTURE_PID:-}" ]] && kill -0 "$FIXTURE_PID" 2>/dev/null; then
@@ -15,9 +15,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cmake -S "$NODE_DIR" -B "$NODE_DIR/build" >/tmp/knodel-gossip-cmake.log
+cmake -S "$NODE_DIR" -B "$NODE_DIR/build" >/tmp/teleno-gossip-cmake.log
 cmake --build "$NODE_DIR/build" --target koinos_libp2p_gossip_live_test --parallel \
-  >/tmp/knodel-gossip-build.log
+  >/tmp/teleno-gossip-build.log
 
 (cd "$P2P_FIXTURES_DIR" && go run ./cmd/gossip-fixture >"$LOG_FILE" 2>&1) &
 FIXTURE_PID=$!

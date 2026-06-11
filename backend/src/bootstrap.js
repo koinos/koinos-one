@@ -98,13 +98,13 @@ function indexFromExtracted(extractedDir) {
 }
 
 async function bootstrap() {
-  const localPath = process.env.KNODEL_BACKUP_LOCAL_PATH;
+  const localPath = process.env.TELENO_BACKUP_LOCAL_PATH;
   let extracted;
   if (localPath) {
     console.log('[bootstrap] using local backup:', localPath);
     extracted = useLocalAndExtract(localPath);
   } else {
-    const backupUrl = process.env.KNODEL_BACKUP_URL || await discoverBackup();
+    const backupUrl = process.env.TELENO_BACKUP_URL || await discoverBackup();
     console.log('[bootstrap] using backup URL:', backupUrl);
     extracted = await downloadAndExtract(backupUrl);
   }

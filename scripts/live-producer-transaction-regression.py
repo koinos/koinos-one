@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_RUN_ROOT = Path("/Users/pgarcgo/.kcli/knodel-testnet-producer")
+DEFAULT_RUN_ROOT = Path("/Users/pgarcgo/.kcli/teleno-testnet-producer")
 DEFAULT_PRODUCER = "1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi"
 DEFAULT_LOCAL_RPC = "http://127.0.0.1:18122"
 DEFAULT_PUBLIC_RPC = "https://testnet.koinosfoundation.org/jsonrpc"
@@ -225,7 +225,7 @@ def rpc_call(url: str, method: str, params: dict[str, Any] | None = None, timeou
     req = request.Request(
         url,
         data=body,
-        headers={"content-type": "application/json", "user-agent": "knodel-live-regression/1.0"},
+        headers={"content-type": "application/json", "user-agent": "teleno-live-regression/1.0"},
         method="POST",
     )
     started = time.perf_counter()
@@ -887,7 +887,7 @@ class RegressionRun:
 
         finished_at = utc_now()
         result = {
-            "kind": "knodel-live-producer-regression",
+            "kind": "teleno-live-producer-regression",
             "status": status,
             "started_at": self.started_at,
             "finished_at": finished_at,
@@ -957,7 +957,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--burn-real-amount", default=os.getenv("BURN_REAL_AMOUNT", "0.001"))
     parser.add_argument("--sample-seconds", type=int, default=int(os.getenv("SAMPLE_SECONDS", "60")))
     parser.add_argument("--sample-interval", type=int, default=int(os.getenv("SAMPLE_INTERVAL", "10")))
-    parser.add_argument("--result-dir", default=os.getenv("RESULT_DIR", "/private/tmp/knodel-transaction-regression"))
+    parser.add_argument("--result-dir", default=os.getenv("RESULT_DIR", "/private/tmp/teleno-transaction-regression"))
     parser.add_argument("--kcli", default=os.getenv("KCLI", "kcli"))
     parser.add_argument("--kcli-password-file", default=os.getenv("KCLI_PASSWORD_FILE", ""), help="Path to a local 0600 wallet password file passed to kcli mutating commands.")
     parser.add_argument("--kcli-yes", action="store_true", default=os.getenv("KCLI_YES", "0") == "1", help="Pass --yes to kcli mutating commands.")
@@ -981,7 +981,7 @@ def main() -> int:
         result = run.run()
     except Exception as exc:  # noqa: BLE001
         failed = {
-            "kind": "knodel-live-producer-regression",
+            "kind": "teleno-live-producer-regression",
             "status": "fail",
             "started_at": run.started_at,
             "finished_at": utc_now(),

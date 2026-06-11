@@ -40,7 +40,7 @@ def rpc_call(url: str, method: str, params: dict) -> dict:
     }).encode()
     req = urllib.request.Request(url, data=payload, headers={
         "Content-Type": "application/json",
-        "User-Agent": "knodel-receipt-verifier/1.0",
+        "User-Agent": "teleno-receipt-verifier/1.0",
     })
     try:
         resp = urllib.request.urlopen(req, timeout=TIMEOUT)

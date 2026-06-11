@@ -14,8 +14,8 @@ SOAK_STARTUP_GRACE_SECONDS="${SOAK_STARTUP_GRACE_SECONDS:-900}"
 JSONRPC_PORT="${JSONRPC_PORT:-18081}"
 P2P_LISTEN="${P2P_LISTEN:-/ip4/0.0.0.0/tcp/8888}"
 P2P_PEERS_FILE="${P2P_PEERS_FILE:-$ROOT_DIR/scripts/mainnet-peer-candidates.txt}"
-BASEDIR="${MONOLITH_SOAK_BASEDIR:-$(mktemp -d -t knodel-mainnet-soak.XXXXXX)}"
-LOG_FILE="${MONOLITH_SOAK_LOG:-$(mktemp -t knodel-mainnet-soak.XXXXXX.log)}"
+BASEDIR="${MONOLITH_SOAK_BASEDIR:-$(mktemp -d -t teleno-mainnet-soak.XXXXXX)}"
+LOG_FILE="${MONOLITH_SOAK_LOG:-$(mktemp -t teleno-mainnet-soak.XXXXXX.log)}"
 REPORT_FILE="${MONOLITH_SOAK_REPORT:-$ROOT_DIR/docs/roadmap/monolith/networking/MONOLITH_GATE_F_SOAK_REPORT.md}"
 OWN_BASEDIR=0
 
@@ -56,8 +56,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cmake -S "$NODE_DIR" -B "$NODE_DIR/build" >/tmp/knodel-mainnet-soak-cmake.log
-cmake --build "$NODE_DIR/build" --target koinos_node --parallel >/tmp/knodel-mainnet-soak-build.log
+cmake -S "$NODE_DIR" -B "$NODE_DIR/build" >/tmp/teleno-mainnet-soak-cmake.log
+cmake --build "$NODE_DIR/build" --target koinos_node --parallel >/tmp/teleno-mainnet-soak-build.log
 
 mkdir -p "$(dirname "$REPORT_FILE")"
 mkdir -p "$BASEDIR/chain" "$BASEDIR/jsonrpc/descriptors"

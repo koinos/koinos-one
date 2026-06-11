@@ -5,15 +5,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 MONOLITH_GRPC_TARGET="${MONOLITH_GRPC_TARGET:-127.0.0.1:50151}"
 MONOLITH_JSONRPC_URL="${MONOLITH_JSONRPC_URL:-http://127.0.0.1:18124}"
-VALIDATION_OUTPUT="${VALIDATION_OUTPUT:-/private/tmp/knodel-grpc-client-validation-$(date -u +%Y%m%dT%H%M%SZ).txt}"
+VALIDATION_OUTPUT="${VALIDATION_OUTPUT:-/private/tmp/teleno-grpc-client-validation-$(date -u +%Y%m%dT%H%M%SZ).txt}"
 GRPC_CLIENT_TIMEOUT_MS="${GRPC_CLIENT_TIMEOUT_MS:-20000}"
 PROTO_ROOT="${PROTO_ROOT:-$ROOT_DIR/vendor/koinos/koinos-contracts-as}"
 KOINOS_CLI_PATH="${KOINOS_CLI_PATH:-$(command -v koinos-cli || true)}"
 KOINOSCTL_PATH="${KOINOSCTL_PATH:-$(command -v koinosctl || true)}"
 GRPCURL="${GRPCURL:-$(command -v grpcurl || true)}"
 
-if [[ -z "$GRPCURL" && -x /private/tmp/knodel-grpc-tools/grpcurl ]]; then
-  GRPCURL=/private/tmp/knodel-grpc-tools/grpcurl
+if [[ -z "$GRPCURL" && -x /private/tmp/teleno-grpc-tools/grpcurl ]]; then
+  GRPCURL=/private/tmp/teleno-grpc-tools/grpcurl
 fi
 
 mkdir -p "$(dirname "$VALIDATION_OUTPUT")"

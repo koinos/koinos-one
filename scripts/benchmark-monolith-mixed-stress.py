@@ -24,14 +24,14 @@ from typing import Any
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_REPORT_ROOT = Path("/private/tmp/knodel-monolith-mixed-stress")
+DEFAULT_REPORT_ROOT = Path("/private/tmp/teleno-monolith-mixed-stress")
 DEFAULT_LOCAL_RPC = "http://127.0.0.1:18122/"
 DEFAULT_PUBLIC_RPC = "https://testnet.koinosfoundation.org/jsonrpc"
-DEFAULT_PID_FILE = Path("/Users/pgarcgo/.kcli/knodel-testnet-producer/live-testnet-sync.pid")
-DEFAULT_SYNC_SOURCE_BASEDIR = Path("/Volumes/external/knodel-testnet-producer/basedir")
+DEFAULT_PID_FILE = Path("/Users/pgarcgo/.kcli/teleno-testnet-producer/live-testnet-sync.pid")
+DEFAULT_SYNC_SOURCE_BASEDIR = Path("/Volumes/external/teleno-testnet-producer/basedir")
 DEFAULT_PRODUCER = "1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi"
 DEFAULT_RECIPIENT = "1FFpnG9ev9ZsZ91uDWF19ro7zaKodcBtzX"
-DEFAULT_PASSWORD_FILE = Path.home() / ".kcli/knodel-testnet-producer/producer-control-wallet/wallet-password.txt"
+DEFAULT_PASSWORD_FILE = Path.home() / ".kcli/teleno-testnet-producer/producer-control-wallet/wallet-password.txt"
 DEFAULT_WALLET_FILE = Path.home() / ".kcli/wallet.json"
 DEFAULT_PUBLIC_TESTNET_PEER = (
     "/dns4/testnet.koinosfoundation.org/tcp/8888/p2p/"
@@ -322,7 +322,7 @@ def build_summary(args: argparse.Namespace, report_dir: Path, children: list[Chi
         status = "warn"
 
     return {
-        "kind": "knodel-monolith-mixed-stress",
+        "kind": "teleno-monolith-mixed-stress",
         "status": status,
         "started_at": started_at,
         "finished_at": utc_now(),

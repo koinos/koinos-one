@@ -4,8 +4,8 @@ export LC_ALL=C
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FETCH_SCRIPT="$ROOT_DIR/scripts/fetch-koinos-integration-tests.sh"
-SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/knodel-koinos-integration-tests}"
-RUN_ROOT="${LEGACY_NATIVE_BENCH_ROOT:-/private/tmp/knodel-legacy-native-benchmark}"
+SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/teleno-koinos-integration-tests}"
+RUN_ROOT="${LEGACY_NATIVE_BENCH_ROOT:-/private/tmp/teleno-legacy-native-benchmark}"
 TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
 REPORT_DIR="${REPORT_DIR:-$RUN_ROOT/$TIMESTAMP}"
 BASEDIR="$REPORT_DIR/basedir"

@@ -17,7 +17,7 @@ const DEFAULT_TESTNET_CHAIN_ID = "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ
 const DEFAULT_PASSWORD_FILE = path.join(
   os.homedir(),
   ".kcli",
-  "knodel-testnet-producer",
+  "teleno-testnet-producer",
   "producer-control-wallet",
   "wallet-password.txt",
 );
@@ -367,7 +367,7 @@ async function buildTransfer({ token, signerAddress, recipientAddress, amountRaw
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const startedAt = utcNow();
-  const resultDir = args.resultDir || path.join("/private/tmp/knodel-transaction-benchmarks", safeTimestamp());
+  const resultDir = args.resultDir || path.join("/private/tmp/teleno-transaction-benchmarks", safeTimestamp());
   fs.mkdirSync(resultDir, { recursive: true });
 
   const amountRaw = parseUnits(args.amount);
@@ -509,7 +509,7 @@ async function main() {
   }
 
   const result = {
-    kind: "knodel-transaction-submission-benchmark",
+    kind: "teleno-transaction-submission-benchmark",
     status,
     started_at: startedAt,
     finished_at: utcNow(),

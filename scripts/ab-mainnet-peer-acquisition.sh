@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PEERS_FILE="${P2P_PEERS_FILE:-$ROOT_DIR/scripts/mainnet-peer-candidates.txt}"
-RUN_ROOT="${AB_RUN_ROOT:-/private/tmp/knodel-ab-peer-acquisition}"
+RUN_ROOT="${AB_RUN_ROOT:-/private/tmp/teleno-ab-peer-acquisition}"
 REPORT="${AB_REPORT:-$ROOT_DIR/docs/roadmap/monolith/networking/MONOLITH_AB_PEER_ACQUISITION_REPORT.md}"
 GO_DISCOVERY_ATTEMPTS="${AB_GO_DISCOVERY_ATTEMPTS:-1}"
 GO_DISCOVERY_TIMEOUT="${AB_GO_DISCOVERY_TIMEOUT:-8s}"
@@ -119,7 +119,7 @@ run_go_probe() {
 
   set +e
   if [[ -n "$peers_env" ]]; then
-    GOCACHE=/private/tmp/knodel-go-cache \
+    GOCACHE=/private/tmp/teleno-go-cache \
       P2P_PEERS="$peers_env" \
       SEED_PROBE_ATTEMPTS="$attempts" \
       SEED_PROBE_TIMEOUT="$timeout" \
@@ -127,7 +127,7 @@ run_go_probe() {
       SEED_PROBE_OUTPUT="$output" \
       "$ROOT_DIR/scripts/probe-mainnet-seeds.sh" >"$log" 2>&1
   else
-    GOCACHE=/private/tmp/knodel-go-cache \
+    GOCACHE=/private/tmp/teleno-go-cache \
       P2P_PEERS_FILE="$PEERS_FILE" \
       SEED_PROBE_ATTEMPTS="$attempts" \
       SEED_PROBE_TIMEOUT="$timeout" \

@@ -29,8 +29,8 @@ from urllib.error import HTTPError, URLError
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_BIN = ROOT_DIR / "node/teleno-node/build/koinos_node"
-DEFAULT_SOURCE_BASEDIR = Path("/Volumes/external/knodel-monolith-restore/basedir")
-DEFAULT_REPORT_ROOT = Path("/Volumes/external/knodel-monolith-index-replay-benchmark")
+DEFAULT_SOURCE_BASEDIR = Path("/Volumes/external/teleno-monolith-restore/basedir")
+DEFAULT_REPORT_ROOT = Path("/Volumes/external/teleno-monolith-index-replay-benchmark")
 
 INDEX_DONE_RE = re.compile(r"Finished indexing\s+(\d+)\s+blocks,\s+took\s+([0-9.eE+-]+)\s+seconds")
 INDEX_TARGET_RE = re.compile(r"Indexing to target block - Height:\s+(\d+)")
@@ -57,7 +57,7 @@ def rpc_call(url: str, method: str, params: dict[str, Any] | None = None, timeou
     req = request.Request(
         normalize_rpc_url(url),
         data=payload,
-        headers={"content-type": "application/json", "user-agent": "knodel-index-replay-benchmark/1.0"},
+        headers={"content-type": "application/json", "user-agent": "teleno-index-replay-benchmark/1.0"},
         method="POST",
     )
     try:
@@ -410,7 +410,7 @@ def build_result(
             cpu.append(float(proc["cpu_percent"]))
 
     return {
-        "kind": "knodel-monolith-index-replay-benchmark",
+        "kind": "teleno-monolith-index-replay-benchmark",
         "status": status,
         "started_at": args.started_at,
         "finished_at": utc_now(),
@@ -593,7 +593,7 @@ def main(argv: list[str]) -> int:
         return 0 if result["status"] in {"pass", "warn"} else 1
     except Exception as exc:  # noqa: BLE001
         error_result = {
-            "kind": "knodel-monolith-index-replay-benchmark",
+            "kind": "teleno-monolith-index-replay-benchmark",
             "status": "fail",
             "started_at": args.started_at,
             "finished_at": utc_now(),

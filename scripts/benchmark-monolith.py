@@ -28,8 +28,8 @@ from urllib.error import HTTPError, URLError
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_RPC_URL = "http://127.0.0.1:18122/"
-DEFAULT_PID_FILE = Path("/Users/pgarcgo/.kcli/knodel-testnet-producer/live-testnet-sync.pid")
-DEFAULT_LOG_FILE = Path("/Users/pgarcgo/.kcli/knodel-testnet-producer/live-testnet-sync-latest.log")
+DEFAULT_PID_FILE = Path("/Users/pgarcgo/.kcli/teleno-testnet-producer/live-testnet-sync.pid")
+DEFAULT_LOG_FILE = Path("/Users/pgarcgo/.kcli/teleno-testnet-producer/live-testnet-sync-latest.log")
 
 SENSITIVE_REPLACEMENTS = [
     (re.compile(r"\b[5KL][1-9A-HJ-NP-Za-km-z]{50,52}\b"), "[REDACTED_WIF]"),
@@ -106,7 +106,7 @@ def rpc_call(url: str, method: str, params: dict[str, Any] | None = None, timeou
     req = request.Request(
         normalize_rpc_url(url),
         data=body,
-        headers={"content-type": "application/json", "user-agent": "knodel-monolith-benchmark/1.0"},
+        headers={"content-type": "application/json", "user-agent": "teleno-monolith-benchmark/1.0"},
         method="POST",
     )
     started = time.perf_counter()
@@ -589,7 +589,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    result_dir = Path(args.result_dir) if args.result_dir else Path("/private/tmp/knodel-monolith-benchmarks") / safe_timestamp()
+    result_dir = Path(args.result_dir) if args.result_dir else Path("/private/tmp/teleno-monolith-benchmarks") / safe_timestamp()
     result_dir.mkdir(parents=True, exist_ok=True)
 
     launched_proc: subprocess.Popen[bytes] | None = None

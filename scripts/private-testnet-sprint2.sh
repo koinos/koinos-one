@@ -9,8 +9,8 @@ KEYGEN="${KEYGEN:-$NODE_DIR/build/koinos_private_testnet_keygen}"
 GENESIS_SOURCE="${GENESIS_SOURCE:-$ROOT_DIR/vendor/koinos/koinos/harbinger/config-example/genesis_data.json}"
 DESCRIPTORS_SOURCE="${DESCRIPTORS_SOURCE:-$ROOT_DIR/vendor/koinos/koinos/harbinger/config-example/koinos_descriptors.pb}"
 REPORT="${REPORT:-$ROOT_DIR/docs/roadmap/monolith/testnets/MONOLITH_PRIVATE_TESTNET_REPORT.md}"
-RUN_ROOT="${PRIVATE_TESTNET_ROOT:-/private/tmp/knodel-private-testnet}"
-KEY_SEED="${PRIVATE_TESTNET_KEY_SEED:-knodel-private-testnet-producer}"
+RUN_ROOT="${PRIVATE_TESTNET_ROOT:-/private/tmp/teleno-private-testnet}"
+KEY_SEED="${PRIVATE_TESTNET_KEY_SEED:-teleno-private-testnet-producer}"
 BUILD="${PRIVATE_TESTNET_BUILD:-1}"
 MODE="${PRIVATE_TESTNET_MODE:-federated}"
 CONTRACTS_DIR="${PRIVATE_TESTNET_CONTRACTS_DIR:-$ROOT_DIR/tools/private-testnet/contracts}"
@@ -45,8 +45,8 @@ safe_clean_root() {
   esac
 
   case "$RUN_ROOT" in
-    /private/tmp/knodel-private-testnet*|/tmp/knodel-private-testnet*|*/knodel-private-testnet*) rm -rf "$RUN_ROOT" ;;
-    *) die "refusing to clean unsafe PRIVATE_TESTNET_ROOT=$RUN_ROOT; path basename must start with knodel-private-testnet" ;;
+    /private/tmp/teleno-private-testnet*|/tmp/teleno-private-testnet*|*/teleno-private-testnet*) rm -rf "$RUN_ROOT" ;;
+    *) die "refusing to clean unsafe PRIVATE_TESTNET_ROOT=$RUN_ROOT; path basename must start with teleno-private-testnet" ;;
   esac
 
   mkdir -p "$RUN_ROOT"

@@ -8,7 +8,7 @@ const path = require('node:path')
 const rootDir = path.resolve(__dirname, '..')
 const defaultSource = path.join(rootDir, 'vendor/koinos/koinos/harbinger/config-example/genesis_data.json')
 const defaultContracts = path.join(rootDir, 'tools/private-testnet/contracts')
-const defaultOutput = '/private/tmp/knodel-private-pob/genesis_data.json'
+const defaultOutput = '/private/tmp/teleno-private-pob/genesis_data.json'
 
 function usage() {
   console.error(`usage: ${path.basename(process.argv[1])} [options]
@@ -159,7 +159,7 @@ function multihashSha256(bytes) {
 function deterministicAddress(label) {
   const payload = Buffer.concat([
     Buffer.from([0x00]),
-    sha256(Buffer.from(`knodel-private-testnet:${label}`)).subarray(0, 20)
+    sha256(Buffer.from(`teleno-private-testnet:${label}`)).subarray(0, 20)
   ])
   const checksum = sha256(sha256(payload)).subarray(0, 4)
   return Buffer.concat([payload, checksum])
@@ -451,7 +451,7 @@ if (koinAmount > 0n) {
 }
 
 upsertEntry(genesis.entries, entry(space(true, contractIds.pob, 0), producerAddress, encodePobPublicKeyRecord(producerPublicKey, 0)))
-upsertEntry(genesis.entries, entry(space(true, contractIds.pob, 1), Buffer.alloc(0), encodePobMetadata(sha256(Buffer.from('knodel-private-testnet-pob-seed')))))
+upsertEntry(genesis.entries, entry(space(true, contractIds.pob, 1), Buffer.alloc(0), encodePobMetadata(sha256(Buffer.from('teleno-private-testnet-pob-seed')))))
 upsertEntry(genesis.entries, entry(space(true, contractIds.pob, 1), Buffer.alloc(1), encodePobConsensusParameters()))
 
 fs.mkdirSync(path.dirname(options.output), { recursive: true })

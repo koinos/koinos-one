@@ -29,8 +29,8 @@ from urllib.error import HTTPError, URLError
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_BIN = ROOT_DIR / "node/teleno-node/build/koinos_node"
-DEFAULT_SOURCE_BASEDIR = Path("/Volumes/external/knodel-testnet-producer/basedir")
-DEFAULT_REPORT_ROOT = Path("/private/tmp/knodel-monolith-sync-benchmark")
+DEFAULT_SOURCE_BASEDIR = Path("/Volumes/external/teleno-testnet-producer/basedir")
+DEFAULT_REPORT_ROOT = Path("/private/tmp/teleno-monolith-sync-benchmark")
 DEFAULT_PUBLIC_TESTNET_PEER = (
     "/dns4/testnet.koinosfoundation.org/tcp/8888/p2p/"
     "QmYV414G6xRzkSUytntEsBsCSjXrVGubfYJn4vpeER2s2W"
@@ -63,7 +63,7 @@ def rpc_call(url: str, method: str, params: dict[str, Any] | None = None, timeou
     req = request.Request(
         normalize_rpc_url(url),
         data=body,
-        headers={"content-type": "application/json", "user-agent": "knodel-monolith-sync-benchmark/1.0"},
+        headers={"content-type": "application/json", "user-agent": "teleno-monolith-sync-benchmark/1.0"},
         method="POST",
     )
     started = time.perf_counter()
@@ -570,7 +570,7 @@ def build_result(args: argparse.Namespace, report_dir: Path, basedir: Path, log_
         status = "warn"
 
     return {
-        "kind": "knodel-monolith-live-p2p-sync-benchmark",
+        "kind": "teleno-monolith-live-p2p-sync-benchmark",
         "status": status,
         "started_at": args.started_at,
         "finished_at": utc_now(),

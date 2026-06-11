@@ -4,8 +4,8 @@ export LC_ALL=C
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FETCH_SCRIPT="$ROOT_DIR/scripts/fetch-koinos-integration-tests.sh"
-SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/knodel-koinos-integration-tests}"
-RUN_ROOT="${MONOLITH_STARTUP_BENCH_ROOT:-/private/tmp/knodel-monolith-startup-benchmark}"
+SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/teleno-koinos-integration-tests}"
+RUN_ROOT="${MONOLITH_STARTUP_BENCH_ROOT:-/private/tmp/teleno-monolith-startup-benchmark}"
 TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
 REPORT_DIR="${REPORT_DIR:-$RUN_ROOT/$TIMESTAMP}"
 BIN="${BIN:-$ROOT_DIR/node/teleno-node/build/koinos_node}"
@@ -204,7 +204,7 @@ const rows = fs.readFileSync(resultsPath, "utf8").trim().split(/\r?\n/).slice(1)
 });
 const startupValues = rows.filter((row) => row.status === "pass" && Number.isFinite(row.startup_ms)).map((row) => row.startup_ms);
 const result = {
-  kind: "knodel-monolith-startup-benchmark",
+  kind: "teleno-monolith-startup-benchmark",
   status: rows.every((row) => row.status === "pass") ? "pass" : "fail",
   result_dir: reportDir,
   rows,

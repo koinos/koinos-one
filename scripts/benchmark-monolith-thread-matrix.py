@@ -20,7 +20,7 @@ from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SYNC_BENCH = ROOT_DIR / "scripts/benchmark-monolith-sync.py"
-DEFAULT_REPORT_ROOT = Path("/private/tmp/knodel-monolith-thread-matrix")
+DEFAULT_REPORT_ROOT = Path("/private/tmp/teleno-monolith-thread-matrix")
 
 DEFAULT_VARIANTS: dict[str, dict[str, int]] = {
     "baseline": {
@@ -252,7 +252,7 @@ def main(argv: list[str]) -> int:
         status = "warn"
 
     summary = {
-        "kind": "knodel-monolith-thread-matrix-benchmark",
+        "kind": "teleno-monolith-thread-matrix-benchmark",
         "status": status,
         "started_at": started_at,
         "finished_at": utc_now(),

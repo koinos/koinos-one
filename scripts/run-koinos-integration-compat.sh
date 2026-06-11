@@ -4,8 +4,8 @@ export LC_ALL=C
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FETCH_SCRIPT="$ROOT_DIR/scripts/fetch-koinos-integration-tests.sh"
-SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/knodel-koinos-integration-tests}"
-RUN_ROOT="${KOINOS_INTEGRATION_COMPAT_ROOT:-/private/tmp/knodel-integration-compat}"
+SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/teleno-koinos-integration-tests}"
+RUN_ROOT="${KOINOS_INTEGRATION_COMPAT_ROOT:-/private/tmp/teleno-integration-compat}"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/node/teleno-node/build}"
 BIN="${BIN:-$BUILD_DIR/koinos_node}"
 MODE="${1:-inventory}"
@@ -267,7 +267,7 @@ run_legacy() {
   [[ -d "$SOURCE_DIR/tests/$TEST_NAME" ]] || die "unknown upstream test: $TEST_NAME"
   local project_timestamp
   project_timestamp="$(printf '%s' "$TIMESTAMP" | tr '[:upper:]' '[:lower:]')"
-  LEGACY_COMPOSE_PROJECT="knodel-${TEST_NAME//_/-}-${project_timestamp}"
+  LEGACY_COMPOSE_PROJECT="teleno-${TEST_NAME//_/-}-${project_timestamp}"
   trap stop_processes EXIT
   (
     cd "$SOURCE_DIR/tests/$TEST_NAME"

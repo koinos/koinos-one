@@ -1,4 +1,4 @@
-module knodel-legacy-block-store-exporter
+module teleno-legacy-block-store-exporter
 
 go 1.21
 

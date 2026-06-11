@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_URL="${KOINOS_INTEGRATION_TESTS_REPO:-https://github.com/koinos/koinos-integration-tests.git}"
 REF="${KOINOS_INTEGRATION_TESTS_REF:-74b64d739a98045630cb61557e1f141c04cd1eb1}"
-DEST="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/knodel-koinos-integration-tests}"
+DEST="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/teleno-koinos-integration-tests}"
 
 usage() {
   cat <<EOF
@@ -47,7 +47,7 @@ git -C "$DEST" fetch --depth 1 origin "$REF"
 git -C "$DEST" checkout --detach FETCH_HEAD
 
 COMMIT="$(git -C "$DEST" rev-parse HEAD)"
-PIN_FILE="$DEST/.knodel-pin"
+PIN_FILE="$DEST/.teleno-pin"
 {
   echo "repo=$REPO_URL"
   echo "ref=$REF"
