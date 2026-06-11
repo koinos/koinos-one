@@ -3,7 +3,7 @@ set -euo pipefail
 export LC_ALL=C
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NODE_DIR="$ROOT_DIR/vendor/koinos/koinos-node"
+NODE_DIR="$ROOT_DIR/node/teleno-node"
 BIN="${BIN:-$NODE_DIR/build/koinos_node}"
 KEYGEN="${KEYGEN:-$NODE_DIR/build/koinos_private_testnet_keygen}"
 GENESIS_SOURCE="${GENESIS_SOURCE:-$ROOT_DIR/vendor/koinos/koinos/harbinger/config-example/genesis_data.json}"

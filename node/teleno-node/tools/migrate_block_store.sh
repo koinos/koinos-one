@@ -55,8 +55,8 @@ Options:
   --basedir PATH          Legacy/monolith basedir. Defaults for DB paths derive from this.
   --legacy-db PATH        Legacy Badger DB path. Default: BASEDIR/block_store/db.
   --monolith-db PATH      Target monolith RocksDB path. Default: BASEDIR/db.
-  --importer PATH         C++ stream importer path. Default: vendor/koinos/koinos-node/build/import_block_store_stream.
-  --node-bin PATH         koinos_node binary for --verify-node. Default: vendor/koinos/koinos-node/build/koinos_node.
+  --importer PATH         C++ stream importer path. Default: node/teleno-node/build/import_block_store_stream.
+  --node-bin PATH         koinos_node binary for --verify-node. Default: node/teleno-node/build/koinos_node.
   --hunter-install PATH   Hunter install containing RocksDB headers/libs. Inferred from build/CMakeCache.txt when possible.
   --progress-every N      Export/import progress interval. Default: 100000.
   --verify MODE           SHA-256 verification mode: none, sample, or full. Default: none.
@@ -141,7 +141,7 @@ infer_hunter_install_dir() {
   fi
 
   for candidate in \
-    "$ROOT_DIR/.deps/koinos-node/hunter/_Base" \
+    "$ROOT_DIR/.deps/teleno-node/hunter/_Base" \
     "$NODE_DIR/.deps/hunter/_Base" \
     "$HOME/.hunter/_Base" \
     "/Volumes/external/.hunter/_Base"; do

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-P2P_DIR="$ROOT_DIR/vendor/koinos/koinos-p2p"
+P2P_FIXTURES_DIR="${P2P_FIXTURES_DIR:-$ROOT_DIR/compat/koinos-p2p-fixtures}"
 ATTEMPTS="${SEED_PROBE_ATTEMPTS:-3}"
 TIMEOUT="${SEED_PROBE_TIMEOUT:-8s}"
 DELAY="${SEED_PROBE_DELAY:-5s}"
@@ -58,7 +58,7 @@ else
   P2P_PEER_LIST=("${DEFAULT_P2P_PEERS[@]}")
 fi
 
-cd "$P2P_DIR"
+cd "$P2P_FIXTURES_DIR"
 ARGS=(
   -attempts="$ATTEMPTS"
   -timeout="$TIMEOUT"

@@ -2,51 +2,7 @@
 	path = vendor/koinos/koinos
 	url = https://github.com/pgarciagon/koinos.git
 	branch = knodel-patches
-[submodule "vendor/koinos/koinos-chain"]
-	path = vendor/koinos/koinos-chain
-	url = https://github.com/pgarciagon/koinos-chain.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-mempool"]
-	path = vendor/koinos/koinos-mempool
-	url = https://github.com/pgarciagon/koinos-mempool.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-block-store"]
-	path = vendor/koinos/koinos-block-store
-	url = https://github.com/pgarciagon/koinos-block-store.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-p2p"]
-	path = vendor/koinos/koinos-p2p
+[submodule "compat/legacy-services/koinos-p2p"]
+	path = compat/legacy-services/koinos-p2p
 	url = https://github.com/pgarciagon/koinos-p2p.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-block-producer"]
-	path = vendor/koinos/koinos-block-producer
-	url = https://github.com/pgarciagon/koinos-block-producer.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-jsonrpc"]
-	path = vendor/koinos/koinos-jsonrpc
-	url = https://github.com/pgarciagon/koinos-jsonrpc.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-grpc"]
-	path = vendor/koinos/koinos-grpc
-	url = https://github.com/pgarciagon/koinos-grpc.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-transaction-store"]
-	path = vendor/koinos/koinos-transaction-store
-	url = https://github.com/pgarciagon/koinos-transaction-store.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-contract-meta-store"]
-	path = vendor/koinos/koinos-contract-meta-store
-	url = https://github.com/pgarciagon/koinos-contract-meta-store.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-account-history"]
-	path = vendor/koinos/koinos-account-history
-	url = https://github.com/pgarciagon/koinos-account-history.git
-	branch = knodel-patches
-[submodule "vendor/koinos/koinos-rest"]
-	path = vendor/koinos/koinos-rest
-	url = https://github.com/pgarciagon/koinos-rest.git
-	branch = knodel-patches
-[submodule "vendor/amqp-broker"]
-	path = vendor/amqp-broker
-	url = https://github.com/pgarciagon/garagemq.git
 	branch = knodel-patches

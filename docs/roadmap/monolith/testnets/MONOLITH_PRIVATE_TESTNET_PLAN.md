@@ -194,13 +194,13 @@ Do not modify the checked-in Harbinger genesis in place. Generate private-testne
 - [x] Build passes:
 
   ```bash
-  cmake --build vendor/koinos/koinos-node/build --target koinos_node koinos_block_producer_test --parallel
+  cmake --build node/teleno-node/build --target koinos_node koinos_block_producer_test --parallel
   ```
 
 - [x] Unit tests pass:
 
   ```bash
-  ctest --test-dir vendor/koinos/koinos-node/build --output-on-failure -R koinos_block_producer_test
+  ctest --test-dir node/teleno-node/build --output-on-failure -R koinos_block_producer_test
   ```
 
 - [x] Private federated smoke passes.

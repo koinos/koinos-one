@@ -42,7 +42,7 @@ Resolution note, 2026-05-24:
 - Result: process stayed alive for `90s`; report samples stayed at head height `500` with connected peer rows. This fixes the seed handshake blocker for Gate F preflight when targeting the corrected foundation seed. The harness default was narrowed to that validated seed; additional seeds can be supplied with `P2P_PEERS` once their peer IDs/connectivity are revalidated. A production-duration Gate F soak is still required for final signoff.
 - Follow-up hardening: `P2PNode` now delays seed reconnect attempts and uses a `60s` reconnect interval so startup does not duplicate the initial `Libp2pTransport` seed dial or hammer public seeds every `10s`.
 - Follow-up validation after repeated rapid tests: a `120s` run with the corrected default seed stayed alive but received `Connection reset by peer` from `seed.koinosfoundation.org` and remained at `0` peers / height `0`. Treat this as public seed availability/rate limiting until a later cooldown run or additional working seed list is available; it does not invalidate the earlier successful handshake/sync proof, but it means Gate F production soak is not signed off.
-- Added `scripts/probe-mainnet-seeds.sh`, backed by `vendor/koinos/koinos-p2p/cmd/mainnet-seed-probe`, to validate go-libp2p handshakes before starting a long soak. Latest 5-attempt probe result:
+- Added `scripts/probe-mainnet-seeds.sh`, backed by `compat/koinos-p2p-fixtures/cmd/mainnet-seed-probe`, to validate go-libp2p handshakes before starting a long soak. Latest 5-attempt probe result:
   - `seed.koinosfoundation.org`: `Connection reset by peer`
   - `seed.koinosblocks.com`: `Connection reset by peer`
   - `seed-east.burnkoin.com`: TCP timeout
@@ -62,8 +62,8 @@ Resolution note, 2026-05-24:
   - `Libp2pTransport::connect_peer` now invokes the registered connect callback on successful reconnect dials so `P2PNode` starts a fresh sync loop.
   - `P2PNode::report_peer_error` now returns whether the threshold triggered a disconnect and logs the accumulated score plus the last error at warning level.
   - `P2PNode::peer_sync_loop` now exits after a disconnect threshold instead of repeatedly retrying against a peer that has already been dropped.
-  - Build validation passed: `cmake --build vendor/koinos/koinos-node/build --target koinos_node --parallel`.
-  - Local regression validation passed: `vendor/koinos/koinos-node/build/koinos_p2p_one_peer_sync_test`.
+  - Build validation passed: `cmake --build node/teleno-node/build --target koinos_node --parallel`.
+  - Local regression validation passed: `node/teleno-node/build/koinos_p2p_one_peer_sync_test`.
 - A post-fix 180s soak could not externally validate sustained sync because all validated peers returned `EOF` or `Connection reset by peer` during the `120s` startup grace. The report correctly marked it invalid with head height `0` and `0` peer rows. Treat this as public peer availability/rate limiting after rapid test cycles; the next useful Gate F run should happen after cooldown or with a fresher production peer list.
 - Follow-up on 2026-05-24:
   - Re-probed `scripts/mainnet-peer-validated.txt` with 3 attempts and all three peers returned `Connection reset by peer`.
@@ -94,7 +94,7 @@ Latest follow-up on 2026-05-24:
   - Sync block application is serialized so competing peers do not apply overlapping batches concurrently.
   - Already-irreversible block application errors from multi-peer races are treated as local catch-up races, not peer misconduct.
 - Build validation passed after these changes:
-  `cmake --build vendor/koinos/koinos-node/build --target koinos_node --parallel`
+  `cmake --build node/teleno-node/build --target koinos_node --parallel`
 - Static validation passed:
   `bash -n scripts/soak-mainnet-p2p.sh scripts/probe-mainnet-seeds.sh`
   and `git diff --check`
@@ -133,8 +133,8 @@ Final follow-up on 2026-05-24:
   - Production-log peers remain as fallbacks because many are residential/NAT endpoints and may accept libp2p without serving Koinos Peer RPC.
   - `scripts/probe-mainnet-seeds.sh` defaults were updated to match the legacy seed list.
 - Validation after these changes:
-  - Build passed: `cmake --build vendor/koinos/koinos-node/build --target koinos_node --parallel`
-  - Local tests passed: `ctest --test-dir vendor/koinos/koinos-node/build --output-on-failure`
+  - Build passed: `cmake --build node/teleno-node/build --target koinos_node --parallel`
+  - Local tests passed: `ctest --test-dir node/teleno-node/build --output-on-failure`
   - Shell syntax passed: `bash -n scripts/soak-mainnet-p2p.sh scripts/probe-mainnet-seeds.sh`
   - Go seed probe from this machine failed against all five official legacy seeds in the current window:
     - `seed.koinosblocks.com`: security negotiation reset by peer
@@ -160,5 +160,5 @@ Probe hardening follow-up:
   - `99.127.157.110:4001`: `protocols not supported: [/koinos/peerrpc/1.0.0]`
   - `86.167.88.140:4001`: `protocols not supported: [/koinos/peerrpc/1.0.0]`
 - Validation:
-  - `GOCACHE=/private/tmp/knodel-go-cache go test ./cmd/mainnet-seed-probe`
+  - `cd compat/koinos-p2p-fixtures && GOCACHE=/private/tmp/knodel-go-cache go test ./cmd/mainnet-seed-probe`
   - `bash -n scripts/probe-mainnet-seeds.sh scripts/soak-mainnet-p2p.sh`

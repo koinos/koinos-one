@@ -75,7 +75,7 @@ Two configured candidates were repeatedly unavailable during the local sample an
 - Previous local short C++ canary log: `/private/tmp/knodel-sprint6-mainnet-canary-short.log`
 - Successful VPS1 canary report: `/tmp/knodel-mainnet-canary-run/monolith-soak-report.md`
 - Successful VPS1 canary log: `/tmp/knodel-mainnet-canary-run/monolith-soak.log`
-- Successful VPS1 binary: `/opt/knodel-mainnet-canary/vendor/koinos/koinos-node/build/src/koinos_node`
+- Successful VPS1 binary: `/opt/knodel-mainnet-canary/node/teleno-node/build/src/koinos_node`
 - Local restored-data catch-up log: `/private/tmp/koinosgui-mainnet-observer/mainnet-observer-latest.log`
 
 ## Public Head Gap

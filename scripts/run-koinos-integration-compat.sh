@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FETCH_SCRIPT="$ROOT_DIR/scripts/fetch-koinos-integration-tests.sh"
 SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/knodel-koinos-integration-tests}"
 RUN_ROOT="${KOINOS_INTEGRATION_COMPAT_ROOT:-/private/tmp/knodel-integration-compat}"
-BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/vendor/koinos/koinos-node/build}"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/node/teleno-node/build}"
 BIN="${BIN:-$BUILD_DIR/koinos_node}"
 MODE="${1:-inventory}"
 TEST_NAME="${2:-publish_transaction}"
@@ -42,12 +42,19 @@ Environment:
   KOINOS_INTEGRATION_TESTS_DIR      Upstream checkout directory.
   KOINOS_INTEGRATION_TESTS_REF      Upstream ref passed to fetch script.
   KOINOS_INTEGRATION_COMPAT_ROOT    Result directory root.
-  BUILD_DIR                         koinos-node build directory.
+  BUILD_DIR                         Teleno node build directory.
   BIN                               koinos_node binary path.
   JSONRPC_PORT                      Monolith JSON-RPC port for compatibility mode.
   LEGACY_NATIVE_JSONRPC_PORT        Native legacy JSON-RPC port.
   LEGACY_NATIVE_AMQP_PORT           Native legacy AMQP port.
   LEGACY_NATIVE_AMQP_ADMIN_PORT     Native legacy AMQP admin port.
+  LEGACY_GARAGEMQ_BIN               External GarageMQ binary for legacy-native mode.
+  LEGACY_CHAIN_BIN                  External koinos_chain binary for legacy-native mode.
+  LEGACY_MEMPOOL_BIN                External koinos_mempool binary for legacy-native mode.
+  LEGACY_BLOCK_STORE_BIN            External koinos-block-store binary for legacy-native mode.
+  LEGACY_JSONRPC_BIN                External koinos-jsonrpc binary for legacy-native mode.
+  LEGACY_BLOCK_PRODUCER_BIN         External koinos_block_producer binary when required.
+  LEGACY_P2P_BIN                    External koinos-p2p binary when required.
   KEEP_RUN_ROOT=1                   Keep temporary monolith basedir after exit.
 EOF
 }
@@ -275,10 +282,12 @@ run_legacy() {
   echo "legacy_log=$REPORT_DIR/legacy-$TEST_NAME.log"
 }
 
-native_bin() {
-  local rel="$1"
-  local path="$ROOT_DIR/$rel"
-  [[ -x "$path" ]] || die "native legacy binary missing or not executable: $path"
+legacy_bin() {
+  local var_name="$1"
+  local label="$2"
+  local path="${!var_name:-}"
+  [[ -n "$path" ]] || die "${label} binary path is not configured; set ${var_name}"
+  [[ -x "$path" ]] || die "${label} binary missing or not executable: $path"
   printf '%s\n' "$path"
 }
 
@@ -382,16 +391,16 @@ run_legacy_native_single_node() {
   local jsonrpc
   local block_producer
   local p2p
-  garagemq="$(native_bin "vendor/amqp-broker/garagemq")"
-  chain="$(native_bin "vendor/koinos/koinos-chain/build/src/koinos_chain")"
-  mempool="$(native_bin "vendor/koinos/koinos-mempool/build/src/koinos_mempool")"
-  block_store="$(native_bin "vendor/koinos/koinos-block-store/build/bin/koinos-block-store")"
-  jsonrpc="$(native_bin "vendor/koinos/koinos-jsonrpc/build/bin/koinos-jsonrpc")"
+  garagemq="$(legacy_bin LEGACY_GARAGEMQ_BIN GarageMQ)"
+  chain="$(legacy_bin LEGACY_CHAIN_BIN koinos_chain)"
+  mempool="$(legacy_bin LEGACY_MEMPOOL_BIN koinos_mempool)"
+  block_store="$(legacy_bin LEGACY_BLOCK_STORE_BIN koinos-block-store)"
+  jsonrpc="$(legacy_bin LEGACY_JSONRPC_BIN koinos-jsonrpc)"
   if legacy_native_needs_block_producer "$TEST_NAME"; then
-    block_producer="$(native_bin "vendor/koinos/koinos-block-producer/build/src/koinos_block_producer")"
+    block_producer="$(legacy_bin LEGACY_BLOCK_PRODUCER_BIN koinos_block_producer)"
   fi
   if legacy_native_needs_p2p "$TEST_NAME"; then
-    p2p="$(native_bin "vendor/koinos/koinos-p2p/build/bin/koinos-p2p")"
+    p2p="$(legacy_bin LEGACY_P2P_BIN koinos-p2p)"
   fi
 
   local basedir="$REPORT_DIR/legacy-native-$TEST_NAME-basedir"

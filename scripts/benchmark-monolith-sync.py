@@ -28,7 +28,7 @@ from urllib.error import HTTPError, URLError
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_BIN = ROOT_DIR / "vendor/koinos/koinos-node/build/koinos_node"
+DEFAULT_BIN = ROOT_DIR / "node/teleno-node/build/koinos_node"
 DEFAULT_SOURCE_BASEDIR = Path("/Volumes/external/knodel-testnet-producer/basedir")
 DEFAULT_REPORT_ROOT = Path("/private/tmp/knodel-monolith-sync-benchmark")
 DEFAULT_PUBLIC_TESTNET_PEER = (

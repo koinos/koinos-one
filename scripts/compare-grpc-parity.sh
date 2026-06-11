@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/vendor/koinos/koinos-node/build}"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/node/teleno-node/build}"
 PROBE="$BUILD_DIR/koinos_grpc_parity_probe"
 
 MONOLITH_GRPC_TARGET="${MONOLITH_GRPC_TARGET:-${1:-}}"

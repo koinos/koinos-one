@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/newbranding/logo.png" alt="Teleno logo" width="520" />
+</p>
+
 # Teleno
 
 Teleno is a desktop app for operating a monolithic **Koinos** node implementation. It includes Teleno UX, the dashboard, block explorer, wallet, producer tools, local configuration, and lifecycle management for the single `teleno_node` runtime.
@@ -12,8 +16,8 @@ Teleno is a desktop app for operating a monolithic **Koinos** node implementatio
 ## Quick Start
 
 ```bash
-git clone --recurse-submodules git@github.com:pgarciagon/koinosgui.git
-cd koinosgui
+git clone --recurse-submodules git@github.com:pgarciagon/teleno.git
+cd teleno
 npm install
 npm run dev
 ```
@@ -26,14 +30,13 @@ git submodule update --init --recursive
 
 ## Build The Monolithic Node
 
-The upstream C++ source tree lives under `vendor/koinos/koinos-node`. CMake still builds the upstream target as `koinos_node`; packaging stages that binary as `teleno_node`.
+The upstream C++ source tree lives under `node/teleno-node`. CMake still builds the upstream target as `koinos_node`; packaging stages that binary as `teleno_node`.
 
 ```bash
-cmake -S vendor/koinos/koinos-node -B vendor/koinos/koinos-node/build
-cmake --build vendor/koinos/koinos-node/build --target koinos_node
+./scripts/build-cpp-libp2p-koinos.sh
 ```
 
-The legacy native build scripts are retained during the first split for compatibility and packaging traceability. They should be pruned only after the first side-by-side app smoke is complete.
+Legacy microservice build/start scripts are not part of the active Teleno command surface. Legacy-facing scripts are retained only when they prove protocol compatibility, migration safety, or parity with existing Koinos clients and peers.
 
 ## Building For Distribution
 
@@ -76,3 +79,4 @@ Electron UI
 
 - Koinos: https://koinos.io
 - Blockchain backups: https://seed.koinosfoundation.org/backups
+- Compatibility evidence: `docs/compatibility/README.md`

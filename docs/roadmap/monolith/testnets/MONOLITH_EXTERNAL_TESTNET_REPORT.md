@@ -394,8 +394,8 @@ Operational note: VM2 should not be added as a required monolith sync peer or us
 
 - The remote branch `feat/monolithic-node-migration` was pulled through the GitHub deploy key.
 - `scripts/build-cpp-libp2p-koinos.sh` completed on the external volume.
-- Built node binary: `/mnt/HC_Volume_105581636/knodel-external-signoff/knodel/vendor/koinos/koinos-node/build/src/koinos_node`
-- Built private-testnet keygen: `/mnt/HC_Volume_105581636/knodel-external-signoff/knodel/vendor/koinos/koinos-node/build/src/koinos_private_testnet_keygen`
+- Built node binary: `/mnt/HC_Volume_105581636/knodel-external-signoff/knodel/node/teleno-node/build/src/koinos_node`
+- Built private-testnet keygen: `/mnt/HC_Volume_105581636/knodel-external-signoff/knodel/node/teleno-node/build/src/koinos_private_testnet_keygen`
 - The private PoB genesis builder now uses the staged contract artifacts directly and does not require the `koinos-contracts-as` source tree or `koinos-proto-js` npm dependency on the seed host.
 
 ## Network Smoke

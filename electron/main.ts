@@ -34,6 +34,7 @@ import {
   PRODUCER_DAY_WINDOW_MS,
   resolveDefaultKoinosRepoPath,
   resolveDefaultKoinosSourceRoot,
+  resolveTelenoNodeSourceRoot,
   resolveAmqpBrokerPath,
   resolveAmqpBrokerConfigPath,
   resolveMonolithBinaryPath,
@@ -89,7 +90,6 @@ import {
   type NativeBuildSystem,
   type NativeServiceBuildDefinition,
   nativeServiceBuildDefinitionMap,
-  nativeServiceBuildDefinitions,
   uniquePathValue
 } from './lib/native-tooling'
 import { isAppleSilicon, homebrewPrefix } from './lib/platform'
@@ -809,7 +809,7 @@ const KOINOS_MANAGED_SERVICES: ManagedKoinosServiceDefinition[] = [
 const KOINOS_MANAGED_SERVICE_BY_ID = new Map(KOINOS_MANAGED_SERVICES.map((definition) => [definition.id, definition] as const))
 
 const nativeBuildService = createNativeBuildService({
-  defaultKoinosSourceRoot: resolveDefaultKoinosSourceRoot(),
+  telenoNodeSourceRoot: resolveTelenoNodeSourceRoot(),
   managedServices: KOINOS_MANAGED_SERVICES,
   runCommand,
   applyKoinosDarwinHunterWorkaround

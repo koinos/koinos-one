@@ -15,6 +15,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const VENDOR = path.join(ROOT, 'vendor', 'koinos');
+const NODE_DIR = path.join(ROOT, 'node', 'teleno-node');
 const STAGING = path.join(ROOT, 'build', 'bundle-staging', 'teleno');
 const BIN_DIR = path.join(STAGING, 'bin');
 const CONFIG_DIR = path.join(STAGING, 'config');
@@ -84,6 +85,7 @@ const platformLabel = isWindows ? 'Windows' : process.platform === 'darwin' ? 'm
 console.log('============================================================================');
 console.log(`Staging Teleno monolith bundle for ${platformLabel} installer`);
 console.log(`  Platform: ${platformLabel} (ext: "${EXT}", cpp build dir: ${CPP_BUILD_DIR})`);
+console.log(`  Node:     ${NODE_DIR}`);
 console.log(`  Vendor:   ${VENDOR}`);
 console.log(`  Staging:  ${STAGING}`);
 console.log('============================================================================\n');
@@ -100,8 +102,8 @@ ensureDir(ABI_DIR);
 console.log('=== Monolithic Teleno Node ===');
 copyFirstExistingChecked(
   [
-    path.join(VENDOR, 'koinos-node', CPP_BUILD_DIR, 'koinos_node' + EXT),
-    path.join(VENDOR, 'koinos-node', CPP_BUILD_DIR, 'src', 'koinos_node' + EXT),
+    path.join(NODE_DIR, CPP_BUILD_DIR, 'koinos_node' + EXT),
+    path.join(NODE_DIR, CPP_BUILD_DIR, 'src', 'koinos_node' + EXT),
   ],
   path.join(BIN_DIR, 'teleno_node' + EXT),
   'teleno_node'
@@ -154,7 +156,7 @@ console.log(`Staging complete: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
   console.log(`\nWARNING: Some artifacts are missing. The installer will be incomplete.`);
   if (isWindows) {
-    console.log('Build koinos_node.exe into vendor\\koinos\\koinos-node\\build-win\\ before staging; it will be staged as teleno_node.exe.');
+    console.log('Build koinos_node.exe into node\\teleno-node\\build-win\\ before staging; it will be staged as teleno_node.exe.');
   } else {
     console.log('Build the monolith first: ./scripts/build-cpp-libp2p-koinos.sh');
   }

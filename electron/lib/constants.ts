@@ -47,6 +47,10 @@ export function resolveDefaultKoinosRepoPath(): string {
   return path.join(resolveDefaultKoinosSourceRoot(), 'koinos')
 }
 
+export function resolveTelenoNodeSourceRoot(): string {
+  return path.resolve(__dirname, '..', '..', 'node', 'teleno-node')
+}
+
 /** True when running from a packaged electron-builder .exe (not dev mode). */
 export function isPackagedBuild(): boolean {
   const electronProcess = process as NodeJS.Process & { defaultApp?: boolean; resourcesPath?: string }
@@ -101,13 +105,14 @@ export function resolveMonolithBinaryPath(): string {
     return path.join(process.resourcesPath!, 'teleno', 'bin', TELENO_NODE_BINARY_NAME + ext)
   }
 
-  const telenoAliasPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', TELENO_NODE_BINARY_NAME + ext)
+  const nodeRoot = resolveTelenoNodeSourceRoot()
+  const telenoAliasPath = path.join(nodeRoot, 'build', TELENO_NODE_BINARY_NAME + ext)
   if (fs.existsSync(telenoAliasPath)) return telenoAliasPath
 
-  const primaryPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', UPSTREAM_KOINOS_NODE_BINARY_NAME + ext)
+  const primaryPath = path.join(nodeRoot, 'build', UPSTREAM_KOINOS_NODE_BINARY_NAME + ext)
   if (fs.existsSync(primaryPath)) return primaryPath
 
-  const nestedPath = path.resolve(__dirname, '..', '..', 'vendor', 'koinos', 'koinos-node', 'build', 'src', UPSTREAM_KOINOS_NODE_BINARY_NAME + ext)
+  const nestedPath = path.join(nodeRoot, 'build', 'src', UPSTREAM_KOINOS_NODE_BINARY_NAME + ext)
   return nestedPath
 }
 

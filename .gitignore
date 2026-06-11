@@ -9,18 +9,20 @@ assets/branding/icon.iconset/
 backend/data/archives/
 backend/data/extracted/
 backend/data/*.db
+.deps/
+.run/
+Untitled.png
 
-# Native build artifacts (C++ / Go)
-vendor/koinos/*/build-win/
+# Native build artifacts
+node/teleno-node/build
+node/teleno-node/build/
+node/teleno-node/build-win
+node/teleno-node/build-win/
+node/teleno-node/*.exe
+compat/legacy-services/*/build/
+compat/legacy-services/*/build-win/
 vendor/koinos/*/build/
-vendor/koinos/*/*.exe
-vendor/koinos/koinos-rest/.next/
-vendor/koinos/koinos-rest/node_modules/
-
-# AMQP broker build artifacts
-vendor/amqp-broker/garagemq.exe
-vendor/amqp-broker/garagemq
-vendor/amqp-broker/admin-frontend/node_modules/
+vendor/koinos/*/build-win/
 
 # Claude Code worktrees and caches
 .claude/worktrees/

@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { isWindows, isDarwin, isAppleSilicon, executableExtension, findExecutableInPath as findInPath, homebrewPrefix } from './platform'
-import { resolveDefaultKoinosSourceRoot, isPackagedBuild, resolveKoinosBinRoot, resolveKoinosRestRoot, resolveMonolithBinaryPath } from './constants'
+import { isPackagedBuild, resolveKoinosBinRoot, resolveMonolithBinaryPath, resolveTelenoNodeSourceRoot } from './constants'
 
 export type NativeBuildSystem = 'cmake' | 'go' | 'yarn'
 
@@ -224,8 +224,8 @@ function formatCommand(command: string, args: string[]): string {
     .join(' ')
 }
 
-export function monolithCmakeConfigureArgs(sourceRoot = resolveDefaultKoinosSourceRoot(), buildDir = 'build'): string[] {
-  const repoPath = path.join(sourceRoot, 'koinos-node')
+export function monolithCmakeConfigureArgs(sourceRoot = resolveTelenoNodeSourceRoot(), buildDir = 'build'): string[] {
+  const repoPath = sourceRoot
   const cachePath = path.join(repoPath, buildDir, 'CMakeCache.txt')
   const koinosPrefix = cmakePrefixFromPackageDir(readCmakeCacheValue(cachePath, 'koinos_proto_DIR'))
   const cppLibp2pAuxPrefix =
@@ -283,130 +283,19 @@ export function monolithCmakeConfigureArgs(sourceRoot = resolveDefaultKoinosSour
   return args
 }
 
-export function nativeServiceBuildDefinitions(sourceRoot = resolveDefaultKoinosSourceRoot()): NativeServiceBuildDefinition[] {
-  const ext = executableExtension()
-
-  // In packaged mode, all binaries live in a flat bin/ directory
-  if (isPackagedBuild()) {
-    const binRoot = resolveKoinosBinRoot()
-    const restRoot = resolveKoinosRestRoot()
-    return [
-      { serviceId: 'chain', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_chain' + ext), buildCommands: [] },
-      { serviceId: 'mempool', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_mempool' + ext), buildCommands: [] },
-      { serviceId: 'block_store', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-block-store' + ext), buildCommands: [] },
-      { serviceId: 'p2p', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-p2p' + ext), buildCommands: [] },
-      { serviceId: 'block_producer', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_block_producer' + ext), buildCommands: [] },
-      { serviceId: 'jsonrpc', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-jsonrpc' + ext), buildCommands: [] },
-      { serviceId: 'grpc', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_grpc' + ext), buildCommands: [] },
-      { serviceId: 'transaction_store', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-transaction-store' + ext), buildCommands: [] },
-      { serviceId: 'contract_meta_store', repoPath: binRoot, buildSystem: 'go', artifactPath: path.join(binRoot, 'koinos-contract-meta-store' + ext), buildCommands: [] },
-      { serviceId: 'account_history', repoPath: binRoot, buildSystem: 'cmake', artifactPath: path.join(binRoot, 'koinos_account_history' + ext), buildCommands: [] },
-      { serviceId: 'rest', repoPath: restRoot, buildSystem: 'yarn', artifactPath: path.join(restRoot, 'server.js'), buildCommands: [] }
-    ]
-  }
-
-  // On Windows, C++ builds are in build-win/src/ and Go builds are at repo root
-  const cmakeBuildDir = isWindows() ? 'build-win' : 'build'
-  const goBinPath = (svcDir: string, svcName: string) =>
-    isWindows()
-      ? path.join(sourceRoot, svcDir, svcName + ext)
-      : path.join(sourceRoot, svcDir, 'build', 'bin', svcName + ext)
-
-  return [
-    {
-      serviceId: 'chain',
-      repoPath: path.join(sourceRoot, 'koinos-chain'),
-      buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-chain', cmakeBuildDir, 'src', 'koinos_chain' + ext),
-      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
-    },
-    {
-      serviceId: 'mempool',
-      repoPath: path.join(sourceRoot, 'koinos-mempool'),
-      buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-mempool', cmakeBuildDir, 'src', 'koinos_mempool' + ext),
-      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
-    },
-    {
-      serviceId: 'block_store',
-      repoPath: path.join(sourceRoot, 'koinos-block-store'),
-      buildSystem: 'go',
-      artifactPath: goBinPath('koinos-block-store', 'koinos-block-store'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-block-store' + ext + ' ./cmd/koinos-block-store'],
-      goPackage: './cmd/koinos-block-store'
-    },
-    {
-      serviceId: 'p2p',
-      repoPath: path.join(sourceRoot, 'koinos-p2p'),
-      buildSystem: 'go',
-      artifactPath: goBinPath('koinos-p2p', 'koinos-p2p'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-p2p' + ext + ' ./cmd/koinos-p2p'],
-      goPackage: './cmd/koinos-p2p'
-    },
-    {
-      serviceId: 'block_producer',
-      repoPath: path.join(sourceRoot, 'koinos-block-producer'),
-      buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-block-producer', cmakeBuildDir, 'src', 'koinos_block_producer' + ext),
-      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
-    },
-    {
-      serviceId: 'jsonrpc',
-      repoPath: path.join(sourceRoot, 'koinos-jsonrpc'),
-      buildSystem: 'go',
-      artifactPath: goBinPath('koinos-jsonrpc', 'koinos-jsonrpc'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-jsonrpc' + ext + ' ./cmd/koinos-jsonrpc'],
-      goPackage: './cmd/koinos-jsonrpc'
-    },
-    {
-      serviceId: 'grpc',
-      repoPath: path.join(sourceRoot, 'koinos-grpc'),
-      buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-grpc', cmakeBuildDir, 'src', 'koinos_grpc' + ext),
-      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
-    },
-    {
-      serviceId: 'transaction_store',
-      repoPath: path.join(sourceRoot, 'koinos-transaction-store'),
-      buildSystem: 'go',
-      artifactPath: goBinPath('koinos-transaction-store', 'koinos-transaction-store'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-transaction-store' + ext + ' ./cmd/koinos-transaction-store'],
-      goPackage: './cmd/koinos-transaction-store'
-    },
-    {
-      serviceId: 'contract_meta_store',
-      repoPath: path.join(sourceRoot, 'koinos-contract-meta-store'),
-      buildSystem: 'go',
-      artifactPath: goBinPath('koinos-contract-meta-store', 'koinos-contract-meta-store'),
-      buildCommands: ['CGO_ENABLED=0 go build -o build/bin/koinos-contract-meta-store' + ext + ' ./cmd/koinos-contract-meta-store'],
-      goPackage: './cmd/koinos-contract-meta-store'
-    },
-    {
-      serviceId: 'account_history',
-      repoPath: path.join(sourceRoot, 'koinos-account-history'),
-      buildSystem: 'cmake',
-      artifactPath: path.join(sourceRoot, 'koinos-account-history', cmakeBuildDir, 'src', 'koinos_account_history' + ext),
-      buildCommands: [nativeCmakeConfigureCommand(), nativeCmakeBuildCommand()]
-    },
-    {
-      serviceId: 'rest',
-      repoPath: path.join(sourceRoot, 'koinos-rest'),
-      buildSystem: 'yarn',
-      artifactPath: path.join(sourceRoot, 'koinos-rest', '.next', 'BUILD_ID'),
-      buildCommands: ['yarn install --frozen-lockfile', 'yarn build']
-    }
-  ]
+export function nativeServiceBuildDefinitions(sourceRoot = resolveTelenoNodeSourceRoot()): NativeServiceBuildDefinition[] {
+  return [monolithBuildDefinition(sourceRoot)]
 }
 
-export function nativeServiceBuildDefinitionMap(sourceRoot = resolveDefaultKoinosSourceRoot()): Map<string, NativeServiceBuildDefinition> {
+export function nativeServiceBuildDefinitionMap(sourceRoot = resolveTelenoNodeSourceRoot()): Map<string, NativeServiceBuildDefinition> {
   return new Map(nativeServiceBuildDefinitions(sourceRoot).map((definition) => [definition.serviceId, definition] as const))
 }
 
 /**
- * Build definition for the monolithic Teleno node binary from the upstream koinos-node source tree.
+ * Build definition for the monolithic Teleno node binary.
  * Replaces all individual service build definitions when running in monolith mode.
  */
-export function monolithBuildDefinition(sourceRoot = resolveDefaultKoinosSourceRoot()): NativeServiceBuildDefinition {
+export function monolithBuildDefinition(sourceRoot = resolveTelenoNodeSourceRoot()): NativeServiceBuildDefinition {
   if (isPackagedBuild()) {
     return {
       serviceId: 'teleno-node',
@@ -423,9 +312,9 @@ export function monolithBuildDefinition(sourceRoot = resolveDefaultKoinosSourceR
 
   return {
     serviceId: 'teleno-node',
-    repoPath: path.join(sourceRoot, 'koinos-node'),
+    repoPath: sourceRoot,
     buildSystem: 'cmake',
-    artifactPath: path.join(sourceRoot, 'koinos-node', cmakeBuildDir, 'koinos_node' + executableExtension()),
+    artifactPath: path.join(sourceRoot, cmakeBuildDir, 'koinos_node' + executableExtension()),
     buildCommands: [formatCommand(nativeCmakeExecutable(), configureArgs), formatCommand(nativeCmakeExecutable(), buildArgs)],
     cmakeConfigureArgs: configureArgs,
     cmakeBuildArgs: buildArgs,

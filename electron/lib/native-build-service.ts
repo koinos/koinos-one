@@ -19,7 +19,7 @@ import type {
 } from './main-types'
 
 type NativeBuildServiceDeps = {
-  defaultKoinosSourceRoot: string
+  telenoNodeSourceRoot: string
   managedServices: ManagedKoinosServiceDefinition[]
   runCommand: (
     command: string,
@@ -91,7 +91,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
   }
 
   async function nativeBuildStatus(): Promise<TelenoNodeNativeBuildsResult> {
-    const sourceRoot = deps.defaultKoinosSourceRoot
+    const sourceRoot = deps.telenoNodeSourceRoot
     const definitions = nativeServiceBuildDefinitionMap(sourceRoot)
     const toolStatuses = await detectNativeBuildToolStatuses()
 
@@ -254,7 +254,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
   }
 
   async function nativeBuildAll(): Promise<TelenoNodeNativeBuildCommandResult> {
-    const sourceRoot = deps.defaultKoinosSourceRoot
+    const sourceRoot = deps.telenoNodeSourceRoot
     const definitions = nativeServiceBuildDefinitionMap(sourceRoot)
     const logs: string[] = []
     let ok = true
@@ -283,7 +283,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
 
   async function nativeBuildServiceAction(input?: TelenoNodeNativeBuildCommandInput): Promise<TelenoNodeNativeBuildCommandResult> {
     const serviceId = input?.serviceId?.trim() || ''
-    const sourceRoot = deps.defaultKoinosSourceRoot
+    const sourceRoot = deps.telenoNodeSourceRoot
     const definitions = nativeServiceBuildDefinitionMap(sourceRoot)
     const definition = definitions.get(serviceId)
 
@@ -310,7 +310,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
   }
 
   async function monolithBuildStatus(): Promise<TelenoNodeNativeBuildsResult> {
-    const sourceRoot = deps.defaultKoinosSourceRoot
+    const sourceRoot = deps.telenoNodeSourceRoot
     const definition = monolithBuildDefinition(sourceRoot)
     const toolStatuses = await detectNativeBuildToolStatuses()
     const toolStatus = toolStatuses.cmake
@@ -348,7 +348,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
   }
 
   async function monolithBuildAll(): Promise<TelenoNodeNativeBuildCommandResult> {
-    const definition = monolithBuildDefinition(deps.defaultKoinosSourceRoot)
+    const definition = monolithBuildDefinition(deps.telenoNodeSourceRoot)
     const result = await buildNativeService(definition)
     const builds = await monolithBuildStatus()
 
@@ -375,7 +375,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
       }
     }
 
-    const definition = monolithBuildDefinition(deps.defaultKoinosSourceRoot)
+    const definition = monolithBuildDefinition(deps.telenoNodeSourceRoot)
     const result = await buildNativeService(definition)
     const builds = await monolithBuildStatus()
     return {

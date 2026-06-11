@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-P2P_DIR="$ROOT_DIR/vendor/koinos/koinos-p2p"
-NODE_DIR="$ROOT_DIR/vendor/koinos/koinos-node"
+P2P_FIXTURES_DIR="${P2P_FIXTURES_DIR:-$ROOT_DIR/compat/koinos-p2p-fixtures}"
+NODE_DIR="$ROOT_DIR/node/teleno-node"
 LOG_FILE="$(mktemp -t knodel-gossip-fixture.XXXXXX.log)"
 
 cleanup() {
@@ -19,7 +19,7 @@ cmake -S "$NODE_DIR" -B "$NODE_DIR/build" >/tmp/knodel-gossip-cmake.log
 cmake --build "$NODE_DIR/build" --target koinos_libp2p_gossip_live_test --parallel \
   >/tmp/knodel-gossip-build.log
 
-(cd "$P2P_DIR" && go run ./cmd/gossip-fixture >"$LOG_FILE" 2>&1) &
+(cd "$P2P_FIXTURES_DIR" && go run ./cmd/gossip-fixture >"$LOG_FILE" 2>&1) &
 FIXTURE_PID=$!
 
 PEER_ADDR=""

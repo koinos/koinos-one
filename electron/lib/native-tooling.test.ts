@@ -11,23 +11,24 @@ describe('native tooling helpers', () => {
   })
 
   it('defines native build metadata for the managed services', () => {
-    const definitions = nativeServiceBuildDefinitions('/tmp/koinos-source')
-    expect(definitions.some((entry) => entry.serviceId === 'jsonrpc' && entry.buildSystem === 'go')).toBe(true)
-    expect(definitions.some((entry) => entry.serviceId === 'rest' && entry.buildSystem === 'yarn')).toBe(true)
+    const definitions = nativeServiceBuildDefinitions('/tmp/teleno-node')
+    expect(definitions).toHaveLength(1)
+    expect(definitions[0]?.serviceId).toBe('teleno-node')
+    expect(definitions[0]?.buildSystem).toBe('cmake')
 
-    const definitionMap = nativeServiceBuildDefinitionMap('/tmp/koinos-source')
-    expect(definitionMap.get('block_producer')?.artifactPath).toContain('koinos-block-producer')
+    const definitionMap = nativeServiceBuildDefinitionMap('/tmp/teleno-node')
+    expect([...definitionMap.keys()]).toEqual(['teleno-node'])
   })
 
   it('defines a reproducible libp2p-enabled monolith build', () => {
-    const definition = monolithBuildDefinition('/tmp/koinos-source')
+    const definition = monolithBuildDefinition('/tmp/teleno-node')
     const configureArgs = definition.cmakeConfigureArgs ?? []
 
     expect(definition.serviceId).toBe('teleno-node')
-    expect(definition.artifactPath).toBe(path.join('/tmp/koinos-source', 'koinos-node', 'build', 'koinos_node'))
+    expect(definition.artifactPath).toBe(path.join('/tmp/teleno-node', 'build', 'koinos_node'))
     expect(configureArgs).toContain('KOINOS_ENABLE_LIBP2P=ON')
-    expect(configureArgs).toContain(`CMAKE_PROJECT_INCLUDE=${path.join('/tmp/koinos-source', 'koinos-node', 'cmake', 'cpp-libp2p-koinos-prelude.cmake')}`)
-    expect(configureArgs).toContain(`CMAKE_RUNTIME_OUTPUT_DIRECTORY=${path.join('/tmp/koinos-source', 'koinos-node', 'build')}`)
+    expect(configureArgs).toContain(`CMAKE_PROJECT_INCLUDE=${path.join('/tmp/teleno-node', 'cmake', 'cpp-libp2p-koinos-prelude.cmake')}`)
+    expect(configureArgs).toContain(`CMAKE_RUNTIME_OUTPUT_DIRECTORY=${path.join('/tmp/teleno-node', 'build')}`)
     expect(definition.buildCommands.join('\n')).toContain('KOINOS_ENABLE_LIBP2P=ON')
   })
 })

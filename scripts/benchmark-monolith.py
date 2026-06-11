@@ -330,7 +330,7 @@ def launch_node(args: argparse.Namespace, result_dir: Path) -> tuple[subprocess.
     if not bin_path.exists():
         raise FileNotFoundError(str(bin_path))
 
-    log_path = Path(args.launch_log) if args.launch_log else result_dir / "launched-koinos-node.log"
+    log_path = Path(args.launch_log) if args.launch_log else result_dir / "launched-teleno-node.log"
     log_handle = log_path.open("ab", buffering=0)
     cmd = [str(bin_path), "--basedir", args.launch_basedir, "--jsonrpc-listen", args.jsonrpc_listen]
     if args.launch_config:

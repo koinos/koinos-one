@@ -359,22 +359,22 @@ Update:
 
 Recommended new files:
 
-- `vendor/koinos/koinos-node/src/core/backup_checkpoint_manager.hpp`
-- `vendor/koinos/koinos-node/src/core/backup_checkpoint_manager.cpp`
-- `vendor/koinos/koinos-node/src/admin/admin_server.hpp`
-- `vendor/koinos/koinos-node/src/admin/admin_server.cpp`
+- `node/teleno-node/src/core/backup_checkpoint_manager.hpp`
+- `node/teleno-node/src/core/backup_checkpoint_manager.cpp`
+- `node/teleno-node/src/admin/admin_server.hpp`
+- `node/teleno-node/src/admin/admin_server.cpp`
 
 Modify:
 
-- `vendor/koinos/koinos-node/src/main.cpp`
+- `node/teleno-node/src/main.cpp`
   - create admin token/listener
   - construct backup manager after RocksDB opens
   - register admin routes
   - wire shutdown
-- `vendor/koinos/koinos-node/src/core/config.hpp`
-- `vendor/koinos/koinos-node/src/core/config.cpp`
+- `node/teleno-node/src/core/config.hpp`
+- `node/teleno-node/src/core/config.cpp`
   - parse admin settings
-- `vendor/koinos/koinos-node/src/CMakeLists.txt`
+- `node/teleno-node/src/CMakeLists.txt`
   - add new source files
   - ensure RocksDB utilities symbols are linked if needed
 
@@ -420,7 +420,7 @@ Free-space rule:
 
 ### C++ Unit Tests
 
-Add tests under `vendor/koinos/koinos-node/tests/core/`:
+Add tests under `node/teleno-node/tests/core/`:
 
 1. Creates a temporary RocksDB with all monolith column families.
 2. Writes sample data.
@@ -496,7 +496,7 @@ Do not run first live validation on a mainnet producer.
 
 Exit criteria:
 
-- `cmake --build vendor/koinos/koinos-node/build --target koinos_node <tests> --parallel`
+- `cmake --build node/teleno-node/build --target koinos_node <tests> --parallel`
 - Checkpoint unit tests pass.
 
 ### Phase 2: Private Admin Endpoint

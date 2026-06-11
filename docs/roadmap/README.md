@@ -6,7 +6,6 @@ Roadmap documents are grouped by topic so active work is easier to find.
 
 - `monolith/core/MONOLITH_PRODUCTION_PLAN.md` — main monolith roadmap and source of truth.
 - `monolith/core/MONOLITHIC_NODE_ARCHITECTURE.md` — monolithic node architecture plan.
-- `monolith/core/KOINOSGUI_APP_SPLIT_PLAN.md` — two-repository `koinosGUI` app split plan.
 - `monolith/core/MONOLITH_JSONRPC_PARITY_REPORT.md` — JSON-RPC parity report.
 - `monolith/networking/CPP_LIBP2P_INTEGRATION_STATUS.md` — cpp-libp2p integration status.
 - `monolith/networking/MONOLITH_GATE_EF_REPORT.md` — Gate E/F report.
@@ -17,11 +16,6 @@ Roadmap documents are grouped by topic so active work is easier to find.
 - `monolith/testnets/MONOLITH_EXTERNAL_TESTNET_REPORT.md` — external/shared testnet report.
 - `monolith/backup-restore/MONOLITH_BACKUP_RESTORE_REPORT.md` — monolith backup restore report.
 
-## Backup Restore
-
-- `backup-restore/BACKUP_COMPRESSION_OPTIMIZATION.md` — backup compression optimization plan.
-
 ## Operations
 
-- `operations/REMOTE_NODE_MANAGEMENT.md` — remote node management plan.
 - `operations/POST_PACKAGING_SMOKE_TESTS_PLAN.md` — post-packaging smoke test plan.

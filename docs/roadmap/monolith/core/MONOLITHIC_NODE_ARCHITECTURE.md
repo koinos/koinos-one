@@ -735,11 +735,11 @@ await waitForTcpListener('127.0.0.1', 8080, 30000)  // wait for jsonrpc health
 **Changes to `electron/lib/native-tooling.ts`:**
 
 ```typescript
-// BEFORE: 11 build definitions
+// BEFORE: 11 legacy service build definitions outside Teleno's active tree
 function nativeServiceBuildDefinitions(sourceRoot: string): Map<string, BuildDefinition> {
   return new Map([
-    ['chain', { system: 'cmake', sourcePath: 'vendor/koinos/koinos-chain', ... }],
-    ['block_store', { system: 'go', sourcePath: 'vendor/koinos/koinos-block-store', ... }],
+    ['chain', { system: 'cmake', sourcePath: '<legacy-service-repo>/koinos-chain', ... }],
+    ['block_store', { system: 'go', sourcePath: '<legacy-service-repo>/koinos-block-store', ... }],
     // ... 9 more
   ])
 }
@@ -749,8 +749,8 @@ function nativeServiceBuildDefinitions(sourceRoot: string): Map<string, BuildDef
   return new Map([
     ['koinos-node', {
       system: 'cmake',
-      sourcePath: 'vendor/koinos/koinos-node',  // monolith repo
-      artifactPath: 'vendor/koinos/koinos-node/build/koinos_node',
+      sourcePath: 'node/teleno-node',  // monolith repo
+      artifactPath: 'node/teleno-node/build/koinos_node',
       configureArgs: [/* unified cmake args */],
     }]
   ])
@@ -1258,7 +1258,7 @@ This phase is required before the final online checkpoint backup design can be c
 
 | Item | Reason |
 |---|---|
-| `vendor/amqp-broker/` | No AMQP broker needed |
+| Legacy AMQP broker submodule | No AMQP broker needed in the active Teleno tree |
 | `koinos_mq` library | AMQP client library — replaced by direct calls + EventBus |
 | `rabbitmq-c` library | AMQP C bindings — no longer needed |
 | Go service binaries | Rewritten in C++ |
@@ -1270,7 +1270,7 @@ This phase is required before the final online checkpoint backup design can be c
 
 | Phase | Scope | Status | Notes |
 |---|---|---|---|
-| Phase 0: Foundation | CMake skeleton, EventBus, interfaces | **DONE** | `vendor/koinos/koinos-node/src/core/` |
+| Phase 0: Foundation | CMake skeleton, EventBus, interfaces | **DONE** | `node/teleno-node/src/core/` |
 | Phase 1: C++ Services Integration | chain + vm_manager + mempool internalized, AMQP → IRpcClient | **DONE** | 44 source files, MonolithRpcClient, MempoolAdapter |
 | Phase 2: Block Store C++ | RocksDB block store, skip-list O(log n) | **DONE** | `block_store/`, 4 RPC methods, EventBus wired |
 | Phase 3: JSON-RPC C++ | Boost.Beast HTTP server, 21 methods | **DONE** | `jsonrpc/`, all 6 services dispatched, batch support |
@@ -1306,7 +1306,7 @@ This phase is required before the final online checkpoint backup design can be c
 | gorpc wire compatibility | High | Offline MessagePack fixtures from the Go codec pass in `koinos_gorpc_codec_test`; next capture wire traces from a Go koinos-p2p node and validate live interop for protocol `/koinos/peerrpc/1.0.0`, service `PeerRPCService` |
 | GossipSub interop | High | Connect C++ monolith to a Go peer, verify blocks and transactions propagate via `koinos.blocks` and `koinos.transactions` topics |
 | NAT traversal | Medium | Test UPnP, AutoRelay, and hole punching against Go libp2p — may differ in behavior |
-| Peer RPC methods | High | Validate `GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, `GetBlocks` request/response structs match `vendor/koinos/koinos-p2p/internal/rpc/peer_rpc_service.go` exactly |
+| Peer RPC methods | High | Validate `GetChainID`, `GetHeadBlock`, `GetAncestorBlockID`, `GetBlocks` request/response structs match `compat/legacy-services/koinos-p2p/internal/rpc/peer_rpc_service.go` exactly |
 
 #### 2. Block Sync End-to-End
 

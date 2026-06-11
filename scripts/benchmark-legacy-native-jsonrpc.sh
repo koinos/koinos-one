@@ -35,10 +35,12 @@ require_tool() {
   command -v "$1" >/dev/null 2>&1 || die "required tool not found: $1"
 }
 
-native_bin() {
-  local rel="$1"
-  local path="$ROOT_DIR/$rel"
-  [[ -x "$path" ]] || die "native legacy binary missing or not executable: $path"
+legacy_bin() {
+  local var_name="$1"
+  local label="$2"
+  local path="${!var_name:-}"
+  [[ -n "$path" ]] || die "${label} binary path is not configured; set ${var_name}"
+  [[ -x "$path" ]] || die "${label} binary missing or not executable: $path"
   printf '%s\n' "$path"
 }
 
@@ -280,11 +282,11 @@ main() {
   local block_store
   local mempool
   local jsonrpc
-  garagemq="$(native_bin "vendor/amqp-broker/garagemq")"
-  chain="$(native_bin "vendor/koinos/koinos-chain/build/src/koinos_chain")"
-  block_store="$(native_bin "vendor/koinos/koinos-block-store/build/bin/koinos-block-store")"
-  mempool="$(native_bin "vendor/koinos/koinos-mempool/build/src/koinos_mempool")"
-  jsonrpc="$(native_bin "vendor/koinos/koinos-jsonrpc/build/bin/koinos-jsonrpc")"
+  garagemq="$(legacy_bin LEGACY_GARAGEMQ_BIN GarageMQ)"
+  chain="$(legacy_bin LEGACY_CHAIN_BIN koinos_chain)"
+  block_store="$(legacy_bin LEGACY_BLOCK_STORE_BIN koinos-block-store)"
+  mempool="$(legacy_bin LEGACY_MEMPOOL_BIN koinos_mempool)"
+  jsonrpc="$(legacy_bin LEGACY_JSONRPC_BIN koinos-jsonrpc)"
 
   echo "report_dir=$REPORT_DIR"
   echo "basedir=$BASEDIR"

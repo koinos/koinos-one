@@ -9,12 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  # ============================================================
-  # macOS ARM64 build
-  # ============================================================
   build-mac:
-    runs-on: macos-14  # Apple Silicon (M1)
-    timeout-minutes: 150
+    runs-on: macos-14
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,128 +20,47 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
 
       - name: Install macOS build dependencies
         run: |
           brew install gmp ninja
           pip3 install cmake==3.28.4 --break-system-packages
 
-      - name: Cache Hunter packages
+      - name: Cache Teleno native dependencies
         uses: actions/cache@v4
         with:
-          path: ~/.hunter
-          key: hunter-mac-arm64-${{ hashFiles('vendor/koinos/koinos-chain/CMakeLists.txt') }}
+          path: .deps/teleno-node
+          key: teleno-node-mac-arm64-${{ hashFiles('node/teleno-node/CMakeLists.txt', 'node/teleno-node/CMakeLists.hunter.txt', 'scripts/build-cpp-libp2p-koinos.sh') }}
           restore-keys: |
-            hunter-mac-arm64-
+            teleno-node-mac-arm64-
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build native services
-        run: ./scripts/build-native-mac.sh
-        timeout-minutes: 120
+      - name: Build Teleno node
+        run: ./scripts/build-cpp-libp2p-koinos.sh
+        timeout-minutes: 150
 
-      - name: Stage bundle
-        run: npm run stage
-        continue-on-error: true
-
-      - name: Build Electron app
-        run: npm run build
-
-      - name: Build macOS icon
-        run: npm run build:icon:mac 2>/dev/null || true
-
-      - name: Package DMG (unsigned)
-        run: npx cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg
+      - name: Package unsigned macOS DMG
+        run: npm run package:mac:unsigned
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mac-dmg
+          name: teleno-mac-dmg
           path: release/*.dmg
 
-  # ============================================================
-  # Windows x64 build
-  # ============================================================
-  build-win:
-    runs-on: windows-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-
-      - name: Install CMake 3.28
-        run: pip install cmake==3.28.4
-
-      - name: Cache Hunter packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.hunter
-          key: hunter-win-x64-${{ hashFiles('vendor/koinos/koinos-chain/CMakeLists.txt') }}
-          restore-keys: |
-            hunter-win-x64-
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build native services
-        run: scripts\build-native-win.bat
-        timeout-minutes: 90
-
-      - name: Stage bundle
-        run: node scripts/stage-bundle-win.js
-        continue-on-error: true
-
-      - name: Build Electron app
-        run: npm run build
-
-      - name: Package NSIS installer
-        run: npx electron-builder --win nsis
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: win-installer
-          path: release/*.exe
-
-  # ============================================================
-  # Create GitHub Release with both artifacts
-  # ============================================================
   release:
-    needs: [build-mac, build-win]
-    if: always() && (needs.build-mac.result == 'success' || needs.build-win.result == 'success')
+    needs: [build-mac]
     runs-on: ubuntu-latest
     steps:
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
-          name: mac-dmg
+          name: teleno-mac-dmg
           path: artifacts/
-        continue-on-error: true
-
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: win-installer
-          path: artifacts/
-        continue-on-error: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

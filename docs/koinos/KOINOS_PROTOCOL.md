@@ -2,7 +2,7 @@
 
 This document explains the parts of Koinos that must remain compatible across all network clients, regardless of implementation language, process layout, database engine, or user interface.
 
-Knodel may replace microservices with a monolithic C++ node, change local storage, remove AMQP from the local execution path, or optimize process management. It must not change the externally observable protocol behavior described here.
+Teleno may replace microservices with a monolithic C++ node, change local storage, remove AMQP from the local execution path, or optimize process management. It must not change the externally observable protocol behavior described here.
 
 ## Protocol Boundary
 
@@ -44,7 +44,7 @@ A Koinos network is identified by its chain ID. The chain ID is derived from the
 
 All nodes on the same network must use the same genesis data. If two nodes use different genesis entries, contract bytecode, system call mappings, initial balances, or initial contract metadata, they are on different chains even if they connect to the same P2P endpoint.
 
-For Knodel, this means:
+For Teleno, this means:
 
 - mainnet must use mainnet genesis and descriptors;
 - public testnet must use the public testnet genesis and descriptors;
@@ -111,7 +111,7 @@ A compatible implementation may store data in RocksDB, Badger, memory, or anothe
 - maintain a state root that is compatible with the block header chain it is validating;
 - preserve enough historical block and receipt data to serve peer sync and local RPC requirements.
 
-If a node reaches a different live parent state root than the one required by the next valid block's `previous_state_merkle_root`, that node has diverged from the chain it is trying to follow. The existing Knodel restore notes call out one practical risk here: replaying stored receipt deltas with `verify-blocks=false` can be fast, but it does not perform the same merkle validation as full block execution.
+If a node reaches a different live parent state root than the one required by the next valid block's `previous_state_merkle_root`, that node has diverged from the chain it is trying to follow. The existing Teleno restore notes call out one practical risk here: replaying stored receipt deltas with `verify-blocks=false` can be fast, but it does not perform the same merkle validation as full block execution.
 
 ## Consensus and Fork Choice
 
@@ -123,7 +123,7 @@ The fork tree supports these configured algorithms in the current chain service:
 - `block-time`: earliest timestamp wins;
 - `pob`: highest Proof-of-Burn score wins.
 
-In current Knodel validation work, `fifo`/federated-style private networks are used for controlled mechanics tests, while `pob` is the production-style Proof of Burn / VHP path.
+In current Teleno validation work, `fifo`/federated-style private networks are used for controlled mechanics tests, while `pob` is the production-style Proof of Burn / VHP path.
 
 For PoB/VHP behavior, clients must preserve the same on-chain contract semantics for producer registration, public key lookup, VHP accounting, burn behavior, difficulty metadata, block signature processing, fork comparison, and finality.
 
@@ -190,9 +190,9 @@ Important RPC groups include:
 - `account_history`: account-oriented history queries where enabled;
 - JSON-RPC and gRPC envelope behavior expected by existing Koinos clients.
 
-Knodel may route these requests directly inside the monolith, but responses, byte encodings, errors, and edge cases must remain compatible with the legacy service behavior where external clients depend on them. Some of these services are indexes rather than consensus engines, so their internal storage is not protocol-critical even when their public API behavior is compatibility-critical.
+Teleno may route these requests directly inside the monolith, but responses, byte encodings, errors, and edge cases must remain compatible with the legacy service behavior where external clients depend on them. Some of these services are indexes rather than consensus engines, so their internal storage is not protocol-critical even when their public API behavior is compatibility-critical.
 
-## What Knodel Can Change
+## What Teleno Can Change
 
 The following are implementation details and may be optimized as long as the protocol boundary above remains unchanged:
 
@@ -224,8 +224,8 @@ A Koinos client implementation should not be considered network-compatible until
 - It passes JSON-RPC and gRPC compatibility checks for externally consumed methods.
 - It syncs from genesis or a valid restored state to the same head as reference nodes.
 
-## Knodel Rule of Thumb
+## Teleno Rule of Thumb
 
-If a change affects only how Knodel stores data, starts processes, schedules work, or displays state, it is probably an implementation change.
+If a change affects only how Teleno stores data, starts processes, schedules work, or displays state, it is probably an implementation change.
 
 If a change affects bytes on the wire, protobuf schemas, object IDs, signatures, merkle roots, state transitions, block validity, fork choice, Peer RPC behavior, gossip payloads, or externally consumed RPC semantics, it is a protocol compatibility change and must be treated as consensus-sensitive.

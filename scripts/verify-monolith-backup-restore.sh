@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NODE_DIR="$ROOT_DIR/vendor/koinos/koinos-node"
+NODE_DIR="$ROOT_DIR/node/teleno-node"
 CONFIG_EXAMPLE_DIR="$ROOT_DIR/vendor/koinos/koinos/config-example"
 BIN="${MONOLITH_NODE_BIN:-$NODE_DIR/build/koinos_node}"
 HUNTER_INSTALL_DIR="${HUNTER_INSTALL_DIR:-/Volumes/external/.hunter/_Base/a20151e/caf7adb/26936b6/Install}"

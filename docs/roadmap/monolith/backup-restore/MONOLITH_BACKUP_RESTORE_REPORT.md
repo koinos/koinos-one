@@ -21,7 +21,7 @@ The downloaded backup was a legacy Koinos backup. It contained `.koinos/chain`, 
 - Extracted the legacy payload directly into `/Volumes/external/knodel-monolith-restore/basedir`.
 - Removed the downloaded tarball after extraction to recover external SSD space before conversion.
 - Converted legacy Badger `block_store/db` to monolith RocksDB `basedir/db`.
-- Started `vendor/koinos/koinos-node/build/koinos_node` with P2P disabled and JSON-RPC on `127.0.0.1:18083`.
+- Started `node/teleno-node/build/koinos_node` with P2P disabled and JSON-RPC on `127.0.0.1:18083`.
 
 ## Conversion
 
