@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_DIR="$ROOT_DIR/node/teleno-node"
 CONFIG_EXAMPLE_DIR="$ROOT_DIR/vendor/koinos/koinos/config-example"
-BIN="${MONOLITH_NODE_BIN:-$NODE_DIR/build/koinos_node}"
+BIN="${MONOLITH_NODE_BIN:-$NODE_DIR/build/teleno_node}"
 HUNTER_INSTALL_DIR="${HUNTER_INSTALL_DIR:-/Volumes/external/.hunter/_Base/a20151e/caf7adb/26936b6/Install}"
 IMPORTER_BIN="${MONOLITH_BLOCK_STORE_IMPORTER:-$NODE_DIR/build/import_block_store_stream}"
 
@@ -34,7 +34,7 @@ usage() {
   cat <<EOF
 Usage: $0 [--dry-run] [--download] [--archive PATH] [--url URL] [--workdir PATH] [--basedir PATH] [--keep-workdir] [--scan-archive]
 
-Validates a Koinos backup restore against the monolithic koinos_node.
+Validates a Koinos backup restore against the monolithic teleno_node.
 
 Default workdir: $WORKDIR
 Default URL:     $BACKUP_URL
@@ -44,7 +44,7 @@ Modes:
   --download      Download the backup archive into the workdir before restoring.
   --archive PATH  Restore from an existing local .tar.gz archive.
 
-The full restore intentionally uses an external BASEDIR and starts koinos_node
+The full restore intentionally uses an external BASEDIR and starts teleno_node
 with P2P disabled, then verifies chain.get_head_info via local JSON-RPC.
 EOF
 }
@@ -70,7 +70,7 @@ done
 
 METADATA_URL="${BACKUP_URL}.metadata"
 CHECKSUM_URL="${BACKUP_URL}.sha256"
-LOG_FILE="$WORKDIR/koinos_node.log"
+LOG_FILE="$WORKDIR/teleno_node.log"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
@@ -293,7 +293,7 @@ NODE
 verify_node() {
   "$BIN" --basedir="$BASEDIR" --log-level=info --disable=p2p --enable=jsonrpc >"$LOG_FILE" 2>&1 &
   local node_pid=$!
-  log "started koinos_node pid=$node_pid"
+  log "started teleno_node pid=$node_pid"
 
   local started_at
   started_at="$(date +%s)"
@@ -301,7 +301,7 @@ verify_node() {
   while [[ $(( $(date +%s) - started_at )) -lt 120 ]]; do
     if ! kill -0 "$node_pid" 2>/dev/null; then
       cat "$LOG_FILE" >&2 || true
-      fail "koinos_node exited before JSON-RPC verification"
+      fail "teleno_node exited before JSON-RPC verification"
     fi
     if head_json="$(jsonrpc_head_info 2>/tmp/teleno-monolith-restore-rpc.err)"; then
       append_report "## JSON-RPC Verification"
@@ -370,7 +370,7 @@ run_full_restore() {
   require_cmd node
   require_cmd shasum
 
-  [[ -x "$BIN" ]] || fail "koinos_node binary not found or not executable: $BIN"
+  [[ -x "$BIN" ]] || fail "teleno_node binary not found or not executable: $BIN"
   mkdir -p "$WORKDIR"
   write_report_header
 

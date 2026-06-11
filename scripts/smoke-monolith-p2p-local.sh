@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_DIR="$ROOT_DIR/node/teleno-node"
 CONFIG_EXAMPLE_DIR="$ROOT_DIR/vendor/koinos/koinos/config-example"
-BIN="$NODE_DIR/build/koinos_node"
+BIN="$NODE_DIR/build/teleno_node"
 BASEDIR="$(mktemp -d -t teleno-monolith-p2p.XXXXXX)"
 LOG_FILE="$(mktemp -t teleno-monolith-p2p.XXXXXX.log)"
 JSONRPC_PORT="${JSONRPC_PORT:-18080}"
@@ -20,7 +20,7 @@ cleanup() {
 trap cleanup EXIT
 
 cmake -S "$NODE_DIR" -B "$NODE_DIR/build" >/tmp/teleno-monolith-p2p-cmake.log
-cmake --build "$NODE_DIR/build" --target koinos_node --parallel >/tmp/teleno-monolith-p2p-build.log
+cmake --build "$NODE_DIR/build" --target teleno_node --parallel >/tmp/teleno-monolith-p2p-build.log
 
 mkdir -p "$BASEDIR/chain" "$BASEDIR/jsonrpc/descriptors"
 cp "$CONFIG_EXAMPLE_DIR/genesis_data.json" "$BASEDIR/chain/genesis_data.json"

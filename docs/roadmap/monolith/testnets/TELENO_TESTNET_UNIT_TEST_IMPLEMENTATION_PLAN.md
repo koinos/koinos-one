@@ -1,10 +1,10 @@
-# koinosGUI Testnet Support Unit Test Implementation Plan
+# Teleno Testnet Support Unit Test Implementation Plan
 
 Updated: 2026-06-07
 
 ## Purpose
 
-Define the unit-test implementation path for explicit testnet support in koinosGUI. These tests should prove the safety invariants before the GUI starts launching testnet nodes from user-selected basedirs.
+Define the unit-test implementation path for explicit testnet support in Teleno. These tests should prove the safety invariants before the GUI starts launching testnet nodes from user-selected basedirs.
 
 This plan covers TypeScript unit tests run by `npm run test` through Vitest. It does not cover Playwright UI tests, Electron smoke tests, live testnet smokes, or C++ `koinos_node` tests.
 
@@ -40,7 +40,7 @@ Add cases:
 - Missing `network` falls back to `mainnet`.
 - `profiles: "testnet_observer"` infers `network: "testnet"` when no network is stored.
 - Existing node-layout path is preserved exactly:
-  - input: `/Volumes/external/knodel-testnet-producer/basedir`
+  - input: `/Volumes/external/teleno-testnet-producer/basedir`
   - fixture contains `config.yml`, `chain/`, or `db/`
   - output must not append `.koinos`.
 - Parent directory still appends `.koinos` when it is not a node layout.
@@ -102,7 +102,7 @@ Add cases:
   - old payload with explicit `network: "testnet"` keeps testnet even if profiles are empty.
 - Unsupported network strings are ignored in storage parsing but rejected by runtime validation.
 
-### `electron/lib/knodel-storage.test.ts`
+### `electron/lib/teleno-storage.test.ts`
 
 Add cases if public RPC config becomes network-scoped:
 

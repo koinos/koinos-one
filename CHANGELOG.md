@@ -42,7 +42,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Bumped Knodel from `v0.2.0` to `v0.9.0` as an almost-stable release.
+- Bumped the app from `v0.2.0` to `v0.9.0` as an almost-stable release.
 - Extended the `block_producer` profile so it also brings up `jsonrpc` and `contract_meta_store`.
 - Moved producer, wallet, and dashboard refresh behavior to asynchronous background polling to avoid blocking the UI.
 - Reduced the Producer tab to the essential identity, balance, and latest-produced-block information.

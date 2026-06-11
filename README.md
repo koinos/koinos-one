@@ -30,13 +30,15 @@ git submodule update --init --recursive
 
 ## Build The Monolithic Node
 
-The upstream C++ source tree lives under `node/teleno-node`. CMake still builds the upstream target as `koinos_node`; packaging stages that binary as `teleno_node`.
+The C++ source tree lives under `node/teleno-node`. CMake builds the monolith executable as `teleno_node`, and packaging stages the same binary name.
 
 ```bash
 ./scripts/build-cpp-libp2p-koinos.sh
 ```
 
 Legacy microservice build/start scripts are not part of the active Teleno command surface. Legacy-facing scripts are retained only when they prove protocol compatibility, migration safety, or parity with existing Koinos clients and peers.
+
+For direct command-line startup on public testnet or mainnet, see `docs/operations/START_TELENO_NODE.md`.
 
 ## Building For Distribution
 

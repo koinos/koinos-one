@@ -1,5 +1,7 @@
 # Current Monolith Status
 
+> Historical note: This file preserves command output, validation context, and artifact paths from runs that predate the Teleno repository and runtime cleanup. Old `knodel-*`, `koinosgui`, `Knodel.app`, or `/code/knodel` paths are evidence references only; current active repo paths and generated artifacts use Teleno names.
+
 Last updated: 2026-06-07
 
 This document is the detailed current-status record for the Teleno monolithic Koinos node. `AGENTS.md` intentionally keeps only a pointer here so the project memory stays readable while this detailed operational history remains available.

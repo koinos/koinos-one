@@ -7,7 +7,7 @@ FETCH_SCRIPT="$ROOT_DIR/scripts/fetch-koinos-integration-tests.sh"
 SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/teleno-koinos-integration-tests}"
 RUN_ROOT="${KOINOS_INTEGRATION_COMPAT_ROOT:-/private/tmp/teleno-integration-compat}"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/node/teleno-node/build}"
-BIN="${BIN:-$BUILD_DIR/koinos_node}"
+BIN="${BIN:-$BUILD_DIR/teleno_node}"
 MODE="${1:-inventory}"
 TEST_NAME="${2:-publish_transaction}"
 TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
@@ -29,7 +29,7 @@ Modes:
   legacy-native
               Run an upstream single-node test unchanged through native legacy
               microservice binaries and GarageMQ on macOS.
-  monolith    Run an adapted upstream test against local koinos_node.
+  monolith    Run an adapted upstream test against local teleno_node.
 
 Current legacy-native mode supports: publish_transaction, pending_nonce,
   pending_transaction_limit, transaction_error, koin, vhp, pob, propose_block.
@@ -43,7 +43,7 @@ Environment:
   KOINOS_INTEGRATION_TESTS_REF      Upstream ref passed to fetch script.
   KOINOS_INTEGRATION_COMPAT_ROOT    Result directory root.
   BUILD_DIR                         Teleno node build directory.
-  BIN                               koinos_node binary path.
+  BIN                               teleno_node binary path.
   JSONRPC_PORT                      Monolith JSON-RPC port for compatibility mode.
   LEGACY_NATIVE_JSONRPC_PORT        Native legacy JSON-RPC port.
   LEGACY_NATIVE_AMQP_PORT           Native legacy AMQP port.
@@ -590,14 +590,14 @@ run_monolith_single_node() {
   require_tool go
   require_tool curl
   require_tool python3
-  [[ -x "$BIN" ]] || die "koinos_node not executable: $BIN"
+  [[ -x "$BIN" ]] || die "teleno_node not executable: $BIN"
   [[ -d "$SOURCE_DIR/tests/$TEST_NAME" ]] || die "unknown upstream test: $TEST_NAME"
   monolith_supported_test "$TEST_NAME" || die "monolith mode does not support unchanged upstream test $TEST_NAME"
 
   local port="${JSONRPC_PORT:-28080}"
   port_is_free "$port" || die "port $port is already in use"
 
-  cmake --build "$BUILD_DIR" --target koinos_node --parallel
+  cmake --build "$BUILD_DIR" --target teleno_node --parallel
 
   local node_dir="$REPORT_DIR/monolith-$TEST_NAME-node"
   mkdir -p "$node_dir/block_producer" "$node_dir/chain"

@@ -26,7 +26,7 @@ Run three isolated nodes:
 | `producer-1` | Monolith | Sprint 2 block producer under test |
 | `observer-1` | Monolith first | Non-producing peer that must accept and sync produced blocks |
 
-Each node needs its own basedir, config, p2p port, JSON-RPC port, and logs directory. Use `/private/tmp/knodel-private-testnet/*` for short local runs or an external SSD path for longer soaks.
+Each node needs its own basedir, config, p2p port, JSON-RPC port, and logs directory. Use `/private/tmp/teleno-private-testnet/*` for short local runs or an external SSD path for longer soaks.
 
 ## Phase 0: Harness
 
@@ -232,5 +232,5 @@ Do not modify the checked-in Harbinger genesis in place. Generate private-testne
 8. [x] Run the Phase A and Phase B harnesses and update `docs/roadmap/monolith/testnets/MONOLITH_PRIVATE_TESTNET_REPORT.md`.
 9. [x] Run the 30-minute private PoB soak before calling Sprint 2 fully signed off.
 10. [x] Add `scripts/external-pob-testnet-signoff.sh` for shared/external validation with independently reachable producer and observer RPC endpoints.
-11. [x] Run isolated seed-host external validation on `seed.koinosfoundation.org` from `/mnt/HC_Volume_105581636/knodel-external-signoff` without touching production services.
+11. [x] Run isolated seed-host external validation on `seed.koinosfoundation.org` from `/mnt/HC_Volume_105581636/teleno-external-signoff` without touching production services.
 12. [ ] Run shared/external testnet validation once independently reachable `PRODUCER_RPC_URL` and `OBSERVER_RPC_URL` are available.

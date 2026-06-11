@@ -36,7 +36,6 @@ export const DASHBOARD_PRODUCER_WINDOW_BLOCKS_MAX = 5000
 export const DASHBOARD_PEER_LOG_TAIL = 2000
 export const KOINOS_GIT_CLONE_URL = 'https://github.com/koinos/koinos'
 export const TELENO_NODE_BINARY_NAME = 'teleno_node'
-export const UPSTREAM_KOINOS_NODE_BINARY_NAME = 'koinos_node'
 
 // Resolved at runtime relative to the app root (see platform.ts)
 export function resolveDefaultKoinosSourceRoot(): string {
@@ -109,11 +108,8 @@ export function resolveMonolithBinaryPath(): string {
   const telenoAliasPath = path.join(nodeRoot, 'build', TELENO_NODE_BINARY_NAME + ext)
   if (fs.existsSync(telenoAliasPath)) return telenoAliasPath
 
-  const primaryPath = path.join(nodeRoot, 'build', UPSTREAM_KOINOS_NODE_BINARY_NAME + ext)
-  if (fs.existsSync(primaryPath)) return primaryPath
-
-  const nestedPath = path.join(nodeRoot, 'build', 'src', UPSTREAM_KOINOS_NODE_BINARY_NAME + ext)
-  return nestedPath
+  const nestedTelenoPath = path.join(nodeRoot, 'build', 'src', TELENO_NODE_BINARY_NAME + ext)
+  return nestedTelenoPath
 }
 
 /** Known components within the monolith binary. */

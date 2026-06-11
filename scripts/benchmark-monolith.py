@@ -3,7 +3,7 @@
 
 The default mode attaches to an already running node and only performs
 JSON-RPC reads plus local process sampling. Launch mode is opt-in and starts a
-dedicated koinos_node process, measures startup-to-RPC time, then terminates it
+dedicated teleno_node process, measures startup-to-RPC time, then terminates it
 unless --keep-running is supplied.
 """
 
@@ -209,7 +209,7 @@ def resolve_pid(pid: int | None, pid_file: str | None) -> tuple[int | None, str]
         if file_pid and process_exists(file_pid):
             return file_pid, f"default-pid-file:{DEFAULT_PID_FILE}"
 
-    result = run_command(["pgrep", "-f", "koinos_node"], timeout=5)
+    result = run_command(["pgrep", "-f", "teleno_node"], timeout=5)
     if result["returncode"] == 0:
         pids = []
         for line in result["stdout"].splitlines():
@@ -222,7 +222,7 @@ def resolve_pid(pid: int | None, pid_file: str | None) -> tuple[int | None, str]
         if len(pids) == 1:
             return pids[0], "pgrep"
         if len(pids) > 1:
-            return None, f"multiple koinos_node processes found: {pids}"
+            return None, f"multiple teleno_node processes found: {pids}"
 
     return None, "not found"
 
@@ -351,7 +351,7 @@ def launch_node(args: argparse.Namespace, result_dir: Path) -> tuple[subprocess.
         last_error = ""
         while time.time() < deadline:
             if proc.poll() is not None:
-                raise RuntimeError(f"koinos_node exited during startup with code {proc.returncode}; log={log_path}")
+                raise RuntimeError(f"teleno_node exited during startup with code {proc.returncode}; log={log_path}")
             try:
                 rpc_call(args.rpc_url, "chain.get_head_info", timeout=args.rpc_timeout)
                 startup_ms = (time.perf_counter() - started) * 1000
@@ -565,7 +565,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-file", default=os.getenv("LOG_FILE", str(DEFAULT_LOG_FILE if DEFAULT_LOG_FILE.exists() else "")))
     parser.add_argument("--result-dir", default=os.getenv("RESULT_DIR", ""))
 
-    parser.add_argument("--launch-bin", default=os.getenv("LAUNCH_BIN", ""), help="Optional koinos_node binary to launch for startup benchmarking.")
+    parser.add_argument("--launch-bin", default=os.getenv("LAUNCH_BIN", ""), help="Optional teleno_node binary to launch for startup benchmarking.")
     parser.add_argument("--launch-basedir", default=os.getenv("LAUNCH_BASEDIR", ""), help="Basedir for launched node.")
     parser.add_argument("--launch-config", default=os.getenv("LAUNCH_CONFIG", ""), help="Config path for launched node.")
     parser.add_argument("--launch-log", default=os.getenv("LAUNCH_LOG", ""), help="Log path for launched node.")
@@ -575,7 +575,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keep-running", action=argparse.BooleanOptionalAction, default=os.getenv("KEEP_RUNNING", "0") == "1")
     parser.add_argument("--disable", action="append", default=[], help="Component to disable when launching. Repeatable.")
     parser.add_argument("--enable", action="append", default=[], help="Component to enable when launching. Repeatable.")
-    parser.add_argument("--launch-extra-arg", action="append", default=[], help="Extra raw argument for launched koinos_node. Repeatable.")
+    parser.add_argument("--launch-extra-arg", action="append", default=[], help="Extra raw argument for launched teleno_node. Repeatable.")
     args = parser.parse_args()
 
     args.method = args.method or ["chain.get_head_info"]

@@ -11,12 +11,12 @@
 7. [Build System](#7-build-system)
 8. [Configuration Changes](#8-configuration-changes)
 9. [Network Compatibility](#9-network-compatibility)
-10. [Knodel Integration: Process Management](#10-knodel-integration-process-management)
-11. [Knodel Integration: Build System](#11-knodel-integration-build-system)
-12. [Knodel Integration: Types and IPC](#12-knodel-integration-types-and-ipc)
-13. [Knodel Integration: UI Changes](#13-knodel-integration-ui-changes)
-14. [Knodel Integration: Config and Profiles](#14-knodel-integration-config-and-profiles)
-15. [Knodel Integration: Log Streaming](#15-knodel-integration-log-streaming)
+10. [Teleno Integration: Process Management](#10-teleno-integration-process-management)
+11. [Teleno Integration: Build System](#11-teleno-integration-build-system)
+12. [Teleno Integration: Types and IPC](#12-teleno-integration-types-and-ipc)
+13. [Teleno Integration: UI Changes](#13-teleno-integration-ui-changes)
+14. [Teleno Integration: Config and Profiles](#14-teleno-integration-config-and-profiles)
+15. [Teleno Integration: Log Streaming](#15-teleno-integration-log-streaming)
 16. [Implementation Phases](#16-implementation-phases)
 17. [Risk Assessment](#17-risk-assessment)
 18. [Performance Targets](#18-performance-targets)
@@ -30,7 +30,7 @@
 
 The monolithic node replaces the legacy Koinos multi-service runtime with a single native `koinos_node` process. The target is not a new blockchain protocol and not a fork of Koinos behavior. The target is a simpler, faster, easier-to-package Koinos block-producing node that remains compatible with existing Koinos peers, wallets, JSON-RPC/gRPC clients, chain data, PoB/VHP rules, and block validation semantics.
 
-The first product target is macOS through Knodel, with Windows optimization planned afterwards. The user-facing objective is straightforward: a user should be able to launch and operate a Koinos node without managing a large Docker or native microservice stack, AMQP broker, multiple logs, and many process-level failure modes.
+The first product target is macOS through Teleno, with Windows optimization planned afterwards. The user-facing objective is straightforward: a user should be able to launch and operate a Koinos node without managing a large Docker or native microservice stack, AMQP broker, multiple logs, and many process-level failure modes.
 
 ### Why We Are Building It
 
@@ -45,11 +45,11 @@ The monolith is designed to keep the protocol behavior intact while removing int
 ### Expected Benefits
 
 - Simpler deployment: one native binary instead of a full microservice stack plus AMQP broker.
-- Simpler operation: one primary process, one main log stream, one health surface, and fewer moving parts for Knodel to manage.
+- Simpler operation: one primary process, one main log stream, one health surface, and fewer moving parts for Teleno to manage.
 - Lower latency: internal service calls become direct C++ calls or typed in-process events instead of serialized AMQP round trips.
 - Better resource usage: shared address space, consolidated storage access, fewer duplicate buffers, and no broker process.
 - Faster startup and shutdown: the node does not need to sequence many independent services through broker readiness and port probes.
-- Easier packaging: macOS and Windows distribution can focus on one node binary plus Knodel integration instead of a multi-process runtime.
+- Easier packaging: macOS and Windows distribution can focus on one node binary plus Teleno integration instead of a multi-process runtime.
 - Better performance tuning: RocksDB configuration, caches, thread pools, logging, and block production can be tuned as one coordinated system.
 - Better debugging: a producer issue can be followed through chain, mempool, P2P, block store, JSON-RPC, and block producer code without correlating many service logs.
 
@@ -70,7 +70,7 @@ The components keep their responsibilities, but they communicate through direct 
 
 ### Compatibility Principle
 
-The monolith must behave like a Koinos node, not merely like a Knodel-specific node. Any optimization is acceptable only if it preserves:
+The monolith must behave like a Koinos node, not merely like a Teleno-specific node. Any optimization is acceptable only if it preserves:
 
 - Koinos protocol compatibility with legacy P2P peers.
 - Public JSON-RPC and gRPC client compatibility.
@@ -107,7 +107,7 @@ TCP loopback → AMQP consume → deserialize response → Caller
 - Changing the blockchain protocol or consensus
 - Breaking network compatibility with existing Koinos nodes
 - Rewriting the WASM VM (Fizzy stays)
-- Changing the wallet or Knodel UI paradigm
+- Changing the wallet or Teleno UI paradigm
 
 ---
 
@@ -117,7 +117,7 @@ TCP loopback → AMQP consume → deserialize response → Caller
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Knodel (Electron)                                          │
+│  Teleno (Electron)                                          │
 │  spawns 12 processes, monitors each via TCP port probing    │
 └─────────┬───────────────────────────────────────────────────┘
           │ spawn()
@@ -143,7 +143,7 @@ TCP loopback → AMQP consume → deserialize response → Caller
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Knodel (Electron)                                          │
+│  Teleno (Electron)                                          │
 │  spawns 1 process, monitors via health endpoint             │
 └─────────┬───────────────────────────────────────────────────┘
           │ spawn()
@@ -567,7 +567,7 @@ block_producer:
 mempool:
   transaction-expiration: 120
 
-# NEW: Feature flags (replaces Knodel profile-based service selection)
+# NEW: Feature flags (replaces Teleno profile-based service selection)
 features:
   chain: true             # always on
   mempool: true           # always on
@@ -622,7 +622,7 @@ The monolith must participate in the existing Koinos P2P network alongside Docke
 
 ---
 
-## 10. Knodel Integration: Process Management
+## 10. Teleno Integration: Process Management
 
 ### Current: 12 Processes + AMQP Broker
 
@@ -719,7 +719,7 @@ await waitForTcpListener('127.0.0.1', 8080, 30000)  // wait for jsonrpc health
 
 ---
 
-## 11. Knodel Integration: Build System
+## 11. Teleno Integration: Build System
 
 ### Current: Per-Service Build Definitions
 
@@ -765,7 +765,7 @@ function nativeServiceBuildDefinitions(sourceRoot: string): Map<string, BuildDef
 
 ---
 
-## 12. Knodel Integration: Types and IPC
+## 12. Teleno Integration: Types and IPC
 
 ### Status Model Change
 
@@ -825,11 +825,11 @@ koinosNode: {
 }
 ```
 
-**`src/knodel-electron.d.ts`:** Updated type declarations matching the above changes.
+**`src/teleno-electron.d.ts`:** Updated type declarations matching the above changes.
 
 ---
 
-## 13. Knodel Integration: UI Changes
+## 13. Teleno Integration: UI Changes
 
 ### MicroservicesConfigPanel
 
@@ -887,17 +887,17 @@ const [nodeActionLoading, setNodeActionLoading] =
 
 ---
 
-## 14. Knodel Integration: Config and Profiles
+## 14. Teleno Integration: Config and Profiles
 
 ### Feature Flags Replace Profiles
 
 **Current profile system:**
-- Knodel defines presets (e.g., `block_producer` preset includes chain, mempool, block_store, p2p, jsonrpc, contract_meta_store, block_producer)
+- Teleno defines presets (e.g., `block_producer` preset includes chain, mempool, block_store, p2p, jsonrpc, contract_meta_store, block_producer)
 - `selectedManagedComposeServiceIds()` filters KOINOS_MANAGED_SERVICES by active profiles
 - Each preset starts/stops different subsets of the 12 processes
 
 **New system:**
-- Knodel presets map to `features:` config flags
+- Teleno presets map to `features:` config flags
 - `block_producer` preset → `features.block_producer: true, features.jsonrpc: true, features.contract_meta_store: true`
 - Preset change writes config.yml and restarts the monolith (one process restart vs starting/stopping multiple)
 
@@ -918,14 +918,14 @@ const presets = {
 }
 ```
 
-**Preset reconciliation:** Instead of starting/stopping individual services, Knodel:
+**Preset reconciliation:** Instead of starting/stopping individual services, Teleno:
 1. Writes feature flags to config.yml
 2. Restarts the monolith (stop + start)
 3. Monolith reads config, enables/disables components internally
 
 ---
 
-## 15. Knodel Integration: Log Streaming
+## 15. Teleno Integration: Log Streaming
 
 ### Current: Per-Service Log Capture
 
@@ -946,7 +946,7 @@ The monolith outputs a single log stream with component-prefixed lines:
 [block_producer] 2024-01-15T10:30:04 INFO  Produced block at height 5000001
 ```
 
-**Knodel log service changes:**
+**Teleno log service changes:**
 
 ```typescript
 // BEFORE: per-service log buffers
@@ -1056,14 +1056,14 @@ function filterLogsByComponent(logs: string, component: string): string {
 
 **Verification:** gRPC calls work, account history indexes correctly.
 
-### Phase 7: Knodel Integration (2-3 weeks)
+### Phase 7: Teleno Integration (2-3 weeks)
 
 **Goal:** Electron app fully manages the monolith binary.
 
 1. **main.ts:** Replace `KOINOS_MANAGED_SERVICES` with single entry, remove AMQP management functions, simplify process lifecycle
 2. **native-runtime-service.ts:** Single process spawn/stop, remove dependency ordering
 3. **native-tooling.ts + native-build-service.ts:** Single CMake build target
-4. **main-types.ts + knodel-electron.d.ts:** Add `ComponentHealth[]`, update status types
+4. **main-types.ts + teleno-electron.d.ts:** Add `ComponentHealth[]`, update status types
 5. **preload.ts:** Add `componentToggle()`, keep backward-compatible service methods
 6. **workspace-service.ts:** Remove rabbitmq.conf, simplify config setup
 7. **MicroservicesConfigPanel.tsx:** Component toggles instead of per-service start/stop
@@ -1072,7 +1072,7 @@ function filterLogsByComponent(logs: string, component: string): string {
 10. **constants.ts:** Remove AMQP broker paths, add monolith binary path
 11. **Profile system:** Map presets to feature flags, write config + restart
 
-**Verification:** Full lifecycle test: build monolith via Knodel, start, sync blocks, produce blocks, toggle components, view logs, stop. All existing panels (Explorer, Dashboard, Producer, Wallet) work against the monolith.
+**Verification:** Full lifecycle test: build monolith via Teleno, start, sync blocks, produce blocks, toggle components, view logs, stop. All existing panels (Explorer, Dashboard, Producer, Wallet) work against the monolith.
 
 ### Phase 8: Performance Validation (2 weeks)
 
@@ -1135,7 +1135,7 @@ This phase is required before the final online checkpoint backup design can be c
 1. Add a private local admin control channel for managed GUI operations.
 2. Add a node-side checkpoint manager with access to the open shared RocksDB handle.
 3. Add an application-level write guard so checkpoints do not catch multi-step block application midway.
-4. Create same-volume checkpoint workspaces under `BASEDIR/.koinosgui-checkpoints/`.
+4. Create same-volume checkpoint workspaces under `BASEDIR/.teleno-checkpoints/`.
 5. Archive checkpoint data plus `config.yml`, `chain/genesis_data.json`, descriptors, and a versioned manifest.
 6. Exclude wallets, secure storage, producer private keys, logs, and legacy microservice directories.
 7. Add GUI backup/restore flows, storage estimates, warnings for live producer mode, and optional restore smoke verification.
@@ -1234,7 +1234,7 @@ This phase is required before the final online checkpoint backup design can be c
 | `koinos-grpc/src/koinos_grpc.cpp` | Remove AMQP. Direct interface calls |
 | `koinos-account-history/src/koinos_account_history.cpp` | Remove AMQP. EventBus subscriptions |
 
-### Modified Files (Knodel Electron App)
+### Modified Files (Teleno Electron App)
 
 | File | Change |
 |---|---|
@@ -1247,7 +1247,7 @@ This phase is required before the final online checkpoint backup design can be c
 | `electron/lib/constants.ts` | Remove AMQP paths/ports, add monolith binary path |
 | `electron/lib/logs-service.ts` | Single log stream with component-prefix filtering |
 | `electron/preload.ts` | Add `componentToggle()`, keep backward-compat service methods |
-| `src/knodel-electron.d.ts` | Updated type declarations for monolith status model |
+| `src/teleno-electron.d.ts` | Updated type declarations for monolith status model |
 | `src/App.tsx` | Simplified service action state, component health display |
 | `src/components/panels/MicroservicesConfigPanel.tsx` | Component toggles instead of per-service start/stop |
 | `src/components/panels/SettingsPanel.tsx` | Remove AMQP settings |
@@ -1277,7 +1277,7 @@ This phase is required before the final online checkpoint backup design can be c
 | Phase 4: Meta + Tx Store | Contract ABI indexer + tx index | **DONE** | `contract_meta_store/`, `transaction_store/` |
 | Phase 5: P2P C++ | Sync protocol, error scoring, gossip toggle, cpp-libp2p transport | **DONE** | `p2p/`, Libp2pTransport with gorpc framing, `-DKOINOS_ENABLE_LIBP2P=ON` |
 | Phase 6: gRPC + Account History | AsyncGenericService + address history indexer | **DONE** | `grpc_server/`, `account_history/`, 6 RocksDB CFs |
-| Phase 7: Knodel Integration | Electron app adaptation | **DONE** | Types, IPC, UI, i18n, mode detection, process mgmt, log filtering |
+| Phase 7: Teleno Integration | Electron app adaptation | **DONE** | Types, IPC, UI, i18n, mode detection, process mgmt, log filtering |
 | Phase 8: Performance Validation | Benchmarks, tuning, optimization | **PENDING** | See remaining work below |
 | Phase 9: Unified RocksDB Layout | Move chain state from `chain/blockchain` into shared `db` | **PENDING** | Required before final one-DB checkpoint backup |
 | Phase 10: Online Checkpoint Backup | Live RocksDB checkpoint backup + restore | **PENDING** | Depends on Phase 9 unified layout |
@@ -1294,7 +1294,7 @@ This phase is required before the final online checkpoint backup design can be c
 - Chain indexer syncs from block_store on startup
 - Block producer loop (optional, 3s interval)
 - SIGTERM triggers clean ordered shutdown
-- Knodel detects monolith binary and auto-switches from multi-service mode
+- Teleno detects monolith binary and auto-switches from multi-service mode
 
 ### Remaining Work for Production
 

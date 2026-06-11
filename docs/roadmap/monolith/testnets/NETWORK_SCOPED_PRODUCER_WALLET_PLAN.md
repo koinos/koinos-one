@@ -4,11 +4,11 @@ Last updated: 2026-06-09
 
 ## Goal
 
-Bind the producer address, producer profile, and producer wallet vault to the active koinosGUI network mode. A producer identity configured for testnet must never be shown, unlocked, registered, burned, transferred from, or persisted as a mainnet producer identity, and the reverse must also be true.
+Bind the producer address, producer profile, and producer wallet vault to the active Teleno network mode. A producer identity configured for testnet must never be shown, unlocked, registered, burned, transferred from, or persisted as a mainnet producer identity, and the reverse must also be true.
 
 ## Current Problem
 
-koinosGUI currently uses global producer storage:
+Teleno currently uses global producer storage:
 
 - `secure-storage/producer-wallet.json`
 - `secure-storage/producer-profile.v1.json`
@@ -30,7 +30,7 @@ The legacy global files remain readable only for compatibility and migration sup
 
 ## Implementation Steps
 
-1. Add network-aware storage selectors in `electron/lib/knodel-storage.ts`.
+1. Add network-aware storage selectors in `electron/lib/teleno-storage.ts`.
    - Accept an optional `network` argument for wallet/profile path resolution.
    - Normalize missing or invalid network values to `mainnet`.
    - Write all new wallet/profile data into network-specific directories.
@@ -43,7 +43,7 @@ The legacy global files remain readable only for compatibility and migration sup
 
 3. Thread network through producer profile calls.
    - Resolve profile get/clear/save/delete/register through `settings.network`.
-   - Store `network` in `KnodelProducerProfile`.
+   - Store `network` in `TelenoProducerProfile`.
    - Reject or ignore a loaded profile whose stored network does not match the requested network.
 
 4. Update renderer calls.

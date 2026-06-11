@@ -4,7 +4,7 @@ export LC_ALL=C
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_DIR="$ROOT_DIR/node/teleno-node"
-BIN="${BIN:-$NODE_DIR/build/koinos_node}"
+BIN="${BIN:-$NODE_DIR/build/teleno_node}"
 KEYGEN="${KEYGEN:-$NODE_DIR/build/koinos_private_testnet_keygen}"
 GENESIS_SOURCE="${GENESIS_SOURCE:-$ROOT_DIR/vendor/koinos/koinos/harbinger/config-example/genesis_data.json}"
 DESCRIPTORS_SOURCE="${DESCRIPTORS_SOURCE:-$ROOT_DIR/vendor/koinos/koinos/harbinger/config-example/koinos_descriptors.pb}"
@@ -546,18 +546,18 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "$BUILD" == "1" ]]; then
-  cmake --build "$NODE_DIR/build" --target koinos_node --parallel
+  cmake --build "$NODE_DIR/build" --target teleno_node --parallel
   cmake --build "$NODE_DIR/build" --target koinos_private_testnet_keygen --parallel
 fi
 
 if [[ ! -x "$KEYGEN" && -x "$NODE_DIR/build/src/koinos_private_testnet_keygen" ]]; then
   KEYGEN="$NODE_DIR/build/src/koinos_private_testnet_keygen"
 fi
-if [[ ! -x "$BIN" && -x "$NODE_DIR/build/src/koinos_node" ]]; then
-  BIN="$NODE_DIR/build/src/koinos_node"
+if [[ ! -x "$BIN" && -x "$NODE_DIR/build/src/teleno_node" ]]; then
+  BIN="$NODE_DIR/build/src/teleno_node"
 fi
 
-[[ -x "$BIN" ]] || die "missing koinos_node binary: $BIN"
+[[ -x "$BIN" ]] || die "missing teleno_node binary: $BIN"
 [[ -x "$KEYGEN" ]] || die "missing keygen binary: $KEYGEN"
 [[ -f "$GENESIS_SOURCE" ]] || die "missing genesis source: $GENESIS_SOURCE"
 [[ -f "$DESCRIPTORS_SOURCE" ]] || die "missing descriptors source: $DESCRIPTORS_SOURCE"

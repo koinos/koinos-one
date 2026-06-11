@@ -1,7 +1,7 @@
 # Online RocksDB Checkpoint Backup Plan
 
 - Date: 2026-06-09
-- Scope: koinosGUI monolithic node backup/restore
+- Scope: Teleno monolithic node backup/restore
 - Status: implementation plan
 
 ## Objective
@@ -53,7 +53,7 @@ This avoids building a temporary backup format around the current two-DB runtime
 After the unified storage layout is complete, add a two-stage backup flow:
 
 1. `koinos_node` creates a RocksDB checkpoint into a temporary workspace under the same volume as the active `BASEDIR`.
-2. koinosGUI compresses that checkpoint into the user-selected archive file, writes checksums and metadata, then removes the temporary checkpoint.
+2. Teleno compresses that checkpoint into the user-selected archive file, writes checksums and metadata, then removes the temporary checkpoint.
 
 The node must expose this as a private local admin operation rather than a public chain API.
 
@@ -63,7 +63,7 @@ Add a private admin endpoint to the monolith:
 
 - Bind only to loopback by default.
 - Generate a random per-process admin token at launch.
-- Pass the token to koinosGUI through the Electron-managed process state, not through user-visible logs.
+- Pass the token to Teleno through the Electron-managed process state, not through user-visible logs.
 - Reject all requests without the token.
 - Do not expose the endpoint through the normal public JSON-RPC method dispatcher.
 
@@ -101,7 +101,7 @@ Responsibilities:
 
 1. Validate that no checkpoint is already running.
 2. Create a unique checkpoint workspace:
-   - `BASEDIR/.koinosgui-checkpoints/<timestamp>-<short-id>/`
+   - `BASEDIR/.teleno-checkpoints/<timestamp>-<short-id>/`
 3. Capture metadata before checkpoint:
    - network if known
    - chain ID if available
@@ -184,7 +184,7 @@ Do not include by default:
 - legacy `contract_meta_store/`
 - logs
 - old checkpoints
-- `.knodel-blockchain-backup-cache/`
+- `.teleno-blockchain-backup-cache/`
 
 If a user explicitly asks to include producer key material, that should be a separate encrypted export flow, not part of blockchain-state backup.
 
@@ -194,16 +194,16 @@ Add a versioned manifest:
 
 ```json
 {
-  "format": "koinosgui-rocksdb-checkpoint",
+  "format": "teleno-rocksdb-checkpoint",
   "version": 1,
   "created_at": "2026-06-09T00:00:00.000Z",
   "network": "mainnet",
-  "basedir": "/Volumes/external/knodel-monolith-restore/basedir",
-  "checkpoint_path": ".koinosgui-checkpoints/...",
+  "basedir": "/Volumes/external/teleno-monolith-restore/basedir",
+  "checkpoint_path": ".teleno-checkpoints/...",
   "node": {
     "binary": "koinos_node",
     "version": "0.1.0",
-    "koinosgui_version": "0.10.1"
+    "teleno_version": "0.10.1"
   },
   "head": {
     "height": "36629623",
@@ -247,7 +247,7 @@ createOnlineRocksDbCheckpointBackup(input, sender)
 
 Flow:
 
-1. Confirm the node is managed by koinosGUI and currently running.
+1. Confirm the node is managed by Teleno and currently running.
 2. Confirm the admin endpoint and token are available.
 3. Query current node status and local head.
 4. Ask the user for the destination path.
@@ -346,7 +346,7 @@ Update:
   - expose cancel API, or reuse backup cancel with action discrimination
 - `electron/lib/ipc-handlers.ts`
   - register a new IPC handler
-- `src/knodel-electron.d.ts`
+- `src/teleno-electron.d.ts`
   - add renderer bridge type
 - `src/App.tsx`
   - add handler that calls the new bridge method
@@ -451,7 +451,7 @@ Add tests for `backup-service.ts`:
 4. Online backup writes `.sha256`.
 5. Online backup cleanup removes temporary checkpoint workspace.
 6. Cancellation removes partial archives.
-7. Restore dispatcher detects `koinosgui-rocksdb-checkpoint` manifest.
+7. Restore dispatcher detects `teleno-rocksdb-checkpoint` manifest.
 8. Restore dispatcher does not run legacy conversion for checkpoint backups.
 
 ### Integration Smoke

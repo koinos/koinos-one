@@ -28,7 +28,7 @@ from urllib.error import HTTPError, URLError
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_BIN = ROOT_DIR / "node/teleno-node/build/koinos_node"
+DEFAULT_BIN = ROOT_DIR / "node/teleno-node/build/teleno_node"
 DEFAULT_SOURCE_BASEDIR = Path("/Volumes/external/teleno-testnet-producer/basedir")
 DEFAULT_REPORT_ROOT = Path("/private/tmp/teleno-monolith-sync-benchmark")
 DEFAULT_PUBLIC_TESTNET_PEER = (
@@ -255,7 +255,7 @@ def launch_node(args: argparse.Namespace, basedir: Path, config_path: Path, log_
     rpc_url = f"http://127.0.0.1:{args.jsonrpc_port}/"
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"koinos_node exited during startup with code {proc.returncode}; log={log_path}")
+            raise RuntimeError(f"teleno_node exited during startup with code {proc.returncode}; log={log_path}")
         try:
             rpc_call(rpc_url, "chain.get_head_info", timeout=args.rpc_timeout)
             return proc, (time.perf_counter() - started) * 1000
@@ -641,7 +641,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     if not args.bin.exists() or not os.access(args.bin, os.X_OK):
-        print(f"error: koinos_node is not executable: {args.bin}", file=sys.stderr)
+        print(f"error: teleno_node is not executable: {args.bin}", file=sys.stderr)
         return 2
     if args.duration_seconds <= 0:
         print("error: --duration-seconds must be positive", file=sys.stderr)
@@ -667,7 +667,7 @@ def main(argv: list[str]) -> int:
 
     report_dir = args.report_dir
     basedir = report_dir / "basedir"
-    log_path = report_dir / "koinos_node.log"
+    log_path = report_dir / "teleno_node.log"
     report_dir.mkdir(parents=True, exist_ok=True)
 
     proc: subprocess.Popen[bytes] | None = None

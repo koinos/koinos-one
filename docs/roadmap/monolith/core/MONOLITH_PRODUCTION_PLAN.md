@@ -1,5 +1,7 @@
 # Monolithic Node — Production Roadmap
 
+> Historical note: This file preserves command output, validation context, and artifact paths from runs that predate the Teleno repository and runtime cleanup. Old `knodel-*`, `koinosgui`, `Knodel.app`, or `/code/knodel` paths are evidence references only; current active repo paths and generated artifacts use Teleno names.
+
 Sequential plan to take the monolith from its current state to a release-ready Teleno node, with public-testnet producer signoff, mainnet observer signoff, and finalized storage/backup work tracked separately.
 
 ## Monolith Overview

@@ -375,10 +375,10 @@ class RegressionRun:
         if not local_head or not public_head or local_head["id"] != public_head["id"]:
             errors.append("local and public heads did not converge")
 
-        data["koinos_node_processes"] = command_lines("pgrep -fl koinos_node")
+        data["teleno_node_processes"] = command_lines("pgrep -fl teleno_node")
         data["caffeinate_processes"] = command_lines("pgrep -fl 'caffeinate.*koinos|caffeinate.*-w'")
-        if not data["koinos_node_processes"]:
-            errors.append("koinos_node process not found")
+        if not data["teleno_node_processes"]:
+            errors.append("teleno_node process not found")
         if not data["caffeinate_processes"]:
             warnings.append("caffeinate guard not found")
 
@@ -832,7 +832,7 @@ class RegressionRun:
                 )
             except Exception as exc:  # noqa: BLE001
                 sample["error"] = str(exc)
-            ps = command_lines("pgrep -n koinos_node | xargs -I{} ps -o pid=,%cpu=,rss= -p {} 2>/dev/null")
+            ps = command_lines("pgrep -n teleno_node | xargs -I{} ps -o pid=,%cpu=,rss= -p {} 2>/dev/null")
             sample["process"] = ps[0] if ps else ""
             sample["disk"] = disk_info(Path(self.args.run_root).expanduser() / "basedir")
             samples.append(sample)

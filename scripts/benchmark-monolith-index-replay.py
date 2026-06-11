@@ -28,7 +28,7 @@ from urllib.error import HTTPError, URLError
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_BIN = ROOT_DIR / "node/teleno-node/build/koinos_node"
+DEFAULT_BIN = ROOT_DIR / "node/teleno-node/build/teleno_node"
 DEFAULT_SOURCE_BASEDIR = Path("/Volumes/external/teleno-monolith-restore/basedir")
 DEFAULT_REPORT_ROOT = Path("/Volumes/external/teleno-monolith-index-replay-benchmark")
 
@@ -253,7 +253,7 @@ def wait_for_rpc(url: str, proc: subprocess.Popen[bytes], timeout: float) -> Non
     last_error = ""
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"koinos_node exited before JSON-RPC readiness with code {proc.returncode}")
+            raise RuntimeError(f"teleno_node exited before JSON-RPC readiness with code {proc.returncode}")
         try:
             rpc_call(url, "block_store.get_highest_block", {}, timeout=5)
             return
@@ -522,7 +522,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     if not args.bin.exists() or not os.access(args.bin, os.X_OK):
-        print(f"error: koinos_node is not executable: {args.bin}", file=sys.stderr)
+        print(f"error: teleno_node is not executable: {args.bin}", file=sys.stderr)
         return 2
     if not args.source_basedir.exists():
         print(f"error: source basedir does not exist: {args.source_basedir}", file=sys.stderr)

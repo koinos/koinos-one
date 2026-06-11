@@ -1,10 +1,10 @@
-# koinosGUI Explicit Testnet Support Plan
+# Teleno Explicit Testnet Support Plan
 
 Updated: 2026-06-07
 
 ## Purpose
 
-Add first-class testnet support to koinosGUI so an operator can intentionally run the monolithic `koinos_node` against either mainnet or the public Koinos Foundation testnet without manual config surgery, hidden mainnet defaults, or accidental chain-data corruption.
+Add first-class testnet support to Teleno so an operator can intentionally run the monolithic `koinos_node` against either mainnet or the public Koinos Foundation testnet without manual config surgery, hidden mainnet defaults, or accidental chain-data corruption.
 
 The monolithic node already works against the public testnet when launched manually with a verified testnet basedir. The GUI is only partially prepared: it has a `Testnet Observer` preset, but network selection, config-template handling, public RPC defaults, local port strategy, and producer workflows are still mainnet-biased.
 
@@ -15,9 +15,9 @@ The monolithic node already works against the public testnet when launched manua
 - `src/app/constants.ts` and `electron/lib/constants.ts` default public RPCs to mainnet.
 - `electron/main.ts` still has hardcoded `8080` readiness behavior for the monolith JSON-RPC listener.
 - `electron/lib/workspace-service.ts` preserves an existing `config.yml`, but overwrites `chain/genesis_data.json` and `jsonrpc/descriptors/koinos_descriptors.pb` from the selected config source. This is unsafe when the source config is mainnet and the target basedir is testnet.
-- `electron/lib/node-paths.ts` appends `.koinos` to any basedir that does not already end in `.koinos` or `.koinosgui`. That is correct for generic parent directories, but it would turn the verified live testnet basedir `/Volumes/external/knodel-testnet-producer/basedir` into `/Volumes/external/knodel-testnet-producer/basedir/.koinos`, which is the wrong data path.
+- `electron/lib/node-paths.ts` appends `.koinos` to any basedir that does not already end in `.koinos` or `.teleno`. That is correct for generic parent directories, but it would turn the verified live testnet basedir `/Volumes/external/teleno-testnet-producer/basedir` into `/Volumes/external/teleno-testnet-producer/basedir/.koinos`, which is the wrong data path.
 - `scripts/stage-bundle.js` copies a Harbinger/testnet config folder, but the live public testnet report notes that local bundled Harbinger files must not be assumed to match the current Koinos Foundation testnet without chain-id verification.
-- The current live public testnet producer basedir is verified manually at `/Volumes/external/knodel-testnet-producer/basedir`, with JSON-RPC on `127.0.0.1:18122`, P2P on `0.0.0.0:18888`, and public RPC `https://testnet.koinosfoundation.org/jsonrpc`.
+- The current live public testnet producer basedir is verified manually at `/Volumes/external/teleno-testnet-producer/basedir`, with JSON-RPC on `127.0.0.1:18122`, P2P on `0.0.0.0:18888`, and public RPC `https://testnet.koinosfoundation.org/jsonrpc`.
 - Mainnet contract constants are currently global in `electron/lib/constants.ts` and are consumed by wallet and producer services. Testnet PoB/VHP addresses are known to differ from mainnet in the live monolith producer logs, so these constants must become network-scoped before testnet producer UX can be trusted.
 
 ## Goals
@@ -352,7 +352,7 @@ Exit criteria:
 
 | Area | Files | Change |
 | --- | --- | --- |
-| Types | `electron/lib/main-types.ts`, `src/app/types.ts`, `src/knodel-electron.d.ts` | Add network IDs, network profiles, and persisted network settings. |
+| Types | `electron/lib/main-types.ts`, `src/app/types.ts`, `src/teleno-electron.d.ts` | Add network IDs, network profiles, and persisted network settings. |
 | Defaults | `electron/lib/constants.ts`, `src/app/constants.ts` | Replace mainnet-only RPC defaults with network-scoped defaults. |
 | Paths/config | `electron/lib/node-paths.ts`, `electron/lib/workspace-service.ts` | Resolve network config templates, preserve exact existing basedirs, and protect existing genesis/descriptors. |
 | Presets/runtime | `electron/main.ts`, `electron/lib/native-runtime-service.ts` | Build network-aware presets and wait on the selected JSON-RPC listener. |

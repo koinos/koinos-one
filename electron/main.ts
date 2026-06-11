@@ -321,6 +321,110 @@ function activateMonolithFallback(reason: string): string {
   return monolithFallbackMessage(monolithFallbackReason)
 }
 
+type MonolithProducerConfigPreflight = {
+  ok: boolean
+  output: string | null
+}
+
+function resolveRuntimeProducerAddressCandidate(settings: TelenoNodeSettings): {
+  address: string | null
+  source: 'config' | 'profile' | 'wallet' | 'none'
+} {
+  const configured = producerAddressFromRuntimeConfig(settings).producerAddress
+  if (configured) {
+    return {
+      address: configured,
+      source: 'config'
+    }
+  }
+
+  const profileAddress = loadProducerProfile(settings.network)?.producerAddress?.trim()
+  if (profileAddress) {
+    return {
+      address: profileAddress,
+      source: 'profile'
+    }
+  }
+
+  if (settings.network !== 'mainnet') {
+    const walletAccounts = telenoStorage.listWalletAccounts(settings.network)
+    const activeSigner =
+      walletAccounts.find((account) => account.isActive && account.hasPrivateKey) ??
+      walletAccounts.find((account) => account.hasPrivateKey) ??
+      walletAccounts.find((account) => account.isActive) ??
+      walletAccounts[0]
+
+    if (activeSigner?.address) {
+      return {
+        address: activeSigner.address,
+        source: 'wallet'
+      }
+    }
+  }
+
+  return {
+    address: null,
+    source: 'none'
+  }
+}
+
+function ensureMonolithProducerRuntimeConfig(
+  settings: TelenoNodeSettings,
+  blockProducerEnabled: boolean
+): MonolithProducerConfigPreflight {
+  if (!blockProducerEnabled) {
+    return {
+      ok: true,
+      output: null
+    }
+  }
+
+  const configured = producerAddressFromRuntimeConfig(settings)
+  const candidate = resolveRuntimeProducerAddressCandidate(settings)
+  const producerAddress = candidate.address?.trim() || ''
+  const configPath = configured.configFilePath
+
+  if (!producerAddress) {
+    return {
+      ok: false,
+      output: [
+        'Block production is enabled, but block_producer.producer is missing.',
+        `Set the producer address in ${configPath} or finish Producer setup before starting ${TELENO_NODE_BINARY_NAME}.`
+      ].join('\n')
+    }
+  }
+
+  if (!safeIsChecksumAddress(producerAddress)) {
+    return {
+      ok: false,
+      output: `Invalid block_producer.producer address: ${producerAddress}`
+    }
+  }
+
+  if (configured.configHasProducer) {
+    return {
+      ok: true,
+      output: null
+    }
+  }
+
+  if (settings.network === 'mainnet') {
+    return {
+      ok: false,
+      output: [
+        'Mainnet block production requires an explicit block_producer.producer entry in runtime config.',
+        `Write the intended producer address to ${configPath} from the Producer setup flow before starting ${TELENO_NODE_BINARY_NAME}.`
+      ].join('\n')
+    }
+  }
+
+  const updatedConfigPath = persistProducerRuntimeConfig(settings, producerAddress)
+  return {
+    ok: true,
+    output: `Set block_producer.producer from ${candidate.source} address in ${updatedConfigPath}.`
+  }
+}
+
 /** Start the monolithic Teleno node binary. */
 async function startMonolithProcess(
   settings: TelenoNodeSettings,
@@ -382,6 +486,17 @@ async function startMonolithProcess(
 	  for (const feat of MONOLITH_DEFAULT_DISABLED_FEATURES) {
 	    if (!enabled.has(feat)) disabled.add(feat)
 	  }
+  const producerPreflight = ensureMonolithProducerRuntimeConfig(
+    settings,
+    enabled.has('block_producer') && !disabled.has('block_producer')
+  )
+  if (!producerPreflight.ok) {
+    return {
+      ok: false,
+      output: producerPreflight.output || 'Block producer config preflight failed'
+    }
+  }
+
   monolithDisabledFeatures = new Set(disabled)
   for (const feat of enabled) args.push(`--enable=${feat}`)
   for (const feat of disabled) args.push(`--disable=${feat}`)
@@ -456,13 +571,19 @@ async function startMonolithProcess(
   if (!jsonrpcReady) {
     return {
       ok: true,
-      output: `Started ${TELENO_NODE_BINARY_NAME} (pid ${child.pid ?? 'n/a'}) — jsonrpc ${jsonrpcHost}:${jsonrpcPort} not yet ready`
+      output: [
+        producerPreflight.output,
+        `Started ${TELENO_NODE_BINARY_NAME} (pid ${child.pid ?? 'n/a'}) — jsonrpc ${jsonrpcHost}:${jsonrpcPort} not yet ready`
+      ].filter(Boolean).join('\n')
     }
   }
 
   return {
     ok: true,
-    output: `Started ${TELENO_NODE_BINARY_NAME} (pid ${child.pid ?? 'n/a'}) on ${settings.network} (${jsonrpcHost}:${jsonrpcPort})`
+    output: [
+      producerPreflight.output,
+      `Started ${TELENO_NODE_BINARY_NAME} (pid ${child.pid ?? 'n/a'}) on ${settings.network} (${jsonrpcHost}:${jsonrpcPort})`
+    ].filter(Boolean).join('\n')
   }
 }
 
@@ -2036,7 +2157,6 @@ function nativeServiceCommandHints(serviceId: string): string[] {
   if (serviceId === 'teleno-node') {
     hints.add(path.basename(resolveMonolithBinaryPath()))
     hints.add(TELENO_NODE_BINARY_NAME)
-    hints.add('koinos_node')
   }
 
   if (serviceId === 'amqp') {
@@ -3512,6 +3632,7 @@ async function nativeComposeStatus(input?: TelenoNodeSettingsInput): Promise<Tel
   if (shouldUseMonolithMode() || (monolithProcessState && !monolithProcessState.closed)) {
     const isRunning = monolithProcessState != null && !monolithProcessState.closed
     const binaryPath = monolithProcessState?.binaryPath || resolveMonolithBinaryPath()
+    const version = await resolveNativeServiceVersion('teleno-node', nativeServiceBuildDefinitionMap().get('teleno-node'))
     const logPath = monolithProcessState?.logPath || nativeServiceLogFilePath('teleno-node')
     const runtimePorts = resolveRuntimeListenPorts(settings)
     const jsonrpcPort = runtimePorts.jsonrpc.port ?? 8080
@@ -3538,7 +3659,7 @@ async function nativeComposeStatus(input?: TelenoNodeSettingsInput): Promise<Tel
       runtimeName: TELENO_NODE_BINARY_NAME,
       binaryPath,
       logPath,
-      version: null,
+      version,
       state: hasConflict ? 'conflict' : isRunning ? 'running' : 'stopped',
       status: hasConflict
         ? lockOwners.length > 0
@@ -3896,6 +4017,20 @@ async function telenoNodeComponentToggle(
 
   // Monolith mode: write feature flag to config.yml and restart
   if (shouldUseMonolithMode()) {
+    const producerPreflight =
+      component === 'block_producer' && enabled
+        ? ensureMonolithProducerRuntimeConfig(settings, true)
+        : { ok: true, output: null }
+    if (!producerPreflight.ok) {
+      return {
+        ok: false,
+        component,
+        enabled,
+        output: producerPreflight.output || 'Block producer config preflight failed',
+        status: await nativeComposeStatus(settings)
+      }
+    }
+
     try {
       writeMonolithFeatureConfig(settings, { [component]: enabled })
     } catch (error) {
@@ -3909,16 +4044,32 @@ async function telenoNodeComponentToggle(
     }
 
     // Restart monolith if running
+    let restartResult: { ok: boolean; output: string } | null = null
     if (monolithProcessState && !monolithProcessState.closed) {
-      await stopMonolithProcess()
-      await startMonolithProcess(settings, enabled ? [component] : [], enabled ? [] : [component])
+      const stopResult = await stopMonolithProcess()
+      const startResult = await startMonolithProcess(settings, enabled ? [component] : [], enabled ? [] : [component])
+      restartResult = {
+        ok: stopResult.ok && startResult.ok,
+        output: [stopResult.output, startResult.output].filter(Boolean).join('\n')
+      }
+      if (!restartResult.ok) {
+        return {
+          ok: false,
+          component,
+          enabled,
+          output: restartResult.output,
+          status: await nativeComposeStatus(settings)
+        }
+      }
     }
 
     return {
       ok: true,
       component,
       enabled,
-      output: `Feature ${component} ${enabled ? 'enabled' : 'disabled'}`,
+      output: [producerPreflight.output, `Feature ${component} ${enabled ? 'enabled' : 'disabled'}`, restartResult?.output]
+        .filter(Boolean)
+        .join('\n'),
       status: await nativeComposeStatus(settings)
     }
   }
@@ -3975,6 +4126,16 @@ async function telenoNodePresetReconcile(
     try {
       assertRepoReady(presetSettings)
       const featureFlags = preset.featureFlags ?? presetToFeatureFlags(presetId)
+      const producerPreflight = ensureMonolithProducerRuntimeConfig(presetSettings, featureFlags.block_producer === true)
+      if (!producerPreflight.ok) {
+        return {
+          ok: false,
+          action: 'reconcile',
+          presetId,
+          output: producerPreflight.output || 'Block producer config preflight failed',
+          status: await nativeComposeStatus(presetSettings)
+        }
+      }
       const configPath = writeMonolithFeatureConfig(presetSettings, featureFlags, preset.configPatch)
       const { enabled, disabled } = monolithFeatureCliArgs(featureFlags)
       const stopResult = monolithProcessState && !monolithProcessState.closed
@@ -3982,6 +4143,7 @@ async function telenoNodePresetReconcile(
         : { ok: true, output: `${TELENO_NODE_BINARY_NAME} ya estaba detenido` }
       const startResult = await startMonolithProcess(presetSettings, enabled, disabled)
       const output = [
+        producerPreflight.output,
         `Updated monolith feature flags in ${configPath}`,
         stopResult.output,
         startResult.output

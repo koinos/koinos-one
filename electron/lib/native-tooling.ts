@@ -314,7 +314,7 @@ export function monolithBuildDefinition(sourceRoot = resolveTelenoNodeSourceRoot
     serviceId: 'teleno-node',
     repoPath: sourceRoot,
     buildSystem: 'cmake',
-    artifactPath: path.join(sourceRoot, cmakeBuildDir, 'koinos_node' + executableExtension()),
+    artifactPath: path.join(sourceRoot, cmakeBuildDir, 'teleno_node' + executableExtension()),
     buildCommands: [formatCommand(nativeCmakeExecutable(), configureArgs), formatCommand(nativeCmakeExecutable(), buildArgs)],
     cmakeConfigureArgs: configureArgs,
     cmakeBuildArgs: buildArgs,

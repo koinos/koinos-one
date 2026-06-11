@@ -102,8 +102,8 @@ ensureDir(ABI_DIR);
 console.log('=== Monolithic Teleno Node ===');
 copyFirstExistingChecked(
   [
-    path.join(NODE_DIR, CPP_BUILD_DIR, 'koinos_node' + EXT),
-    path.join(NODE_DIR, CPP_BUILD_DIR, 'src', 'koinos_node' + EXT),
+    path.join(NODE_DIR, CPP_BUILD_DIR, 'teleno_node' + EXT),
+    path.join(NODE_DIR, CPP_BUILD_DIR, 'src', 'teleno_node' + EXT),
   ],
   path.join(BIN_DIR, 'teleno_node' + EXT),
   'teleno_node'
@@ -156,7 +156,7 @@ console.log(`Staging complete: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
   console.log(`\nWARNING: Some artifacts are missing. The installer will be incomplete.`);
   if (isWindows) {
-    console.log('Build koinos_node.exe into node\\teleno-node\\build-win\\ before staging; it will be staged as teleno_node.exe.');
+    console.log('Build teleno_node.exe into node\\teleno-node\\build-win\\ before staging.');
   } else {
     console.log('Build the monolith first: ./scripts/build-cpp-libp2p-koinos.sh');
   }

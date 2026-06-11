@@ -4574,6 +4574,12 @@ export function App() {
                       <dd>{selectedNodePreset?.label ?? t('node.presetCustomLabel')}</dd>
                     </div>
                     <div>
+                      <dt>{t('common.version')}</dt>
+                      <dd className="mono" title={nodePrimaryVersion}>
+                        {nodePrimaryVersion}
+                      </dd>
+                    </div>
+                    <div>
                       <dt>{t('node.detailBaseDir')}</dt>
                       <dd className="mono" title={nodeStatus?.baseDir || nodeSettings.baseDir}>
                         {nodeStatus?.baseDir || nodeSettings.baseDir || t('common.na')}

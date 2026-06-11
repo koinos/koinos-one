@@ -1,5 +1,7 @@
 # Monolith A/B Peer Acquisition Report
 
+> Historical note: This file preserves command output, validation context, and artifact paths from runs that predate the Teleno repository and runtime cleanup. Old `knodel-*`, `koinosgui`, `Knodel.app`, or `/code/knodel` paths are evidence references only; current active repo paths and generated artifacts use Teleno names.
+
 Updated: 2026-05-25T18:30:24Z
 
 ## Result

@@ -8,7 +8,7 @@ SOURCE_DIR="${KOINOS_INTEGRATION_TESTS_DIR:-/private/tmp/teleno-koinos-integrati
 RUN_ROOT="${MONOLITH_STARTUP_BENCH_ROOT:-/private/tmp/teleno-monolith-startup-benchmark}"
 TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
 REPORT_DIR="${REPORT_DIR:-$RUN_ROOT/$TIMESTAMP}"
-BIN="${BIN:-$ROOT_DIR/node/teleno-node/build/koinos_node}"
+BIN="${BIN:-$ROOT_DIR/node/teleno-node/build/teleno_node}"
 ITERATIONS="${ITERATIONS:-5}"
 START_PORT="${START_PORT:-28100}"
 STARTUP_TIMEOUT_SECONDS="${STARTUP_TIMEOUT_SECONDS:-30}"
@@ -31,7 +31,7 @@ Environment:
   ITERATIONS                    Number of launch measurements. Default: 5.
   START_PORT                    First localhost JSON-RPC port. Default: 28100.
   REPORT_DIR                    Output directory.
-  BIN                           koinos_node binary path.
+  BIN                           teleno_node binary path.
   KOINOS_INTEGRATION_TESTS_DIR  Cached koinos-integration-tests checkout.
 
 The wrapper launches temporary monolith nodes with P2P, gRPC, and block
@@ -112,7 +112,7 @@ main() {
   require_tool node
   require_tool python3
   fetch_source
-  [[ -x "$BIN" ]] || die "koinos_node not executable: $BIN"
+  [[ -x "$BIN" ]] || die "teleno_node not executable: $BIN"
   [[ "$ITERATIONS" =~ ^[0-9]+$ ]] && (( ITERATIONS > 0 )) || die "ITERATIONS must be a positive integer"
   [[ "$START_PORT" =~ ^[0-9]+$ ]] || die "START_PORT must be an integer"
 
@@ -126,7 +126,7 @@ main() {
     local iter_dir="$REPORT_DIR/iteration-$index"
     local basedir="$iter_dir/basedir"
     local result_dir="$iter_dir/benchmark"
-    local log_path="$iter_dir/koinos_node.log"
+    local log_path="$iter_dir/teleno_node.log"
     port_is_free "$port" || die "port $port is already in use"
     mkdir -p "$iter_dir"
     prepare_basedir "$basedir" "$port"

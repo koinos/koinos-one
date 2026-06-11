@@ -25,7 +25,7 @@ describe('native tooling helpers', () => {
     const configureArgs = definition.cmakeConfigureArgs ?? []
 
     expect(definition.serviceId).toBe('teleno-node')
-    expect(definition.artifactPath).toBe(path.join('/tmp/teleno-node', 'build', 'koinos_node'))
+    expect(definition.artifactPath).toBe(path.join('/tmp/teleno-node', 'build', 'teleno_node'))
     expect(configureArgs).toContain('KOINOS_ENABLE_LIBP2P=ON')
     expect(configureArgs).toContain(`CMAKE_PROJECT_INCLUDE=${path.join('/tmp/teleno-node', 'cmake', 'cpp-libp2p-koinos-prelude.cmake')}`)
     expect(configureArgs).toContain(`CMAKE_RUNTIME_OUTPUT_DIRECTORY=${path.join('/tmp/teleno-node', 'build')}`)

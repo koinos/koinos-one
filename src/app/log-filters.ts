@@ -69,7 +69,7 @@ export function parseLogLineComponent(line: string): string | null {
 
   const processMatch = plainLine.match(processComponentPattern)
   const processComponent = processMatch?.[1] ? normalizeComponent(processMatch[1]) : ''
-  if (processComponent && processComponent !== 'koinos_node' && processComponent !== 'teleno_node') {
+  if (processComponent && processComponent !== 'teleno_node') {
     return processComponent
   }
 
