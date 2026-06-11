@@ -13,6 +13,24 @@ Teleno is a desktop app for operating a monolithic **Koinos** node implementatio
 - **Runtime model:** one local process with in-process Koinos components
 - **Platforms:** macOS first, Windows planned
 
+## Repository Layout
+
+The active node code and UX live in this repository. Legacy Koinos material remains only where it is needed for protocol compatibility evidence, migrations, or upstream references.
+
+```text
+assets/                 Teleno branding and UI assets
+config/                 Ready-to-use node config templates
+docs/operations/        Operator docs, including command-line startup
+docs/roadmap/monolith/  Current monolith plans, reports, and validation history
+electron/               Electron main process, IPC, native runtime control
+node/teleno-node/       Monolithic C++ Koinos node source
+scripts/                Build, benchmark, smoke, soak, and packaging helpers
+src/                    React renderer and shared frontend logic
+tests/                  UI test assets
+tools/                  Local migration and private-testnet helpers
+vendor/                 Upstream Koinos references retained for compatibility
+```
+
 ## Quick Start
 
 ```bash
@@ -36,9 +54,36 @@ The C++ source tree lives under `node/teleno-node`. CMake builds the monolith ex
 ./scripts/build-cpp-libp2p-koinos.sh
 ```
 
-Legacy microservice build/start scripts are not part of the active Teleno command surface. Legacy-facing scripts are retained only when they prove protocol compatibility, migration safety, or parity with existing Koinos clients and peers.
+The previous `koinos_node` binary name is no longer the active runtime name. Use `teleno_node` for local launches, packaging, logs, and UI runtime status.
 
-For direct command-line startup on public testnet or mainnet, see `docs/operations/START_TELENO_NODE.md`.
+## Running The Node
+
+Teleno UX manages one local `teleno_node` process. The Node tab now reports the resolved runtime version, BASEDIR, binary path, and log path together so operators can confirm exactly what is running.
+
+For direct command-line startup on public testnet or mainnet, see:
+
+```text
+docs/operations/START_TELENO_NODE.md
+```
+
+Key runtime notes:
+
+- `features.block_producer` controls whether the monolith starts production logic.
+- If `block_producer` starts and `BASEDIR/block_producer/private.key` is missing, `teleno_node` creates a new producer hot key and writes the matching `BASEDIR/block_producer/public.key`.
+- PoB production still requires `block_producer.producer` in the active runtime config.
+- Mainnet block production requires an explicit `block_producer.producer` entry in the active `BASEDIR/config.yml`; the UX will not silently infer a mainnet producer address from a wallet.
+- Testnet/custom producer starts may fill a missing producer address from the saved Producer profile or active signing wallet.
+
+Observer runs should explicitly disable block production:
+
+```bash
+./node/teleno-node/build/teleno_node \
+  --basedir /path/to/basedir \
+  --log-level info \
+  --disable block_producer grpc
+```
+
+Legacy microservice build/start scripts are not part of the active Teleno command surface. Legacy-facing scripts are retained only when they prove protocol compatibility, migration safety, or parity with existing Koinos clients and peers.
 
 ## Building For Distribution
 
@@ -56,7 +101,7 @@ npm run build
 npm run test
 ```
 
-Open the renderer-only build at `http://localhost:5173`.
+Use `npm run dev` to run the complete Electron development app. Open the renderer-only build at `http://localhost:5173` when you only need the frontend.
 
 ## Architecture
 
@@ -76,6 +121,19 @@ Electron UI
                   account history, transaction store, contract metadata,
                   and block producer components
 ```
+
+## Validation
+
+Common local checks:
+
+```bash
+npm run build
+cmake --build node/teleno-node/build --target teleno_node --parallel
+cmake --build node/teleno-node/build --target koinos_block_producer_test --parallel
+ctest --test-dir node/teleno-node/build --output-on-failure -R koinos_block_producer_test
+```
+
+The current focused block producer test covers missing private-key auto-generation and reload behavior.
 
 ## References
 
