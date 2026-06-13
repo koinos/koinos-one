@@ -189,6 +189,7 @@ def write_config(args: argparse.Namespace, basedir: Path) -> Path:
                 f"  listen: {args.p2p_listen}",
                 f"  jobs: {args.p2p_jobs}",
                 f"  seed-reconnect-interval-seconds: {args.seed_reconnect_interval_seconds}",
+                "  peer-log-interval-seconds: 60",
                 "  peer:",
                 f"    - {args.peer}",
                 "jsonrpc:",

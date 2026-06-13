@@ -19,6 +19,7 @@ p2p:
   max-candidate-dials-per-cycle: 3
   peer-acquisition-interval-seconds: 5
   candidate-redial-interval-seconds: 60
+  peer-log-interval-seconds: 60
   checkpoint:
     - 1:0x1220checkpoint
 jsonrpc:

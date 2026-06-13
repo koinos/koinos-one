@@ -71,6 +71,7 @@ chain:
 p2p:
   listen: ${P2P_LISTEN}
   seed-reconnect-interval-seconds: 60
+  peer-log-interval-seconds: 60
   peer:
 YAML
 for peer in "${P2P_PEER_LIST[@]}"; do

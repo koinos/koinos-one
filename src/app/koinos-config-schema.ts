@@ -130,6 +130,7 @@ const P2P_FIELDS: ConfigFieldMeta[] = [
   { section: 'p2p', key: 'max-candidate-dials-per-cycle', type: 'number', labelKey: 'config.field.p2p.max-candidate-dials-per-cycle', helpKey: 'config.help.p2p.max-candidate-dials-per-cycle', min: 1, max: 20, step: 1, advanced: true },
   { section: 'p2p', key: 'peer-acquisition-interval-seconds', type: 'number', labelKey: 'config.field.p2p.peer-acquisition-interval-seconds', helpKey: 'config.help.p2p.peer-acquisition-interval-seconds', min: 1, max: 300, step: 1, advanced: true },
   { section: 'p2p', key: 'candidate-redial-interval-seconds', type: 'number', labelKey: 'config.field.p2p.candidate-redial-interval-seconds', helpKey: 'config.help.p2p.candidate-redial-interval-seconds', min: 5, max: 3600, step: 5, advanced: true },
+  { section: 'p2p', key: 'peer-log-interval-seconds', type: 'number', labelKey: 'config.field.p2p.peer-log-interval-seconds', helpKey: 'config.help.p2p.peer-log-interval-seconds', min: 0, max: 3600, step: 5, advanced: true },
   { section: 'p2p', key: 'disable-gossip', type: 'boolean', labelKey: 'config.field.p2p.disable-gossip', helpKey: 'config.help.p2p.disable-gossip', advanced: true },
   { section: 'p2p', key: 'force-gossip', type: 'boolean', labelKey: 'config.field.p2p.force-gossip', helpKey: 'config.help.p2p.force-gossip', advanced: true },
   { section: 'p2p', key: 'checkpoint', type: 'string-array', labelKey: 'config.field.p2p.checkpoint', helpKey: 'config.help.p2p.checkpoint', advanced: true }
@@ -163,6 +164,8 @@ const ROCKSDB_FIELDS: ConfigFieldMeta[] = [
   { section: 'rocksdb', key: 'write-buffer-size', type: 'number', labelKey: 'config.field.rocksdb.write-buffer-size', helpKey: 'config.help.rocksdb.write-buffer-size', min: 1048576, step: 1048576, advanced: true },
   { section: 'rocksdb', key: 'db-write-buffer-size', type: 'number', labelKey: 'config.field.rocksdb.db-write-buffer-size', helpKey: 'config.help.rocksdb.db-write-buffer-size', min: 1048576, step: 1048576, advanced: true },
   { section: 'rocksdb', key: 'max-write-buffer-number', type: 'number', labelKey: 'config.field.rocksdb.max-write-buffer-number', helpKey: 'config.help.rocksdb.max-write-buffer-number', min: 1, max: 16, step: 1, advanced: true },
+  { section: 'rocksdb', key: 'compression', type: 'select', labelKey: 'config.field.rocksdb.compression', helpKey: 'config.help.rocksdb.compression', options: ['zstd', 'snappy', 'none'], advanced: true },
+  { section: 'rocksdb', key: 'require-compression', type: 'boolean', labelKey: 'config.field.rocksdb.require-compression', helpKey: 'config.help.rocksdb.require-compression', advanced: true, dangerous: true },
   { section: 'rocksdb', key: 'blocks-compression', type: 'select', labelKey: 'config.field.rocksdb.blocks-compression', helpKey: 'config.help.rocksdb.blocks-compression', options: ['zstd', 'snappy', 'none'], advanced: true }
 ]
 

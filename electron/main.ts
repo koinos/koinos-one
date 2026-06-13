@@ -1843,6 +1843,7 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
           { path: ['p2p', 'max-candidate-dials-per-cycle'], value: 3 },
           { path: ['p2p', 'peer-acquisition-interval-seconds'], value: 5 },
           { path: ['p2p', 'candidate-redial-interval-seconds'], value: 60 },
+          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
           { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
         ]
       },
@@ -1860,6 +1861,7 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
         set: [
           { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
           { path: ['p2p', 'listen'], value: testnet.p2pListen },
+          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
           { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
         ]
       },
@@ -1884,6 +1886,7 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
           { path: ['p2p', 'max-candidate-dials-per-cycle'], value: 3 },
           { path: ['p2p', 'peer-acquisition-interval-seconds'], value: 5 },
           { path: ['p2p', 'candidate-redial-interval-seconds'], value: 60 },
+          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
           { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
         ]
       },
@@ -1901,6 +1904,7 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
         set: [
           { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
           { path: ['p2p', 'listen'], value: testnet.p2pListen },
+          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
           { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
         ]
       },
@@ -1919,6 +1923,7 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
           { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
           { path: ['p2p', 'listen'], value: mainnet.p2pListen },
           { path: ['p2p', 'seed-reconnect-interval-seconds'], value: 60 },
+          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
           { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
         ]
       },
@@ -1936,6 +1941,7 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
         set: [
           { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
           { path: ['p2p', 'listen'], value: testnet.p2pListen },
+          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
           { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
         ]
       },

@@ -25,15 +25,18 @@ describe('koinos config schema', () => {
     expect(visibleFields).toContain('global.blacklist')
     expect(visibleFields).toContain('global.whitelist')
     expect(visibleFields).toContain('rocksdb.block-cache-mb')
+    expect(visibleFields).toContain('rocksdb.compression')
+    expect(visibleFields).toContain('rocksdb.require-compression')
+    expect(visibleFields).toContain('p2p.peer-log-interval-seconds')
   })
 
   it('reports ignored legacy settings without including them in editable sections', () => {
     const parsed = {
       global: { amqp: 'amqp://guest:guest@localhost:5672/', blacklist: ['chain.propose_block'] },
-      p2p: { 'peer-exchange': true, seed: 'stable-node-id', peer: ['/dns4/example/tcp/8888/p2p/QmPeer'] },
+      p2p: { 'peer-exchange': true, seed: 'stable-node-id', peer: ['/dns4/example/tcp/8888/p2p/QmPeer'], 'peer-log-interval-seconds': 60 },
       'block-store': { basedir: '/tmp/old-block-store' },
       block_producer: { 'pob-contract-id': 'old-pob', producer: '1Producer' },
-      rocksdb: { 'block-cache-mb': 512 }
+      rocksdb: { 'block-cache-mb': 512, compression: 'zstd', 'require-compression': true }
     }
 
     const ignored = findIgnoredLegacyConfigEntries(parsed)
@@ -50,6 +53,9 @@ describe('koinos config schema', () => {
     const extracted = extractConfigValues(parsed)
     expect(extracted.block_store).toBeUndefined()
     expect(extracted.rocksdb?.['block-cache-mb']).toBe(512)
+    expect(extracted.rocksdb?.compression).toBe('zstd')
+    expect(extracted.rocksdb?.['require-compression']).toBe(true)
+    expect(extracted.p2p?.['peer-log-interval-seconds']).toBe(60)
     expect(extracted.global?.blacklist).toEqual(['chain.propose_block'])
   })
 })

@@ -12,10 +12,14 @@ backend/data/*.db
 .deps/
 .run/
 Untitled.png
+__pycache__/
+*.pyc
 
 # Native build artifacts
 node/teleno-node/build
 node/teleno-node/build/
+node/teleno-node/build-zstd
+node/teleno-node/build-zstd/
 node/teleno-node/build-win
 node/teleno-node/build-win/
 node/teleno-node/*.exe
