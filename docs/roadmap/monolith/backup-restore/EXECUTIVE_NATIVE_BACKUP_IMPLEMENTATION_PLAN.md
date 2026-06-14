@@ -381,17 +381,22 @@ Initial endpoints:
 ```text
 POST /admin/backup/create
 GET  /admin/backup/status
+GET  /admin/backup/status/<operation-id>
 GET  /health
+POST /admin/backup/cancel
 POST /admin/backup/cancel/<operation-id>
 POST /admin/backup/restore/stage
 POST /admin/backup/restore/activate
 ```
 
 The implemented backup-admin slice exposes `POST /admin/backup/create`,
-`GET /admin/backup/status`, `POST /admin/backup/cancel`,
+`GET /admin/backup/status`, `GET /admin/backup/status/<operation-id>`,
+`POST /admin/backup/cancel`, `POST /admin/backup/cancel/<operation-id>`,
 `POST /admin/backup/restore/stage`, `POST /admin/backup/restore/activate`,
 and health checks. Backup admin routes require a local bearer token loaded from
-`backup.admin.token-file`. Operation-specific status paths and supervisor
+`backup.admin.token-file`. Operation-specific status and cancel paths validate
+against the service's current or most recent operation id and return `404` when
+the requested operation is not known to the in-process service. Supervisor
 activation callbacks by operation id remain future refinements; the runtime now
 detects restore activation intents and shuts down into a safe activation path.
 
@@ -604,12 +609,13 @@ The local-only admin control surface has also started. The first slice adds:
 - File-token bearer authentication for `/admin/backup/*`; enabling the admin component without a readable non-empty token file fails closed.
 - `POST /admin/backup/create`, which creates a local hot snapshot through `BackupService`.
 - `GET /admin/backup/status`, which returns the current backup operation status as JSON.
+- `GET /admin/backup/status/<operation-id>`, which returns the current or most recent operation when the id matches and returns `404` otherwise.
 - `GET /health` and `GET /healthz` for local supervisor checks.
 - No backup or restore methods on public Koinos JSON-RPC.
 - Request-handler cleanup that joins active admin sessions during shutdown.
 - A heap-backed SHA-256 file buffer so backup inventory hashing is safe on smaller request-thread stacks.
 - Asynchronous admin backup creation: `POST /admin/backup/create` now returns `202 Accepted` with a running status while the service-owned worker creates the snapshot.
-- Cooperative cancellation through `POST /admin/backup/cancel`; the service records `cancel_requested` and aborts at safe phase boundaries before checkpointing or before snapshot publication. It does not forcibly interrupt RocksDB checkpointing or file hashing mid-call.
+- Cooperative cancellation through `POST /admin/backup/cancel` and `POST /admin/backup/cancel/<operation-id>`; the service records `cancel_requested` and aborts at safe phase boundaries before checkpointing or before snapshot publication. It does not forcibly interrupt RocksDB checkpointing or file hashing mid-call.
 - `BackupService::wait_for_current_operation()` and destructor cleanup so background backup workers are joined before the storage handle is destroyed.
 - Authenticated restore staging through `POST /admin/backup/restore/stage`, reusing the existing local repository preflight, checksum, and staging logic while the node stays running.
 - Authenticated restore activation request through `POST /admin/backup/restore/activate`; this writes `.teleno-restore-activation-request.json`. The runtime supervisor detects the intent, stops services, closes RocksDB, activates the staged DB, and exits so the next start begins observer-first recovery.
