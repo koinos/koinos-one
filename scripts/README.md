@@ -23,6 +23,7 @@ This directory is for the monolithic Teleno node, desktop packaging, validation,
 - `live-producer-transaction-regression.sh` and `.py` run live producer transaction/regression levels.
 - `benchmark-monolith*.py` and `benchmark-monolith*.sh` collect monolith startup, sync, RPC, thread, mixed-stress, and replay/indexing evidence.
 - `benchmark-transaction-submission.js` measures live transaction submission behavior.
+- `smoke-native-backup-restore.sh` runs the native backup/restore CLI smoke. By default it uses a local object repository; set `TELENO_BACKUP_REMOTE=1` plus SFTP environment variables to exercise native `libssh` upload and restore fetch.
 
 ## Compatibility Evidence
 

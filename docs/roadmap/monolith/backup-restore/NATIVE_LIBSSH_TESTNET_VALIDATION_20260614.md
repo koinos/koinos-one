@@ -266,9 +266,64 @@ node/teleno-node/build/teleno_node \
 The native CLI/scheduler/remote-restore path is validated at small live-testnet
 scale. Remaining work before production UX exposure:
 
-1. Add an automated smoke wrapper for this flow with a smaller private/local
-   SFTP fixture for CI.
-2. Wire the Teleno UX to the native admin/status endpoints for remote backup
+1. Wire the Teleno UX to the native admin/status endpoints for remote backup
    configuration and restore.
-3. Run a larger testnet backup from a near-head unified basedir before using the
+2. Run a larger testnet backup from a near-head unified basedir before using the
    same flow for a production migration walkthrough.
+
+## Smoke Wrapper Validation
+
+After this report was written, `scripts/smoke-native-backup-restore.sh` was
+added as the repeatable CLI gate for the native backup/restore path.
+
+Local repository mode passed:
+
+```bash
+REPORT_DIR=/private/tmp/teleno-native-backup-smoke/codex-local-20260614b \
+  scripts/smoke-native-backup-restore.sh
+```
+
+Result:
+
+```text
+status: pass
+remote_sftp: false
+backup_id: 20260614T132145Z-ms-1781443305132-files-9
+source_height: 0
+restore_height: 0
+```
+
+Remote native-libssh mode also passed against the restricted testnet SFTP
+account:
+
+```bash
+TELENO_BACKUP_REMOTE=1 \
+TELENO_BACKUP_SSH_HOST=testnet.koinosfoundation.org \
+TELENO_BACKUP_SSH_USER=teleno_backup \
+TELENO_BACKUP_REMOTE_DIR=/srv/teleno-backups/testnet/teleno-dev/smoke-native-script-20260614 \
+TELENO_BACKUP_SSH_AUTH=private-key \
+TELENO_BACKUP_SSH_PRIVATE_KEY_FILE=/Users/pgarcgo/.ssh/id_ed25519 \
+TELENO_BACKUP_SSH_KNOWN_HOSTS_FILE=/Users/pgarcgo/.ssh/known_hosts \
+REPORT_DIR=/private/tmp/teleno-native-backup-smoke/codex-remote-20260614b \
+  scripts/smoke-native-backup-restore.sh
+```
+
+Result:
+
+```text
+status: pass
+remote_sftp: true
+transport: native-libssh
+backup_id: 20260614T132332Z-ms-1781443412587-files-9
+remote_upload.retry_count: 0
+remote_fetch.retry_count: 0
+remote_fetch.object_file_count: 12
+remote_fetch.object_bytes: 828643
+source_height: 0
+restore_height: 0
+```
+
+The smoke wrapper intentionally uses a tiny genesis-only fixture by default so
+it is fast enough to run frequently. The larger live-testnet observer validation
+above remains the evidence for syncing data, scheduler execution while running,
+and restore-first observer recovery on non-zero testnet block data.

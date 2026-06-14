@@ -651,3 +651,10 @@ The Teleno UX integration slice has started:
 The remaining Phase 7/8 work is remote restore UX controls, an automated smoke
 wrapper for the validated native path, and a larger near-head testnet backup
 before guiding production operators through migration.
+
+The automated smoke wrapper now exists at
+`scripts/smoke-native-backup-restore.sh`. It runs a local repository
+backup/restore by default and can exercise native `libssh` upload/fetch when
+`TELENO_BACKUP_REMOTE=1` and the SFTP environment variables are provided.
+Local mode and restricted testnet SFTP mode both passed on 2026-06-14; see
+`NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md`.

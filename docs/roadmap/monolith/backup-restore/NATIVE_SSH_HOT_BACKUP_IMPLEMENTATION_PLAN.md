@@ -1125,3 +1125,7 @@ Static native `libssh` SFTP has now passed live public-testnet backup and
 restore validation against the restricted `teleno_backup` account on
 2026-06-14. The evidence report is
 `NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md`.
+
+The repeatable smoke wrapper is now implemented at
+`scripts/smoke-native-backup-restore.sh`. It passed in both local repository mode
+and restricted testnet SFTP mode on 2026-06-14.
