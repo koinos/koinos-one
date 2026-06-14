@@ -41,6 +41,8 @@ function createDeps() {
     telenoNodeAction: vi.fn(async () => ({ ok: true })),
     telenoNodeRestoreBackup: vi.fn(async () => ({ ok: true })),
     telenoNodeRestoreBackupAndVerify: vi.fn(async () => ({ ok: true })),
+    nativeBackupDryRun: vi.fn(async () => ({ ok: true })),
+    restoreNativeBackupLatest: vi.fn(async () => ({ ok: true })),
     koinosJsonRpcProxy: vi.fn(async () => ({ ok: true })),
     telenoNodeDashboardProducers: vi.fn(async () => ({ ok: true })),
     telenoNodeDashboardPeers: vi.fn(async () => ({ ok: true })),
@@ -128,6 +130,21 @@ describe('ipc-handlers', () => {
 
     expect(result).toEqual({ ok: true, rows: [] })
     expect(deps.telenoNodeDashboardPerformance).toHaveBeenCalledWith(payload)
+  })
+
+  it('registers native backup command handlers', async () => {
+    const ipcMain = createFakeIpcMain()
+    const deps = createDeps()
+
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
+
+    const payload = { baseDir: '/tmp/teleno-node' }
+    const sender = { id: 1 }
+    await ipcMain.handlers.get('teleno:node:native-backup-dry-run')?.({ sender }, payload)
+    await ipcMain.handlers.get('teleno:node:restore-native-backup-latest')?.({ sender }, payload)
+
+    expect(deps.nativeBackupDryRun).toHaveBeenCalledWith(payload)
+    expect(deps.restoreNativeBackupLatest).toHaveBeenCalledWith(payload, sender)
   })
 
   it('registers the wallet account handlers', async () => {

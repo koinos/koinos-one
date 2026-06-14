@@ -38,10 +38,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
     runCreateBackup,
     runCancelBackup,
     runRestoreLocalBackup,
+    runNativeBackupDryRun,
+    runRestoreNativeBackupLatest,
     nodeBusy,
     nodeSettings,
     nodeRestoreBackupVerifyLoading,
     nodeCreateBackupLoading,
+    nodeNativeBackupDryRunLoading,
+    nodeRestoreNativeBackupLoading,
     nodeBackupProgress,
     configFileDisplayPath,
     draftNodeBaseDir,
@@ -411,6 +415,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <button
                 type="button"
                 className="ghost-button"
+                onClick={() => { void runRestoreNativeBackupLatest() }}
+                disabled={!hasNodeControls || nodeBusy}
+                title={t('node.restoreNativeLatestHelp')}
+              >
+                {nodeRestoreNativeBackupLoading ? t('node.restoringNativeLatest') : t('node.restoreNativeLatest')}
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
                 onClick={() => { void runRestoreLocalBackup() }}
                 disabled={!hasNodeControls || nodeBusy}
                 title="Restaurar desde un archivo .tar.gz local"
@@ -424,10 +437,18 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
             <div className="settings-subheader" style={{ marginTop: '1.5rem' }}>
               <h3>{t('node.createBackup')}</h3>
-              <p>Crea un snapshot local de chain/ y block_store/. Los servicios se paran automaticamente para garantizar consistencia.</p>
+              <p>{t('node.nativeBackupDescription')}</p>
             </div>
 
             <div className="settings-actions settings-actions-inline">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => { void runNativeBackupDryRun() }}
+                disabled={!hasNodeControls || nodeBusy}
+              >
+                {nodeNativeBackupDryRunLoading ? t('node.nativeBackupDryRunLoading') : t('node.nativeBackupDryRun')}
+              </button>
               {nodeCreateBackupLoading ? (
                 <button
                   type="button"

@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('teleno', {
     restoreBackup: (settings?: unknown) => ipcRenderer.invoke('teleno:node:restore-backup', settings),
     restoreBackupVerify: (settings?: unknown) => ipcRenderer.invoke('teleno:node:restore-backup-verify', settings),
     createBackup: (settings?: unknown) => ipcRenderer.invoke('teleno:node:create-backup', settings),
+    nativeBackupDryRun: (settings?: unknown) => ipcRenderer.invoke('teleno:node:native-backup-dry-run', settings),
+    restoreNativeBackupLatest: (settings?: unknown) => ipcRenderer.invoke('teleno:node:restore-native-backup-latest', settings),
     cancelCreateBackup: () => ipcRenderer.invoke('teleno:node:cancel-create-backup'),
     restoreLocalBackup: (settings?: unknown) => ipcRenderer.invoke('teleno:node:restore-local-backup', settings),
     getVerifyBlocks: (settings?: unknown) => ipcRenderer.invoke('teleno:node:get-verify-blocks', settings),

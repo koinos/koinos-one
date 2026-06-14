@@ -98,9 +98,17 @@ declare global {
 
   type TelenoNodeBackupRestoreResult = {
     ok: boolean
-    action: 'restore-backup' | 'restore-backup-verify'
+    action: 'restore-backup' | 'restore-backup-verify' | 'create-backup'
     output: string
-    status: TelenoNodeStatus
+    status: TelenoNodeStatus | string
+  }
+
+  type TelenoNodeNativeBackupDryRunResult = {
+    ok: boolean
+    output: string
+    configPath?: string
+    repositoryDir?: string
+    workspaceDir?: string
   }
 
   type TelenoNodeProducerAddressSource = 'config' | 'vault' | 'none'
@@ -895,6 +903,8 @@ declare global {
       restoreBackup: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       restoreBackupVerify: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       createBackup: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
+      nativeBackupDryRun: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupDryRunResult>
+      restoreNativeBackupLatest: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       cancelCreateBackup: () => Promise<{ ok: boolean; output: string }>
       restoreLocalBackup: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       getVerifyBlocks: (settings?: TelenoNodeSettings) => Promise<{ ok: boolean; enabled: boolean | null; output: string }>

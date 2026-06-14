@@ -158,6 +158,14 @@ export type TelenoNodeBackupRestoreResult = {
   status: TelenoNodeStatus | string
 }
 
+export type TelenoNodeNativeBackupDryRunResult = {
+  ok: boolean
+  output: string
+  configPath?: string
+  repositoryDir?: string
+  workspaceDir?: string
+}
+
 export type BlockchainBackupWorkspacePaths = {
   workspaceDir: string
   archivePath: string

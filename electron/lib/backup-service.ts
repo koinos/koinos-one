@@ -22,6 +22,7 @@ import type {
   TelenoNodeBaseDirCopyInput,
   TelenoNodeBaseDirCopyResult,
   TelenoNodeCommandResult,
+  TelenoNodeNativeBackupDryRunResult,
   TelenoNodeSelectDirectoryResult,
   TelenoNodeServicePort,
   TelenoNodeSettings,
@@ -194,6 +195,54 @@ function nativeBackupConfigPath(baseDir: string): string {
   return path.join(baseDir, NATIVE_BACKUP_DIR, 'teleno-native-backup-config.yml')
 }
 
+function envFlagEnabled(value: string | undefined): boolean {
+  const normalized = `${value || ''}`.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes'
+}
+
+function applyNativeBackupRemoteEnv(doc: ReturnType<typeof parseDocument>): void {
+  if (!envFlagEnabled(process.env.TELENO_BACKUP_REMOTE)) return
+
+  const host = process.env.TELENO_BACKUP_SSH_HOST?.trim()
+  const user = process.env.TELENO_BACKUP_SSH_USER?.trim()
+  const remoteDir = process.env.TELENO_BACKUP_REMOTE_DIR?.trim()
+  if (!host || !user || !remoteDir) {
+    throw new Error('TELENO_BACKUP_REMOTE=1 requires TELENO_BACKUP_SSH_HOST, TELENO_BACKUP_SSH_USER, and TELENO_BACKUP_REMOTE_DIR')
+  }
+  if (!remoteDir.startsWith('/')) {
+    throw new Error('TELENO_BACKUP_REMOTE_DIR must be an absolute remote path')
+  }
+
+  const auth = process.env.TELENO_BACKUP_SSH_AUTH?.trim() || 'private-key'
+  doc.setIn(['backup', 'ssh', 'enabled'], true)
+  doc.setIn(['backup', 'ssh', 'transport'], 'native')
+  doc.setIn(['backup', 'ssh', 'host'], host)
+  doc.setIn(['backup', 'ssh', 'port'], Number(process.env.TELENO_BACKUP_SSH_PORT || 22))
+  doc.setIn(['backup', 'ssh', 'user'], user)
+  doc.setIn(['backup', 'ssh', 'auth'], auth)
+  doc.setIn(['backup', 'ssh', 'strict-host-key-checking'], process.env.TELENO_BACKUP_SSH_STRICT_HOST_KEY_CHECKING !== 'false')
+  doc.setIn(['backup', 'ssh', 'connect-timeout-seconds'], Number(process.env.TELENO_BACKUP_SSH_CONNECT_TIMEOUT_SECONDS || 15))
+
+  if (process.env.TELENO_BACKUP_SSH_PRIVATE_KEY_FILE) {
+    doc.setIn(['backup', 'ssh', 'private-key-file'], process.env.TELENO_BACKUP_SSH_PRIVATE_KEY_FILE)
+  }
+  if (process.env.TELENO_BACKUP_SSH_PASSWORD_FILE) {
+    doc.setIn(['backup', 'ssh', 'password-file'], process.env.TELENO_BACKUP_SSH_PASSWORD_FILE)
+  }
+  if (process.env.TELENO_BACKUP_SSH_PASSPHRASE_FILE) {
+    doc.setIn(['backup', 'ssh', 'passphrase-file'], process.env.TELENO_BACKUP_SSH_PASSPHRASE_FILE)
+  }
+  if (process.env.TELENO_BACKUP_SSH_KNOWN_HOSTS_FILE) {
+    doc.setIn(['backup', 'ssh', 'known-hosts-file'], process.env.TELENO_BACKUP_SSH_KNOWN_HOSTS_FILE)
+  }
+
+  doc.setIn(['backup', 'remote', 'enabled'], true)
+  doc.setIn(['backup', 'remote', 'directory'], remoteDir)
+  doc.setIn(['backup', 'remote', 'retention-count'], Number(process.env.TELENO_BACKUP_REMOTE_RETENTION_COUNT || 14))
+  doc.setIn(['backup', 'remote', 'retention-days'], Number(process.env.TELENO_BACKUP_REMOTE_RETENTION_DAYS || 30))
+  doc.setIn(['backup', 'remote', 'upload-temp-suffix'], process.env.TELENO_BACKUP_REMOTE_UPLOAD_TEMP_SUFFIX || '.partial')
+}
+
 function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   configPath: string
   repositoryDir: string
@@ -212,6 +261,7 @@ function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   doc.setIn(['backup', 'local', 'enabled'], true)
   doc.setIn(['backup', 'local', 'directory'], repositoryDir)
   doc.setIn(['backup', 'local', 'retention-count'], 7)
+  applyNativeBackupRemoteEnv(doc)
 
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
   fs.mkdirSync(repositoryDir, { recursive: true })
@@ -1819,7 +1869,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         [
           `--basedir=${settings.baseDir}`,
           `--config=${nativeBackup.configPath}`,
-          '--backup-create-local',
+          '--backup-create',
           '--backup-json'
         ],
         settings.repoPath
@@ -1834,10 +1884,24 @@ export function createBackupService(deps: BackupServiceDeps) {
 
       let backupId = ''
       let totalBytes = 0
+      let remoteSummary = ''
       try {
-        const payload = JSON.parse(result.output) as { backup_id?: string; total_bytes?: number }
-        backupId = payload.backup_id || ''
-        totalBytes = typeof payload.total_bytes === 'number' ? payload.total_bytes : 0
+        const payload = JSON.parse(result.output) as {
+          backup_id?: string
+          total_bytes?: number
+          local_snapshot?: { backup_id?: string; total_bytes?: number }
+          remote_upload?: { remote_directory?: string; total_bytes?: number; retry_count?: number }
+        }
+        backupId = payload.local_snapshot?.backup_id || payload.backup_id || ''
+        totalBytes =
+          typeof payload.local_snapshot?.total_bytes === 'number'
+            ? payload.local_snapshot.total_bytes
+            : typeof payload.total_bytes === 'number'
+              ? payload.total_bytes
+              : 0
+        if (payload.remote_upload?.remote_directory) {
+          remoteSummary = ` Remote uploaded to ${payload.remote_upload.remote_directory}`
+        }
       } catch {
         // Keep raw output below when JSON parsing fails.
       }
@@ -1846,7 +1910,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         'complete',
         100,
         backupId
-          ? `Native hot backup created: ${backupId}${totalBytes ? ` (${formatByteCount(totalBytes)})` : ''}`
+          ? `Native hot backup created: ${backupId}${totalBytes ? ` (${formatByteCount(totalBytes)})` : ''}.${remoteSummary}`
           : 'Native hot backup created'
       )
       return {
@@ -1862,6 +1926,124 @@ export function createBackupService(deps: BackupServiceDeps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       emitProgress('error', 0, `Error creando backup: ${message}`)
+      return { ok: false, action, output: message, status: 'error' }
+    }
+  }
+
+  async function nativeBackupDryRun(
+    input: TelenoNodeSettingsInput | undefined
+  ): Promise<TelenoNodeNativeBackupDryRunResult> {
+    try {
+      const settings = deps.normalizeNodeSettings(input)
+      deps.assertRepoReady(settings)
+      const binaryPath = resolveMonolithBinaryPath()
+      if (!fs.existsSync(binaryPath)) {
+        return { ok: false, output: `teleno_node binary not found: ${binaryPath}` }
+      }
+
+      const nativeBackup = writeNativeBackupConfig(settings)
+      const result = await deps.runCommand(
+        binaryPath,
+        [
+          `--basedir=${settings.baseDir}`,
+          `--config=${nativeBackup.configPath}`,
+          '--backup-dry-run',
+          '--backup-json'
+        ],
+        { cwd: settings.repoPath, timeoutMs: 30_000 }
+      )
+
+      return {
+        ok: result.ok,
+        output: result.output,
+        configPath: nativeBackup.configPath,
+        repositoryDir: nativeBackup.repositoryDir,
+        workspaceDir: nativeBackup.workspaceDir
+      }
+    } catch (error) {
+      return { ok: false, output: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  async function restoreNativeBackupLatest(
+    input: TelenoNodeSettingsInput | undefined,
+    sender: WebContents
+  ): Promise<TelenoNodeBackupRestoreResult> {
+    const action: TelenoNodeBackupProgressAction = 'restore-backup'
+
+    function emitProgress(phase: TelenoNodeBackupProgressPhase, progress: number, message: string) {
+      sender.send('teleno:node:backup-progress:event', { action, phase, progress, message } satisfies TelenoNodeBackupProgressEvent)
+    }
+
+    try {
+      const settings = deps.normalizeNodeSettings(input)
+      deps.assertRepoReady(settings)
+      const binaryPath = resolveMonolithBinaryPath()
+      if (!fs.existsSync(binaryPath)) {
+        emitProgress('error', 0, `teleno_node binary not found: ${binaryPath}`)
+        return { ok: false, action, output: `teleno_node binary not found: ${binaryPath}`, status: 'error' }
+      }
+
+      emitProgress('prepare', 5, 'Preparing native backup restore')
+      const nativeBackup = writeNativeBackupConfig(settings)
+      const stagingDir = path.join(settings.baseDir, NATIVE_BACKUP_DIR, 'restore-staging')
+      fs.rmSync(stagingDir, { recursive: true, force: true })
+      fs.mkdirSync(stagingDir, { recursive: true })
+
+      emitProgress('stop', 12, 'Stopping node before native restore')
+      const stopResult = await deps.telenoNodeAction('stop', input)
+      if (!stopResult.ok) {
+        emitProgress('error', 12, stopResult.output || 'Could not stop node before native restore')
+        return { ok: false, action, output: stopResult.output || 'Could not stop node before native restore', status: 'error' }
+      }
+
+      emitProgress('download', 25, 'Fetching and validating latest native backup')
+      const result = await spawnTrackedBackupCommand(
+        binaryPath,
+        [
+          `--basedir=${settings.baseDir}`,
+          `--config=${nativeBackup.configPath}`,
+          '--backup-restore',
+          '--backup-json',
+          `--backup-output=${stagingDir}`
+        ],
+        settings.repoPath
+      )
+
+      if (!result.ok) {
+        emitProgress('error', 60, result.output || 'Native restore command failed')
+        return { ok: false, action, output: result.output || 'Native restore command failed', status: 'error' }
+      }
+
+      let backupId = ''
+      try {
+        const payload = JSON.parse(result.output) as { activation?: { backup_id?: string } }
+        backupId = payload.activation?.backup_id || ''
+      } catch {
+        // Preserve raw output below when JSON parsing fails.
+      }
+
+      emitProgress(
+        'complete',
+        100,
+        backupId
+          ? `Native backup restored: ${backupId}. Start as observer before enabling production.`
+          : 'Native backup restored. Start as observer before enabling production.'
+      )
+
+      return {
+        ok: true,
+        action,
+        output: [
+          `Native backup config: ${nativeBackup.configPath}`,
+          `Native backup repository: ${nativeBackup.repositoryDir}`,
+          result.output
+        ].filter(Boolean).join('\n'),
+        status: 'complete'
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      emitProgress('error', 0, `Error restoring native backup: ${message}`)
       return { ok: false, action, output: message, status: 'error' }
     }
   }
@@ -1891,6 +2073,8 @@ export function createBackupService(deps: BackupServiceDeps) {
     telenoNodeRestoreBackup,
     telenoNodeRestoreBackupAndVerify,
     createLocalBackup,
+    nativeBackupDryRun,
+    restoreNativeBackupLatest,
     cancelCreateBackup,
     restoreFromLocalFile,
     copyNodeBaseDirData,

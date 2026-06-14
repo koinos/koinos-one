@@ -4423,6 +4423,8 @@ function registerIpcHandlers() {
     telenoNodeRestoreBackup,
     telenoNodeRestoreBackupAndVerify,
     createLocalBackup,
+    nativeBackupDryRun: backupService.nativeBackupDryRun,
+    restoreNativeBackupLatest: backupService.restoreNativeBackupLatest,
     cancelCreateBackup,
     restoreFromLocalFile,
     getVerifyBlocks,

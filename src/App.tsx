@@ -238,6 +238,8 @@ export function App() {
   const [nodeRestoreBackupLoading, setNodeRestoreBackupLoading] = useState(false)
   const [nodeRestoreBackupVerifyLoading, setNodeRestoreBackupVerifyLoading] = useState(false)
   const [nodeCreateBackupLoading, setNodeCreateBackupLoading] = useState(false)
+  const [nodeNativeBackupDryRunLoading, setNodeNativeBackupDryRunLoading] = useState(false)
+  const [nodeRestoreNativeBackupLoading, setNodeRestoreNativeBackupLoading] = useState(false)
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
   const [nodeProducerOverview, setNodeProducerOverview] = useState<TelenoNodeProducerOverviewResult | null>(null)
@@ -968,6 +970,7 @@ export function App() {
         disposed ||
         nodeActionLoading ||
         nodeRestoreBackupLoading ||
+        nodeRestoreNativeBackupLoading ||
         nodeServiceActionLoading ||
         nodePresetActionLoading ||
         nodeNativeBuildActionLoading
@@ -991,6 +994,7 @@ export function App() {
     nodeSettings,
     nodeActionLoading,
     nodeRestoreBackupLoading,
+    nodeRestoreNativeBackupLoading,
     nodeServiceActionLoading,
     nodePresetActionLoading,
     nodeNativeBuildActionLoading
@@ -1067,6 +1071,8 @@ export function App() {
     nodeRestoreBackupLoading ||
     nodeRestoreBackupVerifyLoading ||
     nodeCreateBackupLoading ||
+    nodeNativeBackupDryRunLoading ||
+    nodeRestoreNativeBackupLoading ||
     nodeCloneLoading ||
     nodeBaseDirPickerLoading ||
     nodeBaseDirCopyLoading ||
@@ -3809,6 +3815,81 @@ export function App() {
     }
   }
 
+  const runNativeBackupDryRun = async () => {
+    const bridge = getTelenoNodeBridge()
+    if (!bridge?.nativeBackupDryRun) return
+
+    setNodeNativeBackupDryRunLoading(true)
+    setNodeError(null)
+    setNodeBackupProgress({
+      action: 'create-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.checkingNativeBackupConfig'),
+      updatedAt: Date.now()
+    })
+
+    try {
+      const result = await bridge.nativeBackupDryRun(toNodeApiSettings(nodeSettings))
+      setNodeOutput([
+        result.configPath ? `Native backup config: ${result.configPath}` : '',
+        result.repositoryDir ? `Native backup repository: ${result.repositoryDir}` : '',
+        result.workspaceDir ? `Native backup workspace: ${result.workspaceDir}` : '',
+        result.output || ''
+      ].filter(Boolean).join('\n'))
+      setNodeBackupProgress({
+        action: 'create-backup',
+        phase: result.ok ? 'complete' : 'error',
+        progress: result.ok ? 100 : 0,
+        message: result.ok ? t('node.nativeBackupDryRunComplete') : (result.output || t('node.nativeBackupDryRunFailed')),
+        updatedAt: Date.now()
+      })
+      if (!result.ok) {
+        setNodeError(result.output || t('node.nativeBackupDryRunFailed'))
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : t('node.nativeBackupDryRunFailed'))
+      setNodeBackupProgress({
+        action: 'create-backup',
+        phase: 'error',
+        progress: 0,
+        message: error instanceof Error ? error.message : t('node.nativeBackupDryRunFailed'),
+        updatedAt: Date.now()
+      })
+    } finally {
+      setNodeNativeBackupDryRunLoading(false)
+    }
+  }
+
+  const runRestoreNativeBackupLatest = async () => {
+    const bridge = getTelenoNodeBridge()
+    if (!bridge?.restoreNativeBackupLatest) return
+
+    setNodeRestoreNativeBackupLoading(true)
+    setNodeError(null)
+    setNodeBackupProgress({
+      action: 'restore-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.preparingNativeRestore'),
+      updatedAt: Date.now()
+    })
+
+    try {
+      const result = await bridge.restoreNativeBackupLatest(toNodeApiSettings(nodeSettings))
+      setNodeOutput(result.output || '')
+      if (!result.ok) {
+        setNodeError(result.output || t('node.unableRestoreNativeBackup'))
+      } else {
+        setNodeError(null)
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : t('node.unableRestoreNativeBackup'))
+    } finally {
+      setNodeRestoreNativeBackupLoading(false)
+    }
+  }
+
   const runCancelBackup = async () => {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.cancelCreateBackup) return
@@ -4363,10 +4444,14 @@ export function App() {
           runCreateBackup={runCreateBackup}
           runCancelBackup={runCancelBackup}
           runRestoreLocalBackup={runRestoreLocalBackup}
+          runNativeBackupDryRun={runNativeBackupDryRun}
+          runRestoreNativeBackupLatest={runRestoreNativeBackupLatest}
           nodeBusy={nodeBusy}
           nodeSettings={nodeSettings}
           nodeRestoreBackupVerifyLoading={nodeRestoreBackupVerifyLoading}
           nodeCreateBackupLoading={nodeCreateBackupLoading}
+          nodeNativeBackupDryRunLoading={nodeNativeBackupDryRunLoading}
+          nodeRestoreNativeBackupLoading={nodeRestoreNativeBackupLoading}
           nodeBackupProgress={nodeBackupProgress}
           configFileDisplayPath={configFileDisplayPath}
           draftNodeBaseDir={draftNodeBaseDir}
