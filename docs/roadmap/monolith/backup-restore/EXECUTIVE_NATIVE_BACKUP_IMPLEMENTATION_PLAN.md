@@ -353,6 +353,8 @@ Phase 1 uses option-style commands to match the current `teleno_node` CLI:
 ```bash
 teleno_node --backup-dry-run
 teleno_node --backup-dry-run --backup-json
+teleno_node --backup-create
+teleno_node --backup-create --backup-json
 ```
 
 Final operator commands can later be promoted to a clearer subcommand wrapper while keeping compatibility flags:
@@ -599,6 +601,7 @@ Phase 7 has started. The initial runtime service implementation adds:
 - Guardrails that reject backup service snapshots unless `backup.enabled`, `backup.local.enabled`, `backup.workspace`, `backup.local.directory`, an open RocksDB handle, and unified chain storage are present.
 - Reuse of the existing checkpoint and local object-repository primitives, including automatic checkpoint cleanup on success or failure.
 - The `--backup-create-local` CLI now routes through `BackupService`, so CLI validation and future admin/API execution use the same runtime primitive.
+- The operator-facing `--backup-create` CLI creates the configured local hot snapshot and, when `backup.remote.enabled` is true, uploads the latest snapshot through the managed SFTP transport before returning success.
 - Focused tests that create a hot local snapshot from an open temporary RocksDB, stage the resulting snapshot, and verify the staged DB opens with the expected metadata.
 
 The local-only admin control surface has also started. The first slice adds:
@@ -641,6 +644,6 @@ The Teleno UX integration slice has started:
 - The UX writes a scoped native backup config under `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`, with repository and workspace directories under `<basedir>/.teleno-native-backups/`.
 - Existing progress events are preserved for the renderer, while the actual backup behavior now uses the same native hot checkpoint/object-store path as CLI/admin/scheduler.
 
-The remaining Phase 7/8 work is operation-id-specific admin status paths,
-remote restore UX controls, native SSH/SFTP library replacement for password
-authentication, and live testnet remote backup/restore validation.
+The remaining Phase 7/8 work is remote restore UX controls, native SSH/SFTP
+library replacement for password authentication, and live testnet remote
+backup/restore validation.
