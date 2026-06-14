@@ -8,7 +8,7 @@ import { Readable, Transform } from 'node:stream'
 import { BrowserWindow, dialog, type OpenDialogOptions, type WebContents } from 'electron'
 import { parseDocument } from 'yaml'
 
-import { DEFAULT_BASEDIR } from './constants'
+import { DEFAULT_BASEDIR, resolveMonolithBinaryPath } from './constants'
 import type {
   BlockchainBackupArchiveState,
   BlockchainBackupExtractState,
@@ -50,6 +50,7 @@ function saveLastBackupPath(backupFilePath: string): void {
 }
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.teleno-blockchain-backup-cache'
+const NATIVE_BACKUP_DIR = '.teleno-native-backups'
 
 // ── Config.yml verify-blocks helper ──
 
@@ -179,6 +180,45 @@ function readJsonFile<T>(filePath: string): T | null {
 function writeJsonFile(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
+function nativeBackupRepositoryDir(baseDir: string): string {
+  return path.join(baseDir, NATIVE_BACKUP_DIR, 'repository')
+}
+
+function nativeBackupWorkspaceDir(baseDir: string): string {
+  return path.join(baseDir, NATIVE_BACKUP_DIR, 'workspace')
+}
+
+function nativeBackupConfigPath(baseDir: string): string {
+  return path.join(baseDir, NATIVE_BACKUP_DIR, 'teleno-native-backup-config.yml')
+}
+
+function writeNativeBackupConfig(settings: TelenoNodeSettings): {
+  configPath: string
+  repositoryDir: string
+  workspaceDir: string
+} {
+  const configPath = nativeBackupConfigPath(settings.baseDir)
+  const repositoryDir = nativeBackupRepositoryDir(settings.baseDir)
+  const workspaceDir = nativeBackupWorkspaceDir(settings.baseDir)
+  const sourceConfigPath = path.join(settings.baseDir, 'config.yml')
+  const raw = fs.existsSync(sourceConfigPath) ? fs.readFileSync(sourceConfigPath, 'utf8') : ''
+  const doc = parseDocument(raw || '{}\n')
+
+  doc.setIn(['backup', 'enabled'], true)
+  doc.setIn(['backup', 'node-id'], `teleno-ux-${settings.network}`)
+  doc.setIn(['backup', 'workspace'], workspaceDir)
+  doc.setIn(['backup', 'local', 'enabled'], true)
+  doc.setIn(['backup', 'local', 'directory'], repositoryDir)
+  doc.setIn(['backup', 'local', 'retention-count'], 7)
+
+  fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  fs.mkdirSync(repositoryDir, { recursive: true })
+  fs.mkdirSync(workspaceDir, { recursive: true })
+  fs.writeFileSync(configPath, doc.toString(), 'utf8')
+
+  return { configPath, repositoryDir, workspaceDir }
 }
 
 function uniqueStringList(values: string[]): string[] {
@@ -1692,59 +1732,40 @@ export function createBackupService(deps: BackupServiceDeps) {
   }
 
   // ── Cancel support for createLocalBackup ──
-  let activeBackupTarProcess: ChildProcess | null = null
+  let activeBackupProcess: ChildProcess | null = null
   let activeBackupCancelled = false
-  let activeBackupInput: TelenoNodeSettingsInput | undefined
-  let activeBackupSender: WebContents | null = null
 
   function cancelCreateBackup(): { ok: boolean; output: string } {
-    if (!activeBackupTarProcess && !activeBackupCancelled) {
-      // No active backup — set flag so in-progress backup sees it at next checkpoint
+    if (!activeBackupProcess && !activeBackupCancelled) {
       activeBackupCancelled = true
-      return { ok: true, output: 'Cancel requested (no tar process running yet)' }
+      return { ok: true, output: 'Cancel requested (no native backup process running yet)' }
     }
     activeBackupCancelled = true
-    if (activeBackupTarProcess) {
-      try { activeBackupTarProcess.kill('SIGTERM') } catch { /* ignore */ }
+    if (activeBackupProcess) {
+      try { activeBackupProcess.kill('SIGTERM') } catch { /* ignore */ }
       setTimeout(() => {
-        try { activeBackupTarProcess?.kill('SIGKILL') } catch { /* ignore */ }
+        try { activeBackupProcess?.kill('SIGKILL') } catch { /* ignore */ }
       }, 2000)
     }
     return { ok: true, output: 'Cancel signal sent' }
   }
 
-  /** Spawn tar and return a promise; stores child process ref for cancellation.
-   *  If destPath + estimatedBytes are provided, polls output file size for progress. */
-  function spawnTar(
+  function spawnTrackedBackupCommand(
+    command: string,
     args: string[],
-    cwd: string,
-    progressOpts?: { destPath: string; estimatedBytes: number; onProgress: (fraction: number) => void }
+    cwd: string
   ): Promise<{ ok: boolean; code: number | null; output: string }> {
     return new Promise((resolve) => {
-      const child = spawn('tar', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
-      activeBackupTarProcess = child
+      const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+      activeBackupProcess = child
 
       let stdout = ''
       let stderr = ''
       child.stdout.on('data', (chunk: Buffer | string) => { stdout += String(chunk) })
       child.stderr.on('data', (chunk: Buffer | string) => { stderr += String(chunk) })
 
-      // Poll output file size for incremental progress
-      let pollTimer: NodeJS.Timeout | null = null
-      if (progressOpts) {
-        const { destPath, estimatedBytes, onProgress } = progressOpts
-        pollTimer = setInterval(() => {
-          try {
-            const stats = fs.statSync(destPath)
-            const fraction = Math.min(stats.size / estimatedBytes, 0.99)
-            onProgress(fraction)
-          } catch { /* file may not exist yet */ }
-        }, 2000)
-      }
-
       const cleanup = () => {
-        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-        activeBackupTarProcess = null
+        activeBackupProcess = null
       }
 
       child.on('error', (err) => {
@@ -1765,8 +1786,6 @@ export function createBackupService(deps: BackupServiceDeps) {
   ): Promise<TelenoNodeBackupRestoreResult> {
     const action: TelenoNodeBackupProgressAction = 'create-backup'
     activeBackupCancelled = false
-    activeBackupInput = input
-    activeBackupSender = sender
 
     function emitProgress(phase: TelenoNodeBackupProgressPhase, progress: number, message: string) {
       sender.send('teleno:node:backup-progress:event', { action, phase, progress, message } satisfies TelenoNodeBackupProgressEvent)
@@ -1776,202 +1795,73 @@ export function createBackupService(deps: BackupServiceDeps) {
       return activeBackupCancelled
     }
 
-    async function cleanupOnCancel(manifestPath?: string, destPath?: string) {
-      emitProgress('stop', 0, 'Backup cancelado. Limpiando...')
-      if (manifestPath) try { fs.unlinkSync(manifestPath) } catch { /* ignore */ }
-      if (destPath) try { fs.unlinkSync(destPath) } catch { /* ignore */ }
-      if (destPath) try { fs.unlinkSync(`${destPath}.sha256`) } catch { /* ignore */ }
-      try { await deps.telenoNodeAction('start', input) } catch { /* best effort */ }
-      activeBackupTarProcess = null
-      activeBackupSender = null
+    function cleanupOnCancel() {
+      activeBackupProcess = null
       emitProgress('complete', 0, 'Backup cancelado por el usuario')
       return { ok: false, action, output: 'Backup cancelado por el usuario', status: 'cancelled' } as TelenoNodeBackupRestoreResult
     }
 
     try {
       const settings = deps.normalizeNodeSettings(input)
-      const baseDir = settings.baseDir
-
-      // 1. Ask user where to save the backup
-      emitProgress('prepare', 2, 'Selecciona donde guardar el backup...')
-      const result = await dialog.showSaveDialog({
-        title: 'Guardar backup de blockchain',
-        defaultPath: `koinos_backup_${new Date().toISOString().slice(0, 10)}.tar.gz`,
-        filters: [{ name: 'tar.gz', extensions: ['tar.gz'] }]
-      })
-      if (result.canceled || !result.filePath) {
-        activeBackupSender = null
-        return { ok: false, action, output: 'Backup cancelado por el usuario', status: 'cancelled' }
+      deps.assertRepoReady(settings)
+      const binaryPath = resolveMonolithBinaryPath()
+      if (!fs.existsSync(binaryPath)) {
+        emitProgress('error', 0, `teleno_node binary not found: ${binaryPath}`)
+        return { ok: false, action, output: `teleno_node binary not found: ${binaryPath}`, status: 'error' }
       }
-      const destPath = result.filePath
 
-      if (checkCancelled()) return cleanupOnCancel(undefined, destPath)
+      emitProgress('prepare', 5, 'Preparing native hot backup repository')
+      const nativeBackup = writeNativeBackupConfig(settings)
+      emitProgress('save', 20, `Creating hot RocksDB checkpoint in ${nativeBackup.workspaceDir}`)
 
-      // 2. Query chain head height BEFORE stopping (while RPC is still available)
-      emitProgress('prepare', 5, 'Consultando altura de chain antes de parar...')
-      let snapshotChainHeight: string | null = null
-      let snapshotChainHeadId: string | null = null
+      const result = await spawnTrackedBackupCommand(
+        binaryPath,
+        [
+          `--basedir=${settings.baseDir}`,
+          `--config=${nativeBackup.configPath}`,
+          '--backup-create-local',
+          '--backup-json'
+        ],
+        settings.repoPath
+      )
+
+      if (checkCancelled()) return cleanupOnCancel()
+
+      if (!result.ok) {
+        emitProgress('error', 60, result.output || 'Native backup command failed')
+        return { ok: false, action, output: result.output || 'Native backup command failed', status: 'error' }
+      }
+
+      let backupId = ''
+      let totalBytes = 0
       try {
-        const serviceDefinitions = deps.readServiceDefinitions(settings)
-        const rpcUrl = localNodeJsonRpcUrl(settings, serviceDefinitions, deps.composeServicePortByTarget)
-        const rpcResult = await koinosJsonRpcProxy({ rpcUrl, method: 'chain.get_head_info', params: {} })
-        if (rpcResult.ok) {
-          const summary = extractHeadInfoSummary(rpcResult.result)
-          if (summary.ok) {
-            snapshotChainHeight = summary.height
-            snapshotChainHeadId = summary.headId
-            emitProgress('prepare', 7, `Chain head antes de parar: bloque ${summary.height}`)
-          }
-        }
-      } catch { /* non-critical: RPC not available, proceed without height */ }
-
-      // 3. Stop services to ensure atomic snapshot
-      emitProgress('stop', 10, 'Parando servicios para garantizar consistencia...')
-      const stopResult = await deps.telenoNodeAction('stop', input)
-      if (!stopResult.ok) {
-        emitProgress('error', 10, `No se pudieron parar los servicios: ${stopResult.output}`)
-        activeBackupSender = null
-        return { ok: false, action, output: `Error al parar servicios: ${stopResult.output}`, status: 'error' }
+        const payload = JSON.parse(result.output) as { backup_id?: string; total_bytes?: number }
+        backupId = payload.backup_id || ''
+        totalBytes = typeof payload.total_bytes === 'number' ? payload.total_bytes : 0
+      } catch {
+        // Keep raw output below when JSON parsing fails.
       }
 
-      if (checkCancelled()) return cleanupOnCancel(undefined, destPath)
-
-      // 4. Verify required directories exist
-      emitProgress('prepare', 20, 'Verificando directorios de blockchain...')
-      const chainDir = path.join(baseDir, 'chain')
-      const blockStoreDir = path.join(baseDir, 'block_store')
-      if (!fs.existsSync(chainDir) || !fs.existsSync(blockStoreDir)) {
-        emitProgress('error', 20, 'No se encontraron los directorios chain/ y block_store/')
-        await deps.telenoNodeAction('start', input)
-        activeBackupSender = null
-        return { ok: false, action, output: 'Directorios chain/ o block_store/ no existen en BASEDIR', status: 'error' }
-      }
-
-      // 5. Write manifest with snapshot height and consistency info
-      emitProgress('prepare', 25, 'Creando manifiesto de backup...')
-      const manifestPath = path.join(baseDir, 'backup-manifest.json')
-      const manifest: Record<string, unknown> = {
-        created: new Date().toISOString(),
-        basedir: baseDir,
-        directories: ['chain', 'block_store'],
-        teleno_version: process.env.npm_package_version || 'unknown',
-        // Consistency metadata: height recorded before stopping services
-        snapshot_chain_height: snapshotChainHeight || null,
-        snapshot_chain_head_id: snapshotChainHeadId || null,
-        // Flag indicating restore should use verify-blocks: true for safety
-        // because P2P state deltas may not match the restored chain state
-        restore_requires_verify_blocks: true
-      }
-      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
-      if (snapshotChainHeight) {
-        emitProgress('prepare', 26, `Manifest creado (chain height: ${snapshotChainHeight})`)
-      }
-
-      if (checkCancelled()) return cleanupOnCancel(manifestPath, destPath)
-
-      // 5. Check disk space — estimate required as sum of chain/ + block_store/ sizes
-      emitProgress('prepare', 28, 'Verificando espacio en disco...')
-      let sourceSizeBytes = 0
-      for (const dirName of ['chain', 'block_store']) {
-        const dirPath = path.join(baseDir, dirName)
-        const du = await deps.runCommand('du', ['-sk', dirPath], { cwd: baseDir, timeoutMs: 60000 })
-        if (du.ok) {
-          const kbMatch = du.output.match(/^(\d+)/)
-          if (kbMatch) sourceSizeBytes += parseInt(kbMatch[1], 10) * 1024
-        }
-      }
-      // Compressed tar.gz is typically 40-60% of source; require at least 70% as safety margin
-      const estimatedCompressedBytes = Math.max(sourceSizeBytes * 0.7, 1024 * 1024 * 100)
-      const destDir = path.dirname(destPath)
-      try {
-        const dfResult = await deps.runCommand('df', ['-k', destDir], { cwd: destDir, timeoutMs: 10000 })
-        if (dfResult.ok) {
-          const lines = dfResult.output.split(/\r?\n/).filter(Boolean)
-          if (lines.length >= 2) {
-            const fields = lines[1].split(/\s+/)
-            const availableKb = parseInt(fields[3], 10)
-            if (!isNaN(availableKb) && availableKb * 1024 < estimatedCompressedBytes) {
-              const availGB = (availableKb / (1024 * 1024)).toFixed(1)
-              const needGB = (estimatedCompressedBytes / (1024 ** 3)).toFixed(1)
-              emitProgress('error', 28, `Espacio insuficiente: ~${needGB} GB necesarios, solo ${availGB} GB disponibles en ${destDir}`)
-              await deps.telenoNodeAction('start', input)
-              try { fs.unlinkSync(manifestPath) } catch { /* ignore */ }
-              activeBackupSender = null
-              return { ok: false, action, output: `Espacio insuficiente: ~${needGB} GB necesarios, solo ${availGB} GB disponibles`, status: 'error' }
-            }
-          }
-        }
-      } catch { /* non-critical, proceed anyway */ }
-
-      if (checkCancelled()) return cleanupOnCancel(manifestPath, destPath)
-
-      // 6. Compress chain/ and block_store/ into tar.gz (using spawn for cancel support)
-      const sourceGB = (sourceSizeBytes / (1024 ** 3)).toFixed(1)
-      emitProgress('compress', 30, `Comprimiendo blockchain (~${sourceGB} GB, esto puede tardar varios minutos)...`)
-      const tarArgs = ['-czf', destPath, '-C', baseDir, 'chain', 'block_store', 'backup-manifest.json']
-      if (fs.existsSync(path.join(baseDir, 'config.yml'))) {
-        tarArgs.push('config.yml')
-      }
-
-      const tarResult = await spawnTar(tarArgs, baseDir, {
-        destPath,
-        estimatedBytes: estimatedCompressedBytes,
-        onProgress: (fraction) => {
-          // Map fraction (0..1) to progress range 30..85
-          const progress = Math.round(30 + fraction * 55)
-          const writtenGB = (fraction * estimatedCompressedBytes / (1024 ** 3)).toFixed(1)
-          const estGB = (estimatedCompressedBytes / (1024 ** 3)).toFixed(1)
-          emitProgress('compress', progress, `Comprimiendo... ${writtenGB} / ~${estGB} GB (~${Math.round(fraction * 100)}%)`)
-        }
-      })
-
-      // Clean up manifest
-      try { fs.unlinkSync(manifestPath) } catch { /* ignore */ }
-
-      if (checkCancelled()) return cleanupOnCancel(undefined, destPath)
-
-      if (!tarResult.ok) {
-        emitProgress('error', 50, `Error al comprimir: ${tarResult.output}`)
-        await deps.telenoNodeAction('start', input)
-        activeBackupSender = null
-        return { ok: false, action, output: `Error al comprimir: ${tarResult.output}`, status: 'error' }
-      }
-
-      // 7. Generate SHA-256 checksum
-      emitProgress('save', 85, 'Calculando checksum SHA-256...')
-      const hash = createHash('sha256')
-      const stream = fs.createReadStream(destPath)
-      for await (const chunk of stream) {
-        if (checkCancelled()) { stream.destroy(); return cleanupOnCancel(undefined, destPath) }
-        hash.update(chunk)
-      }
-      const checksum = hash.digest('hex')
-      fs.writeFileSync(`${destPath}.sha256`, `${checksum}  ${path.basename(destPath)}\n`, 'utf8')
-
-      // 8. Report size
-      const stats = fs.statSync(destPath)
-      const sizeGB = (stats.size / (1024 ** 3)).toFixed(2)
-
-      // 9. Save last backup path for future restore dialog
-      saveLastBackupPath(destPath)
-
-      // 10. Restart services
-      emitProgress('start', 90, 'Reiniciando servicios...')
-      await deps.telenoNodeAction('start', input)
-
-      activeBackupSender = null
-      emitProgress('complete', 100, `Backup creado: ${path.basename(destPath)} (${sizeGB} GB)`)
+      emitProgress(
+        'complete',
+        100,
+        backupId
+          ? `Native hot backup created: ${backupId}${totalBytes ? ` (${formatByteCount(totalBytes)})` : ''}`
+          : 'Native hot backup created'
+      )
       return {
         ok: true,
         action,
-        output: `Backup guardado en ${destPath} (${sizeGB} GB, SHA-256: ${checksum.slice(0, 12)}...)`,
+        output: [
+          `Native backup repository: ${nativeBackup.repositoryDir}`,
+          `Native backup workspace: ${nativeBackup.workspaceDir}`,
+          result.output
+        ].filter(Boolean).join('\n'),
         status: 'complete'
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       emitProgress('error', 0, `Error creando backup: ${message}`)
-      try { await deps.telenoNodeAction('start', input) } catch { /* best effort restart */ }
-      activeBackupSender = null
       return { ok: false, action, output: message, status: 'error' }
     }
   }

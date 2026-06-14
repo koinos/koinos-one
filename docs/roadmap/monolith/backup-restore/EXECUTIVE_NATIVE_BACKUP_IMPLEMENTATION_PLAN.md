@@ -392,7 +392,8 @@ The implemented backup-admin slice exposes `POST /admin/backup/create`,
 `POST /admin/backup/restore/stage`, `POST /admin/backup/restore/activate`,
 and health checks. Backup admin routes require a local bearer token loaded from
 `backup.admin.token-file`. Operation-specific status paths and supervisor
-activation of restore intents remain required before UX integration.
+activation callbacks by operation id remain future refinements; the runtime now
+detects restore activation intents and shuts down into a safe activation path.
 
 ## Scheduler Requirements
 
@@ -544,13 +545,21 @@ Phase 3 has started. The initial local repository implementation adds:
 Phase 4 has started. The initial SFTP validation implementation adds:
 
 - A validation CLI mode: `--backup-upload-latest`.
-- Remote upload of the latest local snapshot repository through OpenSSH `sftp` with private-key authentication.
+- Remote upload of the latest local snapshot repository through the managed SFTP transport with private-key authentication.
 - Atomic remote publication using snapshot `.partial` directories and `latest.json.partial` followed by remote rename.
 - Upload validation against the restricted `teleno_backup` SFTP-only user on `testnet.koinosfoundation.org`.
 - Cleanup of temporary local SFTP batch files after successful uploads.
 - Focused tests for upload batch planning, partial/final remote paths, and JSON/text upload result output.
+- Managed transfer options for retry count, retry delay, cancellation checks between batches/attempts, and progress callbacks.
 
-The current Phase 4 backend intentionally uses the system OpenSSH client as a validation transport. The production backend should still move to a native SSH/SFTP library before UX integration so progress, cancellation, retries, password-file authentication, and host-key policy can be controlled inside `teleno_node`.
+The current Phase 4 backend intentionally uses the system OpenSSH client behind
+the managed transport abstraction. Private-key authentication is operational.
+Password-file authentication is parsed and validated in config, but remote
+execution now fails closed with an explicit unsupported-backend error until a
+bundled native SSH/SFTP library is added. The remaining production transport
+work is replacing the managed OpenSSH executor with libssh/libssh2-compatible
+SFTP so password-file authentication and host-key policy are controlled without
+external process dependencies.
 
 Phase 5 has started. The initial restore preflight implementation adds:
 
@@ -559,7 +568,7 @@ Phase 5 has started. The initial restore preflight implementation adds:
 - A validation CLI mode: `--backup-restore-stage`.
 - A validation CLI mode: `--backup-restore-activate`.
 - Metadata-first local restore checks using `latest.json`, `manifest.json`, and `files.json`.
-- Metadata-first remote restore fetch over OpenSSH SFTP: download `latest.json`, then only the referenced `manifest.json`, `files.json`, and `COMPLETE` marker before any object download.
+- Metadata-first remote restore fetch over the managed SFTP transport: download `latest.json`, then only the referenced `manifest.json`, `files.json`, and `COMPLETE` marker before any object download.
 - Verification that all snapshot objects referenced by the manifest exist before restore can continue.
 - Target-volume free-space checks before any large download, reconstruction, or DB replacement.
 - Local-repository free-space checks before downloading missing remote objects.
@@ -572,7 +581,11 @@ Phase 5 has started. The initial restore preflight implementation adds:
 - First post-activation node start consumes `.backup-just-restored`, enables verify-blocks, and disables `block_producer` for observer recovery even if the config enables it.
 - Human and JSON preflight/fetch/staging/activation output for CLI and future UX integration.
 
-The current Phase 5 slice supports local-repository restore and remote fetch through the OpenSSH validation backend. The next implementation slice is the native runtime/admin workflow: run hot backup through the live node process, expose create/status/cancel and restore stage/activate through a local-only admin API, and then move scheduled backup execution into the node process.
+The current Phase 5 slice supports local-repository restore and remote fetch
+through the managed SFTP backend. Runtime restore activation is now supervised:
+startup consumes a pending activation intent before opening RocksDB, and a
+running node polls for `.teleno-restore-activation-request.json`, stops services,
+closes RocksDB, activates the staged DB, and exits for observer-first restart.
 
 Phase 7 has started. The initial runtime service implementation adds:
 
@@ -599,8 +612,29 @@ The local-only admin control surface has also started. The first slice adds:
 - Cooperative cancellation through `POST /admin/backup/cancel`; the service records `cancel_requested` and aborts at safe phase boundaries before checkpointing or before snapshot publication. It does not forcibly interrupt RocksDB checkpointing or file hashing mid-call.
 - `BackupService::wait_for_current_operation()` and destructor cleanup so background backup workers are joined before the storage handle is destroyed.
 - Authenticated restore staging through `POST /admin/backup/restore/stage`, reusing the existing local repository preflight, checksum, and staging logic while the node stays running.
-- Authenticated restore activation request through `POST /admin/backup/restore/activate`; this writes `.teleno-restore-activation-request.json` and reports that the node must be stopped before DB replacement. It intentionally does not move an open RocksDB database from the running node process.
+- Authenticated restore activation request through `POST /admin/backup/restore/activate`; this writes `.teleno-restore-activation-request.json`. The runtime supervisor detects the intent, stops services, closes RocksDB, activates the staged DB, and exits so the next start begins observer-first recovery.
 - Focused tests for missing/wrong bearer tokens, status/create, snapshot completion through the admin API, and non-loopback bind rejection.
 - Focused tests for direct asynchronous service execution, admin polling to terminal status, admin restore staging, and safe activation-intent creation.
 
-The next Phase 7 slice is scheduler integration on the same runtime service path, followed by supervisor support to consume restore activation intents.
+The native scheduler slice is now implemented:
+
+- `BackupScheduler` runs inside `teleno_node` when `backup.schedule.enabled` is true.
+- Scheduled backups use the same `BackupService::start_local_snapshot_async()` path as the local admin API.
+- Scheduler startup is delayed until after the chain indexer phase and node readiness, so it does not checkpoint before normal startup recovery/indexing completes.
+- `backup.schedule.interval` supports integer durations with `ms`, `s`, `m`, `h`, and `d` suffixes; a bare integer means seconds.
+- `run-on-startup-if-missed`, `jitter-seconds`, `skip-if-syncing-from-genesis`, and `minimum-head-progress` are enforced.
+- Scheduler stop requests cooperative cancellation and joins its worker before shutdown.
+- When `backup.remote.enabled` is true, the scheduler uploads the latest local snapshot after a successful local checkpoint using the managed SFTP transport.
+- Remote upload failures are logged and remain retryable; the successful backup height watermark is advanced only after the local snapshot and configured remote upload complete.
+- Local repository retention is enforced by `backup.local.retention-count`; old completed snapshot metadata is pruned and unreferenced content-addressed objects are garbage-collected.
+- Focused tests cover interval parsing, immediate startup backup, skip-until-head-progress behavior, SFTP cancellation/auth guardrails, restore intent activation, and local retention pruning.
+
+The Teleno UX integration slice has started:
+
+- The existing Create Backup IPC action now invokes `teleno_node --backup-create-local --backup-json` instead of stopping the node and creating a tarball from `chain`/`block_store`.
+- The UX writes a scoped native backup config under `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`, with repository and workspace directories under `<basedir>/.teleno-native-backups/`.
+- Existing progress events are preserved for the renderer, while the actual backup behavior now uses the same native hot checkpoint/object-store path as CLI/admin/scheduler.
+
+The remaining Phase 7/8 work is operation-id-specific admin status paths,
+remote restore UX controls, native SSH/SFTP library replacement for password
+authentication, and live testnet remote backup/restore validation.
