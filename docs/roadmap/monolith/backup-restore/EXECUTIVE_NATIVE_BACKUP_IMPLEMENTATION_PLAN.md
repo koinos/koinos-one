@@ -355,6 +355,8 @@ teleno_node --backup-dry-run
 teleno_node --backup-dry-run --backup-json
 teleno_node --backup-create
 teleno_node --backup-create --backup-json
+teleno_node --backup-restore
+teleno_node --backup-restore --backup-json
 ```
 
 Final operator commands can later be promoted to a clearer subcommand wrapper while keeping compatibility flags:
@@ -570,6 +572,7 @@ external process dependencies.
 
 Phase 5 has started. The initial restore preflight implementation adds:
 
+- An operator-facing `--backup-restore` CLI that fetches remote data when `backup.remote.enabled` is true, runs the local disk-space preflight, stages the restore, activates it while RocksDB is closed, writes observer-first recovery markers, and prints the observer restart command.
 - A validation CLI mode: `--backup-restore-preflight`.
 - A validation CLI mode: `--backup-restore-fetch`.
 - A validation CLI mode: `--backup-restore-stage`.
