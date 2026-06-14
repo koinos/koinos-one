@@ -621,7 +621,8 @@ This track must be completed before the final online backup/restore design:
    - Archive checkpoint data with manifest, config, genesis, and descriptors.
    - Exclude wallets, secure storage, producer private keys, logs, and legacy microservice directories.
 
-The separate implementation plan for the final backup path is `docs/roadmap/monolith/backup-restore/ONLINE_ROCKSDB_CHECKPOINT_BACKUP_PLAN.md`.
+The current native backup implementation is documented in `docs/roadmap/monolith/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`.
+The remaining work is tracked in `docs/roadmap/monolith/backup-restore/NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
 
 ---
 

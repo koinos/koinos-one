@@ -14,7 +14,11 @@ Roadmap documents are grouped by topic so active work is easier to find.
 - `monolith/testnets/MONOLITH_PRIVATE_TESTNET_PLAN.md` — private testnet validation plan.
 - `monolith/testnets/MONOLITH_PRIVATE_TESTNET_REPORT.md` — private testnet validation report.
 - `monolith/testnets/MONOLITH_EXTERNAL_TESTNET_REPORT.md` — external/shared testnet report.
-- `monolith/backup-restore/MONOLITH_BACKUP_RESTORE_REPORT.md` — monolith backup restore report.
+- `monolith/backup-restore/README.md` — native backup documentation index.
+- `monolith/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md` — current native backup implementation.
+- `monolith/backup-restore/NATIVE_BACKUP_REMAINING_WORK_PLAN.md` — remaining native backup work plan.
+- `monolith/backup-restore/NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md` — latest native libssh backup validation report.
+- `monolith/backup-restore/MONOLITH_BACKUP_RESTORE_REPORT.md` — historical monolith backup restore report.
 
 ## Operations
 
