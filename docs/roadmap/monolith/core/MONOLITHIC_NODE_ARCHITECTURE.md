@@ -511,7 +511,7 @@ koinos-node/
 
 **Dependency changes:**
 - **Remove:** `koinos_mq` (AMQP client), `rabbitmq-c` (AMQP C library)
-- **Add:** `cpp-libp2p` (P2P networking)
+- **Add:** `cpp-libp2p` (P2P networking), `libssh` (native SFTP backup/restore transport)
 - **Keep:** Boost, RocksDB, Protobuf, yaml-cpp, nlohmann_json, fizzy, OpenSSL, libsecp256k1-vrf, ethash, gRPC, koinos_proto, koinos_util, koinos_exception, koinos_crypto, koinos_log, koinos_state_db
 
 **Build target:**

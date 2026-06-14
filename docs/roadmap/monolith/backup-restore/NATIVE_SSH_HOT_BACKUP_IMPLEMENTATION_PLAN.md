@@ -246,39 +246,37 @@ backup:
 backup:
   ssh:
     auth: env-password
-    password-env: TELENO_BACKUP_SSH_PASSWORD
 ```
 
-The UX can later write credentials to macOS Keychain and generate a temporary `password-file` or passphrase file at runtime. The native node should not depend on Electron for that.
+`env-password` reads `TELENO_BACKUP_SSH_PASSWORD`. The UX can later write credentials to macOS Keychain and generate a temporary `password-file` or passphrase file at runtime. The native node should not depend on Electron for that.
 
 ## SSH Transport Choice
 
 Use a native SSH/SFTP library instead of shelling out to `scp` or `rsync` as the primary path.
 
-Recommended dependency:
+Selected dependency:
 
 ```text
-libssh2
+libssh
 ```
 
 Reasons:
 
 - Supports password and private-key auth in-process.
 - Avoids `sshpass`.
-- Avoids parsing OpenSSH command output.
+- Avoids parsing OpenSSH command output or depending on external SSH tools.
 - Works with future Windows builds.
 - Lets the node implement progress, resume, temp upload names, and atomic rename.
 
 Build impact:
 
-- Add static `libssh2` dependency to the macOS build cache.
+- Add static or bundled `libssh` dependency to the macOS build cache.
 - Link against existing static OpenSSL where possible.
 - Add a release check similar to zstd/GMP to avoid Homebrew dynamic library leaks.
 
-Fallback for development only:
-
-- An optional `backup.ssh.transport: openssh` mode may spawn `/usr/bin/ssh`/`sftp` for local experiments.
-- It must not be the default because password auth is not cleanly automatable without insecure helper tooling.
+No OpenSSH fallback is planned for the production node. `backup.ssh.transport`
+must remain `native` or `libssh` so password auth, host-key checks, progress,
+retry, and cancellation are all controlled by the `teleno_node` process.
 
 ## Remote Backup Layout
 
@@ -906,7 +904,7 @@ Exit criteria:
 
 Implement:
 
-- Static `libssh2` build.
+- Static or bundled `libssh` build.
 - Password-file auth.
 - Private-key auth.
 - Known-host verification.

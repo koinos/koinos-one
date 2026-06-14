@@ -554,21 +554,21 @@ Phase 3 has started. The initial local repository implementation adds:
 Phase 4 has started. The initial SFTP validation implementation adds:
 
 - A validation CLI mode: `--backup-upload-latest`.
-- Remote upload of the latest local snapshot repository through the managed SFTP transport with private-key authentication.
+- Remote upload of the latest local snapshot repository through the native `libssh` SFTP transport with private-key authentication.
 - Atomic remote publication using snapshot `.partial` directories and `latest.json.partial` followed by remote rename.
 - Upload validation against the restricted `teleno_backup` SFTP-only user on `testnet.koinosfoundation.org`.
 - Cleanup of temporary local SFTP batch files after successful uploads.
 - Focused tests for upload batch planning, partial/final remote paths, and JSON/text upload result output.
 - Managed transfer options for retry count, retry delay, cancellation checks between batches/attempts, and progress callbacks.
 
-The current Phase 4 backend intentionally uses the system OpenSSH client behind
-the managed transport abstraction. Private-key authentication is operational.
-Password-file authentication is parsed and validated in config, but remote
-execution now fails closed with an explicit unsupported-backend error until a
-bundled native SSH/SFTP library is added. The remaining production transport
-work is replacing the managed OpenSSH executor with libssh/libssh2-compatible
-SFTP so password-file authentication and host-key policy are controlled without
-external process dependencies.
+The current Phase 4 backend uses an in-process `libssh` SFTP transport.
+Private-key, password-file, and
+environment-password authentication are handled inside `teleno_node`; host-key
+policy is enforced through `libssh` known-hosts handling without spawning an
+external SSH client. Remaining production transport work is release packaging:
+bundle or statically link the required `libssh` runtime dependencies, then run
+the live testnet backup/restore validation against the restricted
+`teleno_backup` account.
 
 Phase 5 has started. The initial restore preflight implementation adds:
 
@@ -578,7 +578,7 @@ Phase 5 has started. The initial restore preflight implementation adds:
 - A validation CLI mode: `--backup-restore-stage`.
 - A validation CLI mode: `--backup-restore-activate`.
 - Metadata-first local restore checks using `latest.json`, `manifest.json`, and `files.json`.
-- Metadata-first remote restore fetch over the managed SFTP transport: download `latest.json`, then only the referenced `manifest.json`, `files.json`, and `COMPLETE` marker before any object download.
+- Metadata-first remote restore fetch over native `libssh` SFTP: download `latest.json`, then only the referenced `manifest.json`, `files.json`, and `COMPLETE` marker before any object download.
 - Verification that all snapshot objects referenced by the manifest exist before restore can continue.
 - Target-volume free-space checks before any large download, reconstruction, or DB replacement.
 - Local-repository free-space checks before downloading missing remote objects.
@@ -604,7 +604,7 @@ Phase 7 has started. The initial runtime service implementation adds:
 - Guardrails that reject backup service snapshots unless `backup.enabled`, `backup.local.enabled`, `backup.workspace`, `backup.local.directory`, an open RocksDB handle, and unified chain storage are present.
 - Reuse of the existing checkpoint and local object-repository primitives, including automatic checkpoint cleanup on success or failure.
 - The `--backup-create-local` CLI now routes through `BackupService`, so CLI validation and future admin/API execution use the same runtime primitive.
-- The operator-facing `--backup-create` CLI creates the configured local hot snapshot and, when `backup.remote.enabled` is true, uploads the latest snapshot through the managed SFTP transport before returning success.
+- The operator-facing `--backup-create` CLI creates the configured local hot snapshot and, when `backup.remote.enabled` is true, uploads the latest snapshot through native `libssh` SFTP before returning success.
 - Focused tests that create a hot local snapshot from an open temporary RocksDB, stage the resulting snapshot, and verify the staged DB opens with the expected metadata.
 
 The local-only admin control surface has also started. The first slice adds:
@@ -636,7 +636,7 @@ The native scheduler slice is now implemented:
 - `backup.schedule.interval` supports integer durations with `ms`, `s`, `m`, `h`, and `d` suffixes; a bare integer means seconds.
 - `run-on-startup-if-missed`, `jitter-seconds`, `skip-if-syncing-from-genesis`, and `minimum-head-progress` are enforced.
 - Scheduler stop requests cooperative cancellation and joins its worker before shutdown.
-- When `backup.remote.enabled` is true, the scheduler uploads the latest local snapshot after a successful local checkpoint using the managed SFTP transport.
+- When `backup.remote.enabled` is true, the scheduler uploads the latest local snapshot after a successful local checkpoint using native `libssh` SFTP.
 - Remote upload failures are logged and remain retryable; the successful backup height watermark is advanced only after the local snapshot and configured remote upload complete.
 - Local repository retention is enforced by `backup.local.retention-count`; old completed snapshot metadata is pruned and unreferenced content-addressed objects are garbage-collected.
 - Focused tests cover interval parsing, immediate startup backup, skip-until-head-progress behavior, SFTP cancellation/auth guardrails, restore intent activation, and local retention pruning.
