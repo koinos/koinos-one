@@ -1118,3 +1118,10 @@ Implement native backup in this order:
 7. Teleno UX integration.
 
 Do not start with UX integration. The native binary must own the durable semantics first; the UX should become a controller and progress viewer over native commands/status.
+
+## Validation Update
+
+Static native `libssh` SFTP has now passed live public-testnet backup and
+restore validation against the restricted `teleno_backup` account on
+2026-06-14. The evidence report is
+`NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md`.

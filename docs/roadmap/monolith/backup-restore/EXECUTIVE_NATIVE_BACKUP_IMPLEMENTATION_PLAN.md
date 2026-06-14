@@ -2,7 +2,7 @@
 
 - Date: 2026-06-13
 - Scope: Native `teleno_node` backup, restore, remote repository, and scheduling
-- Status: implementation started
+- Status: implementation and live testnet validation in progress
 
 ## Executive Summary
 
@@ -567,9 +567,9 @@ inside `teleno_node`; host-key policy is enforced through `libssh` known-hosts
 handling without spawning an external SSH client. The macOS build now creates a
 pinned static `libssh` package and links it with the same static OpenSSL and
 zlib dependency set used by the node, so `teleno_node` no longer depends on
-Homebrew `libssh` or OpenSSL dylibs. Remaining production transport work is
-live testnet backup/restore validation against the restricted `teleno_backup`
-account.
+Homebrew `libssh` or OpenSSL dylibs. Live testnet backup/restore validation
+against the restricted `teleno_backup` account passed on 2026-06-14; see
+`NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md`.
 
 Phase 5 has started. The initial restore preflight implementation adds:
 
@@ -648,6 +648,6 @@ The Teleno UX integration slice has started:
 - The UX writes a scoped native backup config under `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`, with repository and workspace directories under `<basedir>/.teleno-native-backups/`.
 - Existing progress events are preserved for the renderer, while the actual backup behavior now uses the same native hot checkpoint/object-store path as CLI/admin/scheduler.
 
-The remaining Phase 7/8 work is remote restore UX controls, native SSH/SFTP
-library replacement for password authentication, and live testnet remote
-backup/restore validation.
+The remaining Phase 7/8 work is remote restore UX controls, an automated smoke
+wrapper for the validated native path, and a larger near-head testnet backup
+before guiding production operators through migration.
