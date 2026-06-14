@@ -4,7 +4,8 @@ This directory is for the monolithic Teleno node, desktop packaging, validation,
 
 ## Build And Package
 
-- `build-cpp-libp2p-koinos.sh` builds the monolithic node with the Koinos-compatible cpp-libp2p dependency set, native `libssh` SFTP support, a zstd-enabled RocksDB override, and local static zstd/GMP by default. If network fetch fails after `cpp-libp2p` has been cached, it reuses the cached tag.
+- `build-cpp-libp2p-koinos.sh` builds the monolithic node with the Koinos-compatible cpp-libp2p dependency set, static native `libssh` SFTP support, a zstd-enabled RocksDB override, and local static zstd/GMP by default. On macOS this removes third-party runtime dylibs from `teleno_node`; normal system libraries still remain. If network fetch fails after `cpp-libp2p` has been cached, it reuses the cached tag.
+- `build-libssh-static.sh` builds or reuses the pinned static `libssh` package for native backup/restore SFTP; pass `LIBSSH_SOURCE_TARBALL=/path/to/libssh.tar.xz` when network source download is unavailable.
 - `build-gmp-static.sh` builds or reuses the pinned static GMP package for Teleno's macOS deployment target; pass `GMP_SOURCE_TARBALL=/path/to/gmp.tar.xz` when network source download is unavailable.
 - `build-zstd-static.sh` builds or reuses the pinned static zstd package for Teleno's macOS deployment target; pass `ZSTD_SOURCE_TARBALL=/path/to/zstd.tar.gz` when network source download is unavailable.
 - `build-rocksdb-zstd.sh` builds or reuses the zstd-enabled RocksDB package used by the monolith build; it uses the local static zstd package by default and records the zstd library fingerprint before reusing an install. Set `TELENO_ROCKSDB_WITH_ZSTD=0` only when intentionally testing the old no-zstd RocksDB path.

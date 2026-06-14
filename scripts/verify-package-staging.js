@@ -3,11 +3,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const STAGING = path.resolve(process.env.PACKAGE_STAGING_DIR || path.join(ROOT, 'build', 'bundle-staging', 'teleno'));
 const targetPlatform = (process.env.PACKAGE_TARGET_PLATFORM || process.platform).toLowerCase();
 const isWindowsTarget = targetPlatform === 'win32' || targetPlatform === 'windows' || targetPlatform === 'win';
+const isMacTarget = targetPlatform === 'darwin' || targetPlatform === 'mac' || targetPlatform === 'macos';
 const ext = isWindowsTarget ? '.exe' : '';
 
 const requiredBinaries = [
@@ -74,6 +76,29 @@ function dirSizeBytes(dir) {
   return size;
 }
 
+function requireNoThirdPartyDylibs(relativePath) {
+  if (!isMacTarget) return;
+
+  const absolutePath = path.join(STAGING, relativePath);
+  if (!fs.existsSync(absolutePath)) return;
+
+  let output = '';
+  try {
+    output = execFileSync('otool', ['-L', absolutePath], { encoding: 'utf8' });
+  } catch (error) {
+    fail(`failed to inspect dylibs for ${relativePath}: ${error.message}`);
+    return;
+  }
+
+  const leaked = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('/opt/homebrew/') || line.startsWith('/usr/local/'));
+  if (leaked.length > 0) {
+    fail(`third-party dylib dependency in ${relativePath}: ${leaked.join(', ')}`);
+  }
+}
+
 console.log('============================================================================');
 console.log('Verifying Teleno package staging');
 console.log(`  Staging: ${STAGING}`);
@@ -85,6 +110,7 @@ if (!fs.existsSync(STAGING) || !fs.statSync(STAGING).isDirectory()) {
 } else {
   for (const binary of requiredBinaries) {
     requireExecutable(binary);
+    requireNoThirdPartyDylibs(binary);
   }
 
   for (const relativePath of requiredFiles.filter((entry) => !requiredBinaries.includes(entry))) {

@@ -270,8 +270,8 @@ Reasons:
 
 Build impact:
 
-- Add static or bundled `libssh` dependency to the macOS build cache.
-- Link against existing static OpenSSL where possible.
+- Add static `libssh` dependency to the macOS build cache.
+- Link against the existing static OpenSSL and zlib dependency set.
 - Add a release check similar to zstd/GMP to avoid Homebrew dynamic library leaks.
 
 No OpenSSH fallback is planned for the production node. `backup.ssh.transport`
@@ -904,7 +904,7 @@ Exit criteria:
 
 Implement:
 
-- Static or bundled `libssh` build.
+- Static `libssh` build.
 - Password-file auth.
 - Private-key auth.
 - Known-host verification.

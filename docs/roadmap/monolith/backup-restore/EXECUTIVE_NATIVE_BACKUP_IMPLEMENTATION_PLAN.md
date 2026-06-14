@@ -562,13 +562,14 @@ Phase 4 has started. The initial SFTP validation implementation adds:
 - Managed transfer options for retry count, retry delay, cancellation checks between batches/attempts, and progress callbacks.
 
 The current Phase 4 backend uses an in-process `libssh` SFTP transport.
-Private-key, password-file, and
-environment-password authentication are handled inside `teleno_node`; host-key
-policy is enforced through `libssh` known-hosts handling without spawning an
-external SSH client. Remaining production transport work is release packaging:
-bundle or statically link the required `libssh` runtime dependencies, then run
-the live testnet backup/restore validation against the restricted
-`teleno_backup` account.
+Private-key, password-file, and environment-password authentication are handled
+inside `teleno_node`; host-key policy is enforced through `libssh` known-hosts
+handling without spawning an external SSH client. The macOS build now creates a
+pinned static `libssh` package and links it with the same static OpenSSL and
+zlib dependency set used by the node, so `teleno_node` no longer depends on
+Homebrew `libssh` or OpenSSL dylibs. Remaining production transport work is
+live testnet backup/restore validation against the restricted `teleno_backup`
+account.
 
 Phase 5 has started. The initial restore preflight implementation adds:
 

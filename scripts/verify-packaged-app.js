@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const targetPlatform = (process.env.PACKAGE_TARGET_PLATFORM || process.platform).toLowerCase();
@@ -74,6 +75,27 @@ function dirSizeBytes(dir) {
   return size;
 }
 
+function requireNoThirdPartyDylibs(filePath) {
+  if (!isMacTarget) return;
+  if (!fs.existsSync(filePath)) return;
+
+  let output = '';
+  try {
+    output = execFileSync('otool', ['-L', filePath], { encoding: 'utf8' });
+  } catch (error) {
+    fail(`failed to inspect dylibs for ${path.relative(ROOT, filePath)}: ${error.message}`);
+    return;
+  }
+
+  const leaked = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('/opt/homebrew/') || line.startsWith('/usr/local/'));
+  if (leaked.length > 0) {
+    fail(`third-party dylib dependency in ${path.relative(ROOT, filePath)}: ${leaked.join(', ')}`);
+  }
+}
+
 console.log('============================================================================');
 console.log('Verifying Teleno packaged app');
 console.log(`  App:       ${APP_DIR}`);
@@ -87,6 +109,9 @@ if (!fs.existsSync(APP_DIR) || !fs.statSync(APP_DIR).isDirectory()) {
   for (const filePath of requiredFiles) {
     if (filePath === APP_EXECUTABLE || filePath.endsWith(`${path.sep}teleno_node${ext}`)) {
       requireExecutable(filePath);
+      if (filePath.endsWith(`${path.sep}teleno_node${ext}`)) {
+        requireNoThirdPartyDylibs(filePath);
+      }
     } else {
       requireFile(filePath);
     }
