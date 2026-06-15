@@ -22,6 +22,7 @@ Implemented CLI modes:
 --backup-create-local
 --backup-upload-latest
 --backup-list
+--backup-list-remote
 --backup-restore
 --backup-restore-preflight
 --backup-restore-fetch
@@ -37,8 +38,9 @@ Important behavior:
 - `--backup-dry-run` validates backup configuration and does not open RocksDB or connect to SSH.
 - `--backup-create` creates the configured native backup: local hot snapshot plus remote upload when `backup.remote.enabled=true`.
 - `--backup-list` lists completed local repository snapshots without opening RocksDB.
+- `--backup-list-remote` lists completed remote SFTP snapshots by fetching only `latest.json`, `manifest.json`, `files.json`, and `COMPLETE` metadata into the local repository cache.
 - `--backup-restore` fetches remote data when enabled, runs metadata-first disk-space preflight, stages the restore, activates it while RocksDB is closed, and prints an observer-first start command.
-- `--backup-id <backup-id>` selects a completed local snapshot for `--backup-restore`, `--backup-restore-preflight`, and `--backup-restore-stage`. Omit it or pass `latest` to keep the previous latest-snapshot behavior.
+- `--backup-id <backup-id>` selects a completed local snapshot for local restore/preflight/stage commands and selects a remote snapshot for remote fetch/restore when `backup.remote.enabled=true`. Omit it or pass `latest` to keep the latest-snapshot behavior.
 - `--backup-json` returns machine-readable output for CLI automation and UX integration.
 
 ## Config Surface
@@ -214,8 +216,9 @@ Current UX behavior:
 - `Check native backup config` runs `teleno_node --backup-dry-run --backup-json`.
 - `Create native backup` uses the native backup admin API when backup admin is enabled, the managed node is running, and remote upload is disabled. Otherwise it falls back to `teleno_node --backup-create --backup-json`.
 - `Refresh backup list` runs `teleno_node --backup-list --backup-json` and displays completed local snapshots.
+- `Refresh remote list` runs `teleno_node --backup-list-remote --backup-json` and displays completed remote snapshots after metadata is cached locally.
 - `Verify selected backup` runs `teleno_node --backup-restore-preflight --backup-json --backup-id=<selected>` and displays readiness plus disk-space requirements.
-- `Restore selected native backup` runs `teleno_node --backup-restore --backup-json --backup-id=<selected>` for selected local snapshots.
+- `Restore selected native backup` runs `teleno_node --backup-restore --backup-json --backup-id=<selected>`. When remote backup is enabled, the native binary fetches the selected remote snapshot metadata and missing content-addressed objects before staging and activation.
 - `Restore latest native backup` stops the managed node if needed, runs `teleno_node --backup-restore --backup-json`, and leaves the restored node for observer-first restart.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.
 - The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.
@@ -226,7 +229,7 @@ Current UX behavior:
 - The UX stores credential references as file paths only. It does not store raw SSH passwords in localStorage or generated YAML.
 - `TELENO_BACKUP_*` environment variables still work as an explicit developer override when set.
 
-Current limitation: remote repository listing and selected remote restore are not yet implemented. To restore a specific remote snapshot, first fetch remote latest into the local repository, then restore by local backup ID if the snapshot is present. Running-node admin create currently covers local-only snapshots; remote upload from admin create, richer admin status views, and richer restore preflight screens are tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
+Current limitation: remote listing caches metadata only; the actual objects are fetched during selected remote restore/fetch. Running-node admin create currently covers local-only snapshots; remote upload from admin create, richer admin status views, richer restore preflight screens, and larger validation are tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
 
 ## Validation Completed
 

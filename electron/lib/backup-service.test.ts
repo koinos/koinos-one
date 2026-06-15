@@ -14,6 +14,7 @@ import {
   parseBlockchainBackupSha256Checksum,
   writeNativeBackupConfig
 } from './backup-service'
+import { resolveMonolithBinaryPath } from './constants'
 import type { TelenoNodeBackupSettings, TelenoNodeSettings } from './main-types'
 
 const tempDirs: string[] = []
@@ -257,6 +258,54 @@ foo
         method: 'POST',
         headers: expect.objectContaining({ authorization: 'Bearer secret-token' })
       })
+    )
+  })
+
+  it('uses the remote native backup list command when requested', async () => {
+    const settings = nodeSettings({
+      backup: backupSettings({
+        remoteEnabled: true,
+        remoteDirectory: '/srv/teleno-backups/testnet/node-1',
+        sshHost: 'testnet.koinosfoundation.org',
+        sshUser: 'teleno_backup',
+        sshAuth: 'password-file',
+        sshPasswordFile: path.join(makeTempDir(), 'backup.pass')
+      })
+    })
+    fs.writeFileSync(settings.backup!.sshPasswordFile!, 'secret\n')
+
+    const binaryPath = resolveMonolithBinaryPath()
+    const originalExistsSync = fs.existsSync
+    vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+      const value = typeof filePath === 'string' ? filePath : filePath.toString()
+      if (value === binaryPath) return true
+      return originalExistsSync(filePath)
+    })
+
+    const runCommand = vi.fn(async () => ({
+      ok: true,
+      code: 0,
+      output: JSON.stringify({
+        latest_backup_id: 'backup-2',
+        snapshot_count: 0,
+        snapshots: []
+      })
+    }))
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      runCommand
+    } as any)
+
+    const result = await service.nativeBackupList({ ...settings, remote: true } as any)
+
+    expect(result.ok).toBe(true)
+    expect(result.source).toBe('remote')
+    expect(result.latestBackupId).toBe('backup-2')
+    expect(runCommand).toHaveBeenCalledWith(
+      binaryPath,
+      expect.arrayContaining(['--backup-list-remote', '--backup-json']),
+      expect.objectContaining({ timeoutMs: 120_000 })
     )
   })
 })

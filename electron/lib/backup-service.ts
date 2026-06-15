@@ -2254,6 +2254,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     input: TelenoNodeSettingsInput | undefined
   ): Promise<TelenoNodeNativeBackupListResult> {
     try {
+      const listRemote = Boolean((input as { remote?: boolean } | undefined)?.remote)
       const settings = deps.normalizeNodeSettings(input)
       deps.assertRepoReady(settings)
       const binaryPath = resolveMonolithBinaryPath()
@@ -2261,6 +2262,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         return {
           ok: false,
           output: `teleno_node binary not found: ${binaryPath}`,
+          source: listRemote ? 'remote' : 'local',
           latestBackupId: '',
           snapshots: []
         }
@@ -2272,10 +2274,10 @@ export function createBackupService(deps: BackupServiceDeps) {
         [
           `--basedir=${settings.baseDir}`,
           `--config=${nativeBackup.configPath}`,
-          '--backup-list',
+          listRemote ? '--backup-list-remote' : '--backup-list',
           '--backup-json'
         ],
-        { cwd: settings.repoPath, timeoutMs: 30_000 }
+        { cwd: settings.repoPath, timeoutMs: listRemote ? 120_000 : 30_000 }
       )
 
       let parsed: Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'snapshots'> = {
@@ -2287,6 +2289,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       return {
         ok: result.ok,
         output: result.output,
+        source: listRemote ? 'remote' : 'local',
         configPath: nativeBackup.configPath,
         repositoryDir: nativeBackup.repositoryDir,
         workspaceDir: nativeBackup.workspaceDir,
@@ -2297,6 +2300,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : String(error),
+        source: Boolean((input as { remote?: boolean } | undefined)?.remote) ? 'remote' : 'local',
         latestBackupId: '',
         snapshots: []
       }

@@ -3884,7 +3884,7 @@ export function App() {
     }
   }
 
-  const runNativeBackupList = async () => {
+  const runNativeBackupList = async (remote = false) => {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.nativeBackupList) return
 
@@ -3892,9 +3892,13 @@ export function App() {
     setNodeError(null)
 
     try {
-      const result = await bridge.nativeBackupList(toNodeApiSettings(nodeSettings))
+      const result = await bridge.nativeBackupList({
+        ...toNodeApiSettings(nodeSettings),
+        remote
+      })
       setNodeNativeBackupList(result)
       setNodeOutput([
+        `Native backup list source: ${result.source || (remote ? 'remote' : 'local')}`,
         result.configPath ? `Native backup config: ${result.configPath}` : '',
         result.repositoryDir ? `Native backup repository: ${result.repositoryDir}` : '',
         result.workspaceDir ? `Native backup workspace: ${result.workspaceDir}` : '',
@@ -3908,10 +3912,10 @@ export function App() {
             : current
         )
       } else {
-        setNodeError(result.output || 'Unable to list native backups')
+        setNodeError(result.output || `Unable to list ${remote ? 'remote' : 'local'} native backups`)
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'Unable to list native backups')
+      setNodeError(error instanceof Error ? error.message : `Unable to list ${remote ? 'remote' : 'local'} native backups`)
     } finally {
       setNodeNativeBackupListLoading(false)
     }

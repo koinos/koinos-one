@@ -238,6 +238,7 @@ export type TelenoNodeNativeBackupSnapshot = {
 export type TelenoNodeNativeBackupListResult = {
   ok: boolean
   output: string
+  source?: 'local' | 'remote'
   configPath?: string
   repositoryDir?: string
   workspaceDir?: string

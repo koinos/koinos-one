@@ -810,7 +810,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
             <div className="settings-subheader" style={{ marginTop: '1.5rem' }}>
               <h3>Available native backups</h3>
-              <p>Refresh the local native repository, then restore latest or a selected backup ID.</p>
+              <p>Refresh local snapshots or fetch remote metadata into the local cache, then restore latest or a selected backup ID.</p>
             </div>
 
             <div className="settings-actions settings-actions-inline">
@@ -820,7 +820,16 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 onClick={() => { void runNativeBackupList() }}
                 disabled={!hasNodeControls || nodeBusy || settingsDirty}
               >
-                {nodeNativeBackupListLoading ? 'Refreshing backups...' : 'Refresh backup list'}
+                {nodeNativeBackupListLoading ? 'Refreshing backups...' : 'Refresh local list'}
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => { void runNativeBackupList(true) }}
+                disabled={!hasNodeControls || nodeBusy || settingsDirty || !draftNodeBackup.remoteEnabled}
+                title="Fetch remote snapshot metadata into the local native repository cache."
+              >
+                {nodeNativeBackupListLoading ? 'Refreshing backups...' : 'Refresh remote list'}
               </button>
               <label>
                 Backup ID

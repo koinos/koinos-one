@@ -41,6 +41,7 @@ const requiredBackupFlags = [
   '--backup-dry-run',
   '--backup-create',
   '--backup-list',
+  '--backup-list-remote',
   '--backup-restore',
   '--backup-restore-preflight',
   '--backup-id',

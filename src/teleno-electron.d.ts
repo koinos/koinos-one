@@ -180,6 +180,7 @@ declare global {
   type TelenoNodeNativeBackupListResult = {
     ok: boolean
     output: string
+    source?: 'local' | 'remote'
     configPath?: string
     repositoryDir?: string
     workspaceDir?: string
@@ -1002,7 +1003,7 @@ declare global {
       restoreBackupVerify: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       createBackup: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       nativeBackupDryRun: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupDryRunResult>
-      nativeBackupList: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupListResult>
+      nativeBackupList: (settings?: TelenoNodeSettings & { remote?: boolean }) => Promise<TelenoNodeNativeBackupListResult>
       nativeBackupRestorePreflight: (settings?: TelenoNodeNativeBackupRestoreInput) => Promise<TelenoNodeNativeBackupPreflightResult>
       restoreNativeBackup: (settings?: TelenoNodeNativeBackupRestoreInput) => Promise<TelenoNodeBackupRestoreResult>
       restoreNativeBackupLatest: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>

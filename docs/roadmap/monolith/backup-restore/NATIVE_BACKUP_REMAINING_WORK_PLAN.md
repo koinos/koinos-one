@@ -24,9 +24,11 @@ The first backlog item, `UX Backup Configuration`, is implemented:
 The first slice of `Backup Listing, Selection, And Verification` is implemented:
 
 - `teleno_node --backup-list --backup-json` lists completed local repository snapshots without opening RocksDB.
+- `teleno_node --backup-list-remote --backup-json` fetches completed remote snapshot metadata into the local repository cache and lists those snapshots without opening RocksDB.
 - `--backup-id <backup-id>` selects a local snapshot for restore preflight, stage, and full restore.
+- `--backup-id <backup-id>` also selects a remote snapshot for `--backup-restore-fetch` and `--backup-restore` when `backup.remote.enabled=true`.
 - Electron exposes `nativeBackupList` and `restoreNativeBackup` IPC/preload calls.
-- Settings > Backup can refresh local snapshots, select a backup ID, and restore the selected local snapshot.
+- Settings > Backup can refresh local snapshots, refresh remote snapshot metadata, select a backup ID, and restore the selected snapshot.
 - C++ snapshot tests cover local listing and selected preflight.
 
 The first slice of `UX Runtime Admin API Integration` is implemented:
@@ -123,10 +125,8 @@ Operators should see available backups and choose a specific backup, not only `l
 
 ### Exit Criteria
 
-- Status: partially complete for local repository snapshots and selected local restore.
+- Status: mostly complete for local and remote repository snapshots, selected local restore, and selected remote fetch/restore.
 - Remaining work:
-  - remote SFTP snapshot listing;
-  - selected remote fetch/restore by backup ID;
   - selected backup verification command separated from restore preflight;
   - richer manifest metadata for network, head height, LIB, and restored byte metrics in the list view.
 
