@@ -220,6 +220,7 @@ Current UX behavior:
 - `Verify selected backup` runs `teleno_node --backup-restore-preflight --backup-json --backup-id=<selected>` and displays readiness plus disk-space requirements.
 - `Restore selected native backup` runs `teleno_node --backup-restore --backup-json --backup-id=<selected>`. When remote backup is enabled, the native binary fetches the selected remote snapshot metadata and missing content-addressed objects before staging and activation.
 - `Restore latest native backup` stops the managed node if needed, runs `teleno_node --backup-restore --backup-json`, and leaves the restored node for observer-first restart.
+- Restore activation requires an explicit UX confirmation that names the backup ID and BASEDIR, explains `.pre-restore` preservation, and states observer-first / block-production-disabled behavior.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.
 - The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.
 - Remote SFTP settings are configured from UX fields for host, port, user, auth method, credential file paths, known hosts, strict host-key checking, remote directory, retention, and upload temp suffix.

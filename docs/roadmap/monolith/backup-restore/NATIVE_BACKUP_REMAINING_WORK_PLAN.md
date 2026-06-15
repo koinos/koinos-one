@@ -43,6 +43,7 @@ The first slice of `Safer Restore UX` is implemented:
 - Settings > Backup can run native selected-backup restore preflight before restore.
 - The preflight summary shows readiness, missing object count, disk-space message, available bytes, minimum bytes, and recommended bytes.
 - Preflight uses the same native `--backup-restore-preflight --backup-json --backup-id=<selected>` path that restore uses.
+- Restore activation now requires an explicit UX confirmation that names the backup ID and BASEDIR and explains `.pre-restore`, observer-first restart, and block-production-disabled behavior.
 
 The first slice of `Release And Operator Polish` is implemented:
 
@@ -197,9 +198,8 @@ Restore must be understandable and conservative for operators, especially when a
 
 ### Exit Criteria
 
-- Status: partially complete for selected local backup preflight visibility.
+- Status: partially complete for selected local backup preflight visibility and explicit restore activation confirmation.
 - Remaining work:
-  - explicit confirmation before activation over non-empty node state;
   - network/head/LIB mismatch display once manifest metadata includes those fields;
   - preserve-path preview before activation;
   - post-restore observer-first checklist in UX.

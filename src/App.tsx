@@ -3957,6 +3957,14 @@ export function App() {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreNativeBackupLatest) return
 
+    const trimmedBackupId = backupId.trim() || 'latest'
+    const apiSettings = toNodeApiSettings(nodeSettings)
+    const confirmed = window.confirm(t('node.nativeRestoreConfirm', {
+      backupId: trimmedBackupId,
+      baseDir: apiSettings.baseDir || nodeSettings.baseDir || ''
+    }))
+    if (!confirmed) return
+
     setNodeRestoreNativeBackupLoading(true)
     setNodeError(null)
     setNodeBackupProgress({
@@ -3968,8 +3976,6 @@ export function App() {
     })
 
     try {
-      const trimmedBackupId = backupId.trim() || 'latest'
-      const apiSettings = toNodeApiSettings(nodeSettings)
       const result =
         trimmedBackupId === 'latest' || !bridge.restoreNativeBackup
           ? await bridge.restoreNativeBackupLatest(apiSettings)
