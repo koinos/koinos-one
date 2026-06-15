@@ -28,6 +28,25 @@ export function resolveProducerDisplayAddress(input: ProducerDisplayAddressInput
   return configuredAddress || signingWalletAddress
 }
 
+type ConfiguredProducerAddressInput = {
+  runtimeConfigAddress?: string | null
+  overviewAddress?: string | null
+  overviewAddressSource?: string | null
+  profileAddress?: string | null
+  fallbackAddress?: string | null
+}
+
+export function resolveConfiguredProducerAddress(input: ConfiguredProducerAddressInput): string {
+  const runtimeConfigAddress = `${input.runtimeConfigAddress || ''}`.trim()
+  const overviewAddress = `${input.overviewAddress || ''}`.trim()
+  const profileAddress = `${input.profileAddress || ''}`.trim()
+  const fallbackAddress = `${input.fallbackAddress || ''}`.trim()
+
+  if (runtimeConfigAddress) return runtimeConfigAddress
+  if (input.overviewAddressSource === 'config' && overviewAddress) return overviewAddress
+  return profileAddress || overviewAddress || fallbackAddress
+}
+
 type RuntimeProducerIdentityInput = {
   configuredAddress?: string | null
   localPublicKey?: string | null

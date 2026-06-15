@@ -104,7 +104,7 @@ type WalletServiceDeps = {
   formatWholeUnits: (value: bigint | string | number | null | undefined, decimals?: number) => string | null
   safeIsChecksumAddress: (value: string | null | undefined) => boolean
   loadProducerProfile: (network?: KoinosNetworkId) => TelenoProducerProfile | null
-  updateConfigProducerAddress?: (address: string) => void
+  updateConfigProducerAddress?: (address: string, input?: WalletRpcInput) => string | null
 }
 
 export { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-accounts'
@@ -219,6 +219,30 @@ function walletNetwork(input?: WalletRpcInput): KoinosNetworkId {
 }
 
 export function createWalletService(deps: WalletServiceDeps) {
+  function syncNonMainnetProducerRuntimeConfig(
+    address: string,
+    input: WalletRpcInput | undefined,
+    accountHasPrivateKey: boolean
+  ): string | null {
+    const trimmedAddress = address.trim()
+    const network = walletNetwork(input)
+    if (network === 'mainnet') return null
+    if (!accountHasPrivateKey || !trimmedAddress || !deps.updateConfigProducerAddress) return null
+    if (!deps.safeIsChecksumAddress(trimmedAddress)) return null
+
+    try {
+      return deps.updateConfigProducerAddress(trimmedAddress, input) || null
+    } catch {
+      return null
+    }
+  }
+
+  function appendProducerConfigSyncNote(output: string, configPath: string | null): string {
+    return configPath
+      ? `${output}\nUpdated runtime producer config: ${configPath}\nRestart the node for a running block producer to use this address.`
+      : output
+  }
+
   async function walletOverview(input?: WalletRpcInput): Promise<WalletOverviewResult> {
     const network = walletNetwork(input)
     const wallet = deps.loadTelenoWalletFile(network)
@@ -286,18 +310,11 @@ export function createWalletService(deps: WalletServiceDeps) {
         network
       })
 
-      // Auto-set producer address in config.yml when wallet is created
-      try {
-        if (deps.updateConfigProducerAddress) {
-          deps.updateConfigProducerAddress(address)
-        }
-      } catch {
-        // Non-critical — user can set it manually
-      }
+      const producerConfigPath = syncNonMainnetProducerRuntimeConfig(address, input, true)
 
       return {
         ok: true,
-        output: `Producer account imported for ${address}.`,
+        output: appendProducerConfigSyncNote(`Producer account imported for ${address}.`, producerConfigPath),
         address,
         walletFilePath,
         unlocked: true
@@ -334,9 +351,10 @@ export function createWalletService(deps: WalletServiceDeps) {
       const account = deps.setActiveWalletAccount(accountId, network)
       const wallet = deps.loadTelenoWalletFile(network)
       if (!account || !wallet) throw new Error('Could not set the active wallet account.')
+      const producerConfigPath = syncNonMainnetProducerRuntimeConfig(account.address, input, account.hasPrivateKey)
       return {
         ok: true,
-        output: `Active wallet account set to ${account.name}.`,
+        output: appendProducerConfigSyncNote(`Active wallet account set to ${account.name}.`, producerConfigPath),
         walletAddress: wallet.address,
         activeAccountId: account.id,
         activeAccount: account
@@ -362,9 +380,10 @@ export function createWalletService(deps: WalletServiceDeps) {
       }
       const account = deps.createDerivedWalletAccount(input?.name, network)
       if (!account) throw new Error('Could not create a derived wallet account.')
+      const producerConfigPath = syncNonMainnetProducerRuntimeConfig(account.address, input, account.hasPrivateKey)
       return {
         ok: true,
-        output: `Created derived wallet account ${account.name}.`,
+        output: appendProducerConfigSyncNote(`Created derived wallet account ${account.name}.`, producerConfigPath),
         walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         activeAccountId: account.id,
         account,
@@ -393,9 +412,10 @@ export function createWalletService(deps: WalletServiceDeps) {
       if (password.length < 8) throw new Error('Password must be at least 8 characters long.')
       const account = deps.importAdditionalWalletAccount(privateKey, password, input?.name, network)
       if (!account) throw new Error('Could not import the wallet account.')
+      const producerConfigPath = syncNonMainnetProducerRuntimeConfig(account.address, input, account.hasPrivateKey)
       return {
         ok: true,
-        output: `Imported wallet account ${account.name}.`,
+        output: appendProducerConfigSyncNote(`Imported wallet account ${account.name}.`, producerConfigPath),
         walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         activeAccountId: account.id,
         account,

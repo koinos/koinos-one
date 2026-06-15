@@ -42,6 +42,7 @@ function createDeps() {
     telenoNodeRestoreBackup: vi.fn(async () => ({ ok: true })),
     telenoNodeRestoreBackupAndVerify: vi.fn(async () => ({ ok: true })),
     nativeBackupDryRun: vi.fn(async () => ({ ok: true })),
+    nativeBackupConfig: vi.fn(async () => ({ ok: true })),
     nativeBackupList: vi.fn(async () => ({ ok: true, snapshots: [] })),
     nativeBackupRestorePreflight: vi.fn(async () => ({ ok: true })),
     restoreNativeBackup: vi.fn(async () => ({ ok: true })),
@@ -144,12 +145,14 @@ describe('ipc-handlers', () => {
     const payload = { baseDir: '/tmp/teleno-node' }
     const sender = { id: 1 }
     await ipcMain.handlers.get('teleno:node:native-backup-dry-run')?.({ sender }, payload)
+    await ipcMain.handlers.get('teleno:node:native-backup-config')?.({ sender }, payload)
     await ipcMain.handlers.get('teleno:node:native-backup-list')?.({ sender }, payload)
     await ipcMain.handlers.get('teleno:node:native-backup-restore-preflight')?.({ sender }, { ...payload, backupId: 'backup-1' })
     await ipcMain.handlers.get('teleno:node:restore-native-backup')?.({ sender }, { ...payload, backupId: 'backup-1' })
     await ipcMain.handlers.get('teleno:node:restore-native-backup-latest')?.({ sender }, payload)
 
     expect(deps.nativeBackupDryRun).toHaveBeenCalledWith(payload)
+    expect(deps.nativeBackupConfig).toHaveBeenCalledWith(payload)
     expect(deps.nativeBackupList).toHaveBeenCalledWith(payload)
     expect(deps.nativeBackupRestorePreflight).toHaveBeenCalledWith({ ...payload, backupId: 'backup-1' })
     expect(deps.restoreNativeBackup).toHaveBeenCalledWith({ ...payload, backupId: 'backup-1' }, sender)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localeForLanguage, translate, type AppLanguage } from './i18n'
 import {
   DEFAULT_NODE_SETTINGS,
@@ -19,6 +19,7 @@ import type {
   ExplorerSettings,
   HeadSnapshot,
   NodeAction,
+  NodeBackupSettings,
   NodeBackupProgressState,
   NodeBaseDirChangeDialogState,
   NodeBaseDirValidationState,
@@ -36,6 +37,7 @@ import {
   getProducerSetupBlockReason,
   isProducerActivelyProducingFromLogs,
   isProducerSetupComplete,
+  resolveConfiguredProducerAddress,
   resolveProducerTargetAddress
 } from './app/producer'
 import {
@@ -94,6 +96,7 @@ import { DashboardPanel } from './components/panels/DashboardPanel'
 import { ExplorerPanel } from './components/panels/ExplorerPanel'
 import { BlockDetailDialog } from './components/panels/BlockDetailDialog'
 import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
+import { NodeBackupsPanel } from './components/panels/NodeBackupsPanel'
 import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
@@ -103,6 +106,35 @@ import { KOINOS_NETWORK_OPTIONS, nativeTokenSymbolForNetwork, publicRpcUrlsForNe
 import pkg from '../package.json'
 
 const telenoLogoUrl = new URL('../assets/newbranding/logo.png', import.meta.url).href
+
+type NativeBackupSelectionSource = 'local' | 'remote' | 'auto'
+
+function parseNativeBackupSelection(
+  selection: string,
+  localList?: TelenoNodeNativeBackupListResult | null,
+  remoteList?: TelenoNodeNativeBackupListResult | null
+): { backupId: string; source: NativeBackupSelectionSource } {
+  const value = selection.trim() || 'latest'
+  const prefixed = value.match(/^(local|remote):(.+)$/)
+  if (prefixed) {
+    return {
+      source: prefixed[1] as NativeBackupSelectionSource,
+      backupId: prefixed[2]?.trim() || 'latest'
+    }
+  }
+
+  if (value === 'latest') {
+    if (localList?.latestBackupId) return { backupId: 'latest', source: 'local' }
+    if (remoteList?.latestBackupId) return { backupId: 'latest', source: 'remote' }
+    return { backupId: 'latest', source: 'auto' }
+  }
+
+  const localHasBackup = Boolean(localList?.snapshots.some((snapshot) => snapshot.backupId === value))
+  const remoteHasBackup = Boolean(remoteList?.snapshots.some((snapshot) => snapshot.backupId === value))
+  if (localHasBackup) return { backupId: value, source: 'local' }
+  if (remoteHasBackup) return { backupId: value, source: 'remote' }
+  return { backupId: value, source: 'auto' }
+}
 
 type WalletActivityEntry = {
   id: string
@@ -121,6 +153,7 @@ type WalletBalanceCacheEntry = {
 }
 
 type PublicRpcUrlsByNetwork = Record<KoinosNetworkId, string[]>
+type NodeSubtab = 'overview' | 'backups'
 
 const publicRpcNetworks: KoinosNetworkId[] = ['mainnet', 'testnet', 'custom']
 const nodePanelOptionalComponentOrder = [
@@ -210,6 +243,8 @@ export function App() {
   const autoRestartStateRef = useRef<AutoRestartState>(createAutoRestartState())
   const p2pRestartStateRef = useRef<P2pRestartState>(createP2pRestartState())
   const verifyBlocksCheckDoneRef = useRef(false)
+  const nativeBackupConfigLoadKeyRef = useRef('')
+  const nativeBackupUserEditedRef = useRef(false)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -242,12 +277,15 @@ export function App() {
   const [nodeRestoreBackupVerifyLoading, setNodeRestoreBackupVerifyLoading] = useState(false)
   const [nodeCreateBackupLoading, setNodeCreateBackupLoading] = useState(false)
   const [nodeNativeBackupDryRunLoading, setNodeNativeBackupDryRunLoading] = useState(false)
-  const [nodeNativeBackupListLoading, setNodeNativeBackupListLoading] = useState(false)
-  const [nodeNativeBackupList, setNodeNativeBackupList] = useState<TelenoNodeNativeBackupListResult | null>(null)
+  const [nodeNativeBackupLocalListLoading, setNodeNativeBackupLocalListLoading] = useState(false)
+  const [nodeNativeBackupRemoteListLoading, setNodeNativeBackupRemoteListLoading] = useState(false)
+  const [nodeNativeBackupLocalList, setNodeNativeBackupLocalList] = useState<TelenoNodeNativeBackupListResult | null>(null)
+  const [nodeNativeBackupRemoteList, setNodeNativeBackupRemoteList] = useState<TelenoNodeNativeBackupListResult | null>(null)
   const [nodeNativeBackupPreflightLoading, setNodeNativeBackupPreflightLoading] = useState(false)
   const [nodeNativeBackupPreflight, setNodeNativeBackupPreflight] = useState<TelenoNodeNativeBackupPreflightResult | null>(null)
   const [selectedNativeBackupId, setSelectedNativeBackupId] = useState('latest')
   const [nodeRestoreNativeBackupLoading, setNodeRestoreNativeBackupLoading] = useState(false)
+  const nodeNativeBackupListLoading = nodeNativeBackupLocalListLoading || nodeNativeBackupRemoteListLoading
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
   const [nodeProducerOverview, setNodeProducerOverview] = useState<TelenoNodeProducerOverviewResult | null>(null)
@@ -309,6 +347,7 @@ export function App() {
   const [nodeBaseDirRestartLoading, setNodeBaseDirRestartLoading] = useState(false)
   const [settingsUnsavedDialogOpen, setSettingsUnsavedDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
+  const [nodeSubtab, setNodeSubtab] = useState<NodeSubtab>('overview')
   const [dashboardSubtab, setDashboardSubtab] = useState<DashboardSubtab>('producers')
   const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
   const [walletOverview, setWalletOverview] = useState<TelenoWalletOverviewResult | null>(null)
@@ -537,8 +576,54 @@ export function App() {
     setDraftNodeProfiles(nodeSettings.profiles)
     setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
     setDraftNodeBackup(normalizeNodeBackupSettings(nodeSettings.backup))
+    nativeBackupUserEditedRef.current = false
     setNodeBaseDirValidation(null)
   }, [nodeSettings])
+
+  useEffect(() => {
+    const bridge = getTelenoNodeBridge()
+    if (!bridge?.nativeBackupConfig) return
+    if (nativeBackupUserEditedRef.current) return
+    const baseDir = normalizeNodeBaseDirInput(nodeSettings.baseDir)
+    const loadKey = `${nodeSettings.network}|${baseDir}`
+    if (nativeBackupConfigLoadKeyRef.current === loadKey) return
+    nativeBackupConfigLoadKeyRef.current = loadKey
+
+    let cancelled = false
+    void bridge.nativeBackupConfig(toNodeApiSettings(nodeSettings))
+      .then((result: TelenoNodeNativeBackupConfigResult) => {
+        if (cancelled || !result?.ok || !result.backup) return
+        if (nativeBackupUserEditedRef.current) return
+        const backup = normalizeNodeBackupSettings(result.backup)
+        setFormError(null)
+        setNodeSettings((current) => {
+          const currentKey = `${current.network}|${normalizeNodeBaseDirInput(current.baseDir)}`
+          if (currentKey !== loadKey || sameNodeBackupSettings(backup, current.backup)) return current
+          return { ...current, backup }
+        })
+      })
+      .catch(() => {
+        // Missing or unreadable native backup config is not fatal; defaults/localStorage remain active.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [nodeSettings.network, nodeSettings.baseDir])
+
+  useEffect(() => {
+    if (!formError) return
+    const backup = normalizeNodeBackupSettings(draftNodeBackup)
+    const shouldClear =
+      (formError === t('settings.backupRemoteHostRequired') && (!backup.remoteEnabled || Boolean(backup.sshHost.trim()))) ||
+      (formError === t('settings.backupRemoteUserRequired') && (!backup.remoteEnabled || Boolean(backup.sshUser.trim()))) ||
+      (formError === t('settings.backupRemoteDirectoryRequired') && (!backup.remoteEnabled || backup.remoteDirectory.trim().startsWith('/'))) ||
+      (formError === t('settings.backupPrivateKeyRequired') && (!backup.remoteEnabled || backup.sshAuth !== 'private-key' || Boolean(backup.sshPrivateKeyFile.trim()))) ||
+      (formError === t('settings.backupPasswordFileRequired') && (!backup.remoteEnabled || backup.sshAuth !== 'password-file' || Boolean(backup.sshPasswordFile.trim()))) ||
+      (formError === t('settings.backupScheduleIntervalInvalid') && (!backup.scheduleEnabled || /^\d+(ms|s|m|h|d)?$/.test(backup.scheduleInterval.trim())))
+
+    if (shouldClear) setFormError(null)
+  }, [draftNodeBackup, formError, t])
 
   useEffect(() => {
     setNodeNativeBackupPreflight(null)
@@ -1260,6 +1345,9 @@ export function App() {
       : t('common.na')
   const nodePrimaryPorts = nodePrimaryService ? formatNodeServicePorts(nodePrimaryService) : t('common.na')
   const nodePrimaryBinaryPath = nodePrimaryService?.binaryPath?.trim() || t('common.na')
+  const nodePrimaryConfigPath =
+    nodePrimaryService?.configPath?.trim() ||
+    (nodeStatus?.baseDir || nodeSettings.baseDir ? `${nodeStatus?.baseDir || nodeSettings.baseDir}/config.yml` : t('common.na'))
   const nodePrimaryLogPath = nodePrimaryService?.logPath?.trim() || t('common.na')
   const nodeP2pPort = nodePrimaryService?.ports.find((port) => {
     const label = `${port.label} ${port.targetPort ?? ''} ${port.publishedPort ?? ''}`
@@ -1402,14 +1490,20 @@ export function App() {
   })
   const producerPublicKeyAlreadyRegistered = producerPublicKeyRegistrationState === 'match'
   const producerPublicKeyRegisteredWithAnotherKey = producerPublicKeyRegistrationState === 'mismatch'
-  const producerConfiguredAddress =
-    producerProfile?.profile?.producerAddress?.trim() ||
-    producerLocalInfo?.producerAddress?.trim() ||
-    nodeProducerOverview?.producerAddress?.trim() ||
-    effectiveProducerTargetAddress.trim()
+  const runtimeConfiguredProducerAddress = producerLocalInfo?.producerAddress?.trim() || ''
+  const producerConfiguredAddress = resolveConfiguredProducerAddress({
+    runtimeConfigAddress: runtimeConfiguredProducerAddress,
+    overviewAddress: nodeProducerOverview?.producerAddress,
+    overviewAddressSource: nodeProducerOverview?.producerAddressSource,
+    profileAddress: producerProfile?.profile?.producerAddress,
+    fallbackAddress: effectiveProducerTargetAddress
+  })
   const producerAndSigningWalletMatch =
-    Boolean(effectiveProducerTargetAddress && signingWalletAddress) &&
-    effectiveProducerTargetAddress.toLowerCase() === signingWalletAddress.toLowerCase()
+    Boolean(producerConfiguredAddress && signingWalletAddress) &&
+    producerConfiguredAddress.toLowerCase() === signingWalletAddress.toLowerCase()
+  const producerConfiguredWalletMismatch =
+    Boolean(producerConfiguredAddress && signingWalletAddress) &&
+    producerConfiguredAddress.toLowerCase() !== signingWalletAddress.toLowerCase()
   const producerRegistrationStatusText = (() => {
     switch (nodeProducerOverview?.registrationStatus) {
       case 'match':
@@ -1505,6 +1599,15 @@ export function App() {
     Boolean(producerSigningWalletBalanceError) ||
     producerPublicKeyAlreadyRegistered ||
     producerSetupBlockedReason !== null
+  const producerReconfigureDisabled =
+    !hasNodeControls ||
+    nodeProducerActionLoading !== null ||
+    nodeProducerLoading ||
+    !producerVaultExists ||
+    !producerVaultUnlocked ||
+    !signingWalletAddress ||
+    !producerLocalPublicKey ||
+    Boolean(producerSigningWalletBalanceError)
   const producerRegisterHintClass =
     producerPublicKeyAlreadyRegistered
       ? 'is-ok'
@@ -2582,7 +2685,11 @@ export function App() {
     setWalletError(null)
 
     try {
-      const result = await bridge.unlock({ password: producerUnlockPassword, network: nodeSettings.network })
+      const result = await bridge.unlock({
+        password: producerUnlockPassword,
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
+      })
       setWalletResultTitle(t('producer.unlockTitle'))
       setWalletResultData(result)
 
@@ -2626,7 +2733,8 @@ export function App() {
       const importResult = await bridge.importWallet({
         privateKey,
         password,
-        network: nodeSettings.network
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
       })
 
       if (importResult.ok && importResult.address) {
@@ -2701,7 +2809,8 @@ export function App() {
         password,
         seedPhrase,
         derivationPath: derivedAccount.derivationPath,
-        network: nodeSettings.network
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
       })
       const seedImportResult = {
         ok: importResult.ok,
@@ -2779,7 +2888,8 @@ export function App() {
         password,
         seedPhrase: generatedWallet.seedPhrase,
         derivationPath: generatedWallet.derivationPath || undefined,
-        network: nodeSettings.network
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
       })
       const createResult = {
         ok: importResult.ok,
@@ -2857,7 +2967,7 @@ export function App() {
     }
 
     try {
-      return await bridge.showSeed({ network: nodeSettings.network })
+      return await bridge.showSeed({ network: nodeSettings.network, baseDir: nodeSettings.baseDir })
     } catch (error) {
       return {
         ok: false,
@@ -2937,7 +3047,11 @@ export function App() {
     }
 
     try {
-      const result = await bridge.setActiveAccount({ accountId: requestedAccountId, network: nodeSettings.network })
+      const result = await bridge.setActiveAccount({
+        accountId: requestedAccountId,
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
+      })
       setWalletResultTitle(t('wallet.accountsTitle'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.accountsTitle'), result, result.activeAccountId || requestedAccountId)
@@ -2970,7 +3084,12 @@ export function App() {
       void refreshWalletOverview()
       void refreshProducerSigningWalletBalance(confirmedActiveAccount?.address, nextActiveAccountId, { silent: true })
       void refreshProducerRegisteredPublicKeyPreview(confirmedActiveAccount?.address || undefined)
-      void refreshNodeProducerOverview(undefined, producerConfiguredAddress || confirmedActiveAccount?.address || undefined)
+      void refreshNodeProducerOverview(
+        undefined,
+        producerUseWalletAddress
+          ? confirmedActiveAccount?.address || undefined
+          : producerConfiguredAddress || confirmedActiveAccount?.address || undefined
+      )
       return true
     } catch (error) {
       setWalletOverview(previousOverview)
@@ -2990,7 +3109,11 @@ export function App() {
     setWalletActionLoading('wallet-create-derived-account')
     setWalletError(null)
     try {
-      const result = await bridge.createDerivedAccount({ name: name.trim() || undefined, network: nodeSettings.network })
+      const result = await bridge.createDerivedAccount({
+        name: name.trim() || undefined,
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
+      })
       setWalletResultTitle(t('wallet.createDerivedAccountAction'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.createDerivedAccountAction'), result, result.activeAccountId)
@@ -3036,7 +3159,8 @@ export function App() {
         privateKey: privateKey.trim(),
         password,
         name: name.trim() || undefined,
-        network: nodeSettings.network
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
       })
       setWalletResultTitle(t('wallet.importAccountAction'))
       setWalletResultData(result)
@@ -3070,7 +3194,8 @@ export function App() {
       const result = await bridge.importWatchAccount({
         address: address.trim(),
         name: name.trim() || undefined,
-        network: nodeSettings.network
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
       })
       setWalletResultTitle(t('wallet.importWatchAction'))
       setWalletResultData(result)
@@ -3099,7 +3224,12 @@ export function App() {
     setWalletActionLoading('wallet-rename-account')
     setWalletError(null)
     try {
-      const result = await bridge.renameAccount({ accountId, name: name.trim(), network: nodeSettings.network })
+      const result = await bridge.renameAccount({
+        accountId,
+        name: name.trim(),
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
+      })
       setWalletResultTitle(t('wallet.renameAccountAction'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.renameAccountAction'), result, accountId)
@@ -3126,7 +3256,7 @@ export function App() {
     setWalletActionLoading('wallet-remove-account')
     setWalletError(null)
     try {
-      const result = await bridge.removeAccount({ accountId, network: nodeSettings.network })
+      const result = await bridge.removeAccount({ accountId, network: nodeSettings.network, baseDir: nodeSettings.baseDir })
       setWalletResultTitle(t('wallet.removeAccountAction'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.removeAccountAction'), result, accountId)
@@ -3155,7 +3285,7 @@ export function App() {
     setWalletError(null)
 
     try {
-      const result = await bridge.deleteWallet({ network: nodeSettings.network })
+      const result = await bridge.deleteWallet({ network: nodeSettings.network, baseDir: nodeSettings.baseDir })
       setWalletResultTitle(t('wallet.deleteTitle'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.deleteTitle'), result)
@@ -3192,7 +3322,7 @@ export function App() {
     setWalletError(null)
 
     try {
-      const result = await bridge.closeWallet()
+      const result = await bridge.closeWallet({ network: nodeSettings.network, baseDir: nodeSettings.baseDir })
       setWalletResultTitle(t('wallet.closeTitle'))
       setWalletResultData(result)
       appendWalletActivity(t('wallet.closeTitle'), result)
@@ -3460,6 +3590,14 @@ export function App() {
       backup: overrides?.backup ?? normalizeNodeBackupSettings(draftNodeBackup)
     }
   }
+
+  const setDraftNodeBackupFromUser = useCallback((
+    nextBackup: NodeBackupSettings | ((current: NodeBackupSettings) => NodeBackupSettings)
+  ) => {
+    nativeBackupUserEditedRef.current = true
+    setFormError(null)
+    setDraftNodeBackup(nextBackup)
+  }, [])
 
   const validateDraftNodeBaseDir = async (baseDirInput: string) => {
     const bridge = getTelenoNodeBridge()
@@ -3888,7 +4026,8 @@ export function App() {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.nativeBackupList) return
 
-    setNodeNativeBackupListLoading(true)
+    const setLoading = remote ? setNodeNativeBackupRemoteListLoading : setNodeNativeBackupLocalListLoading
+    setLoading(true)
     setNodeError(null)
 
     try {
@@ -3896,7 +4035,11 @@ export function App() {
         ...toNodeApiSettings(nodeSettings),
         remote
       })
-      setNodeNativeBackupList(result)
+      if (remote) {
+        setNodeNativeBackupRemoteList(result)
+      } else {
+        setNodeNativeBackupLocalList(result)
+      }
       setNodeOutput([
         `Native backup list source: ${result.source || (remote ? 'remote' : 'local')}`,
         result.configPath ? `Native backup config: ${result.configPath}` : '',
@@ -3905,10 +4048,15 @@ export function App() {
         result.output || ''
       ].filter(Boolean).join('\n'))
       if (result.ok) {
-        const availableIds = new Set(result.snapshots.map((snapshot) => snapshot.backupId))
+        const pairedList = remote ? nodeNativeBackupLocalList : nodeNativeBackupRemoteList
+        const availableIds = new Set([
+          'latest',
+          ...result.snapshots.map((snapshot) => `${remote ? 'remote' : 'local'}:${snapshot.backupId}`),
+          ...(pairedList?.snapshots ?? []).map((snapshot) => `${remote ? 'local' : 'remote'}:${snapshot.backupId}`)
+        ])
         setSelectedNativeBackupId((current) =>
           current === 'latest' || !availableIds.has(current)
-            ? result.latestBackupId || 'latest'
+            ? result.latestBackupId ? `${remote ? 'remote' : 'local'}:${result.latestBackupId}` : 'latest'
             : current
         )
       } else {
@@ -3917,7 +4065,7 @@ export function App() {
     } catch (error) {
       setNodeError(error instanceof Error ? error.message : `Unable to list ${remote ? 'remote' : 'local'} native backups`)
     } finally {
-      setNodeNativeBackupListLoading(false)
+      setLoading(false)
     }
   }
 
@@ -3930,11 +4078,12 @@ export function App() {
     setNodeError(null)
 
     try {
-      const trimmedBackupId = selectedNativeBackupId.trim() || 'latest'
+      const selectedBackup = parseNativeBackupSelection(selectedNativeBackupId, nodeNativeBackupLocalList, nodeNativeBackupRemoteList)
       const apiSettings = toNodeApiSettings(nodeSettings)
       const result = await bridge.nativeBackupRestorePreflight({
         ...apiSettings,
-        backupId: trimmedBackupId
+        backupId: selectedBackup.backupId,
+        backupSource: selectedBackup.source
       })
       setNodeNativeBackupPreflight(result)
       setNodeOutput([
@@ -3957,7 +4106,8 @@ export function App() {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreNativeBackupLatest) return
 
-    const trimmedBackupId = backupId.trim() || 'latest'
+    const selectedBackup = parseNativeBackupSelection(backupId, nodeNativeBackupLocalList, nodeNativeBackupRemoteList)
+    const trimmedBackupId = selectedBackup.backupId
     const apiSettings = toNodeApiSettings(nodeSettings)
     const confirmed = window.confirm(t('node.nativeRestoreConfirm', {
       backupId: trimmedBackupId,
@@ -3977,9 +4127,13 @@ export function App() {
 
     try {
       const result =
-        trimmedBackupId === 'latest' || !bridge.restoreNativeBackup
+        !bridge.restoreNativeBackup
           ? await bridge.restoreNativeBackupLatest(apiSettings)
-          : await bridge.restoreNativeBackup({ ...apiSettings, backupId: trimmedBackupId })
+          : await bridge.restoreNativeBackup({
+              ...apiSettings,
+              backupId: trimmedBackupId,
+              backupSource: selectedBackup.source
+            })
       setNodeOutput(result.output || '')
       if (!result.ok) {
         setNodeError(result.output || t('node.unableRestoreNativeBackup'))
@@ -3993,10 +4147,6 @@ export function App() {
     }
   }
 
-  const runRestoreNativeBackupLatest = async () => {
-    await runRestoreNativeBackup('latest')
-  }
-
   const runRestoreNativeBackupSelected = async () => {
     await runRestoreNativeBackup(selectedNativeBackupId || 'latest')
   }
@@ -4007,32 +4157,6 @@ export function App() {
     try {
       await bridge.cancelCreateBackup()
     } catch { /* ignore */ }
-  }
-
-  const runRestoreLocalBackup = async () => {
-    const bridge = getTelenoNodeBridge()
-    if (!bridge?.restoreLocalBackup) return
-
-    setNodeRestoreBackupLoading(true)
-    setNodeError(null)
-    setNodeBackupProgress({
-      action: 'restore-backup',
-      phase: 'prepare',
-      progress: 0,
-      message: t('node.restoringBackup'),
-      updatedAt: Date.now()
-    })
-
-    try {
-      const result = await bridge.restoreLocalBackup(toNodeApiSettings(nodeSettings))
-      if (!result.ok) {
-        setNodeError(result.output || 'Error restoring local backup')
-      }
-    } catch (error) {
-      setNodeError(error instanceof Error ? error.message : 'Error restoring local backup')
-    } finally {
-      setNodeRestoreBackupLoading(false)
-    }
   }
 
   const restartNodeForNewBaseDir = async () => {
@@ -4557,46 +4681,15 @@ export function App() {
           setDraftDashboardProducerWindowBlocks={setDraftDashboardProducerWindowBlocks}
           draftDashboardRefreshSeconds={draftDashboardRefreshSeconds}
           setDraftDashboardRefreshSeconds={setDraftDashboardRefreshSeconds}
-          draftNodeRepoPath={draftNodeRepoPath}
-          setDraftNodeRepoPath={setDraftNodeRepoPath}
           draftNodeNetwork={draftNodeNetwork}
           setDraftNodeNetwork={updateDraftNodeNetwork}
-          cloneKoinosRepo={cloneKoinosRepo}
           hasNodeControls={hasNodeControls}
-          nodeCloneLoading={nodeCloneLoading}
-          nodeActionLoading={nodeActionLoading}
-          openNodeFileEditor={openNodeFileEditor}
-          nodeFileEditorLoading={nodeFileEditorLoading}
-          nodeFileEditorSaving={nodeFileEditorSaving}
-          draftNodeProfiles={draftNodeProfiles}
-          setDraftNodeProfiles={setDraftNodeProfiles}
-          draftNodeBlockchainBackupUrl={draftNodeBlockchainBackupUrl}
-          setDraftNodeBlockchainBackupUrl={setDraftNodeBlockchainBackupUrl}
           draftNodeBackup={draftNodeBackup}
-          setDraftNodeBackup={setDraftNodeBackup}
-          runNodeRestoreBackupVerify={runNodeRestoreBackupVerify}
-          runCreateBackup={runCreateBackup}
-          runCancelBackup={runCancelBackup}
-          runRestoreLocalBackup={runRestoreLocalBackup}
+          setDraftNodeBackup={setDraftNodeBackupFromUser}
           runNativeBackupDryRun={runNativeBackupDryRun}
-          runNativeBackupList={runNativeBackupList}
-          runNativeBackupRestorePreflight={runNativeBackupRestorePreflight}
-          runRestoreNativeBackupSelected={runRestoreNativeBackupSelected}
-          runRestoreNativeBackupLatest={runRestoreNativeBackupLatest}
           nodeBusy={nodeBusy}
           nodeSettings={nodeSettings}
-          nodeRestoreBackupVerifyLoading={nodeRestoreBackupVerifyLoading}
-          nodeCreateBackupLoading={nodeCreateBackupLoading}
           nodeNativeBackupDryRunLoading={nodeNativeBackupDryRunLoading}
-          nodeNativeBackupListLoading={nodeNativeBackupListLoading}
-          nodeNativeBackupList={nodeNativeBackupList}
-          nodeNativeBackupPreflightLoading={nodeNativeBackupPreflightLoading}
-          nodeNativeBackupPreflight={nodeNativeBackupPreflight}
-          selectedNativeBackupId={selectedNativeBackupId}
-          setSelectedNativeBackupId={setSelectedNativeBackupId}
-          nodeRestoreNativeBackupLoading={nodeRestoreNativeBackupLoading}
-          nodeBackupProgress={nodeBackupProgress}
-          configFileDisplayPath={configFileDisplayPath}
           draftNodeBaseDir={draftNodeBaseDir}
           setDraftNodeBaseDir={setDraftNodeBaseDir}
           setNodeBaseDirValidation={setNodeBaseDirValidation}
@@ -4610,7 +4703,6 @@ export function App() {
           resetDefaults={resetDefaults}
           settingsDirty={settingsDirty}
           onBlockedSettingsNavigation={() => setSettingsUnsavedDialogOpen(true)}
-          getTelenoNodeBridge={getTelenoNodeBridge}
           nodeComponents={nodeComponents}
         />
       )}
@@ -4754,6 +4846,28 @@ export function App() {
           </div>
         )}
 
+        <div className="node-subtabs settings-tabs" role="tablist" aria-label="Node views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={nodeSubtab === 'overview'}
+            className={`settings-tab-button ${nodeSubtab === 'overview' ? 'is-active' : ''}`}
+            onClick={() => setNodeSubtab('overview')}
+          >
+            {t('node.subtabOverview')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={nodeSubtab === 'backups'}
+            className={`settings-tab-button ${nodeSubtab === 'backups' ? 'is-active' : ''}`}
+            onClick={() => setNodeSubtab('backups')}
+          >
+            {t('node.subtabBackups')}
+          </button>
+        </div>
+
+        {nodeSubtab === 'overview' && (
         <div className="node-services node-single-node">
           {nodePrimaryService && nodePrimaryCapabilities ? (
             <section
@@ -4811,6 +4925,12 @@ export function App() {
                       <dt>{t('node.detailBaseDir')}</dt>
                       <dd className="mono" title={nodeStatus?.baseDir || nodeSettings.baseDir}>
                         {nodeStatus?.baseDir || nodeSettings.baseDir || t('common.na')}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('node.detailConfigPath')}</dt>
+                      <dd className="mono" title={nodePrimaryConfigPath}>
+                        {nodePrimaryConfigPath}
                       </dd>
                     </div>
                     <div>
@@ -4875,33 +4995,36 @@ export function App() {
             </p>
           )}
         </div>
+        )}
 
-        {nodeBackupProgress && (
-          <div className="node-backup-progress" role="status" aria-live="polite">
-            <div className="node-services-header">
-              <h3>
-                {nodeBackupProgress.action === 'create-backup'
-                  ? t('node.backupProgress.create')
-                  : nodeBackupProgress.action === 'restore-backup'
-                    ? t('node.backupProgress.restore')
-                    : t('node.backupProgress.verify')}
-              </h3>
-              <span>{nodeBackupProgress.progress}%</span>
-            </div>
-            <p className="node-backup-progress-text">{nodeBackupProgress.message}</p>
-            <div className="node-backup-progress-bar" aria-hidden="true">
-              <span
-                className="node-backup-progress-fill"
-                style={{ width: `${Math.max(2, nodeBackupProgress.progress)}%` }}
-              />
-            </div>
-            <p className="node-backup-progress-meta mono">
-              {t('node.backupPhaseMeta', {
-                phase: nodeBackupProgress.phase,
-                time: formatTime(nodeBackupProgress.updatedAt, locale)
-              })}
-            </p>
-          </div>
+        {nodeSubtab === 'backups' && (
+          <NodeBackupsPanel
+            t={t}
+            locale={locale}
+            hasNodeControls={hasNodeControls}
+            nodeBusy={nodeBusy}
+            settingsDirty={settingsDirty}
+            nodeSettings={nodeSettings}
+            nodeStatus={nodeStatus}
+            nodePrimaryConfigPath={nodePrimaryConfigPath}
+            runCreateBackup={runCreateBackup}
+            runCancelBackup={runCancelBackup}
+            runNativeBackupList={runNativeBackupList}
+            runNativeBackupRestorePreflight={runNativeBackupRestorePreflight}
+            runRestoreNativeBackupSelected={runRestoreNativeBackupSelected}
+            nodeCreateBackupLoading={nodeCreateBackupLoading}
+            nodeNativeBackupListLoading={nodeNativeBackupListLoading}
+            nodeNativeBackupLocalListLoading={nodeNativeBackupLocalListLoading}
+            nodeNativeBackupRemoteListLoading={nodeNativeBackupRemoteListLoading}
+            nodeNativeBackupLocalList={nodeNativeBackupLocalList}
+            nodeNativeBackupRemoteList={nodeNativeBackupRemoteList}
+            nodeNativeBackupPreflightLoading={nodeNativeBackupPreflightLoading}
+            nodeNativeBackupPreflight={nodeNativeBackupPreflight}
+            selectedNativeBackupId={selectedNativeBackupId}
+            setSelectedNativeBackupId={setSelectedNativeBackupId}
+            nodeRestoreNativeBackupLoading={nodeRestoreNativeBackupLoading}
+            nodeBackupProgress={nodeBackupProgress}
+          />
         )}
 
         {nodeOutput && (
@@ -5369,6 +5492,8 @@ export function App() {
           nodeProducerActionLoading={nodeProducerActionLoading}
           registerNodeProducer={registerNodeProducer}
           producerRegisterDisabled={producerRegisterDisabled}
+          producerConfiguredWalletMismatch={producerConfiguredWalletMismatch}
+          producerReconfigureDisabled={producerReconfigureDisabled}
           producerRegisterHintClass={producerRegisterHintClass}
           producerRegisterHintText={producerRegisterHintText}
           producerRegisterActionText={producerRegisterActionText}

@@ -46,7 +46,7 @@ import {
 } from './lib/constants'
 import { createAppLifecycleService } from './lib/app-lifecycle-service'
 import { createTelenoStorage } from './lib/teleno-storage'
-import { createBackupService } from './lib/backup-service'
+import { createBackupService, writeNativeBackupConfig } from './lib/backup-service'
 import { deriveMonolithComponentHealth } from './lib/component-health'
 import {
   baseDirConfigFilePath,
@@ -442,9 +442,13 @@ async function startMonolithProcess(
   }
 
   // Ensure config files are in place
+  let runtimeConfigPath = path.join(settings.baseDir, 'config.yml')
   try {
     ensureKoinosConfigFiles(settings)
     ensureBaseDirKoinosRuntimeFiles(settings)
+    if (settings.backup.adminEnabled || settings.backup.scheduleEnabled) {
+      runtimeConfigPath = writeNativeBackupConfig(settings).configPath
+    }
   } catch (error) {
     return { ok: false, output: error instanceof Error ? error.message : 'Config setup failed' }
   }
@@ -470,6 +474,7 @@ async function startMonolithProcess(
 
 	  const args: string[] = [
 	    `--basedir=${settings.baseDir}`,
+	    `--config=${runtimeConfigPath}`,
 	    '--log-level=info'
 	  ]
 	  const configFeatureArgs = monolithFeatureCliArgs(readMonolithFeatureConfig(settings) ?? {})
@@ -512,6 +517,7 @@ async function startMonolithProcess(
     child,
     runtimeName: TELENO_NODE_BINARY_NAME,
     binaryPath,
+    configPath: runtimeConfigPath,
     logPath,
     cwd: settings.baseDir,
     baseDir: settings.baseDir,
@@ -525,7 +531,11 @@ async function startMonolithProcess(
   }
   try {
     fs.mkdirSync(path.dirname(logPath), { recursive: true })
-    fs.appendFileSync(logPath, `\n=== ${TELENO_NODE_BINARY_NAME} start ${new Date().toISOString()} pid=${child.pid ?? 'n/a'} basedir=${settings.baseDir} ===\n`, 'utf8')
+    fs.appendFileSync(
+      logPath,
+      `\n=== ${TELENO_NODE_BINARY_NAME} start ${new Date().toISOString()} pid=${child.pid ?? 'n/a'} basedir=${settings.baseDir} config=${runtimeConfigPath} ===\n`,
+      'utf8'
+    )
   } catch {
     // The in-memory log buffer is still authoritative for the UI if the file cannot be opened.
   }
@@ -856,18 +866,9 @@ const walletService = createWalletService({
   formatWholeUnits,
   safeIsChecksumAddress,
   loadProducerProfile,
-  updateConfigProducerAddress: (address: string) => {
-    try {
-      const settings = normalizeNodeSettings()
-      const configPath = path.join(settings.baseDir, 'config.yml')
-      if (!fs.existsSync(configPath)) return
-      const yaml = require('yaml')
-      const doc = yaml.parseDocument(fs.readFileSync(configPath, 'utf-8'))
-      doc.setIn(['block_producer', 'producer'], address)
-      fs.writeFileSync(configPath, doc.toString(), 'utf-8')
-    } catch {
-      // Non-critical
-    }
+  updateConfigProducerAddress: (address: string, input?: WalletRpcInput) => {
+    const settings = normalizeNodeSettings(input as TelenoNodeSettingsInput | undefined)
+    return persistProducerRuntimeConfig(settings, address)
   }
 })
 
@@ -2189,12 +2190,58 @@ function detectExternalNativeServiceProcesses(
   const rawBaseDir = settings.baseDir
   const resolvedBaseDir = path.resolve(settings.baseDir)
   const baseDirArgs = new Set([rawBaseDir, resolvedBaseDir].map((baseDir) => `--basedir=${baseDir}`))
+  const monolithBackupCommandArgs = [
+    '--backup-create',
+    '--backup-create-local',
+    '--backup-upload-latest',
+    '--backup-list',
+    '--backup-list-remote',
+    '--backup-delete',
+    '--backup-restore',
+    '--backup-restore-preflight',
+    '--backup-restore-stage',
+    '--backup-restore-activate',
+    '--backup-restore-fetch',
+    '--backup-dry-run',
+    '--backup-checkpoint'
+  ]
 
   return processSnapshot.filter((entry) => {
     if (excludedPidSet.has(entry.pid)) return false
     if (![...baseDirArgs].some((baseDirArg) => entry.command.includes(baseDirArg))) return false
     return commandHints.some((hint) => entry.command.includes(hint))
+      && !(serviceId === 'teleno-node' && monolithBackupCommandArgs.some((arg) => entry.command.includes(arg)))
   })
+}
+
+function stripCommandOptionQuotes(value: string): string {
+  const trimmed = value.trim()
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function extractCommandOption(command: string, option: string): string | null {
+  const escapedOption = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const equalsMatch = command.match(new RegExp(`(?:^|\\s)${escapedOption}=("[^"]+"|'[^']+'|\\S+)`))
+  if (equalsMatch?.[1]) return stripCommandOptionQuotes(equalsMatch[1])
+
+  const separateMatch = command.match(new RegExp(`(?:^|\\s)${escapedOption}\\s+("[^"]+"|'[^']+'|\\S+)`))
+  if (separateMatch?.[1]) return stripCommandOptionQuotes(separateMatch[1])
+
+  return null
+}
+
+function extractExternalRuntimeConfigPath(processes: ProcessSnapshotEntry[]): string | null {
+  for (const process of processes) {
+    const configPath = extractCommandOption(process.command, '--config')
+    if (configPath) return configPath
+  }
+  return null
 }
 
 function describeExternalNativeServiceConflict(
@@ -3646,10 +3693,13 @@ async function nativeComposeStatus(input?: TelenoNodeSettingsInput): Promise<Tel
     const processSnapshot = await listProcessSnapshot()
     const trackedPid = isRunning && monolithProcessState?.child.pid ? [monolithProcessState.child.pid] : []
     const lockOwners = await detectBaseDirLockOwners(settings, trackedPid)
-    const conflictingProcesses = lockOwners.length > 0
-      ? []
-      : detectExternalNativeServiceProcesses(settings, 'teleno-node', processSnapshot, trackedPid)
+    const externalProcessCandidates = detectExternalNativeServiceProcesses(settings, 'teleno-node', processSnapshot, trackedPid)
+    const conflictingProcesses = lockOwners.length > 0 ? [] : externalProcessCandidates
     const hasConflict = lockOwners.length > 0 || conflictingProcesses.length > 0
+    const configPath =
+      monolithProcessState?.configPath ||
+      extractExternalRuntimeConfigPath(externalProcessCandidates) ||
+      path.join(settings.baseDir, 'config.yml')
     const conflictDescription = lockOwners.length > 0
       ? describeBaseDirLockConflict(settings, 'teleno-node', lockOwners)
       : conflictingProcesses.length > 0
@@ -3664,6 +3714,7 @@ async function nativeComposeStatus(input?: TelenoNodeSettingsInput): Promise<Tel
       service: 'teleno-node',
       runtimeName: TELENO_NODE_BINARY_NAME,
       binaryPath,
+      configPath,
       logPath,
       version,
       state: hasConflict ? 'conflict' : isRunning ? 'running' : 'stopped',
@@ -4322,16 +4373,16 @@ async function walletRemoveAccount(input?: WalletRemoveAccountInput): Promise<Wa
   return walletService.walletRemoveAccount(input)
 }
 
-async function walletShowSeed(): Promise<WalletShowSeedResult> {
-  return walletService.walletShowSeed()
+async function walletShowSeed(input?: WalletRpcInput): Promise<WalletShowSeedResult> {
+  return walletService.walletShowSeed(input)
 }
 
-async function walletDelete(): Promise<WalletDeleteResult> {
-  return walletService.walletDelete()
+async function walletDelete(input?: WalletRpcInput): Promise<WalletDeleteResult> {
+  return walletService.walletDelete(input)
 }
 
-async function walletClose(): Promise<WalletCloseResult> {
-  return walletService.walletClose()
+async function walletClose(input?: WalletRpcInput): Promise<WalletCloseResult> {
+  return walletService.walletClose(input)
 }
 
 async function walletUnlock(input?: WalletUnlockInput): Promise<WalletUnlockResult> {
@@ -4424,6 +4475,7 @@ function registerIpcHandlers() {
     telenoNodeRestoreBackupAndVerify,
     createLocalBackup,
     nativeBackupDryRun: backupService.nativeBackupDryRun,
+    nativeBackupConfig: backupService.nativeBackupConfig,
     nativeBackupList: backupService.nativeBackupList,
     nativeBackupRestorePreflight: backupService.nativeBackupRestorePreflight,
     restoreNativeBackup: backupService.restoreNativeBackup,

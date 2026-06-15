@@ -1488,6 +1488,7 @@ export function createProducerService(deps: ProducerServiceDeps) {
         if (fs.existsSync(deps.blockProducerPrivateKeyFilePath(settings))) {
           notes.push('Ensured block_producer.private-key-file = block_producer/private.key in runtime config.')
         }
+        notes.push('Restart the node for a running block producer to use this runtime config change.')
       }
 
       if (signerAccount.address !== producerAddress) {

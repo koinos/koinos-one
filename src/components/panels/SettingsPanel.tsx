@@ -1,12 +1,22 @@
 import { useEffect, useState } from 'react'
 import { normalizeAppLanguage } from '../../i18n'
-import { formatBytes, formatTime } from '../../app/utils'
 import { KOINOS_NETWORK_OPTIONS, normalizeKoinosNetworkId } from '../../app/network'
 import { NodeConfigPanel } from './MicroservicesConfigPanel'
-type BackupInfo = { ok: boolean; lastModified: string | null; sizeBytes: number | null }
 type SettingsPanelProps = any
 
 type SettingsTab = 'general' | 'explorer' | 'dashboard' | 'backup' | 'node'
+
+function remoteBackupDefaults(network: string) {
+  const directoryNetwork = network && network !== 'custom' ? network : 'testnet'
+
+  return {
+    sshHost: 'testnet.koinosfoundation.org',
+    sshUser: 'teleno_backup',
+    remoteDirectory: `/srv/teleno-backups/${directoryNetwork}/teleno-dev/teleno-ux-${directoryNetwork}`,
+    sshPrivateKeyFile: '~/.ssh/id_ed25519',
+    sshKnownHostsFile: '~/.ssh/known_hosts'
+  }
+}
 
 export function SettingsPanel(props: SettingsPanelProps) {
   const {
@@ -27,38 +37,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
     draftDashboardRefreshSeconds,
     setDraftDashboardRefreshSeconds,
     hasNodeControls,
-    openNodeFileEditor,
-    nodeFileEditorLoading,
-    nodeFileEditorSaving,
     draftNodeNetwork,
     setDraftNodeNetwork,
-    draftNodeBlockchainBackupUrl,
-    setDraftNodeBlockchainBackupUrl,
     draftNodeBackup,
     setDraftNodeBackup,
-    runNodeRestoreBackupVerify,
-    runCreateBackup,
-    runCancelBackup,
-    runRestoreLocalBackup,
     runNativeBackupDryRun,
-    runNativeBackupList,
-    runNativeBackupRestorePreflight,
-    runRestoreNativeBackupSelected,
-    runRestoreNativeBackupLatest,
     nodeBusy,
     nodeSettings,
-    nodeRestoreBackupVerifyLoading,
-    nodeCreateBackupLoading,
     nodeNativeBackupDryRunLoading,
-    nodeNativeBackupListLoading,
-    nodeNativeBackupList,
-    nodeNativeBackupPreflightLoading,
-    nodeNativeBackupPreflight,
-    selectedNativeBackupId,
-    setSelectedNativeBackupId,
-    nodeRestoreNativeBackupLoading,
-    nodeBackupProgress,
-    configFileDisplayPath,
     draftNodeBaseDir,
     setDraftNodeBaseDir,
     setNodeBaseDirValidation,
@@ -72,31 +58,55 @@ export function SettingsPanel(props: SettingsPanelProps) {
     resetDefaults,
     settingsDirty,
     onBlockedSettingsNavigation,
-    getTelenoNodeBridge,
     nodeComponents
   } = props
 
-  const locale = language?.startsWith('es') ? 'es' : 'en'
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
-  const [backupInfo, setBackupInfo] = useState<BackupInfo | null>(null)
-  const [backupInfoLoading, setBackupInfoLoading] = useState(false)
   const saveSettingsButtonClass = `primary-button settings-save-button ${settingsDirty ? 'is-dirty' : ''}`.trim()
   const updateBackup = (patch: Record<string, unknown>) => {
+    setFormError(null)
     setDraftNodeBackup((current: any) => ({ ...current, ...patch }))
   }
-  const nativeBackupSnapshots = nodeNativeBackupList?.snapshots ?? []
+  const renderFormError = () => (
+    formError ? <p className="form-error" role="alert">{formError}</p> : null
+  )
 
   useEffect(() => {
-    const url = nodeSettings?.blockchainBackupUrl || draftNodeBlockchainBackupUrl
-    if (!url || !url.startsWith('http')) return
-    setBackupInfoLoading(true)
-    const bridge = getTelenoNodeBridge?.()
-    if (!bridge?.backupInfo) { setBackupInfoLoading(false); return }
-    bridge.backupInfo(url)
-      .then((info: BackupInfo) => setBackupInfo(info))
-      .catch(() => setBackupInfo(null))
-      .finally(() => setBackupInfoLoading(false))
-  }, [nodeSettings?.blockchainBackupUrl]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!draftNodeBackup.remoteEnabled) return
+    const defaults = remoteBackupDefaults(draftNodeNetwork)
+    const needsDefaults = Boolean(
+      (!draftNodeBackup.sshAuth && 'private-key') ||
+      (!draftNodeBackup.sshHost && defaults.sshHost) ||
+      (!draftNodeBackup.sshUser && defaults.sshUser) ||
+      (!draftNodeBackup.remoteDirectory && defaults.remoteDirectory) ||
+      (!draftNodeBackup.sshPrivateKeyFile && defaults.sshPrivateKeyFile) ||
+      (!draftNodeBackup.sshKnownHostsFile && defaults.sshKnownHostsFile)
+    )
+    if (!needsDefaults) return
+
+    setDraftNodeBackup((current: any) => {
+      if (!current.remoteEnabled) return current
+      const next = {
+        ...current,
+        sshAuth: current.sshAuth || 'private-key',
+        sshHost: current.sshHost || defaults.sshHost || '',
+        sshUser: current.sshUser || defaults.sshUser || '',
+        remoteDirectory: current.remoteDirectory || defaults.remoteDirectory || '',
+        sshPrivateKeyFile: current.sshPrivateKeyFile || defaults.sshPrivateKeyFile || '',
+        sshKnownHostsFile: current.sshKnownHostsFile || defaults.sshKnownHostsFile || ''
+      }
+      return JSON.stringify(next) === JSON.stringify(current) ? current : next
+    })
+  }, [
+    draftNodeBackup.remoteEnabled,
+    draftNodeBackup.sshHost,
+    draftNodeBackup.sshUser,
+    draftNodeBackup.remoteDirectory,
+    draftNodeBackup.sshPrivateKeyFile,
+    draftNodeBackup.sshKnownHostsFile,
+    draftNodeNetwork,
+    setDraftNodeBackup
+  ])
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: 'general', label: t('settings.tabGeneral') },
@@ -265,7 +275,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </span>
             </label>
 
-            {formError && <p className="form-error">{formError}</p>}
+            {renderFormError()}
 
             <div className="settings-actions">
               <button type="button" className="ghost-button" onClick={resetDefaults}>
@@ -324,6 +334,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </label>
             </div>
 
+            {renderFormError()}
+
             <div className="settings-actions">
               <button type="button" className="ghost-button" onClick={resetDefaults}>
                 {t('settings.reset')}
@@ -370,6 +382,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </label>
             </div>
 
+            {renderFormError()}
+
             <div className="settings-actions">
               <button type="button" className="ghost-button" onClick={resetDefaults}>
                 {t('settings.reset')}
@@ -385,74 +399,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
         {activeTab === 'backup' && (
           <>
             <div className="settings-subheader">
-              <h3>{t('settings.blockchainBackupTitle')}</h3>
-              <p>{t('settings.blockchainBackupDescription')}</p>
-            </div>
-
-            <div className="settings-backup-row">
-              <label style={{ flex: 1 }}>
-                {t('settings.backupUrl')}
-                <input
-                  type="url"
-                  value={draftNodeBlockchainBackupUrl}
-                  onChange={(event) => setDraftNodeBlockchainBackupUrl(event.target.value)}
-                  placeholder="http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz"
-                  spellCheck={false}
-                  autoComplete="off"
-                  style={{ maxWidth: 480, fontSize: '0.8em' }}
-                />
-              </label>
-              <div className="settings-backup-info">
-                {backupInfo?.lastModified
-                  ? <span className="settings-inline-help" title={backupInfo.lastModified}>
-                      {t('settings.backupDate')}: {new Date(backupInfo.lastModified).toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      {backupInfo.sizeBytes ? ` · ${(backupInfo.sizeBytes / (1024 ** 3)).toFixed(1)} GB` : ''}
-                    </span>
-                  : backupInfoLoading
-                    ? <span className="settings-inline-help">{t('common.loading')}</span>
-                    : null
-                }
-              </div>
-            </div>
-
-            <div className="settings-actions settings-actions-inline">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => {
-                  void runNodeRestoreBackupVerify()
-                }}
-                disabled={!hasNodeControls || nodeBusy || settingsDirty}
-                title={`${nodeSettings.blockchainBackupUrl}\n${t('node.restoreVerifyRequiresJsonrpc')}`}
-              >
-                {nodeRestoreBackupVerifyLoading ? t('node.restoringVerify') : t('node.restoreVerify')}
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => { void runRestoreNativeBackupLatest() }}
-                disabled={!hasNodeControls || nodeBusy || settingsDirty}
-                title={t('node.restoreNativeLatestHelp')}
-              >
-                {nodeRestoreNativeBackupLoading ? t('node.restoringNativeLatest') : t('node.restoreNativeLatest')}
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => { void runRestoreLocalBackup() }}
-                disabled={!hasNodeControls || nodeBusy || settingsDirty}
-                title="Restaurar desde un archivo .tar.gz local"
-              >
-                {nodeBusy ? 'Restaurando...' : 'Restore from local file'}
-              </button>
-              <span className="settings-inline-help">
-                {t('node.restoreVerifyRequiresJsonrpc')}
-              </span>
-            </div>
-
-            <div className="settings-subheader" style={{ marginTop: '1.5rem' }}>
-              <h3>{t('node.createBackup')}</h3>
-              <p>{t('node.nativeBackupDescription')}</p>
+              <h3>Native backup configuration</h3>
+              <p>Configure local repositories, remote SFTP, automatic backup scheduling, and the local admin API.</p>
             </div>
 
             <div className="settings-actions settings-actions-inline">
@@ -460,29 +408,17 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 type="button"
                 className="ghost-button"
                 onClick={() => { void runNativeBackupDryRun() }}
-                disabled={!hasNodeControls || nodeBusy}
+                disabled={!hasNodeControls || nodeBusy || settingsDirty}
+                title={settingsDirty ? 'Save Settings before checking the native backup config.' : undefined}
               >
                 {nodeNativeBackupDryRunLoading ? t('node.nativeBackupDryRunLoading') : t('node.nativeBackupDryRun')}
               </button>
-              {nodeCreateBackupLoading ? (
-                <button
-                  type="button"
-                  className="ghost-button danger-button"
-                  onClick={() => { void runCancelBackup() }}
-                >
-                  {t('node.cancelBackup')}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => { void runCreateBackup() }}
-                  disabled={!hasNodeControls || nodeBusy || settingsDirty}
-                >
-                  {t('node.createBackup')}
-                </button>
-              )}
             </div>
+            {settingsDirty && (
+              <p className="settings-inline-help is-busy">
+                Save Settings before checking the native backup configuration.
+              </p>
+            )}
 
             <div className="settings-row">
               <label className="settings-toggle-row">
@@ -838,130 +774,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </label>
             </div>
 
-            <div className="settings-subheader" style={{ marginTop: '1.5rem' }}>
-              <h3>Available native backups</h3>
-              <p>Refresh local snapshots or fetch remote metadata into the local cache, then restore latest or a selected backup ID.</p>
-            </div>
-
-            <div className="settings-actions settings-actions-inline">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => { void runNativeBackupList() }}
-                disabled={!hasNodeControls || nodeBusy || settingsDirty}
-              >
-                {nodeNativeBackupListLoading ? 'Refreshing backups...' : 'Refresh local list'}
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => { void runNativeBackupList(true) }}
-                disabled={!hasNodeControls || nodeBusy || settingsDirty || !draftNodeBackup.remoteEnabled}
-                title="Fetch remote snapshot metadata into the local native repository cache."
-              >
-                {nodeNativeBackupListLoading ? 'Refreshing backups...' : 'Refresh remote list'}
-              </button>
-              <label>
-                Backup ID
-                <select
-                  value={selectedNativeBackupId}
-                  onChange={(event) => setSelectedNativeBackupId(event.target.value)}
-                  disabled={!hasNodeControls || nodeBusy || settingsDirty || nativeBackupSnapshots.length === 0}
-                >
-                  <option value="latest">Latest</option>
-                  {nativeBackupSnapshots.map((snapshot: TelenoNodeNativeBackupSnapshot) => (
-                    <option key={snapshot.backupId} value={snapshot.backupId}>
-                      {snapshot.latest ? `${snapshot.backupId} (latest)` : snapshot.backupId}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => { void runNativeBackupRestorePreflight() }}
-                disabled={!hasNodeControls || nodeBusy || settingsDirty || nativeBackupSnapshots.length === 0}
-              >
-                {nodeNativeBackupPreflightLoading ? 'Verifying backup...' : 'Verify selected backup'}
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => { void runRestoreNativeBackupSelected() }}
-                disabled={!hasNodeControls || nodeBusy || settingsDirty || nativeBackupSnapshots.length === 0}
-                title={t('node.restoreNativeLatestHelp')}
-              >
-                {nodeRestoreNativeBackupLoading ? t('node.restoringNativeLatest') : 'Restore selected native backup'}
-              </button>
-            </div>
-
-            {nodeNativeBackupList && (
-              <div className="node-backup-list" role="status" aria-live="polite">
-                {nativeBackupSnapshots.length === 0 ? (
-                  <p className="settings-inline-help">No completed native snapshots were found in the local repository.</p>
-                ) : (
-                  <div className="node-backup-snapshot-list">
-                    {nativeBackupSnapshots.map((snapshot: TelenoNodeNativeBackupSnapshot) => (
-                      <article className="node-backup-snapshot" key={snapshot.backupId}>
-                        <div>
-                          <strong className="mono">{snapshot.backupId}</strong>
-                          {snapshot.latest && <span className="settings-inline-help"> latest</span>}
-                        </div>
-                        <p>
-                          Created {snapshot.createdAt || 'N/A'} · {formatBytes(snapshot.totalBytes, locale)} · {snapshot.fileCount} files
-                        </p>
-                        <p>
-                          Restore free space: minimum {formatBytes(snapshot.restoreSpace.minimumTargetFreeBytes, locale)}, recommended {formatBytes(snapshot.restoreSpace.recommendedTargetFreeBytes, locale)}
-                        </p>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {nodeNativeBackupPreflight && (
-              <div className={`node-backup-preflight ${nodeNativeBackupPreflight.readyToRestore ? 'is-ok' : 'is-error'}`}>
-                <strong>{nodeNativeBackupPreflight.readyToRestore ? 'Selected backup is ready to restore' : 'Selected backup is not ready to restore'}</strong>
-                <p className="settings-inline-help">
-                  Backup {nodeNativeBackupPreflight.backupId || selectedNativeBackupId} · {nodeNativeBackupPreflight.fileCount} files · missing objects {nodeNativeBackupPreflight.missingObjectCount}
-                </p>
-                <p className="settings-inline-help">
-                  {nodeNativeBackupPreflight.spaceCheck.message || 'No disk-space message returned.'}
-                </p>
-                <p className="settings-inline-help">
-                  Available {formatBytes(nodeNativeBackupPreflight.spaceCheck.availableBytes, locale)} · minimum {formatBytes(nodeNativeBackupPreflight.restoreSpace.minimumTargetFreeBytes, locale)} · recommended {formatBytes(nodeNativeBackupPreflight.restoreSpace.recommendedTargetFreeBytes, locale)}
-                </p>
-              </div>
-            )}
-
-            {nodeBackupProgress && (
-              <div className="node-backup-progress" role="status" aria-live="polite" style={{ marginTop: '1rem' }}>
-                <div className="node-services-header">
-                  <h3>
-                    {nodeBackupProgress.action === 'create-backup'
-                      ? t('node.backupProgress.create')
-                      : nodeBackupProgress.action === 'restore-backup'
-                        ? t('node.backupProgress.restore')
-                        : t('node.backupProgress.verify')}
-                  </h3>
-                  <span>{nodeBackupProgress.progress}%</span>
-                </div>
-                <p className="node-backup-progress-text">{nodeBackupProgress.message}</p>
-                <div className="node-backup-progress-bar" aria-hidden="true">
-                  <span
-                    className="node-backup-progress-fill"
-                    style={{ width: `${Math.max(2, nodeBackupProgress.progress)}%` }}
-                  />
-                </div>
-                <p className="node-backup-progress-meta mono">
-                  {t('node.backupPhaseMeta', {
-                    phase: nodeBackupProgress.phase,
-                    time: formatTime(nodeBackupProgress.updatedAt, locale)
-                  })}
-                </p>
-              </div>
-            )}
+            {renderFormError()}
 
             <div className="settings-actions">
               <button type="submit" className={saveSettingsButtonClass} disabled={!settingsDirty}>

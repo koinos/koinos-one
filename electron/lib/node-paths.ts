@@ -5,7 +5,8 @@ import path from 'node:path'
 import {
   DEFAULT_BASEDIR,
   DEFAULT_PUBLIC_RPC_URLS,
-  resolveDefaultKoinosRepoPath
+  resolveDefaultKoinosRepoPath,
+  resolveKoinosConfigRoot
 } from './constants'
 import { isExistingTelenoNodeBaseDir } from './basedir-identity'
 import {
@@ -59,11 +60,33 @@ export function verifyWritableDirectory(dirPath: string): void {
 }
 
 export function configDirPath(settings: { repoPath: string }): string {
-  return path.join(settings.repoPath, 'config')
+  const repoConfigDir = path.join(settings.repoPath, 'config')
+  if (fs.existsSync(path.join(repoConfigDir, 'config.yml'))) return repoConfigDir
+
+  const vendoredConfigDir = path.join(settings.repoPath, 'vendor', 'koinos', 'koinos', 'config')
+  if (fs.existsSync(path.join(vendoredConfigDir, 'config.yml'))) return vendoredConfigDir
+
+  const bundledConfigDir = resolveKoinosConfigRoot()
+  if (isTelenoRepoRoot(settings.repoPath) && fs.existsSync(path.join(bundledConfigDir, 'config.yml'))) {
+    return bundledConfigDir
+  }
+
+  return repoConfigDir
 }
 
 export function configExampleDirPath(settings: { repoPath: string }): string {
-  return path.join(settings.repoPath, 'config-example')
+  const repoExampleDir = path.join(settings.repoPath, 'config-example')
+  if (fs.existsSync(path.join(repoExampleDir, 'config.yml'))) return repoExampleDir
+
+  const vendoredExampleDir = path.join(settings.repoPath, 'vendor', 'koinos', 'koinos', 'config-example')
+  if (fs.existsSync(path.join(vendoredExampleDir, 'config.yml'))) return vendoredExampleDir
+
+  const bundledConfigDir = resolveKoinosConfigRoot()
+  if (isTelenoRepoRoot(settings.repoPath) && fs.existsSync(path.join(bundledConfigDir, 'config.yml'))) {
+    return bundledConfigDir
+  }
+
+  return repoExampleDir
 }
 
 export function managedFilePath(
@@ -71,6 +94,10 @@ export function managedFilePath(
   kind: 'config'
 ): string {
   return path.join(configDirPath(settings), 'config.yml')
+}
+
+function isTelenoRepoRoot(repoPath: string): boolean {
+  return fs.existsSync(path.join(repoPath, 'node', 'teleno-node')) && fs.existsSync(path.join(repoPath, 'package.json'))
 }
 
 export function baseDirConfigFilePath(settings: { baseDir: string }): string {
@@ -181,6 +208,14 @@ function numberValue(value: unknown, fallback: number, min: number, max: number)
   return Math.min(max, Math.max(min, safe))
 }
 
+function normalizeBackupRemoteDirectory(value: unknown): string {
+  const directory = stringValue(value, DEFAULT_BACKUP_SETTINGS.remoteDirectory)
+  if (directory === '/srv/teleno-backups/testnet/teleno-ux-testnet') {
+    return '/srv/teleno-backups/testnet/teleno-dev/teleno-ux-testnet'
+  }
+  return directory
+}
+
 export function normalizeBackupSettings(input?: TelenoNodeBackupSettingsInput): TelenoNodeBackupSettings {
   const value = input && typeof input === 'object' ? input : {}
   return {
@@ -189,7 +224,7 @@ export function normalizeBackupSettings(input?: TelenoNodeBackupSettingsInput): 
     workspace: stringValue(value.workspace, DEFAULT_BACKUP_SETTINGS.workspace),
     localRetentionCount: numberValue(value.localRetentionCount, DEFAULT_BACKUP_SETTINGS.localRetentionCount, 1, 365),
     remoteEnabled: value.remoteEnabled === true,
-    remoteDirectory: stringValue(value.remoteDirectory, DEFAULT_BACKUP_SETTINGS.remoteDirectory),
+    remoteDirectory: normalizeBackupRemoteDirectory(value.remoteDirectory),
     remoteRetentionCount: numberValue(value.remoteRetentionCount, DEFAULT_BACKUP_SETTINGS.remoteRetentionCount, 1, 365),
     remoteRetentionDays: numberValue(value.remoteRetentionDays, DEFAULT_BACKUP_SETTINGS.remoteRetentionDays, 1, 3650),
     uploadTempSuffix: stringValue(value.uploadTempSuffix, DEFAULT_BACKUP_SETTINGS.uploadTempSuffix) || '.partial',

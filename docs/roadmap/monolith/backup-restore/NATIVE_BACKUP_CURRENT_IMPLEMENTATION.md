@@ -23,6 +23,9 @@ Implemented CLI modes:
 --backup-upload-latest
 --backup-list
 --backup-list-remote
+--backup-delete
+--backup-scope local|remote|both
+--backup-delete-confirm <backup-id>
 --backup-restore
 --backup-restore-preflight
 --backup-restore-fetch
@@ -39,8 +42,11 @@ Important behavior:
 - `--backup-create` creates the configured native backup: local hot snapshot plus remote upload when `backup.remote.enabled=true`.
 - `--backup-list` lists completed local repository snapshots without opening RocksDB.
 - `--backup-list-remote` lists completed remote SFTP snapshots by fetching only `latest.json`, `manifest.json`, `files.json`, and `COMPLETE` metadata into the local repository cache.
+- `--backup-delete --backup-id <backup-id>` plans deletion of an exact backup ID. It is a dry-run by default. Passing `--backup-delete-confirm <backup-id>` executes deletion. `--backup-scope` selects `local`, `remote`, or `both`.
+- Local delete removes `snapshots/<backup-id>`, recomputes `latest.json` when needed, and garbage-collects only objects no remaining local snapshot references.
+- Remote delete uses native libssh SFTP, removes the selected remote snapshot, recomputes remote `latest.json` when needed, and deletes only remote objects no remaining remote snapshot references.
 - `--backup-restore` fetches remote data when enabled, runs metadata-first disk-space preflight, stages the restore, activates it while RocksDB is closed, and prints an observer-first start command.
-- `--backup-id <backup-id>` selects a completed local snapshot for local restore/preflight/stage commands and selects a remote snapshot for remote fetch/restore when `backup.remote.enabled=true`. Omit it or pass `latest` to keep the latest-snapshot behavior.
+- `--backup-id <backup-id>` selects a completed local snapshot for local restore/preflight/stage commands and selects a remote snapshot for remote fetch/restore when `backup.remote.enabled=true`. Omit it or pass `latest` to keep the latest-snapshot behavior for restore/list-fetch commands. Delete commands require an exact backup ID and reject `latest`.
 - `--backup-json` returns machine-readable output for CLI automation and UX integration.
 
 ## Config Surface
@@ -221,6 +227,7 @@ Current UX behavior:
 - `Verify selected backup` runs `teleno_node --backup-restore-preflight --backup-json --backup-id=<selected>` and displays readiness plus disk-space requirements.
 - `Restore selected native backup` runs `teleno_node --backup-restore --backup-json --backup-id=<selected>`. When remote backup is enabled, the native binary fetches the selected remote snapshot metadata and missing content-addressed objects before staging and activation.
 - `Restore latest native backup` stops the managed node if needed, runs `teleno_node --backup-restore --backup-json`, and leaves the restored node for observer-first restart.
+- Backup deletion is currently CLI-only. UX delete actions should call `teleno_node --backup-delete --backup-json --backup-id=<selected> --backup-scope=<scope>` for dry-run and repeat with `--backup-delete-confirm=<selected>` after explicit user confirmation.
 - Restore activation requires an explicit UX confirmation that names the backup ID and BASEDIR, explains `.pre-restore` preservation, and states observer-first / block-production-disabled behavior.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.
 - The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.

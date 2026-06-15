@@ -67,6 +67,7 @@ type IpcHandlerDeps = {
   telenoNodeRestoreBackupAndVerify: (input: TelenoNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   createLocalBackup: (input: TelenoNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   nativeBackupDryRun: (input: TelenoNodeSettingsInput | undefined) => Awaitable<unknown>
+  nativeBackupConfig: (input: TelenoNodeSettingsInput | undefined) => Awaitable<unknown>
   nativeBackupList: (input: TelenoNodeSettingsInput | undefined) => Awaitable<unknown>
   nativeBackupRestorePreflight: (input: TelenoNodeNativeBackupRestoreInput | undefined) => Awaitable<unknown>
   restoreNativeBackup: (input: TelenoNodeNativeBackupRestoreInput | undefined, sender: WebContents) => Awaitable<unknown>
@@ -97,11 +98,11 @@ type IpcHandlerDeps = {
   walletRenameAccount: (input?: WalletRenameAccountInput) => Awaitable<unknown>
   walletRemoveAccount: (input?: WalletRemoveAccountInput) => Awaitable<unknown>
   walletUnlock: (input?: WalletUnlockInput) => Awaitable<unknown>
-  walletClose: () => Awaitable<unknown>
-  walletDelete: () => Awaitable<unknown>
+  walletClose: (input?: WalletRpcInput) => Awaitable<unknown>
+  walletDelete: (input?: WalletRpcInput) => Awaitable<unknown>
   walletAddressFromWif: (input?: WalletAddressInput) => Awaitable<unknown>
   walletDeriveFromSeed: (input?: WalletDeriveFromSeedInput) => Awaitable<unknown>
-  walletShowSeed: () => Awaitable<unknown>
+  walletShowSeed: (input?: WalletRpcInput) => Awaitable<unknown>
   walletChainInfo: (input?: WalletRpcInput) => Awaitable<unknown>
   walletBlock: (input?: WalletBlockInput) => Awaitable<unknown>
   walletBalance: (input?: WalletAddressQueryInput) => Awaitable<unknown>
@@ -260,6 +261,7 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('teleno:node:restore-backup-verify', async (event, input?: TelenoNodeSettingsInput) => deps.telenoNodeRestoreBackupAndVerify(input, event.sender))
   ipcMain.handle('teleno:node:create-backup', async (event, input?: TelenoNodeSettingsInput) => deps.createLocalBackup(input, event.sender))
   ipcMain.handle('teleno:node:native-backup-dry-run', async (_event, input?: TelenoNodeSettingsInput) => deps.nativeBackupDryRun(input))
+  ipcMain.handle('teleno:node:native-backup-config', async (_event, input?: TelenoNodeSettingsInput) => deps.nativeBackupConfig(input))
   ipcMain.handle('teleno:node:native-backup-list', async (_event, input?: TelenoNodeSettingsInput) => deps.nativeBackupList(input))
   ipcMain.handle('teleno:node:native-backup-restore-preflight', async (_event, input?: TelenoNodeNativeBackupRestoreInput) => deps.nativeBackupRestorePreflight(input))
   ipcMain.handle('teleno:node:restore-native-backup', async (event, input?: TelenoNodeNativeBackupRestoreInput) => deps.restoreNativeBackup(input, event.sender))
@@ -316,11 +318,11 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     deps.walletRemoveAccount(input)
   )
   ipcMain.handle('teleno:wallet:unlock', async (_event, input?: WalletUnlockInput) => deps.walletUnlock(input))
-  ipcMain.handle('teleno:wallet:close', async () => deps.walletClose())
-  ipcMain.handle('teleno:wallet:delete', async () => deps.walletDelete())
+  ipcMain.handle('teleno:wallet:close', async (_event, input?: WalletRpcInput) => deps.walletClose(input))
+  ipcMain.handle('teleno:wallet:delete', async (_event, input?: WalletRpcInput) => deps.walletDelete(input))
   ipcMain.handle('teleno:wallet:address-from-wif', async (_event, input?: WalletAddressInput) => deps.walletAddressFromWif(input))
   ipcMain.handle('teleno:wallet:derive-from-seed', async (_event, input?: WalletDeriveFromSeedInput) => deps.walletDeriveFromSeed(input))
-  ipcMain.handle('teleno:wallet:show-seed', async () => deps.walletShowSeed())
+  ipcMain.handle('teleno:wallet:show-seed', async (_event, input?: WalletRpcInput) => deps.walletShowSeed(input))
   ipcMain.handle('teleno:wallet:chain-info', async (_event, input?: WalletRpcInput) => deps.walletChainInfo(input))
   ipcMain.handle('teleno:wallet:block', async (_event, input?: WalletBlockInput) => deps.walletBlock(input))
   ipcMain.handle('teleno:wallet:balance', async (_event, input?: WalletAddressQueryInput) => deps.walletBalance(input))

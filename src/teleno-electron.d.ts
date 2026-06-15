@@ -60,6 +60,10 @@ declare global {
     runtimeMode?: TelenoNodeServiceRuntime
   }
 
+  type TelenoLaunchDefaults = {
+    nodeSettings?: Partial<TelenoNodeSettings>
+  }
+
   type TelenoNodeServiceStatus = {
     id: string
     name: string
@@ -67,6 +71,7 @@ declare global {
     runtimeName: string
     runtimeType: TelenoNodeServiceRuntime
     binaryPath?: string | null
+    configPath?: string | null
     logPath?: string | null
     version: string | null
     state: string
@@ -149,6 +154,7 @@ declare global {
 
   type TelenoNodeNativeBackupRestoreInput = TelenoNodeSettings & {
     backupId?: string
+    backupSource?: 'local' | 'remote' | 'auto'
   }
 
   type TelenoNodeNativeBackupRestoreSpace = {
@@ -186,6 +192,15 @@ declare global {
     workspaceDir?: string
     latestBackupId: string
     snapshots: TelenoNodeNativeBackupSnapshot[]
+  }
+
+  type TelenoNodeNativeBackupConfigResult = {
+    ok: boolean
+    output: string
+    configPath?: string
+    repositoryDir?: string
+    workspaceDir?: string
+    backup?: TelenoNodeBackupSettings
   }
 
   type TelenoNodeNativeBackupPreflightResult = {
@@ -591,7 +606,7 @@ declare global {
 
   type TelenoNodeBackupProgressEvent = {
     action: 'restore-backup' | 'restore-backup-verify' | 'create-backup'
-    phase: 'prepare' | 'stop' | 'download' | 'checksum' | 'extract' | 'restore' | 'compress' | 'save' | 'start' | 'verify' | 'complete' | 'error'
+    phase: 'prepare' | 'stop' | 'download' | 'checksum' | 'extract' | 'restore' | 'compress' | 'save' | 'upload' | 'start' | 'verify' | 'complete' | 'error'
     progress: number
     message: string
   }
@@ -612,6 +627,7 @@ declare global {
   type TelenoWalletRpcParams = {
     network?: TelenoNetworkId
     rpcUrl?: string
+    baseDir?: string
   }
 
   type TelenoWalletAccountKind = 'derived' | 'imported-wif' | 'watch-only'
@@ -654,7 +670,7 @@ declare global {
     derivationPath: string | null
   }
 
-  type TelenoWalletImportParams = {
+  type TelenoWalletImportParams = TelenoWalletRpcParams & {
     privateKey?: string
     password?: string
     seedPhrase?: string
@@ -682,7 +698,7 @@ declare global {
     unlocked: boolean
   }
 
-  type TelenoWalletUnlockParams = {
+  type TelenoWalletUnlockParams = TelenoWalletRpcParams & {
     password?: string
   }
 
@@ -747,7 +763,7 @@ declare global {
     accounts: TelenoWalletAccountSummary[]
   }
 
-  type TelenoWalletSetActiveAccountParams = {
+  type TelenoWalletSetActiveAccountParams = TelenoWalletRpcParams & {
     accountId?: string
   }
 
@@ -759,7 +775,7 @@ declare global {
     activeAccount: TelenoWalletAccountSummary | null
   }
 
-  type TelenoWalletCreateDerivedAccountParams = {
+  type TelenoWalletCreateDerivedAccountParams = TelenoWalletRpcParams & {
     name?: string
   }
 
@@ -772,23 +788,23 @@ declare global {
     accounts: TelenoWalletAccountSummary[]
   }
 
-  type TelenoWalletImportAccountParams = {
+  type TelenoWalletImportAccountParams = TelenoWalletRpcParams & {
     name?: string
     privateKey?: string
     password?: string
   }
 
-  type TelenoWalletImportWatchAccountParams = {
+  type TelenoWalletImportWatchAccountParams = TelenoWalletRpcParams & {
     name?: string
     address?: string
   }
 
-  type TelenoWalletRenameAccountParams = {
+  type TelenoWalletRenameAccountParams = TelenoWalletRpcParams & {
     accountId?: string
     name?: string
   }
 
-  type TelenoWalletRemoveAccountParams = {
+  type TelenoWalletRemoveAccountParams = TelenoWalletRpcParams & {
     accountId?: string
   }
 
@@ -978,6 +994,7 @@ declare global {
 
   type TelenoApi = {
     version: string
+    launchDefaults?: TelenoLaunchDefaults
     appConfig?: {
       loadPublicRpcUrls: () => Promise<TelenoPublicRpcConfigResult>
       savePublicRpcUrls: (params?: TelenoPublicRpcConfigParams) => Promise<TelenoPublicRpcConfigResult>
@@ -1003,6 +1020,7 @@ declare global {
       restoreBackupVerify: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       createBackup: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       nativeBackupDryRun: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupDryRunResult>
+      nativeBackupConfig: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupConfigResult>
       nativeBackupList: (settings?: TelenoNodeSettings & { remote?: boolean }) => Promise<TelenoNodeNativeBackupListResult>
       nativeBackupRestorePreflight: (settings?: TelenoNodeNativeBackupRestoreInput) => Promise<TelenoNodeNativeBackupPreflightResult>
       restoreNativeBackup: (settings?: TelenoNodeNativeBackupRestoreInput) => Promise<TelenoNodeBackupRestoreResult>
@@ -1066,11 +1084,11 @@ declare global {
       renameAccount: (params?: TelenoWalletRenameAccountParams) => Promise<TelenoWalletAccountMutationResult>
       removeAccount: (params?: TelenoWalletRemoveAccountParams) => Promise<TelenoWalletAccountMutationResult>
       unlock: (params?: TelenoWalletUnlockParams) => Promise<TelenoWalletUnlockResult>
-      closeWallet: () => Promise<TelenoWalletCloseResult>
-      deleteWallet: () => Promise<TelenoWalletDeleteResult>
+      closeWallet: (params?: TelenoWalletRpcParams) => Promise<TelenoWalletCloseResult>
+      deleteWallet: (params?: TelenoWalletRpcParams) => Promise<TelenoWalletDeleteResult>
       addressFromWif: (params?: TelenoWalletAddressParams) => Promise<TelenoWalletAddressResult>
       deriveFromSeed: (params?: TelenoWalletDeriveFromSeedParams) => Promise<TelenoWalletDeriveFromSeedResult>
-      showSeed: () => Promise<TelenoWalletShowSeedResult>
+      showSeed: (params?: TelenoWalletRpcParams) => Promise<TelenoWalletShowSeedResult>
       chainInfo: (params?: TelenoWalletRpcParams) => Promise<TelenoWalletChainInfoResult>
       block: (params?: TelenoWalletBlockParams) => Promise<TelenoWalletBlockResult>
       balance: (params?: TelenoWalletAddressQueryParams) => Promise<TelenoWalletBalanceResult>

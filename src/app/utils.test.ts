@@ -170,6 +170,57 @@ describe('node path and state helpers', () => {
     })
   })
 
+  it('uses launch node settings over stored node settings', () => {
+    withMockLocalStorage((store) => {
+      store.set(
+        NODE_NETWORK_BASEDIRS_STORAGE_KEY,
+        JSON.stringify({ testnet: '/tmp/stale-testnet/basedir' })
+      )
+      store.set(
+        NODE_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          network: 'mainnet',
+          repoPath: '/tmp/stale-repo',
+          baseDir: '~/.teleno',
+          profiles: 'mainnet_observer',
+          backup: { adminEnabled: false }
+        })
+      )
+      ;(window as unknown as { teleno: TelenoApi }).teleno = {
+        version: 'test',
+        launchDefaults: {
+          nodeSettings: {
+            network: 'testnet',
+            repoPath: '/Users/pgarcgo/code/teleno',
+            baseDir: '/Volumes/external/knodel-testnet-producer/basedir',
+            profiles: ['testnet_observer'],
+            backup: {
+              adminEnabled: true,
+              adminListen: '127.0.0.1:18088',
+              remoteEnabled: true,
+              remoteDirectory: '/srv/teleno-backups/testnet/teleno-dev/teleno-ux-testnet',
+              sshHost: 'testnet.koinosfoundation.org',
+              sshUser: 'teleno_backup'
+            }
+          }
+        }
+      }
+
+      expect(loadInitialNodeSettings()).toMatchObject({
+        network: 'testnet',
+        repoPath: '/Users/pgarcgo/code/teleno',
+        baseDir: '/Volumes/external/knodel-testnet-producer/basedir',
+        profiles: 'testnet_observer',
+        backup: {
+          adminEnabled: true,
+          remoteEnabled: true,
+          sshHost: 'testnet.koinosfoundation.org',
+          sshUser: 'teleno_backup'
+        }
+      })
+    })
+  })
+
   it('uses network-specific default node profiles', () => {
     expect(defaultNodeProfilesForNetwork('mainnet')).toBe('mainnet_observer')
     expect(defaultNodeProfilesForNetwork('testnet')).toBe('testnet_observer')

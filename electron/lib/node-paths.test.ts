@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import {
   blockProducerPublicKeyFilePath,
+  configDirPath,
+  configExampleDirPath,
   defaultBaseDirForNetwork,
   ensureKoinosBaseDir,
   managedFilePath,
@@ -81,6 +83,18 @@ describe('electron node paths', () => {
       scheduleEnabled: true,
       scheduleInterval: '12h',
       adminJobs: 16
+    })
+  })
+
+  it('migrates the old restricted testnet backup directory to the writable subtree', () => {
+    expect(
+      normalizeBackupSettings({
+        remoteEnabled: true,
+        remoteDirectory: '/srv/teleno-backups/testnet/teleno-ux-testnet'
+      })
+    ).toMatchObject({
+      remoteEnabled: true,
+      remoteDirectory: '/srv/teleno-backups/testnet/teleno-dev/teleno-ux-testnet'
     })
   })
 
@@ -161,5 +175,26 @@ describe('electron node paths', () => {
 
     expect(managedFilePath(settings, 'config')).toBe(path.join(repoPath, 'config', 'config.yml'))
     expect(blockProducerPublicKeyFilePath(settings)).toBe(path.join(repoPath, '.koinos', 'block_producer', 'public.key'))
+  })
+
+  it('uses vendored Koinos config resources when repoPath is the Teleno repo root', () => {
+    const repoPath = createTempDir('teleno-repo-root-')
+    const configDir = path.join(repoPath, 'vendor', 'koinos', 'koinos', 'config')
+    const configExampleDir = path.join(repoPath, 'vendor', 'koinos', 'koinos', 'config-example')
+    fs.mkdirSync(path.join(repoPath, 'node', 'teleno-node'), { recursive: true })
+    fs.mkdirSync(configDir, { recursive: true })
+    fs.mkdirSync(configExampleDir, { recursive: true })
+    fs.writeFileSync(path.join(repoPath, 'package.json'), '{"name":"teleno"}\n')
+    fs.writeFileSync(path.join(configDir, 'config.yml'), 'config\n')
+    fs.writeFileSync(path.join(configExampleDir, 'config.yml'), 'example\n')
+
+    const settings = {
+      repoPath,
+      baseDir: path.join(repoPath, '.koinos')
+    }
+
+    expect(configDirPath(settings)).toBe(configDir)
+    expect(configExampleDirPath(settings)).toBe(configExampleDir)
+    expect(managedFilePath(settings, 'config')).toBe(path.join(configDir, 'config.yml'))
   })
 })

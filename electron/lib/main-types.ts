@@ -113,6 +113,7 @@ export type ServiceStatus = {
   service: string
   runtimeName: string
   binaryPath?: string | null
+  configPath?: string | null
   logPath?: string | null
   version: string | null
   state: string
@@ -207,6 +208,7 @@ export type TelenoNodeNativeBackupDryRunResult = {
 
 export type TelenoNodeNativeBackupRestoreInput = TelenoNodeSettingsInput & {
   backupId?: string
+  backupSource?: 'local' | 'remote' | 'auto'
 }
 
 export type TelenoNodeNativeBackupRestoreSpace = {
@@ -244,6 +246,15 @@ export type TelenoNodeNativeBackupListResult = {
   workspaceDir?: string
   latestBackupId: string
   snapshots: TelenoNodeNativeBackupSnapshot[]
+}
+
+export type TelenoNodeNativeBackupConfigResult = {
+  ok: boolean
+  output: string
+  configPath?: string
+  repositoryDir?: string
+  workspaceDir?: string
+  backup?: TelenoNodeBackupSettings
 }
 
 export type TelenoNodeNativeBackupPreflightResult = {
@@ -654,6 +665,7 @@ export type TelenoNodeBackupProgressPhase =
   | 'restore'
   | 'compress'
   | 'save'
+  | 'upload'
   | 'start'
   | 'verify'
   | 'complete'
@@ -679,6 +691,7 @@ export type NativeServiceProcessState = {
   child: ChildProcessByStdio<null, Readable, Readable>
   runtimeName: string
   binaryPath?: string | null
+  configPath?: string | null
   logPath?: string | null
   cwd: string
   baseDir: string | null
@@ -814,6 +827,7 @@ export type TelenoProducerProfile = {
 export type WalletRpcInput = {
   network?: KoinosNetworkId
   rpcUrl?: string
+  baseDir?: string
 }
 
 export type WalletOverviewResult = {
@@ -842,8 +856,7 @@ export type WalletGenerateResult = {
   derivationPath: string | null
 }
 
-export type WalletImportInput = {
-  network?: KoinosNetworkId
+export type WalletImportInput = WalletRpcInput & {
   privateKey?: string
   password?: string
   seedPhrase?: string
@@ -871,8 +884,7 @@ export type WalletCloseResult = {
   unlocked: boolean
 }
 
-export type WalletUnlockInput = {
-  network?: KoinosNetworkId
+export type WalletUnlockInput = WalletRpcInput & {
   password?: string
 }
 

@@ -93,15 +93,15 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
     const copied: string[] = []
     const preserved: string[] = []
     for (const { sourceName, targetPath, preserveExisting } of mappings) {
+      if (preserveExisting && fs.existsSync(targetPath)) {
+        preserved.push(path.relative(settings.baseDir, targetPath))
+        continue
+      }
       const sourcePath = path.join(cfgDir, sourceName)
       if (!fs.existsSync(sourcePath)) {
         throw new Error(`Missing config source for runtime file: ${sourcePath}`)
       }
       fs.mkdirSync(path.dirname(targetPath), { recursive: true })
-      if (preserveExisting && fs.existsSync(targetPath)) {
-        preserved.push(path.relative(settings.baseDir, targetPath))
-        continue
-      }
       fs.copyFileSync(sourcePath, targetPath)
       copied.push(path.relative(settings.baseDir, targetPath))
     }

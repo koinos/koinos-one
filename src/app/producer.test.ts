@@ -5,6 +5,7 @@ import {
   hasRuntimeProducerIdentity,
   isProducerActivelyProducingFromLogs,
   isProducerSetupComplete,
+  resolveConfiguredProducerAddress,
   resolveProducerDisplayAddress,
   resolveProducerTargetAddress
 } from './producer'
@@ -47,6 +48,32 @@ describe('producer setup helpers', () => {
       configuredAddress: '',
       signingWalletAddress: ' 1WalletProducer '
     })).toBe('1WalletProducer')
+  })
+
+  it('prefers runtime config over stale producer profile data', () => {
+    expect(resolveConfiguredProducerAddress({
+      runtimeConfigAddress: '1RuntimeProducer',
+      overviewAddress: '1RequestedProducer',
+      overviewAddressSource: 'request',
+      profileAddress: '1OldProfileProducer',
+      fallbackAddress: '1WalletProducer'
+    })).toBe('1RuntimeProducer')
+
+    expect(resolveConfiguredProducerAddress({
+      runtimeConfigAddress: '',
+      overviewAddress: '1ConfigProducer',
+      overviewAddressSource: 'config',
+      profileAddress: '1OldProfileProducer',
+      fallbackAddress: '1WalletProducer'
+    })).toBe('1ConfigProducer')
+
+    expect(resolveConfiguredProducerAddress({
+      runtimeConfigAddress: '',
+      overviewAddress: '1RequestedProducer',
+      overviewAddressSource: 'request',
+      profileAddress: '1OldProfileProducer',
+      fallbackAddress: '1WalletProducer'
+    })).toBe('1OldProfileProducer')
   })
 
   it('detects read-only runtime producer identity without a GUI wallet', () => {

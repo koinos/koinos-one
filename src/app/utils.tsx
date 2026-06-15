@@ -372,6 +372,14 @@ function numberValue(value: unknown, fallback: number, min: number, max: number)
   return clamp(Number.isFinite(parsed) ? parsed : fallback, min, max)
 }
 
+function normalizeBackupRemoteDirectory(value: unknown): string {
+  const directory = stringValue(value, DEFAULT_NODE_BACKUP_SETTINGS.remoteDirectory)
+  if (directory === '/srv/teleno-backups/testnet/teleno-ux-testnet') {
+    return '/srv/teleno-backups/testnet/teleno-dev/teleno-ux-testnet'
+  }
+  return directory
+}
+
 export function normalizeNodeBackupSettings(input?: Partial<NodeBackupSettings> | null): NodeBackupSettings {
   const value = input && typeof input === 'object' ? input : {}
   return {
@@ -380,7 +388,7 @@ export function normalizeNodeBackupSettings(input?: Partial<NodeBackupSettings> 
     workspace: stringValue(value.workspace, DEFAULT_NODE_BACKUP_SETTINGS.workspace),
     localRetentionCount: numberValue(value.localRetentionCount, DEFAULT_NODE_BACKUP_SETTINGS.localRetentionCount, 1, 365),
     remoteEnabled: value.remoteEnabled === true,
-    remoteDirectory: stringValue(value.remoteDirectory, DEFAULT_NODE_BACKUP_SETTINGS.remoteDirectory),
+    remoteDirectory: normalizeBackupRemoteDirectory(value.remoteDirectory),
     remoteRetentionCount: numberValue(value.remoteRetentionCount, DEFAULT_NODE_BACKUP_SETTINGS.remoteRetentionCount, 1, 365),
     remoteRetentionDays: numberValue(value.remoteRetentionDays, DEFAULT_NODE_BACKUP_SETTINGS.remoteRetentionDays, 1, 3650),
     uploadTempSuffix: stringValue(value.uploadTempSuffix, DEFAULT_NODE_BACKUP_SETTINGS.uploadTempSuffix) || '.partial',
@@ -422,46 +430,118 @@ export function sameNodeBackupSettings(a: NodeBackupSettings, b: NodeBackupSetti
   return JSON.stringify(normalizeNodeBackupSettings(a)) === JSON.stringify(normalizeNodeBackupSettings(b))
 }
 
+type InitialNodeSettingsInput = {
+  network?: unknown
+  repoPath?: unknown
+  baseDir?: unknown
+  profiles?: unknown
+  blockchainBackupUrl?: unknown
+  backup?: Partial<NodeBackupSettings> | null
+}
+
+function normalizeInitialNodeSettings(
+  input?: InitialNodeSettingsInput | null,
+  options: { preferInputBaseDir?: boolean } = {}
+): NodeManagerSettings {
+  const parsed = input && typeof input === 'object' ? input : {}
+  const rawProfiles =
+    Array.isArray(parsed.profiles)
+      ? expandNodeProfiles(parsed.profiles.filter((profile): profile is string => typeof profile === 'string')).join(',')
+      : typeof parsed.profiles === 'string'
+        ? expandNodeProfiles(parseProfilesCsv(parsed.profiles)).join(',')
+        : ''
+  const storedNetwork = parsed.network
+  const network = storedNetwork
+    ? normalizeKoinosNetworkId(storedNetwork)
+    : rawProfiles.split(',').some((profile) => profile.trim().startsWith('testnet_'))
+      ? 'testnet'
+      : DEFAULT_NODE_SETTINGS.network
+  const profiles = rawProfiles || defaultNodeProfilesForNetwork(network)
+  const parsedBaseDir =
+    typeof parsed.baseDir === 'string' && parsed.baseDir.trim()
+      ? parsed.baseDir
+      : defaultNodeBaseDirForNetwork(network)
+  const baseDir =
+    options.preferInputBaseDir && parsedBaseDir
+      ? normalizeNodeBaseDirInput(parsedBaseDir)
+      : resolveNodeBaseDirForNetwork(network, parsedBaseDir)
+  return {
+    network,
+    repoPath:
+      typeof parsed.repoPath === 'string' && parsed.repoPath.trim()
+        ? parsed.repoPath
+        : DEFAULT_NODE_SETTINGS.repoPath,
+    baseDir,
+    profiles,
+    blockchainBackupUrl:
+      typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
+        ? parsed.blockchainBackupUrl
+        : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
+    backup: normalizeNodeBackupSettings(parsed.backup)
+  }
+}
+
+function readLaunchNodeSettingsOverride(): InitialNodeSettingsInput | null {
+  try {
+    const nodeSettings = window.teleno?.launchDefaults?.nodeSettings
+    return nodeSettings && typeof nodeSettings === 'object' ? nodeSettings : null
+  } catch {
+    return null
+  }
+}
+
+function applyLaunchNodeSettingsOverride(settings: NodeManagerSettings): NodeManagerSettings {
+  const override = readLaunchNodeSettingsOverride()
+  if (!override) return settings
+
+  const overrideNetwork = override.network ? normalizeKoinosNetworkId(override.network) : null
+  const hasProfiles =
+    (typeof override.profiles === 'string' && override.profiles.trim().length > 0) ||
+    (Array.isArray(override.profiles) && override.profiles.some((profile) => typeof profile === 'string' && profile.trim()))
+  const hasBaseDir = typeof override.baseDir === 'string' && override.baseDir.trim().length > 0
+  const networkChanged = Boolean(overrideNetwork && overrideNetwork !== settings.network)
+  const overrideBackup = override.backup && typeof override.backup === 'object' ? override.backup : {}
+
+  return normalizeInitialNodeSettings(
+    {
+      ...settings,
+      ...override,
+      profiles: hasProfiles
+        ? override.profiles
+        : networkChanged && overrideNetwork
+          ? defaultNodeProfilesForNetwork(overrideNetwork)
+          : settings.profiles,
+      baseDir: hasBaseDir
+        ? override.baseDir
+        : networkChanged && overrideNetwork
+          ? defaultNodeBaseDirForNetwork(overrideNetwork)
+          : settings.baseDir,
+      backup: {
+        ...settings.backup,
+        ...overrideBackup
+      }
+    },
+    { preferInputBaseDir: hasBaseDir }
+  )
+}
+
 export function loadInitialNodeSettings(): NodeManagerSettings {
+  let settings = normalizeInitialNodeSettings()
+
   try {
     const raw = getStoredItemWithLegacyFallback(
       window.localStorage,
       NODE_SETTINGS_STORAGE_KEY,
       LEGACY_NODE_SETTINGS_STORAGE_KEY
     )
-    if (!raw) return { ...DEFAULT_NODE_SETTINGS, backup: normalizeNodeBackupSettings(DEFAULT_NODE_SETTINGS.backup) }
-    const parsed = JSON.parse(raw) as Partial<NodeManagerSettings>
-    const rawProfiles =
-      typeof parsed.profiles === 'string'
-        ? expandNodeProfiles(parseProfilesCsv(parsed.profiles)).join(',')
-        : ''
-    const storedNetwork = (parsed as { network?: unknown }).network
-    const network = storedNetwork
-      ? normalizeKoinosNetworkId(storedNetwork)
-      : rawProfiles.split(',').some((profile) => profile.trim().startsWith('testnet_'))
-        ? 'testnet'
-        : DEFAULT_NODE_SETTINGS.network
-    const profiles = rawProfiles || defaultNodeProfilesForNetwork(network)
-    const parsedBaseDir =
-      typeof parsed.baseDir === 'string' && parsed.baseDir.trim() ? parsed.baseDir : defaultNodeBaseDirForNetwork(network)
-    const baseDir = resolveNodeBaseDirForNetwork(network, parsedBaseDir)
-    return {
-      network,
-      repoPath:
-        typeof parsed.repoPath === 'string' && parsed.repoPath.trim()
-          ? parsed.repoPath
-          : DEFAULT_NODE_SETTINGS.repoPath,
-      baseDir,
-      profiles,
-      blockchainBackupUrl:
-        typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
-          ? parsed.blockchainBackupUrl
-          : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
-      backup: normalizeNodeBackupSettings(parsed.backup)
+    if (raw) {
+      settings = normalizeInitialNodeSettings(JSON.parse(raw) as InitialNodeSettingsInput)
     }
   } catch {
-    return { ...DEFAULT_NODE_SETTINGS, backup: normalizeNodeBackupSettings(DEFAULT_NODE_SETTINGS.backup) }
+    // Keep default settings when localStorage is unavailable or invalid.
   }
+
+  return applyLaunchNodeSettingsOverride(settings)
 }
 
 type NodeBaseDirsByNetwork = Partial<Record<KoinosNetworkId, string>>

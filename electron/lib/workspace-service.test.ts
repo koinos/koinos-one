@@ -84,4 +84,27 @@ describe('workspace-service', () => {
     expect(fs.readFileSync(path.join(baseDir, 'chain', 'genesis_data.json'), 'utf8')).toBe('{"chain":"existing"}\n')
     expect(fs.readFileSync(path.join(baseDir, 'jsonrpc', 'descriptors', 'koinos_descriptors.pb'), 'utf8')).toBe('existing-pb\n')
   })
+
+  it('does not require repo config sources when BASEDIR already has runtime identity files', () => {
+    const repoPath = makeTempDir()
+    const baseDir = path.join(repoPath, 'basedir')
+    fs.mkdirSync(path.join(baseDir, 'chain'), { recursive: true })
+    fs.mkdirSync(path.join(baseDir, 'jsonrpc', 'descriptors'), { recursive: true })
+    fs.writeFileSync(path.join(baseDir, 'config.yml'), 'existing-config\n')
+    fs.writeFileSync(path.join(baseDir, 'chain', 'genesis_data.json'), '{"chain":"existing"}\n')
+    fs.writeFileSync(path.join(baseDir, 'jsonrpc', 'descriptors', 'koinos_descriptors.pb'), 'existing-pb\n')
+
+    const service = createService()
+    const output = service.ensureBaseDirKoinosRuntimeFiles(
+      normalizeNodeSettings({
+        repoPath,
+        baseDir
+      })
+    )
+
+    expect(output).toContain('Preserved existing BASEDIR runtime files: config.yml')
+    expect(output).toContain('chain/genesis_data.json')
+    expect(output).toContain('jsonrpc/descriptors/koinos_descriptors.pb')
+    expect(fs.existsSync(path.join(repoPath, 'config'))).toBe(false)
+  })
 })

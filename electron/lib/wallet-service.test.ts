@@ -22,7 +22,9 @@ afterEach(() => {
   }
 })
 
-function createWalletTestService() {
+function createWalletTestService(options?: {
+  updateConfigProducerAddress?: (address: string, input?: { network?: string; baseDir?: string }) => string | null
+}) {
   const storage = createTelenoStorage(createTempDir('wallet-service-'))
 
   return {
@@ -52,7 +54,8 @@ function createWalletTestService() {
       },
       formatWholeUnits: () => null,
       safeIsChecksumAddress: () => true,
-      loadProducerProfile: () => null
+      loadProducerProfile: () => null,
+      updateConfigProducerAddress: options?.updateConfigProducerAddress
     })
   }
 }
@@ -137,5 +140,56 @@ describe('wallet-service helpers', () => {
     const removeResult = await service.walletRemoveAccount({ accountId: importedWatch.account?.id || '' })
     expect(removeResult.ok).toBe(true)
     expect(removeResult.accounts).toHaveLength(2)
+  })
+
+  it('syncs non-mainnet private-key wallet account changes to the runtime producer config', async () => {
+    const updates: Array<{ address: string; network?: string; baseDir?: string }> = []
+    const { service } = createWalletTestService({
+      updateConfigProducerAddress: (address, input) => {
+        updates.push({ address, network: input?.network, baseDir: input?.baseDir })
+        return `${input?.baseDir || '/tmp/teleno'}/config.yml`
+      }
+    })
+    const seedPhrase = 'test test test test test test test test test test test junk'
+    const [firstAccount] = deriveWalletAccountsFromSeed(seedPhrase, 1)
+
+    const importResult = await service.walletImport({
+      privateKey: firstAccount.privateKeyWif,
+      password: 'secret-password',
+      seedPhrase,
+      derivationPath: firstAccount.derivationPath,
+      network: 'testnet',
+      baseDir: '/tmp/testnet-basedir'
+    })
+    expect(importResult.ok).toBe(true)
+    expect(importResult.output).toContain('/tmp/testnet-basedir/config.yml')
+    expect(updates).toEqual([
+      {
+        address: firstAccount.address,
+        network: 'testnet',
+        baseDir: '/tmp/testnet-basedir'
+      }
+    ])
+
+    const derived = await service.walletCreateDerivedAccount({
+      name: 'Producer 2',
+      network: 'testnet',
+      baseDir: '/tmp/testnet-basedir'
+    })
+    expect(derived.ok).toBe(true)
+    expect(updates.at(-1)).toMatchObject({
+      address: derived.account?.address,
+      network: 'testnet',
+      baseDir: '/tmp/testnet-basedir'
+    })
+
+    const beforeMainnetImportCount = updates.length
+    await service.walletImport({
+      privateKey: firstAccount.privateKeyWif,
+      password: 'secret-password',
+      network: 'mainnet',
+      baseDir: '/tmp/mainnet-basedir'
+    })
+    expect(updates).toHaveLength(beforeMainnetImportCount)
   })
 })

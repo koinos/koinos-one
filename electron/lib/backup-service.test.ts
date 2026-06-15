@@ -207,6 +207,94 @@ foo
     expect(fs.existsSync(workspaceDir)).toBe(true)
   })
 
+  it('loads native backup settings from the generated config', async () => {
+    const root = makeTempDir()
+    const repositoryDir = path.join(root, 'repository')
+    const workspaceDir = path.join(root, 'workspace')
+    const passwordFile = path.join(root, 'backup.pass')
+    const knownHostsFile = path.join(root, 'known_hosts')
+    const tokenFile = path.join(root, 'admin.token')
+    fs.writeFileSync(passwordFile, 'secret\n')
+    fs.writeFileSync(knownHostsFile, 'testnet.koinosfoundation.org ssh-ed25519 AAAA\n')
+
+    const settings = nodeSettings({
+      backup: backupSettings({
+        localDirectory: repositoryDir,
+        workspace: workspaceDir,
+        localRetentionCount: 4,
+        remoteEnabled: true,
+        remoteDirectory: '/srv/teleno-backups/testnet/node-1',
+        remoteRetentionCount: 10,
+        remoteRetentionDays: 60,
+        uploadTempSuffix: '.incoming',
+        sshHost: 'testnet.koinosfoundation.org',
+        sshPort: 2200,
+        sshUser: 'teleno_backup',
+        sshAuth: 'password-file',
+        sshPasswordFile: passwordFile,
+        sshKnownHostsFile: knownHostsFile,
+        sshStrictHostKeyChecking: false,
+        sshConnectTimeoutSeconds: 25,
+        scheduleEnabled: true,
+        scheduleInterval: '8h',
+        scheduleRunOnStartupIfMissed: false,
+        scheduleJitterSeconds: 90,
+        scheduleMinimumHeadProgress: 3,
+        scheduleSkipIfSyncingFromGenesis: false,
+        adminEnabled: true,
+        adminListen: '127.0.0.1:18090',
+        adminTokenFile: tokenFile,
+        adminJobs: 3
+      })
+    })
+    const written = writeNativeBackupConfig(settings)
+
+    const service = createBackupService({
+      normalizeNodeSettings: () => ({
+        ...settings,
+        backup: backupSettings()
+      }),
+      assertRepoReady: () => {},
+      runCommand: async () => ({ ok: true, code: 0, output: '' })
+    } as any)
+
+    const result = await service.nativeBackupConfig(undefined)
+
+    expect(result.ok).toBe(true)
+    expect(result.configPath).toBe(written.configPath)
+    expect(result.repositoryDir).toBe(repositoryDir)
+    expect(result.workspaceDir).toBe(workspaceDir)
+    expect(result.backup).toMatchObject({
+      localEnabled: true,
+      localDirectory: repositoryDir,
+      workspace: workspaceDir,
+      localRetentionCount: 4,
+      remoteEnabled: true,
+      remoteDirectory: '/srv/teleno-backups/testnet/node-1',
+      remoteRetentionCount: 10,
+      remoteRetentionDays: 60,
+      uploadTempSuffix: '.incoming',
+      sshHost: 'testnet.koinosfoundation.org',
+      sshPort: 2200,
+      sshUser: 'teleno_backup',
+      sshAuth: 'password-file',
+      sshPasswordFile: passwordFile,
+      sshKnownHostsFile: knownHostsFile,
+      sshStrictHostKeyChecking: false,
+      sshConnectTimeoutSeconds: 25,
+      scheduleEnabled: true,
+      scheduleInterval: '8h',
+      scheduleRunOnStartupIfMissed: false,
+      scheduleJitterSeconds: 90,
+      scheduleMinimumHeadProgress: 3,
+      scheduleSkipIfSyncingFromGenesis: false,
+      adminEnabled: true,
+      adminListen: '127.0.0.1:18090',
+      adminTokenFile: tokenFile,
+      adminJobs: 3
+    })
+  })
+
   it('auto-generates a native backup admin token file when admin is enabled without a custom path', () => {
     const settings = nodeSettings({
       backup: backupSettings({
@@ -274,9 +362,197 @@ foo
       'http://127.0.0.1:18088/admin/backup/create',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ authorization: 'Bearer secret-token' })
+        headers: expect.objectContaining({ authorization: 'Bearer secret-token' }),
+        body: JSON.stringify({ remote: false })
       })
     )
+  })
+
+  it('uses the running-node admin API for native backup lists when available', async () => {
+    const root = makeTempDir()
+    const tokenFile = path.join(root, 'admin.token')
+    fs.writeFileSync(tokenFile, 'secret-token\n')
+    const settings = nodeSettings({
+      backup: backupSettings({
+        adminEnabled: true,
+        adminListen: '127.0.0.1:18088',
+        adminTokenFile: tokenFile,
+        remoteEnabled: true,
+        remoteDirectory: '/srv/teleno-backups/testnet/node-1'
+      })
+    })
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        ok: true,
+        source: 'remote_sftp',
+        snapshots: {
+          latest_backup_id: 'backup-remote-1',
+          snapshot_count: 1,
+          snapshots: [{
+            backup_id: 'backup-remote-1',
+            latest: true,
+            complete: true,
+            total_bytes: 4096
+          }]
+        }
+      })
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      telenoNodeStatus: async () => ({
+        services: [{ managedByTeleno: true, state: 'running', status: 'running' }]
+      }),
+      runCommand: vi.fn()
+    } as any)
+
+    const result = await service.nativeBackupList({ ...settings, remote: true } as any)
+
+    expect(result.ok).toBe(true)
+    expect(result.source).toBe('remote')
+    expect(result.latestBackupId).toBe('backup-remote-1')
+    expect(result.snapshots).toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:18088/admin/backup/snapshots/remote',
+      expect.objectContaining({ method: 'GET' })
+    )
+  })
+
+  it('uses the running-node admin API for native backup restore preflight when available', async () => {
+    const root = makeTempDir()
+    const tokenFile = path.join(root, 'admin.token')
+    fs.writeFileSync(tokenFile, 'secret-token\n')
+    const settings = nodeSettings({
+      backup: backupSettings({
+        adminEnabled: true,
+        adminListen: '127.0.0.1:18088',
+        adminTokenFile: tokenFile
+      })
+    })
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        ok: true,
+        preflight: {
+          backup_id: 'backup-1',
+          ready_to_restore: true,
+          snapshot_complete: true,
+          file_count: 12,
+          missing_object_count: 0,
+          missing_object_bytes: 0,
+          restore_space: {
+            restored_database_bytes: 1024,
+            runtime_files_bytes: 10,
+            object_download_bytes: 0,
+            minimum_target_free_bytes: 2048,
+            recommended_target_free_bytes: 4096
+          },
+          space_check: {
+            passes_minimum: true,
+            below_recommended: false,
+            available_bytes: 8192,
+            target_path: settings.baseDir,
+            message: 'ok'
+          }
+        }
+      })
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      telenoNodeStatus: async () => ({
+        services: [{ managedByTeleno: true, state: 'running', status: 'running' }]
+      }),
+      runCommand: vi.fn()
+    } as any)
+
+    const result = await service.nativeBackupRestorePreflight({ ...settings, backupId: 'backup-1' } as any)
+
+    expect(result.ok).toBe(true)
+    expect(result.backupId).toBe('backup-1')
+    expect(result.readyToRestore).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:18088/admin/backup/restore/preflight',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ backup_id: 'backup-1' })
+      })
+    )
+  })
+
+  it('does not fetch SFTP data when restoring a selected local native backup through the admin API', async () => {
+    const root = makeTempDir()
+    const tokenFile = path.join(root, 'admin.token')
+    fs.writeFileSync(tokenFile, 'secret-token\n')
+    const settings = nodeSettings({
+      backup: backupSettings({
+        adminEnabled: true,
+        adminListen: '127.0.0.1:18088',
+        adminTokenFile: tokenFile,
+        remoteEnabled: true,
+        remoteDirectory: '/srv/teleno-backups/testnet/node-1'
+      })
+    })
+    const routes: string[] = []
+    const fetchMock = vi.fn(async (url: string) => {
+      const route = new URL(url).pathname
+      routes.push(route)
+      if (route === '/admin/backup/restore/fetch') {
+        throw new Error('local restore must not fetch remote backup data')
+      }
+      const payload = route === '/admin/backup/restore/preflight'
+        ? {
+            ok: true,
+            preflight: {
+              backup_id: 'backup-1',
+              ready_to_restore: true,
+              snapshot_complete: true,
+              file_count: 12,
+              missing_object_count: 0,
+              missing_object_bytes: 0,
+              restore_space: {
+                restored_database_bytes: 1024,
+                runtime_files_bytes: 10,
+                object_download_bytes: 0,
+                minimum_target_free_bytes: 2048,
+                recommended_target_free_bytes: 4096
+              },
+              space_check: {
+                passes_minimum: true,
+                below_recommended: false,
+                available_bytes: 8192,
+                target_path: settings.baseDir,
+                message: 'ok'
+              }
+            }
+          }
+        : { ok: true }
+      return { ok: true, text: async () => JSON.stringify(payload) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      telenoNodeStatus: async () => ({
+        services: [{ managedByTeleno: true, state: 'running', status: 'running' }]
+      }),
+      runCommand: vi.fn()
+    } as any)
+
+    const result = await service.restoreNativeBackup({ ...settings, backupId: 'backup-1', backupSource: 'local' } as any, { send: vi.fn() } as any)
+
+    expect(result.ok).toBe(true)
+    expect(routes).toEqual([
+      '/admin/backup/restore/preflight',
+      '/admin/backup/restore/stage',
+      '/admin/backup/restore/activate'
+    ])
   })
 
   it('uses the remote native backup list command when requested', async () => {

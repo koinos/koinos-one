@@ -25,11 +25,13 @@ The first slice of `Backup Listing, Selection, And Verification` is implemented:
 
 - `teleno_node --backup-list --backup-json` lists completed local repository snapshots without opening RocksDB.
 - `teleno_node --backup-list-remote --backup-json` fetches completed remote snapshot metadata into the local repository cache and lists those snapshots without opening RocksDB.
+- `teleno_node --backup-delete --backup-json --backup-id <backup-id> --backup-scope local|remote|both` dry-runs exact-ID backup deletion, and `--backup-delete-confirm <backup-id>` executes it. Local and remote deletion both recompute `latest.json` and garbage-collect only objects not referenced by remaining snapshots.
 - `--backup-id <backup-id>` selects a local snapshot for restore preflight, stage, and full restore.
 - `--backup-id <backup-id>` also selects a remote snapshot for `--backup-restore-fetch` and `--backup-restore` when `backup.remote.enabled=true`.
 - Electron exposes `nativeBackupList` and `restoreNativeBackup` IPC/preload calls.
 - Settings > Backup can refresh local snapshots, refresh remote snapshot metadata, select a backup ID, and restore the selected snapshot.
 - C++ snapshot tests cover local listing and selected preflight.
+- C++ snapshot tests cover local exact-ID delete, latest recompute, and unreferenced object garbage collection. Remote delete uses the native libssh SFTP path and has live dry-run validation; UX delete integration remains pending.
 
 The first slice of `UX Runtime Admin API Integration` is implemented:
 
@@ -111,7 +113,8 @@ Operators should see available backups and choose a specific backup, not only `l
   - list local snapshots;
   - list remote snapshots;
   - verify a selected backup;
-  - select by backup ID or `latest`.
+  - select by backup ID or `latest`;
+  - dry-run and confirmed exact-ID delete for local and remote snapshots.
 - Add JSON output for list/verify commands.
 - Show backup metadata in UX:
   - backup ID;

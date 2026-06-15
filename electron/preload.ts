@@ -6,8 +6,25 @@ const BACKUP_PROGRESS_EVENT_CHANNEL = 'teleno:node:backup-progress:event'
 // Read version via IPC from main process (preload can't require package.json reliably)
 const appVersion = ipcRenderer.sendSync('teleno:app-version') || '0.10.1'
 
+type LaunchDefaults = {
+  nodeSettings?: Record<string, unknown>
+}
+
+function parseLaunchDefaults(): LaunchDefaults {
+  const rawNodeSettings = process.env.TELENO_LAUNCH_NODE_SETTINGS_JSON
+  if (!rawNodeSettings) return {}
+
+  try {
+    const nodeSettings = JSON.parse(rawNodeSettings) as Record<string, unknown>
+    return nodeSettings && typeof nodeSettings === 'object' ? { nodeSettings } : {}
+  } catch {
+    return {}
+  }
+}
+
 contextBridge.exposeInMainWorld('teleno', {
   version: appVersion,
+  launchDefaults: parseLaunchDefaults(),
   appConfig: {
     loadPublicRpcUrls: () => ipcRenderer.invoke('teleno:app-config:public-rpcs:load'),
     savePublicRpcUrls: (params?: unknown) => ipcRenderer.invoke('teleno:app-config:public-rpcs:save', params)
@@ -31,6 +48,7 @@ contextBridge.exposeInMainWorld('teleno', {
     restoreBackupVerify: (settings?: unknown) => ipcRenderer.invoke('teleno:node:restore-backup-verify', settings),
     createBackup: (settings?: unknown) => ipcRenderer.invoke('teleno:node:create-backup', settings),
     nativeBackupDryRun: (settings?: unknown) => ipcRenderer.invoke('teleno:node:native-backup-dry-run', settings),
+    nativeBackupConfig: (settings?: unknown) => ipcRenderer.invoke('teleno:node:native-backup-config', settings),
     nativeBackupList: (settings?: unknown) => ipcRenderer.invoke('teleno:node:native-backup-list', settings),
     nativeBackupRestorePreflight: (settings?: unknown) => ipcRenderer.invoke('teleno:node:native-backup-restore-preflight', settings),
     restoreNativeBackup: (settings?: unknown) => ipcRenderer.invoke('teleno:node:restore-native-backup', settings),
@@ -87,11 +105,11 @@ contextBridge.exposeInMainWorld('teleno', {
     renameAccount: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:rename-account', params),
     removeAccount: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:remove-account', params),
     unlock: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:unlock', params),
-    closeWallet: () => ipcRenderer.invoke('teleno:wallet:close'),
-    deleteWallet: () => ipcRenderer.invoke('teleno:wallet:delete'),
+    closeWallet: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:close', params),
+    deleteWallet: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:delete', params),
     addressFromWif: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:address-from-wif', params),
     deriveFromSeed: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:derive-from-seed', params),
-    showSeed: () => ipcRenderer.invoke('teleno:wallet:show-seed'),
+    showSeed: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:show-seed', params),
     chainInfo: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:chain-info', params),
     block: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:block', params),
     balance: (params?: unknown) => ipcRenderer.invoke('teleno:wallet:balance', params),

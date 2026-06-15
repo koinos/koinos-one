@@ -23,6 +23,8 @@ export function ProducerPanel(props: ProducerPanelProps) {
     producerVaultExists,
     producerVaultUnlocked,
     producerRegisterDisabled,
+    producerConfiguredWalletMismatch,
+    producerReconfigureDisabled,
     producerRegisterHintClass,
     producerRegisterHintText,
     producerRegisterActionText,
@@ -202,6 +204,33 @@ export function ProducerPanel(props: ProducerPanelProps) {
           {showNoVhpNotice && (
             <div className="node-warning" role="note">
               {t('producer.noVhpNotice')}
+            </div>
+          )}
+
+          {producerConfiguredWalletMismatch && signingWalletAddress && (
+            <div className="node-warning producer-wallet-mismatch" role="note">
+              <div>
+                <strong>{t('producer.walletMismatchTitle')}</strong>
+                <p>
+                  {t('producer.walletMismatchDescription', {
+                    producer: producerConfiguredAddress || t('common.na'),
+                    wallet: signingWalletAddress
+                  })}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  void registerNodeProducer(signingWalletAddress)
+                }}
+                disabled={producerReconfigureDisabled}
+                title={t('producer.walletMismatchActionHelp')}
+              >
+                {nodeProducerActionLoading === 'register'
+                  ? t('producer.registering')
+                  : t('producer.reconfigureAction')}
+              </button>
             </div>
           )}
 
