@@ -172,7 +172,8 @@ Security behavior:
 
 - Backup admin binds only to loopback addresses.
 - Backup admin requires a bearer token loaded from `backup.admin.token-file`.
-- Enabling admin without a readable non-empty token file fails closed.
+- If UX enables backup admin with no custom token path, Electron generates a random `0600` token at `<basedir>/.teleno-native-backups/admin.token` and writes that path into the generated native backup config.
+- Enabling admin with a configured but unreadable or empty token file fails closed.
 - Public Koinos JSON-RPC exposes no backup or restore methods.
 
 ## Scheduler
@@ -225,7 +226,7 @@ Current UX behavior:
 - The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.
 - Remote SFTP settings are configured from UX fields for host, port, user, auth method, credential file paths, known hosts, strict host-key checking, remote directory, retention, and upload temp suffix.
 - Scheduler settings are configured from UX fields for enabled state, interval, startup catch-up, jitter, minimum head progress, and genesis-sync skipping.
-- Backup admin settings are configured from UX fields for enabled state, loopback listen address, token file, and job count.
+- Backup admin settings are configured from UX fields for enabled state, loopback listen address, optional token file, and job count.
 - The UX validates obvious mistakes before saving: missing remote host/user, non-absolute remote directory, missing private-key/password file for the selected auth method, invalid scheduler interval, and missing admin token file when admin is enabled.
 - The UX stores credential references as file paths only. It does not store raw SSH passwords in localStorage or generated YAML.
 - `TELENO_BACKUP_*` environment variables still work as an explicit developer override when set.

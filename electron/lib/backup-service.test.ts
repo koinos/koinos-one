@@ -207,6 +207,24 @@ foo
     expect(fs.existsSync(workspaceDir)).toBe(true)
   })
 
+  it('auto-generates a native backup admin token file when admin is enabled without a custom path', () => {
+    const settings = nodeSettings({
+      backup: backupSettings({
+        adminEnabled: true,
+        adminTokenFile: ''
+      })
+    })
+
+    const result = writeNativeBackupConfig(settings)
+    const doc = parseDocument(fs.readFileSync(result.configPath, 'utf8'))
+    const tokenFile = path.join(settings.baseDir, '.teleno-native-backups', 'admin.token')
+    const token = fs.readFileSync(tokenFile, 'utf8').trim()
+
+    expect(doc.getIn(['backup', 'admin', 'enabled'])).toBe(true)
+    expect(doc.getIn(['backup', 'admin', 'token-file'])).toBe(tokenFile)
+    expect(token).toMatch(/^[0-9a-f]{64}$/)
+  })
+
   it('creates a running-node local backup through the native admin API when enabled', async () => {
     const root = makeTempDir()
     const tokenFile = path.join(root, 'admin.token')

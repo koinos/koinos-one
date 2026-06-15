@@ -792,6 +792,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   type="text"
                   value={draftNodeBackup.adminTokenFile}
                   onChange={(event) => updateBackup({ adminTokenFile: event.target.value })}
+                  placeholder="Auto-generated if empty"
                   disabled={nodeBusy || !draftNodeBackup.adminEnabled}
                 />
               </label>

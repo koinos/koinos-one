@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -199,6 +199,26 @@ function nativeBackupConfigPath(baseDir: string): string {
   return path.join(baseDir, NATIVE_BACKUP_DIR, 'teleno-native-backup-config.yml')
 }
 
+function nativeBackupAdminTokenPath(baseDir: string): string {
+  return path.join(baseDir, NATIVE_BACKUP_DIR, 'admin.token')
+}
+
+function ensureNativeBackupAdminTokenFile(baseDir: string, requestedPath: string): string {
+  const tokenPath = expandBackupFilePath(requestedPath) || nativeBackupAdminTokenPath(baseDir)
+  if (fs.existsSync(tokenPath)) {
+    const existing = fs.readFileSync(tokenPath, 'utf8').trim()
+    if (existing) {
+      try { fs.chmodSync(tokenPath, 0o600) } catch { /* best effort */ }
+      return tokenPath
+    }
+  }
+
+  fs.mkdirSync(path.dirname(tokenPath), { recursive: true })
+  fs.writeFileSync(tokenPath, `${randomBytes(32).toString('hex')}\n`, { encoding: 'utf8', mode: 0o600 })
+  try { fs.chmodSync(tokenPath, 0o600) } catch { /* best effort */ }
+  return tokenPath
+}
+
 function envFlagEnabled(value: string | undefined): boolean {
   const normalized = `${value || ''}`.trim().toLowerCase()
   return normalized === '1' || normalized === 'true' || normalized === 'yes'
@@ -273,7 +293,9 @@ export function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   const sshPasswordFile = expandBackupFilePath(backup.sshPasswordFile)
   const sshPassphraseFile = expandBackupFilePath(backup.sshPassphraseFile)
   const sshKnownHostsFile = expandBackupFilePath(backup.sshKnownHostsFile)
-  const adminTokenFile = expandBackupFilePath(backup.adminTokenFile)
+  const adminTokenFile = backup.adminEnabled
+    ? ensureNativeBackupAdminTokenFile(settings.baseDir, backup.adminTokenFile)
+    : expandBackupFilePath(backup.adminTokenFile)
   const sourceConfigPath = path.join(settings.baseDir, 'config.yml')
   const raw = fs.existsSync(sourceConfigPath) ? fs.readFileSync(sourceConfigPath, 'utf8') : ''
   const doc = parseDocument(raw || '{}\n')
@@ -1940,8 +1962,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     if (!Number.isFinite(port) || port <= 0 || port > 65535) {
       throw new Error(`Invalid backup admin port: ${listen}`)
     }
-    const tokenPath = expandBackupFilePath(settings.backup.adminTokenFile)
-    if (!tokenPath) throw new Error('Backup admin token file is required')
+    const tokenPath = expandBackupFilePath(settings.backup.adminTokenFile) || nativeBackupAdminTokenPath(settings.baseDir)
     const token = fs.readFileSync(tokenPath, 'utf8').trim()
     if (!token) throw new Error(`Backup admin token file is empty: ${tokenPath}`)
     return { baseUrl: `http://${host}:${port}`, token }
@@ -2079,6 +2100,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     try {
       const settings = deps.normalizeNodeSettings(input)
       deps.assertRepoReady(settings)
+      const nativeBackup = writeNativeBackupConfig(settings)
       if (settings.backup.adminEnabled && !settings.backup.remoteEnabled) {
         const status = await deps.telenoNodeStatus(input).catch(() => null)
         if (nodeStatusLooksRunning(status)) {
@@ -2146,7 +2168,6 @@ export function createBackupService(deps: BackupServiceDeps) {
       }
 
       emitProgress('prepare', 5, 'Preparing native hot backup repository')
-      const nativeBackup = writeNativeBackupConfig(settings)
       emitProgress('save', 20, `Creating hot RocksDB checkpoint in ${nativeBackup.workspaceDir}`)
 
       const result = await spawnTrackedBackupCommand(

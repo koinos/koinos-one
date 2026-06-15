@@ -37,6 +37,7 @@ The first slice of `UX Runtime Admin API Integration` is implemented:
 - UX progress follows native admin status for the local snapshot operation.
 - The existing cancel button can cancel the active admin operation.
 - CLI fallback remains in place for stopped/offline flows and remote-enabled create flows.
+- When backup admin is enabled without a custom token path, UX generates a random local token file at `<basedir>/.teleno-native-backups/admin.token` and uses the same file for generated config and admin client calls.
 
 The first slice of `Safer Restore UX` is implemented:
 
@@ -158,12 +159,11 @@ When the node is running, UX should use the native local admin API for backup cr
 
 ### Exit Criteria
 
-- Status: partially complete for local-only running-node backup create/status/cancel.
+- Status: partially complete for local-only running-node backup create/status/cancel and generated local admin tokens.
 - Remaining work:
   - remote upload from admin-created backups;
   - admin-backed restore stage/activate UX;
   - richer status view for active/previous operation IDs;
-  - local generation of admin token files when enabling admin control.
 
 ## 4. Safer Restore UX
 

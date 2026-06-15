@@ -4269,9 +4269,6 @@ export function App() {
     if (backup.scheduleEnabled && !/^\d+(ms|s|m|h|d)?$/.test(backup.scheduleInterval.trim())) {
       throw new Error(t('settings.backupScheduleIntervalInvalid'))
     }
-    if (backup.adminEnabled && !backup.adminTokenFile.trim()) {
-      throw new Error(t('settings.backupAdminTokenRequired'))
-    }
     return backup
   }
 
