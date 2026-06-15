@@ -35,6 +35,16 @@ const optionalGroups = [
   },
 ];
 
+const requiredBackupFlags = [
+  '--backup-dry-run',
+  '--backup-create',
+  '--backup-list',
+  '--backup-restore',
+  '--backup-restore-preflight',
+  '--backup-id',
+  '--backup-json',
+];
+
 const failures = [];
 
 function fail(message) {
@@ -99,6 +109,29 @@ function requireNoThirdPartyDylibs(relativePath) {
   }
 }
 
+function requireTelenoNodeBackupCli(relativePath) {
+  if (isWindowsTarget) return;
+
+  const absolutePath = path.join(STAGING, relativePath);
+  if (!fs.existsSync(absolutePath)) return;
+
+  let output = '';
+  try {
+    output = execFileSync(absolutePath, ['--help'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+  } catch (error) {
+    fail(`failed to inspect CLI surface for ${relativePath}: ${error.message}`);
+    return;
+  }
+
+  const missingFlags = requiredBackupFlags.filter((flag) => !output.includes(flag));
+  if (missingFlags.length > 0) {
+    fail(`missing native backup CLI flags in ${relativePath}: ${missingFlags.join(', ')}`);
+  }
+}
+
 console.log('============================================================================');
 console.log('Verifying Teleno package staging');
 console.log(`  Staging: ${STAGING}`);
@@ -111,6 +144,9 @@ if (!fs.existsSync(STAGING) || !fs.statSync(STAGING).isDirectory()) {
   for (const binary of requiredBinaries) {
     requireExecutable(binary);
     requireNoThirdPartyDylibs(binary);
+    if (path.basename(binary) === `teleno_node${ext}`) {
+      requireTelenoNodeBackupCli(binary);
+    }
   }
 
   for (const relativePath of requiredFiles.filter((entry) => !requiredBinaries.includes(entry))) {

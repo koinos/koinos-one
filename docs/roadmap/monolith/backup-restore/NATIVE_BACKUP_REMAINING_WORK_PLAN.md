@@ -42,6 +42,12 @@ The first slice of `Safer Restore UX` is implemented:
 - The preflight summary shows readiness, missing object count, disk-space message, available bytes, minimum bytes, and recommended bytes.
 - Preflight uses the same native `--backup-restore-preflight --backup-json --backup-id=<selected>` path that restore uses.
 
+The first slice of `Release And Operator Polish` is implemented:
+
+- Package staging verification still checks the staged native bundle, config templates, executability, and macOS third-party dylib leaks.
+- Packaged-app verification still checks `app.asar`, packaged Teleno resources, executability, and macOS third-party dylib leaks.
+- Both package verification scripts now inspect the shipped `teleno_node --help` surface and fail when required native backup CLI flags are missing.
+
 ## 1. UX Backup Configuration
 
 ### Objective
@@ -297,6 +303,8 @@ Make the feature safe to ship in a beta app and clear enough for operators.
 - Docs and UX copy match actual behavior.
 - Release gates include native backup checks.
 - Beta release notes clearly state supported and unsupported backup flows.
+
+Current status: partially complete for package verification. Remaining work is operator how-to coverage, release checklist polish, beta release notes, and final decision on whether restore activation stays visible by default before larger validation passes.
 
 ## Recommended Next Step
 

@@ -237,6 +237,7 @@ Completed validation includes:
 - Local and remote runs of `scripts/smoke-native-backup-restore.sh`.
 - Electron/UX build and IPC tests.
 - Playwright/Electron UX dry-run check using an isolated testnet basedir.
+- Package staging and packaged-app verification now inspect the shipped `teleno_node --help` surface and fail if the native backup CLI flags are missing.
 
 The detailed live-testnet evidence is in `NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md`.
 

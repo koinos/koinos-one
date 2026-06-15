@@ -37,6 +37,16 @@ const requiredFiles = [
   APP_EXECUTABLE,
 ];
 
+const requiredBackupFlags = [
+  '--backup-dry-run',
+  '--backup-create',
+  '--backup-list',
+  '--backup-restore',
+  '--backup-restore-preflight',
+  '--backup-id',
+  '--backup-json',
+];
+
 const failures = [];
 
 function fail(message) {
@@ -96,6 +106,27 @@ function requireNoThirdPartyDylibs(filePath) {
   }
 }
 
+function requireTelenoNodeBackupCli(filePath) {
+  if (isWindowsTarget) return;
+  if (!fs.existsSync(filePath)) return;
+
+  let output = '';
+  try {
+    output = execFileSync(filePath, ['--help'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+  } catch (error) {
+    fail(`failed to inspect CLI surface for ${path.relative(ROOT, filePath)}: ${error.message}`);
+    return;
+  }
+
+  const missingFlags = requiredBackupFlags.filter((flag) => !output.includes(flag));
+  if (missingFlags.length > 0) {
+    fail(`missing native backup CLI flags in ${path.relative(ROOT, filePath)}: ${missingFlags.join(', ')}`);
+  }
+}
+
 console.log('============================================================================');
 console.log('Verifying Teleno packaged app');
 console.log(`  App:       ${APP_DIR}`);
@@ -111,6 +142,7 @@ if (!fs.existsSync(APP_DIR) || !fs.statSync(APP_DIR).isDirectory()) {
       requireExecutable(filePath);
       if (filePath.endsWith(`${path.sep}teleno_node${ext}`)) {
         requireNoThirdPartyDylibs(filePath);
+        requireTelenoNodeBackupCli(filePath);
       }
     } else {
       requireFile(filePath);
