@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { normalizeAppLanguage } from '../../i18n'
-import { formatTime } from '../../app/utils'
+import { formatBytes, formatTime } from '../../app/utils'
 import { KOINOS_NETWORK_OPTIONS, normalizeKoinosNetworkId } from '../../app/network'
 import { NodeConfigPanel } from './MicroservicesConfigPanel'
 type BackupInfo = { ok: boolean; lastModified: string | null; sizeBytes: number | null }
@@ -41,12 +41,18 @@ export function SettingsPanel(props: SettingsPanelProps) {
     runCancelBackup,
     runRestoreLocalBackup,
     runNativeBackupDryRun,
+    runNativeBackupList,
+    runRestoreNativeBackupSelected,
     runRestoreNativeBackupLatest,
     nodeBusy,
     nodeSettings,
     nodeRestoreBackupVerifyLoading,
     nodeCreateBackupLoading,
     nodeNativeBackupDryRunLoading,
+    nodeNativeBackupListLoading,
+    nodeNativeBackupList,
+    selectedNativeBackupId,
+    setSelectedNativeBackupId,
     nodeRestoreNativeBackupLoading,
     nodeBackupProgress,
     configFileDisplayPath,
@@ -75,6 +81,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const updateBackup = (patch: Record<string, unknown>) => {
     setDraftNodeBackup((current: any) => ({ ...current, ...patch }))
   }
+  const nativeBackupSnapshots = nodeNativeBackupList?.snapshots ?? []
 
   useEffect(() => {
     const url = nodeSettings?.blockchainBackupUrl || draftNodeBlockchainBackupUrl
@@ -797,6 +804,71 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 />
               </label>
             </div>
+
+            <div className="settings-subheader" style={{ marginTop: '1.5rem' }}>
+              <h3>Available native backups</h3>
+              <p>Refresh the local native repository, then restore latest or a selected backup ID.</p>
+            </div>
+
+            <div className="settings-actions settings-actions-inline">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => { void runNativeBackupList() }}
+                disabled={!hasNodeControls || nodeBusy || settingsDirty}
+              >
+                {nodeNativeBackupListLoading ? 'Refreshing backups...' : 'Refresh backup list'}
+              </button>
+              <label>
+                Backup ID
+                <select
+                  value={selectedNativeBackupId}
+                  onChange={(event) => setSelectedNativeBackupId(event.target.value)}
+                  disabled={!hasNodeControls || nodeBusy || settingsDirty || nativeBackupSnapshots.length === 0}
+                >
+                  <option value="latest">Latest</option>
+                  {nativeBackupSnapshots.map((snapshot: TelenoNodeNativeBackupSnapshot) => (
+                    <option key={snapshot.backupId} value={snapshot.backupId}>
+                      {snapshot.latest ? `${snapshot.backupId} (latest)` : snapshot.backupId}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => { void runRestoreNativeBackupSelected() }}
+                disabled={!hasNodeControls || nodeBusy || settingsDirty || nativeBackupSnapshots.length === 0}
+                title={t('node.restoreNativeLatestHelp')}
+              >
+                {nodeRestoreNativeBackupLoading ? t('node.restoringNativeLatest') : 'Restore selected native backup'}
+              </button>
+            </div>
+
+            {nodeNativeBackupList && (
+              <div className="node-backup-list" role="status" aria-live="polite">
+                {nativeBackupSnapshots.length === 0 ? (
+                  <p className="settings-inline-help">No completed native snapshots were found in the local repository.</p>
+                ) : (
+                  <div className="node-backup-snapshot-list">
+                    {nativeBackupSnapshots.map((snapshot: TelenoNodeNativeBackupSnapshot) => (
+                      <article className="node-backup-snapshot" key={snapshot.backupId}>
+                        <div>
+                          <strong className="mono">{snapshot.backupId}</strong>
+                          {snapshot.latest && <span className="settings-inline-help"> latest</span>}
+                        </div>
+                        <p>
+                          Created {snapshot.createdAt || 'N/A'} · {formatBytes(snapshot.totalBytes, locale)} · {snapshot.fileCount} files
+                        </p>
+                        <p>
+                          Restore free space: minimum {formatBytes(snapshot.restoreSpace.minimumTargetFreeBytes, locale)}, recommended {formatBytes(snapshot.restoreSpace.recommendedTargetFreeBytes, locale)}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="settings-actions settings-actions-inline">
               <button

@@ -205,6 +205,46 @@ export type TelenoNodeNativeBackupDryRunResult = {
   workspaceDir?: string
 }
 
+export type TelenoNodeNativeBackupRestoreInput = TelenoNodeSettingsInput & {
+  backupId?: string
+}
+
+export type TelenoNodeNativeBackupRestoreSpace = {
+  restoredDatabaseBytes: number
+  runtimeFilesBytes: number
+  objectDownloadBytes: number
+  minimumTargetFreeBytes: number
+  recommendedTargetFreeBytes: number
+}
+
+export type TelenoNodeNativeBackupSnapshot = {
+  backupId: string
+  createdAt: string
+  latest: boolean
+  complete: boolean
+  nodeId: string
+  nodeVersion: string
+  storageLayout: string
+  repositoryDir: string
+  snapshotDir: string
+  manifest: string
+  files: string
+  fileCount: number
+  objectCount: number
+  totalBytes: number
+  restoreSpace: TelenoNodeNativeBackupRestoreSpace
+}
+
+export type TelenoNodeNativeBackupListResult = {
+  ok: boolean
+  output: string
+  configPath?: string
+  repositoryDir?: string
+  workspaceDir?: string
+  latestBackupId: string
+  snapshots: TelenoNodeNativeBackupSnapshot[]
+}
+
 export type BlockchainBackupWorkspacePaths = {
   workspaceDir: string
   archivePath: string

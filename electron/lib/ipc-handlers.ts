@@ -16,6 +16,7 @@ import type {
   TelenoNodeLogsFollowStopResult,
   TelenoNodeLogsInput,
   TelenoNodeManagedFileKind,
+  TelenoNodeNativeBackupRestoreInput,
   TelenoNodeNativeBuildCommandInput,
   TelenoNodePresetCommandInput,
   TelenoNodeProducerOverviewInput,
@@ -66,6 +67,8 @@ type IpcHandlerDeps = {
   telenoNodeRestoreBackupAndVerify: (input: TelenoNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   createLocalBackup: (input: TelenoNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   nativeBackupDryRun: (input: TelenoNodeSettingsInput | undefined) => Awaitable<unknown>
+  nativeBackupList: (input: TelenoNodeSettingsInput | undefined) => Awaitable<unknown>
+  restoreNativeBackup: (input: TelenoNodeNativeBackupRestoreInput | undefined, sender: WebContents) => Awaitable<unknown>
   restoreNativeBackupLatest: (input: TelenoNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   cancelCreateBackup: () => Awaitable<{ ok: boolean; output: string }>
   restoreFromLocalFile: (input: TelenoNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
@@ -143,6 +146,8 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'teleno:node:restore-backup-verify',
     'teleno:node:create-backup',
     'teleno:node:native-backup-dry-run',
+    'teleno:node:native-backup-list',
+    'teleno:node:restore-native-backup',
     'teleno:node:restore-native-backup-latest',
     'teleno:node:cancel-create-backup',
     'teleno:node:restore-local-backup',
@@ -253,6 +258,8 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('teleno:node:restore-backup-verify', async (event, input?: TelenoNodeSettingsInput) => deps.telenoNodeRestoreBackupAndVerify(input, event.sender))
   ipcMain.handle('teleno:node:create-backup', async (event, input?: TelenoNodeSettingsInput) => deps.createLocalBackup(input, event.sender))
   ipcMain.handle('teleno:node:native-backup-dry-run', async (_event, input?: TelenoNodeSettingsInput) => deps.nativeBackupDryRun(input))
+  ipcMain.handle('teleno:node:native-backup-list', async (_event, input?: TelenoNodeSettingsInput) => deps.nativeBackupList(input))
+  ipcMain.handle('teleno:node:restore-native-backup', async (event, input?: TelenoNodeNativeBackupRestoreInput) => deps.restoreNativeBackup(input, event.sender))
   ipcMain.handle('teleno:node:restore-native-backup-latest', async (event, input?: TelenoNodeSettingsInput) => deps.restoreNativeBackupLatest(input, event.sender))
   ipcMain.handle('teleno:node:cancel-create-backup', async () => deps.cancelCreateBackup())
   ipcMain.handle('teleno:node:restore-local-backup', async (event, input?: TelenoNodeSettingsInput) => deps.restoreFromLocalFile(input, event.sender))

@@ -242,6 +242,9 @@ export function App() {
   const [nodeRestoreBackupVerifyLoading, setNodeRestoreBackupVerifyLoading] = useState(false)
   const [nodeCreateBackupLoading, setNodeCreateBackupLoading] = useState(false)
   const [nodeNativeBackupDryRunLoading, setNodeNativeBackupDryRunLoading] = useState(false)
+  const [nodeNativeBackupListLoading, setNodeNativeBackupListLoading] = useState(false)
+  const [nodeNativeBackupList, setNodeNativeBackupList] = useState<TelenoNodeNativeBackupListResult | null>(null)
+  const [selectedNativeBackupId, setSelectedNativeBackupId] = useState('latest')
   const [nodeRestoreNativeBackupLoading, setNodeRestoreNativeBackupLoading] = useState(false)
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
@@ -978,6 +981,7 @@ export function App() {
         nodeActionLoading ||
         nodeRestoreBackupLoading ||
         nodeRestoreNativeBackupLoading ||
+        nodeNativeBackupListLoading ||
         nodeServiceActionLoading ||
         nodePresetActionLoading ||
         nodeNativeBuildActionLoading
@@ -1002,6 +1006,7 @@ export function App() {
     nodeActionLoading,
     nodeRestoreBackupLoading,
     nodeRestoreNativeBackupLoading,
+    nodeNativeBackupListLoading,
     nodeServiceActionLoading,
     nodePresetActionLoading,
     nodeNativeBuildActionLoading
@@ -1079,6 +1084,7 @@ export function App() {
     nodeRestoreBackupVerifyLoading ||
     nodeCreateBackupLoading ||
     nodeNativeBackupDryRunLoading ||
+    nodeNativeBackupListLoading ||
     nodeRestoreNativeBackupLoading ||
     nodeCloneLoading ||
     nodeBaseDirPickerLoading ||
@@ -3869,7 +3875,40 @@ export function App() {
     }
   }
 
-  const runRestoreNativeBackupLatest = async () => {
+  const runNativeBackupList = async () => {
+    const bridge = getTelenoNodeBridge()
+    if (!bridge?.nativeBackupList) return
+
+    setNodeNativeBackupListLoading(true)
+    setNodeError(null)
+
+    try {
+      const result = await bridge.nativeBackupList(toNodeApiSettings(nodeSettings))
+      setNodeNativeBackupList(result)
+      setNodeOutput([
+        result.configPath ? `Native backup config: ${result.configPath}` : '',
+        result.repositoryDir ? `Native backup repository: ${result.repositoryDir}` : '',
+        result.workspaceDir ? `Native backup workspace: ${result.workspaceDir}` : '',
+        result.output || ''
+      ].filter(Boolean).join('\n'))
+      if (result.ok) {
+        const availableIds = new Set(result.snapshots.map((snapshot) => snapshot.backupId))
+        setSelectedNativeBackupId((current) =>
+          current === 'latest' || !availableIds.has(current)
+            ? result.latestBackupId || 'latest'
+            : current
+        )
+      } else {
+        setNodeError(result.output || 'Unable to list native backups')
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'Unable to list native backups')
+    } finally {
+      setNodeNativeBackupListLoading(false)
+    }
+  }
+
+  const runRestoreNativeBackup = async (backupId: string) => {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreNativeBackupLatest) return
 
@@ -3884,7 +3923,12 @@ export function App() {
     })
 
     try {
-      const result = await bridge.restoreNativeBackupLatest(toNodeApiSettings(nodeSettings))
+      const trimmedBackupId = backupId.trim() || 'latest'
+      const apiSettings = toNodeApiSettings(nodeSettings)
+      const result =
+        trimmedBackupId === 'latest' || !bridge.restoreNativeBackup
+          ? await bridge.restoreNativeBackupLatest(apiSettings)
+          : await bridge.restoreNativeBackup({ ...apiSettings, backupId: trimmedBackupId })
       setNodeOutput(result.output || '')
       if (!result.ok) {
         setNodeError(result.output || t('node.unableRestoreNativeBackup'))
@@ -3896,6 +3940,14 @@ export function App() {
     } finally {
       setNodeRestoreNativeBackupLoading(false)
     }
+  }
+
+  const runRestoreNativeBackupLatest = async () => {
+    await runRestoreNativeBackup('latest')
+  }
+
+  const runRestoreNativeBackupSelected = async () => {
+    await runRestoreNativeBackup(selectedNativeBackupId || 'latest')
   }
 
   const runCancelBackup = async () => {
@@ -4479,12 +4531,18 @@ export function App() {
           runCancelBackup={runCancelBackup}
           runRestoreLocalBackup={runRestoreLocalBackup}
           runNativeBackupDryRun={runNativeBackupDryRun}
+          runNativeBackupList={runNativeBackupList}
+          runRestoreNativeBackupSelected={runRestoreNativeBackupSelected}
           runRestoreNativeBackupLatest={runRestoreNativeBackupLatest}
           nodeBusy={nodeBusy}
           nodeSettings={nodeSettings}
           nodeRestoreBackupVerifyLoading={nodeRestoreBackupVerifyLoading}
           nodeCreateBackupLoading={nodeCreateBackupLoading}
           nodeNativeBackupDryRunLoading={nodeNativeBackupDryRunLoading}
+          nodeNativeBackupListLoading={nodeNativeBackupListLoading}
+          nodeNativeBackupList={nodeNativeBackupList}
+          selectedNativeBackupId={selectedNativeBackupId}
+          setSelectedNativeBackupId={setSelectedNativeBackupId}
           nodeRestoreNativeBackupLoading={nodeRestoreNativeBackupLoading}
           nodeBackupProgress={nodeBackupProgress}
           configFileDisplayPath={configFileDisplayPath}

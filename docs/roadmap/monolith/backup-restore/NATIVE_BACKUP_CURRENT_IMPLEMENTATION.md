@@ -21,12 +21,14 @@ Implemented CLI modes:
 --backup-create
 --backup-create-local
 --backup-upload-latest
+--backup-list
 --backup-restore
 --backup-restore-preflight
 --backup-restore-fetch
 --backup-restore-stage
 --backup-restore-activate
 --backup-output <path>
+--backup-id <backup-id>
 --backup-json
 ```
 
@@ -34,7 +36,9 @@ Important behavior:
 
 - `--backup-dry-run` validates backup configuration and does not open RocksDB or connect to SSH.
 - `--backup-create` creates the configured native backup: local hot snapshot plus remote upload when `backup.remote.enabled=true`.
+- `--backup-list` lists completed local repository snapshots without opening RocksDB.
 - `--backup-restore` fetches remote data when enabled, runs metadata-first disk-space preflight, stages the restore, activates it while RocksDB is closed, and prints an observer-first start command.
+- `--backup-id <backup-id>` selects a completed local snapshot for `--backup-restore`, `--backup-restore-preflight`, and `--backup-restore-stage`. Omit it or pass `latest` to keep the previous latest-snapshot behavior.
 - `--backup-json` returns machine-readable output for CLI automation and UX integration.
 
 ## Config Surface
@@ -191,6 +195,8 @@ Electron now exposes native backup actions through IPC and preload:
 ```text
 teleno:node:native-backup-dry-run
 teleno:node:create-backup
+teleno:node:native-backup-list
+teleno:node:restore-native-backup
 teleno:node:restore-native-backup-latest
 ```
 
@@ -199,12 +205,15 @@ The Settings > Backup panel now shows:
 - first-class native backup configuration fields for local repository, remote SFTP, scheduler, and admin API settings
 - `Check native backup config`
 - `Create native backup`
+- local snapshot refresh, selection, and selected restore controls
 - `Restore latest native backup`
 
 Current UX behavior:
 
 - `Check native backup config` runs `teleno_node --backup-dry-run --backup-json`.
 - `Create native backup` runs `teleno_node --backup-create --backup-json`.
+- `Refresh backup list` runs `teleno_node --backup-list --backup-json` and displays completed local snapshots.
+- `Restore selected native backup` runs `teleno_node --backup-restore --backup-json --backup-id=<selected>` for selected local snapshots.
 - `Restore latest native backup` stops the managed node if needed, runs `teleno_node --backup-restore --backup-json`, and leaves the restored node for observer-first restart.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.
 - The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.
@@ -215,7 +224,7 @@ Current UX behavior:
 - The UX stores credential references as file paths only. It does not store raw SSH passwords in localStorage or generated YAML.
 - `TELENO_BACKUP_*` environment variables still work as an explicit developer override when set.
 
-Current limitation: the UX still restores only `latest`; backup listing, selected restore, admin API status integration, and richer restore preflight screens are tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
+Current limitation: remote repository listing and selected remote restore are not yet implemented. To restore a specific remote snapshot, first fetch remote latest into the local repository, then restore by local backup ID if the snapshot is present. Admin API status integration and richer restore preflight screens are tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
 
 ## Validation Completed
 

@@ -3305,6 +3305,29 @@ body {
   font-size: 0.76rem;
 }
 
+.node-backup-list {
+  margin-top: 12px;
+}
+
+.node-backup-snapshot-list {
+  display: grid;
+  gap: 10px;
+}
+
+.node-backup-snapshot {
+  border: 1px solid rgba(128, 148, 172, 0.2);
+  border-radius: 8px;
+  background: rgba(7, 12, 17, 0.62);
+  padding: 12px;
+}
+
+.node-backup-snapshot p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .context-menu-backdrop {
   position: fixed;
   inset: 0;

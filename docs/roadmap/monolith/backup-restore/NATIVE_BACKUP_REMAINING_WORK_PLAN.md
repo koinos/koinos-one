@@ -21,6 +21,14 @@ The first backlog item, `UX Backup Configuration`, is implemented:
 - Credential secrets are still represented only as file paths or environment-password references; raw SSH passwords are not stored by UX.
 - Tests cover normalization and generated native backup YAML.
 
+The first slice of `Backup Listing, Selection, And Verification` is implemented:
+
+- `teleno_node --backup-list --backup-json` lists completed local repository snapshots without opening RocksDB.
+- `--backup-id <backup-id>` selects a local snapshot for restore preflight, stage, and full restore.
+- Electron exposes `nativeBackupList` and `restoreNativeBackup` IPC/preload calls.
+- Settings > Backup can refresh local snapshots, select a backup ID, and restore the selected local snapshot.
+- C++ snapshot tests cover local listing and selected preflight.
+
 ## 1. UX Backup Configuration
 
 ### Objective
@@ -96,9 +104,12 @@ Operators should see available backups and choose a specific backup, not only `l
 
 ### Exit Criteria
 
-- UX can list backups from the configured repository.
-- UX can verify a selected backup before restore.
-- Restore can target either `latest` or a specific backup ID.
+- Status: partially complete for local repository snapshots and selected local restore.
+- Remaining work:
+  - remote SFTP snapshot listing;
+  - selected remote fetch/restore by backup ID;
+  - selected backup verification command separated from restore preflight;
+  - richer manifest metadata for network, head height, LIB, and restored byte metrics in the list view.
 
 ## 3. UX Runtime Admin API Integration
 
@@ -271,4 +282,4 @@ Make the feature safe to ship in a beta app and clear enough for operators.
 
 ## Recommended Next Step
 
-Implement `Backup Listing, Selection, And Verification` next. The operator can now configure native backup from UX, but restore still targets `latest` only and does not expose available local/remote snapshots before activation.
+Implement the remaining remote and verification parts of `Backup Listing, Selection, And Verification` next, or proceed to `UX Runtime Admin API Integration` if running-node status/cancel UX is higher priority.
