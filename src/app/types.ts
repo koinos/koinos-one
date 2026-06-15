@@ -20,6 +20,42 @@ export type NodeManagerSettings = {
   baseDir: string
   profiles: string
   blockchainBackupUrl: string
+  backup: NodeBackupSettings
+}
+
+export type NodeBackupAuthMethod = 'private-key' | 'password-file' | 'env-password'
+
+export type NodeBackupSettings = {
+  localEnabled: boolean
+  localDirectory: string
+  workspace: string
+  localRetentionCount: number
+  remoteEnabled: boolean
+  remoteDirectory: string
+  remoteRetentionCount: number
+  remoteRetentionDays: number
+  uploadTempSuffix: string
+  sshHost: string
+  sshPort: number
+  sshUser: string
+  sshAuth: NodeBackupAuthMethod
+  sshPrivateKeyFile: string
+  sshPasswordFile: string
+  sshPassphraseFile: string
+  sshKnownHostsFile: string
+  sshStrictHostKeyChecking: boolean
+  sshConnectTimeoutSeconds: number
+  scheduleEnabled: boolean
+  scheduleInterval: string
+  scheduleRunOnStartupIfMissed: boolean
+  scheduleJitterSeconds: number
+  scheduleMinimumHeadProgress: number
+  scheduleSkipIfSyncingFromGenesis: boolean
+  scheduleMaxConcurrentBackups: number
+  adminEnabled: boolean
+  adminListen: string
+  adminTokenFile: string
+  adminJobs: number
 }
 
 export type NodeAction = 'start' | 'stop'

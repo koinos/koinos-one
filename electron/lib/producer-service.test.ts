@@ -18,6 +18,7 @@ import {
   resolveProducerKoinPriceSource
 } from './producer-service'
 import type { TelenoNodeStatus } from './main-types'
+import { normalizeBackupSettings } from './node-paths'
 
 describe('producer-service helpers', () => {
   it('detects producer timeout errors', () => {
@@ -232,6 +233,7 @@ function createPerformanceService(overrides: Record<string, unknown> = {}) {
       baseDir: '/tmp/.koinos',
       profiles: [],
       blockchainBackupUrl: '',
+      backup: normalizeBackupSettings(),
       runtimeMode: 'native' as const
     })),
     producerAddressFromRuntimeConfig: vi.fn(() => ({
@@ -328,6 +330,7 @@ describe('dashboard performance', () => {
         baseDir: tempBaseDir,
         profiles: [],
         blockchainBackupUrl: '',
+        backup: normalizeBackupSettings(),
         runtimeMode: 'native' as const
       })),
       runCommand
@@ -449,7 +452,8 @@ describe('dashboard producers', () => {
         repoPath: '/tmp/koinos',
         baseDir: '/tmp/.koinos',
         profiles: [],
-        blockchainBackupUrl: ''
+        blockchainBackupUrl: '',
+        backup: normalizeBackupSettings()
       })),
       fetchBlocksByHeightPaged: vi.fn(async () => [
         { block: { header: { signer: 'producer-a', timestamp: '1000', height: '10' } } },

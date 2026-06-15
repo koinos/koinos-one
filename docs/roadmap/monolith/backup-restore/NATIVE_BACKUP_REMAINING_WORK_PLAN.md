@@ -1,14 +1,25 @@
 # Native Backup Remaining Work Plan
 
-- Date: 2026-06-14
+- Date: 2026-06-15
 - Scope: remaining work after native CLI, scheduler, admin API, libssh, smoke validation, and initial UX integration
-- Status: active backlog
+- Status: active backlog after UX backup configuration
 
 ## Goal
 
 Make native backup and restore ready for ordinary node operators, especially Mac operators with limited internal storage and optional external volumes, without requiring environment variables or manual YAML editing for the normal path.
 
 The native binary already owns the durable backup semantics. The remaining work is primarily productization, UX control, larger validation, and release hardening.
+
+## Completed On 2026-06-15
+
+The first backlog item, `UX Backup Configuration`, is implemented:
+
+- Settings > Backup now has local repository, remote SFTP, scheduler, and backup admin fields.
+- Settings persistence includes normalized backup settings.
+- Electron writes those settings into the UX-scoped native backup config used by dry-run, create, and restore.
+- The UX validates missing remote host/user, non-absolute remote directory, missing credential file paths, invalid schedule intervals, and missing admin token files before saving.
+- Credential secrets are still represented only as file paths or environment-password references; raw SSH passwords are not stored by UX.
+- Tests cover normalization and generated native backup YAML.
 
 ## 1. UX Backup Configuration
 
@@ -54,9 +65,8 @@ Operators should configure native backup from Teleno UX without editing YAML or 
 
 ### Exit Criteria
 
-- An operator can configure local and remote backup entirely from UX.
-- The UX dry-run button validates the exact config the node will use.
-- No raw password is stored in app localStorage or plain YAML.
+- Status: complete for first-class UX fields and generated config.
+- Remaining follow-up: local free-space checking for custom backup repository/workspace paths when reliable volume metadata is available to the renderer.
 
 ## 2. Backup Listing, Selection, And Verification
 
@@ -261,5 +271,4 @@ Make the feature safe to ship in a beta app and clear enough for operators.
 
 ## Recommended Next Step
 
-Implement `UX Backup Configuration` first. The current buttons prove the native path can be invoked from UX, but ordinary operators still need first-class fields for SSH and scheduler configuration before the feature is usable without developer environment variables.
-
+Implement `Backup Listing, Selection, And Verification` next. The operator can now configure native backup from UX, but restore still targets `latest` only and does not expose available local/remote snapshots before activation.

@@ -1,6 +1,6 @@
 # Native Backup Current Implementation
 
-- Date: 2026-06-14
+- Date: 2026-06-15
 - Branch: `codex/unified-rocksdb-storage`
 - Status: implemented and validated for local smoke, restricted testnet SFTP smoke, and small live-testnet observer data
 - Production status: not yet approved for guided prodnet operator use
@@ -196,6 +196,7 @@ teleno:node:restore-native-backup-latest
 
 The Settings > Backup panel now shows:
 
+- first-class native backup configuration fields for local repository, remote SFTP, scheduler, and admin API settings
 - `Check native backup config`
 - `Create native backup`
 - `Restore latest native backup`
@@ -206,10 +207,15 @@ Current UX behavior:
 - `Create native backup` runs `teleno_node --backup-create --backup-json`.
 - `Restore latest native backup` stops the managed node if needed, runs `teleno_node --backup-restore --backup-json`, and leaves the restored node for observer-first restart.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.
-- The generated config always uses a local repository under `<basedir>/.teleno-native-backups/repository`.
-- Remote settings can currently be injected through `TELENO_BACKUP_*` environment variables.
+- The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.
+- Remote SFTP settings are configured from UX fields for host, port, user, auth method, credential file paths, known hosts, strict host-key checking, remote directory, retention, and upload temp suffix.
+- Scheduler settings are configured from UX fields for enabled state, interval, startup catch-up, jitter, minimum head progress, and genesis-sync skipping.
+- Backup admin settings are configured from UX fields for enabled state, loopback listen address, token file, and job count.
+- The UX validates obvious mistakes before saving: missing remote host/user, non-absolute remote directory, missing private-key/password file for the selected auth method, invalid scheduler interval, and missing admin token file when admin is enabled.
+- The UX stores credential references as file paths only. It does not store raw SSH passwords in localStorage or generated YAML.
+- `TELENO_BACKUP_*` environment variables still work as an explicit developer override when set.
 
-Current limitation: the UX does not yet provide first-class form controls for SSH host, user, key/password file, remote directory, retention, schedule, or admin token settings. That remaining work is tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
+Current limitation: the UX still restores only `latest`; backup listing, selected restore, admin API status integration, and richer restore preflight screens are tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
 
 ## Validation Completed
 
@@ -234,4 +240,3 @@ The detailed live-testnet evidence is in `NATIVE_LIBSSH_TESTNET_VALIDATION_20260
 ## Remaining Work
 
 The active remaining-work plan is `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
-

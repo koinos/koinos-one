@@ -14,6 +14,7 @@ import {
   resolveNetworkProfile,
   type KoinosNetworkId
 } from './network-profiles'
+import type { TelenoNodeBackupAuthMethod, TelenoNodeBackupSettings, TelenoNodeBackupSettingsInput } from './main-types'
 
 export function expandUserPath(inputPath: string): string {
   const trimmed = inputPath.trim()
@@ -131,6 +132,90 @@ export function sanitizePublicRpcUrls(value: unknown, fallback: string[] = DEFAU
 }
 
 const NATIVE_DEFAULT_PROFILES = ['mainnet_observer']
+const DEFAULT_BACKUP_SETTINGS: TelenoNodeBackupSettings = {
+  localEnabled: true,
+  localDirectory: '',
+  workspace: '',
+  localRetentionCount: 7,
+  remoteEnabled: false,
+  remoteDirectory: '',
+  remoteRetentionCount: 14,
+  remoteRetentionDays: 30,
+  uploadTempSuffix: '.partial',
+  sshHost: '',
+  sshPort: 22,
+  sshUser: '',
+  sshAuth: 'private-key',
+  sshPrivateKeyFile: '',
+  sshPasswordFile: '',
+  sshPassphraseFile: '',
+  sshKnownHostsFile: '',
+  sshStrictHostKeyChecking: true,
+  sshConnectTimeoutSeconds: 15,
+  scheduleEnabled: false,
+  scheduleInterval: '6h',
+  scheduleRunOnStartupIfMissed: true,
+  scheduleJitterSeconds: 300,
+  scheduleMinimumHeadProgress: 1,
+  scheduleSkipIfSyncingFromGenesis: true,
+  scheduleMaxConcurrentBackups: 1,
+  adminEnabled: false,
+  adminListen: '127.0.0.1:18088',
+  adminTokenFile: '',
+  adminJobs: 1
+}
+
+function normalizeBackupAuthMethod(value: unknown): TelenoNodeBackupAuthMethod {
+  return value === 'password-file' || value === 'env-password' || value === 'private-key'
+    ? value
+    : DEFAULT_BACKUP_SETTINGS.sshAuth
+}
+
+function stringValue(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value.trim() : fallback
+}
+
+function numberValue(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : Number.NaN
+  const safe = Number.isFinite(parsed) ? parsed : fallback
+  return Math.min(max, Math.max(min, safe))
+}
+
+export function normalizeBackupSettings(input?: TelenoNodeBackupSettingsInput): TelenoNodeBackupSettings {
+  const value = input && typeof input === 'object' ? input : {}
+  return {
+    localEnabled: value.localEnabled !== false,
+    localDirectory: stringValue(value.localDirectory, DEFAULT_BACKUP_SETTINGS.localDirectory),
+    workspace: stringValue(value.workspace, DEFAULT_BACKUP_SETTINGS.workspace),
+    localRetentionCount: numberValue(value.localRetentionCount, DEFAULT_BACKUP_SETTINGS.localRetentionCount, 1, 365),
+    remoteEnabled: value.remoteEnabled === true,
+    remoteDirectory: stringValue(value.remoteDirectory, DEFAULT_BACKUP_SETTINGS.remoteDirectory),
+    remoteRetentionCount: numberValue(value.remoteRetentionCount, DEFAULT_BACKUP_SETTINGS.remoteRetentionCount, 1, 365),
+    remoteRetentionDays: numberValue(value.remoteRetentionDays, DEFAULT_BACKUP_SETTINGS.remoteRetentionDays, 1, 3650),
+    uploadTempSuffix: stringValue(value.uploadTempSuffix, DEFAULT_BACKUP_SETTINGS.uploadTempSuffix) || '.partial',
+    sshHost: stringValue(value.sshHost, DEFAULT_BACKUP_SETTINGS.sshHost),
+    sshPort: numberValue(value.sshPort, DEFAULT_BACKUP_SETTINGS.sshPort, 1, 65535),
+    sshUser: stringValue(value.sshUser, DEFAULT_BACKUP_SETTINGS.sshUser),
+    sshAuth: normalizeBackupAuthMethod(value.sshAuth),
+    sshPrivateKeyFile: stringValue(value.sshPrivateKeyFile, DEFAULT_BACKUP_SETTINGS.sshPrivateKeyFile),
+    sshPasswordFile: stringValue(value.sshPasswordFile, DEFAULT_BACKUP_SETTINGS.sshPasswordFile),
+    sshPassphraseFile: stringValue(value.sshPassphraseFile, DEFAULT_BACKUP_SETTINGS.sshPassphraseFile),
+    sshKnownHostsFile: stringValue(value.sshKnownHostsFile, DEFAULT_BACKUP_SETTINGS.sshKnownHostsFile),
+    sshStrictHostKeyChecking: value.sshStrictHostKeyChecking !== false,
+    sshConnectTimeoutSeconds: numberValue(value.sshConnectTimeoutSeconds, DEFAULT_BACKUP_SETTINGS.sshConnectTimeoutSeconds, 1, 300),
+    scheduleEnabled: value.scheduleEnabled === true,
+    scheduleInterval: stringValue(value.scheduleInterval, DEFAULT_BACKUP_SETTINGS.scheduleInterval) || '6h',
+    scheduleRunOnStartupIfMissed: value.scheduleRunOnStartupIfMissed !== false,
+    scheduleJitterSeconds: numberValue(value.scheduleJitterSeconds, DEFAULT_BACKUP_SETTINGS.scheduleJitterSeconds, 0, 86400),
+    scheduleMinimumHeadProgress: numberValue(value.scheduleMinimumHeadProgress, DEFAULT_BACKUP_SETTINGS.scheduleMinimumHeadProgress, 0, 1000000),
+    scheduleSkipIfSyncingFromGenesis: value.scheduleSkipIfSyncingFromGenesis !== false,
+    scheduleMaxConcurrentBackups: 1,
+    adminEnabled: value.adminEnabled === true,
+    adminListen: stringValue(value.adminListen, DEFAULT_BACKUP_SETTINGS.adminListen) || '127.0.0.1:18088',
+    adminTokenFile: stringValue(value.adminTokenFile, DEFAULT_BACKUP_SETTINGS.adminTokenFile),
+    adminJobs: numberValue(value.adminJobs, DEFAULT_BACKUP_SETTINGS.adminJobs, 1, 16)
+  }
+}
 
 export function defaultBaseDirForNetwork(network: KoinosNetworkId): string {
   if (network === 'testnet') return path.join(DEFAULT_BASEDIR, 'testnet', '.koinos')
@@ -145,6 +230,7 @@ export function normalizeNodeSettings(
     baseDir?: string
     profiles?: string[]
     blockchainBackupUrl?: string
+    backup?: TelenoNodeBackupSettingsInput
   }
 ): {
   network: KoinosNetworkId
@@ -152,6 +238,7 @@ export function normalizeNodeSettings(
   baseDir: string
   profiles: string[]
   blockchainBackupUrl: string
+  backup: TelenoNodeBackupSettings
 } {
   const repoPath = expandUserPath(input?.repoPath || resolveDefaultKoinosRepoPath())
   const profileFromInput = Array.isArray(input?.profiles) ? input.profiles : undefined
@@ -167,7 +254,8 @@ export function normalizeNodeSettings(
     repoPath,
     baseDir,
     profiles,
-    blockchainBackupUrl
+    blockchainBackupUrl,
+    backup: normalizeBackupSettings(input?.backup)
   }
 }
 
@@ -177,6 +265,7 @@ export function parsePersistedNodeSettings(input: unknown): {
   baseDir?: string
   profiles?: string[]
   blockchainBackupUrl?: string
+  backup?: TelenoNodeBackupSettingsInput
 } | undefined {
   if (!input || typeof input !== 'object') return undefined
   const value = input as Record<string, unknown>
@@ -194,6 +283,7 @@ export function parsePersistedNodeSettings(input: unknown): {
     repoPath: typeof value.repoPath === 'string' ? value.repoPath : undefined,
     baseDir: typeof value.baseDir === 'string' ? value.baseDir : undefined,
     profiles,
-    blockchainBackupUrl: typeof value.blockchainBackupUrl === 'string' ? value.blockchainBackupUrl : undefined
+    blockchainBackupUrl: typeof value.blockchainBackupUrl === 'string' ? value.blockchainBackupUrl : undefined,
+    backup: value.backup && typeof value.backup === 'object' ? value.backup as TelenoNodeBackupSettingsInput : undefined
   }
 }

@@ -200,6 +200,17 @@ function envFlagEnabled(value: string | undefined): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes'
 }
 
+function expandBackupFilePath(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (trimmed === '~') return process.env.HOME || process.env.USERPROFILE || trimmed
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    const homeDir = process.env.HOME || process.env.USERPROFILE
+    if (homeDir) return path.join(homeDir, trimmed.slice(2))
+  }
+  return trimmed
+}
+
 function applyNativeBackupRemoteEnv(doc: ReturnType<typeof parseDocument>): void {
   if (!envFlagEnabled(process.env.TELENO_BACKUP_REMOTE)) return
 
@@ -243,7 +254,7 @@ function applyNativeBackupRemoteEnv(doc: ReturnType<typeof parseDocument>): void
   doc.setIn(['backup', 'remote', 'upload-temp-suffix'], process.env.TELENO_BACKUP_REMOTE_UPLOAD_TEMP_SUFFIX || '.partial')
 }
 
-function writeNativeBackupConfig(settings: TelenoNodeSettings): {
+export function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   configPath: string
   repositoryDir: string
   workspaceDir: string
@@ -251,24 +262,60 @@ function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   const configPath = nativeBackupConfigPath(settings.baseDir)
   const repositoryDir = nativeBackupRepositoryDir(settings.baseDir)
   const workspaceDir = nativeBackupWorkspaceDir(settings.baseDir)
+  const backup = settings.backup
+  const localDirectory = expandBackupFilePath(backup.localDirectory) || repositoryDir
+  const workspace = expandBackupFilePath(backup.workspace) || workspaceDir
+  const sshPrivateKeyFile = expandBackupFilePath(backup.sshPrivateKeyFile)
+  const sshPasswordFile = expandBackupFilePath(backup.sshPasswordFile)
+  const sshPassphraseFile = expandBackupFilePath(backup.sshPassphraseFile)
+  const sshKnownHostsFile = expandBackupFilePath(backup.sshKnownHostsFile)
+  const adminTokenFile = expandBackupFilePath(backup.adminTokenFile)
   const sourceConfigPath = path.join(settings.baseDir, 'config.yml')
   const raw = fs.existsSync(sourceConfigPath) ? fs.readFileSync(sourceConfigPath, 'utf8') : ''
   const doc = parseDocument(raw || '{}\n')
 
   doc.setIn(['backup', 'enabled'], true)
   doc.setIn(['backup', 'node-id'], `teleno-ux-${settings.network}`)
-  doc.setIn(['backup', 'workspace'], workspaceDir)
-  doc.setIn(['backup', 'local', 'enabled'], true)
-  doc.setIn(['backup', 'local', 'directory'], repositoryDir)
-  doc.setIn(['backup', 'local', 'retention-count'], 7)
+  doc.setIn(['backup', 'workspace'], workspace)
+  doc.setIn(['backup', 'local', 'enabled'], backup.localEnabled)
+  doc.setIn(['backup', 'local', 'directory'], localDirectory)
+  doc.setIn(['backup', 'local', 'retention-count'], backup.localRetentionCount)
+  doc.setIn(['backup', 'ssh', 'enabled'], backup.remoteEnabled)
+  doc.setIn(['backup', 'ssh', 'transport'], 'native')
+  doc.setIn(['backup', 'ssh', 'host'], backup.sshHost)
+  doc.setIn(['backup', 'ssh', 'port'], backup.sshPort)
+  doc.setIn(['backup', 'ssh', 'user'], backup.sshUser)
+  doc.setIn(['backup', 'ssh', 'auth'], backup.sshAuth)
+  doc.setIn(['backup', 'ssh', 'strict-host-key-checking'], backup.sshStrictHostKeyChecking)
+  doc.setIn(['backup', 'ssh', 'connect-timeout-seconds'], backup.sshConnectTimeoutSeconds)
+  if (sshPrivateKeyFile) doc.setIn(['backup', 'ssh', 'private-key-file'], sshPrivateKeyFile)
+  if (sshPasswordFile) doc.setIn(['backup', 'ssh', 'password-file'], sshPasswordFile)
+  if (sshPassphraseFile) doc.setIn(['backup', 'ssh', 'passphrase-file'], sshPassphraseFile)
+  if (sshKnownHostsFile) doc.setIn(['backup', 'ssh', 'known-hosts-file'], sshKnownHostsFile)
+  doc.setIn(['backup', 'remote', 'enabled'], backup.remoteEnabled)
+  doc.setIn(['backup', 'remote', 'directory'], backup.remoteDirectory)
+  doc.setIn(['backup', 'remote', 'retention-count'], backup.remoteRetentionCount)
+  doc.setIn(['backup', 'remote', 'retention-days'], backup.remoteRetentionDays)
+  doc.setIn(['backup', 'remote', 'upload-temp-suffix'], backup.uploadTempSuffix || '.partial')
+  doc.setIn(['backup', 'schedule', 'enabled'], backup.scheduleEnabled)
+  doc.setIn(['backup', 'schedule', 'interval'], backup.scheduleInterval)
+  doc.setIn(['backup', 'schedule', 'run-on-startup-if-missed'], backup.scheduleRunOnStartupIfMissed)
+  doc.setIn(['backup', 'schedule', 'jitter-seconds'], backup.scheduleJitterSeconds)
+  doc.setIn(['backup', 'schedule', 'minimum-head-progress'], backup.scheduleMinimumHeadProgress)
+  doc.setIn(['backup', 'schedule', 'skip-if-syncing-from-genesis'], backup.scheduleSkipIfSyncingFromGenesis)
+  doc.setIn(['backup', 'schedule', 'max-concurrent-backups'], backup.scheduleMaxConcurrentBackups)
+  doc.setIn(['backup', 'admin', 'enabled'], backup.adminEnabled)
+  doc.setIn(['backup', 'admin', 'listen'], backup.adminListen)
+  doc.setIn(['backup', 'admin', 'token-file'], adminTokenFile)
+  doc.setIn(['backup', 'admin', 'jobs'], backup.adminJobs)
   applyNativeBackupRemoteEnv(doc)
 
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
-  fs.mkdirSync(repositoryDir, { recursive: true })
-  fs.mkdirSync(workspaceDir, { recursive: true })
+  fs.mkdirSync(localDirectory, { recursive: true })
+  fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(configPath, doc.toString(), 'utf8')
 
-  return { configPath, repositoryDir, workspaceDir }
+  return { configPath, repositoryDir: localDirectory, workspaceDir: workspace }
 }
 
 function uniqueStringList(values: string[]): string[] {

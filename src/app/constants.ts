@@ -1,4 +1,4 @@
-import type { ExplorerSettings, NodeManagerSettings } from './types'
+import type { ExplorerSettings, NodeBackupSettings, NodeManagerSettings } from './types'
 import { MAINNET_PUBLIC_RPC_URLS } from './network'
 
 export const SETTINGS_STORAGE_KEY = 'teleno.explorer.settings.v1'
@@ -30,12 +30,46 @@ export const DEFAULT_SETTINGS = {
   dashboardRefreshSeconds: DASHBOARD_REFRESH_SECONDS_DEFAULT
 } as const satisfies ExplorerSettings
 
+export const DEFAULT_NODE_BACKUP_SETTINGS = {
+  localEnabled: true,
+  localDirectory: '',
+  workspace: '',
+  localRetentionCount: 7,
+  remoteEnabled: false,
+  remoteDirectory: '',
+  remoteRetentionCount: 14,
+  remoteRetentionDays: 30,
+  uploadTempSuffix: '.partial',
+  sshHost: '',
+  sshPort: 22,
+  sshUser: '',
+  sshAuth: 'private-key',
+  sshPrivateKeyFile: '',
+  sshPasswordFile: '',
+  sshPassphraseFile: '',
+  sshKnownHostsFile: '',
+  sshStrictHostKeyChecking: true,
+  sshConnectTimeoutSeconds: 15,
+  scheduleEnabled: false,
+  scheduleInterval: '6h',
+  scheduleRunOnStartupIfMissed: true,
+  scheduleJitterSeconds: 300,
+  scheduleMinimumHeadProgress: 1,
+  scheduleSkipIfSyncingFromGenesis: true,
+  scheduleMaxConcurrentBackups: 1,
+  adminEnabled: false,
+  adminListen: '127.0.0.1:18088',
+  adminTokenFile: '',
+  adminJobs: 1
+} as const satisfies NodeBackupSettings
+
 export const DEFAULT_NODE_SETTINGS = {
   network: 'mainnet',
   repoPath: '/Users/pgarcgo/code/koinos_code/koinos',
   baseDir: '~/.teleno',
   profiles: 'mainnet_observer',
-  blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz'
+  blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz',
+  backup: { ...DEFAULT_NODE_BACKUP_SETTINGS }
 } as const satisfies NodeManagerSettings
 
 export const DEFAULT_NODE_BASEDIR_BY_NETWORK = {

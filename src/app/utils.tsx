@@ -9,6 +9,7 @@ import {
   DASHBOARD_REFRESH_SECONDS_DEFAULT,
   DASHBOARD_REFRESH_SECONDS_MAX,
   DASHBOARD_REFRESH_SECONDS_MIN,
+  DEFAULT_NODE_BACKUP_SETTINGS,
   DEFAULT_NODE_SETTINGS,
   DEFAULT_NODE_BASEDIR_BY_NETWORK,
   DEFAULT_NODE_PROFILES_BY_NETWORK,
@@ -37,6 +38,7 @@ import type {
   HeadInfoResult,
   HeadSnapshot,
   JsonRpcResponse,
+  NodeBackupSettings,
   NodeManagerSettings,
   NodeServiceCapabilities,
   OperationDetail,
@@ -355,6 +357,71 @@ export function loadInitialSettings(): ExplorerSettings {
   }
 }
 
+function normalizeBackupAuthMethod(value: unknown): NodeBackupSettings['sshAuth'] {
+  return value === 'password-file' || value === 'env-password' || value === 'private-key'
+    ? value
+    : DEFAULT_NODE_BACKUP_SETTINGS.sshAuth
+}
+
+function stringValue(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value.trim() : fallback
+}
+
+function numberValue(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : Number.NaN
+  return clamp(Number.isFinite(parsed) ? parsed : fallback, min, max)
+}
+
+export function normalizeNodeBackupSettings(input?: Partial<NodeBackupSettings> | null): NodeBackupSettings {
+  const value = input && typeof input === 'object' ? input : {}
+  return {
+    localEnabled: value.localEnabled !== false,
+    localDirectory: stringValue(value.localDirectory, DEFAULT_NODE_BACKUP_SETTINGS.localDirectory),
+    workspace: stringValue(value.workspace, DEFAULT_NODE_BACKUP_SETTINGS.workspace),
+    localRetentionCount: numberValue(value.localRetentionCount, DEFAULT_NODE_BACKUP_SETTINGS.localRetentionCount, 1, 365),
+    remoteEnabled: value.remoteEnabled === true,
+    remoteDirectory: stringValue(value.remoteDirectory, DEFAULT_NODE_BACKUP_SETTINGS.remoteDirectory),
+    remoteRetentionCount: numberValue(value.remoteRetentionCount, DEFAULT_NODE_BACKUP_SETTINGS.remoteRetentionCount, 1, 365),
+    remoteRetentionDays: numberValue(value.remoteRetentionDays, DEFAULT_NODE_BACKUP_SETTINGS.remoteRetentionDays, 1, 3650),
+    uploadTempSuffix: stringValue(value.uploadTempSuffix, DEFAULT_NODE_BACKUP_SETTINGS.uploadTempSuffix) || '.partial',
+    sshHost: stringValue(value.sshHost, DEFAULT_NODE_BACKUP_SETTINGS.sshHost),
+    sshPort: numberValue(value.sshPort, DEFAULT_NODE_BACKUP_SETTINGS.sshPort, 1, 65535),
+    sshUser: stringValue(value.sshUser, DEFAULT_NODE_BACKUP_SETTINGS.sshUser),
+    sshAuth: normalizeBackupAuthMethod(value.sshAuth),
+    sshPrivateKeyFile: stringValue(value.sshPrivateKeyFile, DEFAULT_NODE_BACKUP_SETTINGS.sshPrivateKeyFile),
+    sshPasswordFile: stringValue(value.sshPasswordFile, DEFAULT_NODE_BACKUP_SETTINGS.sshPasswordFile),
+    sshPassphraseFile: stringValue(value.sshPassphraseFile, DEFAULT_NODE_BACKUP_SETTINGS.sshPassphraseFile),
+    sshKnownHostsFile: stringValue(value.sshKnownHostsFile, DEFAULT_NODE_BACKUP_SETTINGS.sshKnownHostsFile),
+    sshStrictHostKeyChecking: value.sshStrictHostKeyChecking !== false,
+    sshConnectTimeoutSeconds: numberValue(
+      value.sshConnectTimeoutSeconds,
+      DEFAULT_NODE_BACKUP_SETTINGS.sshConnectTimeoutSeconds,
+      1,
+      300
+    ),
+    scheduleEnabled: value.scheduleEnabled === true,
+    scheduleInterval: stringValue(value.scheduleInterval, DEFAULT_NODE_BACKUP_SETTINGS.scheduleInterval) || '6h',
+    scheduleRunOnStartupIfMissed: value.scheduleRunOnStartupIfMissed !== false,
+    scheduleJitterSeconds: numberValue(value.scheduleJitterSeconds, DEFAULT_NODE_BACKUP_SETTINGS.scheduleJitterSeconds, 0, 86400),
+    scheduleMinimumHeadProgress: numberValue(
+      value.scheduleMinimumHeadProgress,
+      DEFAULT_NODE_BACKUP_SETTINGS.scheduleMinimumHeadProgress,
+      0,
+      1000000
+    ),
+    scheduleSkipIfSyncingFromGenesis: value.scheduleSkipIfSyncingFromGenesis !== false,
+    scheduleMaxConcurrentBackups: 1,
+    adminEnabled: value.adminEnabled === true,
+    adminListen: stringValue(value.adminListen, DEFAULT_NODE_BACKUP_SETTINGS.adminListen) || '127.0.0.1:18088',
+    adminTokenFile: stringValue(value.adminTokenFile, DEFAULT_NODE_BACKUP_SETTINGS.adminTokenFile),
+    adminJobs: numberValue(value.adminJobs, DEFAULT_NODE_BACKUP_SETTINGS.adminJobs, 1, 16)
+  }
+}
+
+export function sameNodeBackupSettings(a: NodeBackupSettings, b: NodeBackupSettings): boolean {
+  return JSON.stringify(normalizeNodeBackupSettings(a)) === JSON.stringify(normalizeNodeBackupSettings(b))
+}
+
 export function loadInitialNodeSettings(): NodeManagerSettings {
   try {
     const raw = getStoredItemWithLegacyFallback(
@@ -362,7 +429,7 @@ export function loadInitialNodeSettings(): NodeManagerSettings {
       NODE_SETTINGS_STORAGE_KEY,
       LEGACY_NODE_SETTINGS_STORAGE_KEY
     )
-    if (!raw) return { ...DEFAULT_NODE_SETTINGS }
+    if (!raw) return { ...DEFAULT_NODE_SETTINGS, backup: normalizeNodeBackupSettings(DEFAULT_NODE_SETTINGS.backup) }
     const parsed = JSON.parse(raw) as Partial<NodeManagerSettings>
     const rawProfiles =
       typeof parsed.profiles === 'string'
@@ -389,10 +456,11 @@ export function loadInitialNodeSettings(): NodeManagerSettings {
       blockchainBackupUrl:
         typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
           ? parsed.blockchainBackupUrl
-          : DEFAULT_NODE_SETTINGS.blockchainBackupUrl
+          : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
+      backup: normalizeNodeBackupSettings(parsed.backup)
     }
   } catch {
-    return { ...DEFAULT_NODE_SETTINGS }
+    return { ...DEFAULT_NODE_SETTINGS, backup: normalizeNodeBackupSettings(DEFAULT_NODE_SETTINGS.backup) }
   }
 }
 
@@ -537,7 +605,8 @@ export function toNodeApiSettings(settings: NodeManagerSettings): TelenoNodeSett
     repoPath: settings.repoPath.trim(),
     baseDir: normalizeNodeBaseDirInput(settings.baseDir),
     profiles: expandNodeProfiles(parseProfilesCsv(settings.profiles)),
-    blockchainBackupUrl: settings.blockchainBackupUrl.trim()
+    blockchainBackupUrl: settings.blockchainBackupUrl.trim(),
+    backup: normalizeNodeBackupSettings(settings.backup)
   }
 }
 

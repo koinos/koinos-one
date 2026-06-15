@@ -12,6 +12,44 @@ export type TelenoNodeSettingsInput = {
   baseDir?: string
   profiles?: string[]
   blockchainBackupUrl?: string
+  backup?: TelenoNodeBackupSettingsInput
+}
+
+export type TelenoNodeBackupAuthMethod = 'private-key' | 'password-file' | 'env-password'
+
+export type TelenoNodeBackupSettingsInput = Partial<TelenoNodeBackupSettings>
+
+export type TelenoNodeBackupSettings = {
+  localEnabled: boolean
+  localDirectory: string
+  workspace: string
+  localRetentionCount: number
+  remoteEnabled: boolean
+  remoteDirectory: string
+  remoteRetentionCount: number
+  remoteRetentionDays: number
+  uploadTempSuffix: string
+  sshHost: string
+  sshPort: number
+  sshUser: string
+  sshAuth: TelenoNodeBackupAuthMethod
+  sshPrivateKeyFile: string
+  sshPasswordFile: string
+  sshPassphraseFile: string
+  sshKnownHostsFile: string
+  sshStrictHostKeyChecking: boolean
+  sshConnectTimeoutSeconds: number
+  scheduleEnabled: boolean
+  scheduleInterval: string
+  scheduleRunOnStartupIfMissed: boolean
+  scheduleJitterSeconds: number
+  scheduleMinimumHeadProgress: number
+  scheduleSkipIfSyncingFromGenesis: boolean
+  scheduleMaxConcurrentBackups: number
+  adminEnabled: boolean
+  adminListen: string
+  adminTokenFile: string
+  adminJobs: number
 }
 
 export type TelenoNodeProducerOverviewInput = TelenoNodeSettingsInput & {
@@ -39,6 +77,7 @@ export type TelenoNodeSettings = {
   baseDir: string
   profiles: string[]
   blockchainBackupUrl: string
+  backup: TelenoNodeBackupSettings
 }
 
 export type PublicRpcConfigInput = {

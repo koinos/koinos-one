@@ -74,6 +74,7 @@ import {
   normalizeBackupTarGzUrl,
   normalizeExplorerRpcSource,
   normalizeNodeBaseDirInput,
+  normalizeNodeBackupSettings,
   parseProfilesCsv,
   parsePublicRpcUrlsInput,
   renderAnsiLog,
@@ -83,6 +84,7 @@ import {
   resolveProducerRpcUrl,
   resolveNodeFileDisplayPath,
   sameProfiles,
+  sameNodeBackupSettings,
   sameStringList,
   storeNodeBaseDirForNetwork,
   toNodeApiSettings
@@ -229,6 +231,7 @@ export function App() {
   const [draftNodeBaseDir, setDraftNodeBaseDir] = useState(nodeSettings.baseDir)
   const [draftNodeProfiles, setDraftNodeProfiles] = useState(nodeSettings.profiles)
   const [draftNodeBlockchainBackupUrl, setDraftNodeBlockchainBackupUrl] = useState(nodeSettings.blockchainBackupUrl)
+  const [draftNodeBackup, setDraftNodeBackup] = useState(() => normalizeNodeBackupSettings(nodeSettings.backup))
   const [nodeBaseDirPickerLoading, setNodeBaseDirPickerLoading] = useState(false)
   const [nodeBaseDirValidationLoading, setNodeBaseDirValidationLoading] = useState(false)
   const [nodeBaseDirValidation, setNodeBaseDirValidation] = useState<NodeBaseDirValidationState | null>(null)
@@ -412,6 +415,7 @@ export function App() {
       : draftNodeNetwork === 'mainnet'
         ? DEFAULT_NODE_SETTINGS.blockchainBackupUrl
         : ''
+    const effectiveBackup = normalizeNodeBackupSettings(draftNodeBackup)
 
     return (
       language !== savedLanguage ||
@@ -426,13 +430,15 @@ export function App() {
       effectiveRepoPath !== nodeSettings.repoPath ||
       effectiveBaseDir !== nodeSettings.baseDir ||
       effectiveProfiles !== nodeSettings.profiles ||
-      effectiveBlockchainBackupUrl !== nodeSettings.blockchainBackupUrl
+      effectiveBlockchainBackupUrl !== nodeSettings.blockchainBackupUrl ||
+      !sameNodeBackupSettings(effectiveBackup, nodeSettings.backup)
     )
   }, [
     draftDashboardProducerWindowBlocks,
     draftDashboardRefreshSeconds,
     draftNodeBaseDir,
     draftNodeBlockchainBackupUrl,
+    draftNodeBackup,
     draftNodeNetwork,
     draftNodeProfiles,
     draftNodeRepoPath,
@@ -525,6 +531,7 @@ export function App() {
     setDraftNodeBaseDir(nodeSettings.baseDir)
     setDraftNodeProfiles(nodeSettings.profiles)
     setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
+    setDraftNodeBackup(normalizeNodeBackupSettings(nodeSettings.backup))
     setNodeBaseDirValidation(null)
   }, [nodeSettings])
 
@@ -3434,7 +3441,8 @@ export function App() {
       repoPath: overrides?.repoPath ?? draftNodeRepoPath.trim(),
       baseDir: overrides?.baseDir ?? draftNodeBaseDir.trim(),
       profiles: overrides?.profiles ?? expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)),
-      blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim()
+      blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim(),
+      backup: overrides?.backup ?? normalizeNodeBackupSettings(draftNodeBackup)
     }
   }
 
@@ -4142,6 +4150,28 @@ export function App() {
   }
   void runNodeNativeBuildService
 
+  const validateDraftNodeBackup = () => {
+    const backup = normalizeNodeBackupSettings(draftNodeBackup)
+    if (backup.remoteEnabled) {
+      if (!backup.sshHost.trim()) throw new Error(t('settings.backupRemoteHostRequired'))
+      if (!backup.sshUser.trim()) throw new Error(t('settings.backupRemoteUserRequired'))
+      if (!backup.remoteDirectory.trim().startsWith('/')) throw new Error(t('settings.backupRemoteDirectoryRequired'))
+      if (backup.sshAuth === 'private-key' && !backup.sshPrivateKeyFile.trim()) {
+        throw new Error(t('settings.backupPrivateKeyRequired'))
+      }
+      if (backup.sshAuth === 'password-file' && !backup.sshPasswordFile.trim()) {
+        throw new Error(t('settings.backupPasswordFileRequired'))
+      }
+    }
+    if (backup.scheduleEnabled && !/^\d+(ms|s|m|h|d)?$/.test(backup.scheduleInterval.trim())) {
+      throw new Error(t('settings.backupScheduleIntervalInvalid'))
+    }
+    if (backup.adminEnabled && !backup.adminTokenFile.trim()) {
+      throw new Error(t('settings.backupAdminTokenRequired'))
+    }
+    return backup
+  }
+
   const applySettings = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!settingsDirty) return
@@ -4165,6 +4195,7 @@ export function App() {
         : network === 'mainnet'
           ? normalizeBackupTarGzUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl, language)
           : ''
+      const backup = validateDraftNodeBackup()
 
       if (!repoPath) throw new Error(t('settings.repoRequired'))
       if (!draftNodeBaseDir.trim()) throw new Error(t('settings.baseDirRequired'))
@@ -4241,7 +4272,7 @@ export function App() {
         ...current,
         [network]: publicRpcUrls
       }))
-      setNodeSettings({ network, repoPath, baseDir, profiles, blockchainBackupUrl })
+      setNodeSettings({ network, repoPath, baseDir, profiles, blockchainBackupUrl, backup })
       setDraftNodeNetwork(network)
       setDraftNodeBaseDir(baseDir)
       const settingsSummary = networkChanged
@@ -4290,6 +4321,7 @@ export function App() {
     setDraftNodeBaseDir(DEFAULT_NODE_SETTINGS.baseDir)
     setDraftNodeProfiles(DEFAULT_NODE_SETTINGS.profiles)
     setDraftNodeBlockchainBackupUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
+    setDraftNodeBackup(normalizeNodeBackupSettings(DEFAULT_NODE_SETTINGS.backup))
     setNodeBaseDirValidation(null)
     setFormError(null)
   }
@@ -4440,6 +4472,8 @@ export function App() {
           setDraftNodeProfiles={setDraftNodeProfiles}
           draftNodeBlockchainBackupUrl={draftNodeBlockchainBackupUrl}
           setDraftNodeBlockchainBackupUrl={setDraftNodeBlockchainBackupUrl}
+          draftNodeBackup={draftNodeBackup}
+          setDraftNodeBackup={setDraftNodeBackup}
           runNodeRestoreBackupVerify={runNodeRestoreBackupVerify}
           runCreateBackup={runCreateBackup}
           runCancelBackup={runCancelBackup}

@@ -7,6 +7,7 @@ import type {
   ServiceStatus,
   NativeServiceProcessState
 } from './main-types'
+import { normalizeBackupSettings } from './node-paths'
 
 function createSettings(): TelenoNodeSettings {
   return {
@@ -14,7 +15,8 @@ function createSettings(): TelenoNodeSettings {
     repoPath: '/tmp/koinos',
     baseDir: '/tmp/koinos/basedir',
     profiles: ['block_producer'],
-    blockchainBackupUrl: 'https://example.com/backup.tar.gz'
+    blockchainBackupUrl: 'https://example.com/backup.tar.gz',
+    backup: normalizeBackupSettings()
   }
 }
 

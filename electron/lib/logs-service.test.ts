@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createLogsService } from './logs-service'
 import type { TelenoNodeStatus, NativeServiceProcessState } from './main-types'
+import { normalizeBackupSettings } from './node-paths'
 
 function createMonolithStatus(): TelenoNodeStatus {
   return {
@@ -70,7 +71,8 @@ function createService(output: string, maxNativeServiceLogBytes = 1024 * 1024) {
       repoPath: '/tmp/koinos',
       baseDir: '/tmp/.koinos',
       profiles: ['jsonrpc'],
-      blockchainBackupUrl: ''
+      blockchainBackupUrl: '',
+      backup: normalizeBackupSettings()
     }),
     assertRepoReady: vi.fn(),
     nativeAmqpHomebrewLogFiles: () => [],

@@ -9,6 +9,7 @@ import {
   defaultBaseDirForNetwork,
   ensureKoinosBaseDir,
   managedFilePath,
+  normalizeBackupSettings,
   normalizeNodeSettings,
   parsePersistedNodeSettings,
   sanitizePublicRpcUrls
@@ -51,7 +52,35 @@ describe('electron node paths', () => {
       repoPath: '/repo',
       baseDir: '~/node',
       profiles: ['block_producer', 'jsonrpc'],
-      blockchainBackupUrl: 'http://example.test/backup.tar.gz'
+      blockchainBackupUrl: 'http://example.test/backup.tar.gz',
+      backup: undefined
+    })
+  })
+
+  it('normalizes native backup settings', () => {
+    expect(
+      normalizeBackupSettings({
+        localRetentionCount: '9' as unknown as number,
+        remoteEnabled: true,
+        remoteDirectory: ' /srv/teleno-backups/testnet/node-1 ',
+        sshPort: '2222' as unknown as number,
+        sshAuth: 'password-file',
+        sshStrictHostKeyChecking: false,
+        scheduleEnabled: true,
+        scheduleInterval: '12h',
+        adminJobs: 99
+      })
+    ).toMatchObject({
+      localEnabled: true,
+      localRetentionCount: 9,
+      remoteEnabled: true,
+      remoteDirectory: '/srv/teleno-backups/testnet/node-1',
+      sshPort: 2222,
+      sshAuth: 'password-file',
+      sshStrictHostKeyChecking: false,
+      scheduleEnabled: true,
+      scheduleInterval: '12h',
+      adminJobs: 16
     })
   })
 
@@ -66,6 +95,8 @@ describe('electron node paths', () => {
     expect(normalized.baseDir).toMatch(/node[/\\]\.koinos$/)
     expect(normalized.network).toBe('mainnet')
     expect(normalized.profiles).toEqual(['block_producer'])
+    expect(normalized.backup.localEnabled).toBe(true)
+    expect(normalized.backup.remoteEnabled).toBe(false)
   })
 
   it('infers testnet from persisted profiles when network is omitted', () => {

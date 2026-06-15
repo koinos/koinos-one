@@ -5,6 +5,41 @@ declare global {
   type TelenoNetworkId = 'mainnet' | 'testnet' | 'custom'
   type TelenoNativeBuildSystem = 'cmake' | 'go' | 'yarn'
 
+  type TelenoNodeBackupAuthMethod = 'private-key' | 'password-file' | 'env-password'
+
+  type TelenoNodeBackupSettings = {
+    localEnabled?: boolean
+    localDirectory?: string
+    workspace?: string
+    localRetentionCount?: number
+    remoteEnabled?: boolean
+    remoteDirectory?: string
+    remoteRetentionCount?: number
+    remoteRetentionDays?: number
+    uploadTempSuffix?: string
+    sshHost?: string
+    sshPort?: number
+    sshUser?: string
+    sshAuth?: TelenoNodeBackupAuthMethod
+    sshPrivateKeyFile?: string
+    sshPasswordFile?: string
+    sshPassphraseFile?: string
+    sshKnownHostsFile?: string
+    sshStrictHostKeyChecking?: boolean
+    sshConnectTimeoutSeconds?: number
+    scheduleEnabled?: boolean
+    scheduleInterval?: string
+    scheduleRunOnStartupIfMissed?: boolean
+    scheduleJitterSeconds?: number
+    scheduleMinimumHeadProgress?: number
+    scheduleSkipIfSyncingFromGenesis?: boolean
+    scheduleMaxConcurrentBackups?: number
+    adminEnabled?: boolean
+    adminListen?: string
+    adminTokenFile?: string
+    adminJobs?: number
+  }
+
   type TelenoNodeServicePort = {
     host: string | null
     publishedPort: number | null
@@ -21,6 +56,7 @@ declare global {
     baseDir?: string
     profiles?: string[]
     blockchainBackupUrl?: string
+    backup?: TelenoNodeBackupSettings
     runtimeMode?: TelenoNodeServiceRuntime
   }
 
@@ -491,8 +527,8 @@ declare global {
   }
 
   type TelenoNodeBackupProgressEvent = {
-    action: 'restore-backup' | 'restore-backup-verify'
-    phase: 'prepare' | 'stop' | 'download' | 'checksum' | 'extract' | 'restore' | 'start' | 'verify' | 'complete' | 'error'
+    action: 'restore-backup' | 'restore-backup-verify' | 'create-backup'
+    phase: 'prepare' | 'stop' | 'download' | 'checksum' | 'extract' | 'restore' | 'compress' | 'save' | 'start' | 'verify' | 'complete' | 'error'
     progress: number
     message: string
   }

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { createWorkspaceService } from './workspace-service'
 import type { TelenoNodeSettings, TelenoNodeSettingsInput } from './main-types'
+import { normalizeBackupSettings } from './node-paths'
 
 const tempDirs: string[] = []
 
@@ -21,7 +22,8 @@ function normalizeNodeSettings(input?: TelenoNodeSettingsInput): TelenoNodeSetti
     repoPath: input?.repoPath || '',
     baseDir: input?.baseDir || path.join(input?.repoPath || '', 'basedir'),
     profiles: input?.profiles || [],
-    blockchainBackupUrl: input?.blockchainBackupUrl || 'https://example.com/backup.tar.gz'
+    blockchainBackupUrl: input?.blockchainBackupUrl || 'https://example.com/backup.tar.gz',
+    backup: normalizeBackupSettings(input?.backup)
   }
 }
 
