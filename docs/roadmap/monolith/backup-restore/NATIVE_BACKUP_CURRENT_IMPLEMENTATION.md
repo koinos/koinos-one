@@ -211,7 +211,7 @@ The Settings > Backup panel now shows:
 Current UX behavior:
 
 - `Check native backup config` runs `teleno_node --backup-dry-run --backup-json`.
-- `Create native backup` runs `teleno_node --backup-create --backup-json`.
+- `Create native backup` uses the native backup admin API when backup admin is enabled, the managed node is running, and remote upload is disabled. Otherwise it falls back to `teleno_node --backup-create --backup-json`.
 - `Refresh backup list` runs `teleno_node --backup-list --backup-json` and displays completed local snapshots.
 - `Restore selected native backup` runs `teleno_node --backup-restore --backup-json --backup-id=<selected>` for selected local snapshots.
 - `Restore latest native backup` stops the managed node if needed, runs `teleno_node --backup-restore --backup-json`, and leaves the restored node for observer-first restart.
@@ -224,7 +224,7 @@ Current UX behavior:
 - The UX stores credential references as file paths only. It does not store raw SSH passwords in localStorage or generated YAML.
 - `TELENO_BACKUP_*` environment variables still work as an explicit developer override when set.
 
-Current limitation: remote repository listing and selected remote restore are not yet implemented. To restore a specific remote snapshot, first fetch remote latest into the local repository, then restore by local backup ID if the snapshot is present. Admin API status integration and richer restore preflight screens are tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
+Current limitation: remote repository listing and selected remote restore are not yet implemented. To restore a specific remote snapshot, first fetch remote latest into the local repository, then restore by local backup ID if the snapshot is present. Running-node admin create currently covers local-only snapshots; remote upload from admin create, richer admin status views, and richer restore preflight screens are tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
 
 ## Validation Completed
 

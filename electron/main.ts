@@ -4199,7 +4199,7 @@ async function createLocalBackup(
   return backupService.createLocalBackup(input, sender!)
 }
 
-function cancelCreateBackup(): { ok: boolean; output: string } {
+async function cancelCreateBackup(): Promise<{ ok: boolean; output: string }> {
   return backupService.cancelCreateBackup()
 }
 

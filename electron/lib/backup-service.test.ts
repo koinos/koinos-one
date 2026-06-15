@@ -2,11 +2,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseDocument } from 'yaml'
 
 import {
   blockchainBackupChecksumUrl,
+  createBackupService,
   extractHeadInfoSummary,
   normalizeBlockchainBackupArchiveUrl,
   parseBlockchainBackupMetadataDirectories,
@@ -76,6 +77,7 @@ function nodeSettings(overrides: Partial<TelenoNodeSettings> = {}): TelenoNodeSe
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   while (tempDirs.length > 0) {
     fs.rmSync(tempDirs.pop()!, { recursive: true, force: true })
   }
@@ -202,5 +204,59 @@ foo
     expect(doc.getIn(['backup', 'admin', 'jobs'])).toBe(2)
     expect(fs.existsSync(repositoryDir)).toBe(true)
     expect(fs.existsSync(workspaceDir)).toBe(true)
+  })
+
+  it('creates a running-node local backup through the native admin API when enabled', async () => {
+    const root = makeTempDir()
+    const tokenFile = path.join(root, 'admin.token')
+    fs.writeFileSync(tokenFile, 'secret-token\n')
+    const settings = nodeSettings({
+      backup: backupSettings({
+        adminEnabled: true,
+        adminListen: '127.0.0.1:18088',
+        adminTokenFile: tokenFile,
+        remoteEnabled: false
+      })
+    })
+    const sender = { send: vi.fn() }
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        ok: true,
+        status: {
+          operation_id: 'admin-op-1',
+          state: 'succeeded',
+          message: 'local backup complete',
+          has_snapshot: true,
+          snapshot: {
+            backup_id: 'backup-1',
+            total_bytes: 2048
+          }
+        }
+      })
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      telenoNodeStatus: async () => ({
+        services: [{ managedByTeleno: true, state: 'running', status: 'running' }]
+      }),
+      telenoNodeAction: async () => ({ ok: true, output: '' }),
+      runCommand: async () => ({ ok: true, code: 0, output: '' })
+    } as any)
+
+    const result = await service.createLocalBackup(undefined, sender as any)
+
+    expect(result.ok).toBe(true)
+    expect(result.output).toContain('running-node admin API')
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:18088/admin/backup/create',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ authorization: 'Bearer secret-token' })
+      })
+    )
   })
 })

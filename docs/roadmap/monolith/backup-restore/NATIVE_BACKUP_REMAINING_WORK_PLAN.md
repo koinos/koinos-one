@@ -29,6 +29,13 @@ The first slice of `Backup Listing, Selection, And Verification` is implemented:
 - Settings > Backup can refresh local snapshots, select a backup ID, and restore the selected local snapshot.
 - C++ snapshot tests cover local listing and selected preflight.
 
+The first slice of `UX Runtime Admin API Integration` is implemented:
+
+- When backup admin is enabled, the managed node is running, and remote upload is disabled, `Create native backup` uses `POST /admin/backup/create`.
+- UX progress follows native admin status for the local snapshot operation.
+- The existing cancel button can cancel the active admin operation.
+- CLI fallback remains in place for stopped/offline flows and remote-enabled create flows.
+
 ## 1. UX Backup Configuration
 
 ### Objective
@@ -138,10 +145,12 @@ When the node is running, UX should use the native local admin API for backup cr
 
 ### Exit Criteria
 
-- Running-node backup from UX uses admin API.
-- Progress in UX is driven by native operation status JSON.
-- Cancel works for safe cancellation points.
-- Admin token is never printed in logs or visible output.
+- Status: partially complete for local-only running-node backup create/status/cancel.
+- Remaining work:
+  - remote upload from admin-created backups;
+  - admin-backed restore stage/activate UX;
+  - richer status view for active/previous operation IDs;
+  - local generation of admin token files when enabling admin control.
 
 ## 4. Safer Restore UX
 

@@ -1882,9 +1882,92 @@ export function createBackupService(deps: BackupServiceDeps) {
 
   // ── Cancel support for createLocalBackup ──
   let activeBackupProcess: ChildProcess | null = null
+  let activeBackupAdminOperation: { baseUrl: string; token: string; operationId: string } | null = null
   let activeBackupCancelled = false
 
-  function cancelCreateBackup(): { ok: boolean; output: string } {
+  function backupAdminConnection(settings: TelenoNodeSettings): { baseUrl: string; token: string } | null {
+    if (!settings.backup.adminEnabled) return null
+    const listen = settings.backup.adminListen.trim() || '127.0.0.1:18088'
+    const splitAt = listen.lastIndexOf(':')
+    if (splitAt <= 0 || splitAt === listen.length - 1) {
+      throw new Error(`Invalid backup admin listen address: ${listen}`)
+    }
+    const host = listen.slice(0, splitAt)
+    const port = Number.parseInt(listen.slice(splitAt + 1), 10)
+    if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+      throw new Error(`Invalid backup admin port: ${listen}`)
+    }
+    const tokenPath = expandBackupFilePath(settings.backup.adminTokenFile)
+    if (!tokenPath) throw new Error('Backup admin token file is required')
+    const token = fs.readFileSync(tokenPath, 'utf8').trim()
+    if (!token) throw new Error(`Backup admin token file is empty: ${tokenPath}`)
+    return { baseUrl: `http://${host}:${port}`, token }
+  }
+
+  async function backupAdminRequest(
+    baseUrl: string,
+    token: string,
+    method: 'GET' | 'POST',
+    route: string,
+    body?: unknown
+  ): Promise<Record<string, unknown>> {
+    const response = await fetch(`${baseUrl}${route}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body === undefined ? {} : { 'content-type': 'application/json' })
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000)
+    })
+    const text = await response.text()
+    let payload: Record<string, unknown> = {}
+    try {
+      payload = text ? JSON.parse(text) as Record<string, unknown> : {}
+    } catch {
+      throw new Error(`Backup admin returned non-JSON response: ${text}`)
+    }
+    if (!response.ok || payload.ok === false) {
+      const error = typeof payload.error === 'string' ? payload.error : response.statusText
+      throw new Error(`Backup admin ${method} ${route} failed: ${error}`)
+    }
+    return payload
+  }
+
+  function backupStatusPayload(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>
+      if (record.status && typeof record.status === 'object') return record.status as Record<string, unknown>
+      return record
+    }
+    return {}
+  }
+
+  function nodeStatusLooksRunning(status: unknown): boolean {
+    if (!status || typeof status !== 'object') return false
+    const services = (status as { services?: unknown }).services
+    if (!Array.isArray(services)) return false
+    return services.some((service) => {
+      if (!service || typeof service !== 'object') return false
+      const value = service as { state?: unknown; status?: unknown; managedByTeleno?: unknown }
+      const state = `${value.state ?? ''}`.toLowerCase()
+      const serviceStatus = `${value.status ?? ''}`.toLowerCase()
+      return value.managedByTeleno === true && (state === 'running' || serviceStatus.includes('running') || serviceStatus.includes('up'))
+    })
+  }
+
+  async function cancelCreateBackup(): Promise<{ ok: boolean; output: string }> {
+    if (activeBackupAdminOperation) {
+      const operation = activeBackupAdminOperation
+      activeBackupCancelled = true
+      try {
+        await backupAdminRequest(operation.baseUrl, operation.token, 'POST', `/admin/backup/cancel/${encodeURIComponent(operation.operationId)}`)
+        return { ok: true, output: 'Admin backup cancel signal sent' }
+      } catch (error) {
+        return { ok: false, output: error instanceof Error ? error.message : String(error) }
+      }
+    }
+
     if (!activeBackupProcess && !activeBackupCancelled) {
       activeBackupCancelled = true
       return { ok: true, output: 'Cancel requested (no native backup process running yet)' }
@@ -1953,6 +2036,66 @@ export function createBackupService(deps: BackupServiceDeps) {
     try {
       const settings = deps.normalizeNodeSettings(input)
       deps.assertRepoReady(settings)
+      if (settings.backup.adminEnabled && !settings.backup.remoteEnabled) {
+        const status = await deps.telenoNodeStatus(input).catch(() => null)
+        if (nodeStatusLooksRunning(status)) {
+          const admin = backupAdminConnection(settings)
+          if (admin) {
+            emitProgress('prepare', 5, 'Requesting running-node backup through native admin API')
+            const createPayload = await backupAdminRequest(admin.baseUrl, admin.token, 'POST', '/admin/backup/create')
+            let currentStatus = backupStatusPayload(createPayload)
+            const operationId = stringField(currentStatus.operation_id)
+            if (!operationId) throw new Error('Backup admin did not return an operation id')
+            activeBackupAdminOperation = { ...admin, operationId }
+
+            try {
+              const startedAt = Date.now()
+              while (Date.now() - startedAt < 6 * 60 * 60 * 1000) {
+                if (checkCancelled()) return cleanupOnCancel()
+                const state = stringField(currentStatus.state)
+                const message = stringField(currentStatus.message) || `Native admin backup state: ${state || 'unknown'}`
+                if (state === 'succeeded') {
+                  const snapshot = currentStatus.snapshot && typeof currentStatus.snapshot === 'object'
+                    ? currentStatus.snapshot as Record<string, unknown>
+                    : {}
+                  const backupId = stringField(snapshot.backup_id)
+                  const totalBytes = numberField(snapshot.total_bytes)
+                  emitProgress(
+                    'complete',
+                    100,
+                    backupId
+                      ? `Native hot backup created: ${backupId}${totalBytes ? ` (${formatByteCount(totalBytes)})` : ''}.`
+                      : 'Native hot backup created'
+                  )
+                  return {
+                    ok: true,
+                    action,
+                    output: [
+                      'Native backup created through running-node admin API',
+                      `Operation ID: ${operationId}`,
+                      JSON.stringify(currentStatus, null, 2)
+                    ].join('\n'),
+                    status: 'complete'
+                  }
+                }
+                if (state === 'failed') {
+                  emitProgress('error', 70, message)
+                  return { ok: false, action, output: message, status: 'error' }
+                }
+
+                emitProgress('save', 35, message)
+                await delay(1000)
+                currentStatus = backupStatusPayload(
+                  await backupAdminRequest(admin.baseUrl, admin.token, 'GET', `/admin/backup/status/${encodeURIComponent(operationId)}`)
+                )
+              }
+              throw new Error('Native admin backup timed out')
+            } finally {
+              activeBackupAdminOperation = null
+            }
+          }
+        }
+      }
       const binaryPath = resolveMonolithBinaryPath()
       if (!fs.existsSync(binaryPath)) {
         emitProgress('error', 0, `teleno_node binary not found: ${binaryPath}`)
