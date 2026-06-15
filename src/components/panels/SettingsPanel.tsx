@@ -455,6 +455,35 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <p>{t('node.nativeBackupDescription')}</p>
             </div>
 
+            <div className="settings-actions settings-actions-inline">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => { void runNativeBackupDryRun() }}
+                disabled={!hasNodeControls || nodeBusy}
+              >
+                {nodeNativeBackupDryRunLoading ? t('node.nativeBackupDryRunLoading') : t('node.nativeBackupDryRun')}
+              </button>
+              {nodeCreateBackupLoading ? (
+                <button
+                  type="button"
+                  className="ghost-button danger-button"
+                  onClick={() => { void runCancelBackup() }}
+                >
+                  {t('node.cancelBackup')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => { void runCreateBackup() }}
+                  disabled={!hasNodeControls || nodeBusy || settingsDirty}
+                >
+                  {t('node.createBackup')}
+                </button>
+              )}
+            </div>
+
             <div className="settings-row">
               <label className="settings-toggle-row">
                 <input
@@ -905,35 +934,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 </p>
               </div>
             )}
-
-            <div className="settings-actions settings-actions-inline">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => { void runNativeBackupDryRun() }}
-                disabled={!hasNodeControls || nodeBusy}
-              >
-                {nodeNativeBackupDryRunLoading ? t('node.nativeBackupDryRunLoading') : t('node.nativeBackupDryRun')}
-              </button>
-              {nodeCreateBackupLoading ? (
-                <button
-                  type="button"
-                  className="ghost-button danger-button"
-                  onClick={() => { void runCancelBackup() }}
-                >
-                  {t('node.cancelBackup')}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => { void runCreateBackup() }}
-                  disabled={!hasNodeControls || nodeBusy || settingsDirty}
-                >
-                  {t('node.createBackup')}
-                </button>
-              )}
-            </div>
 
             {nodeBackupProgress && (
               <div className="node-backup-progress" role="status" aria-live="polite" style={{ marginTop: '1rem' }}>
