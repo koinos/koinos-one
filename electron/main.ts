@@ -4425,6 +4425,7 @@ function registerIpcHandlers() {
     createLocalBackup,
     nativeBackupDryRun: backupService.nativeBackupDryRun,
     nativeBackupList: backupService.nativeBackupList,
+    nativeBackupRestorePreflight: backupService.nativeBackupRestorePreflight,
     restoreNativeBackup: backupService.restoreNativeBackup,
     restoreNativeBackupLatest: backupService.restoreNativeBackupLatest,
     cancelCreateBackup,

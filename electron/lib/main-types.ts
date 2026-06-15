@@ -245,6 +245,28 @@ export type TelenoNodeNativeBackupListResult = {
   snapshots: TelenoNodeNativeBackupSnapshot[]
 }
 
+export type TelenoNodeNativeBackupPreflightResult = {
+  ok: boolean
+  output: string
+  configPath?: string
+  repositoryDir?: string
+  workspaceDir?: string
+  backupId: string
+  readyToRestore: boolean
+  snapshotComplete: boolean
+  fileCount: number
+  missingObjectCount: number
+  missingObjectBytes: number
+  restoreSpace: TelenoNodeNativeBackupRestoreSpace
+  spaceCheck: {
+    passesMinimum: boolean
+    belowRecommended: boolean
+    availableBytes: number
+    targetPath: string
+    message: string
+  }
+}
+
 export type BlockchainBackupWorkspacePaths = {
   workspaceDir: string
   archivePath: string

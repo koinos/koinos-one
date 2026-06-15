@@ -244,6 +244,8 @@ export function App() {
   const [nodeNativeBackupDryRunLoading, setNodeNativeBackupDryRunLoading] = useState(false)
   const [nodeNativeBackupListLoading, setNodeNativeBackupListLoading] = useState(false)
   const [nodeNativeBackupList, setNodeNativeBackupList] = useState<TelenoNodeNativeBackupListResult | null>(null)
+  const [nodeNativeBackupPreflightLoading, setNodeNativeBackupPreflightLoading] = useState(false)
+  const [nodeNativeBackupPreflight, setNodeNativeBackupPreflight] = useState<TelenoNodeNativeBackupPreflightResult | null>(null)
   const [selectedNativeBackupId, setSelectedNativeBackupId] = useState('latest')
   const [nodeRestoreNativeBackupLoading, setNodeRestoreNativeBackupLoading] = useState(false)
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
@@ -537,6 +539,10 @@ export function App() {
     setDraftNodeBackup(normalizeNodeBackupSettings(nodeSettings.backup))
     setNodeBaseDirValidation(null)
   }, [nodeSettings])
+
+  useEffect(() => {
+    setNodeNativeBackupPreflight(null)
+  }, [selectedNativeBackupId])
 
   useEffect(() => {
     if (!settings.producerAdvancedMode) return
@@ -982,6 +988,7 @@ export function App() {
         nodeRestoreBackupLoading ||
         nodeRestoreNativeBackupLoading ||
         nodeNativeBackupListLoading ||
+        nodeNativeBackupPreflightLoading ||
         nodeServiceActionLoading ||
         nodePresetActionLoading ||
         nodeNativeBuildActionLoading
@@ -1007,6 +1014,7 @@ export function App() {
     nodeRestoreBackupLoading,
     nodeRestoreNativeBackupLoading,
     nodeNativeBackupListLoading,
+    nodeNativeBackupPreflightLoading,
     nodeServiceActionLoading,
     nodePresetActionLoading,
     nodeNativeBuildActionLoading
@@ -1085,6 +1093,7 @@ export function App() {
     nodeCreateBackupLoading ||
     nodeNativeBackupDryRunLoading ||
     nodeNativeBackupListLoading ||
+    nodeNativeBackupPreflightLoading ||
     nodeRestoreNativeBackupLoading ||
     nodeCloneLoading ||
     nodeBaseDirPickerLoading ||
@@ -3908,6 +3917,38 @@ export function App() {
     }
   }
 
+  const runNativeBackupRestorePreflight = async () => {
+    const bridge = getTelenoNodeBridge()
+    if (!bridge?.nativeBackupRestorePreflight) return
+
+    setNodeNativeBackupPreflightLoading(true)
+    setNodeNativeBackupPreflight(null)
+    setNodeError(null)
+
+    try {
+      const trimmedBackupId = selectedNativeBackupId.trim() || 'latest'
+      const apiSettings = toNodeApiSettings(nodeSettings)
+      const result = await bridge.nativeBackupRestorePreflight({
+        ...apiSettings,
+        backupId: trimmedBackupId
+      })
+      setNodeNativeBackupPreflight(result)
+      setNodeOutput([
+        result.configPath ? `Native backup config: ${result.configPath}` : '',
+        result.repositoryDir ? `Native backup repository: ${result.repositoryDir}` : '',
+        result.workspaceDir ? `Native backup workspace: ${result.workspaceDir}` : '',
+        result.output || ''
+      ].filter(Boolean).join('\n'))
+      if (!result.ok) {
+        setNodeError(result.output || 'Native backup restore preflight failed')
+      }
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : 'Native backup restore preflight failed')
+    } finally {
+      setNodeNativeBackupPreflightLoading(false)
+    }
+  }
+
   const runRestoreNativeBackup = async (backupId: string) => {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreNativeBackupLatest) return
@@ -4532,6 +4573,7 @@ export function App() {
           runRestoreLocalBackup={runRestoreLocalBackup}
           runNativeBackupDryRun={runNativeBackupDryRun}
           runNativeBackupList={runNativeBackupList}
+          runNativeBackupRestorePreflight={runNativeBackupRestorePreflight}
           runRestoreNativeBackupSelected={runRestoreNativeBackupSelected}
           runRestoreNativeBackupLatest={runRestoreNativeBackupLatest}
           nodeBusy={nodeBusy}
@@ -4541,6 +4583,8 @@ export function App() {
           nodeNativeBackupDryRunLoading={nodeNativeBackupDryRunLoading}
           nodeNativeBackupListLoading={nodeNativeBackupListLoading}
           nodeNativeBackupList={nodeNativeBackupList}
+          nodeNativeBackupPreflightLoading={nodeNativeBackupPreflightLoading}
+          nodeNativeBackupPreflight={nodeNativeBackupPreflight}
           selectedNativeBackupId={selectedNativeBackupId}
           setSelectedNativeBackupId={setSelectedNativeBackupId}
           nodeRestoreNativeBackupLoading={nodeRestoreNativeBackupLoading}

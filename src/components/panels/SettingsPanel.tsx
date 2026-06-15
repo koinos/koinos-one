@@ -42,6 +42,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
     runRestoreLocalBackup,
     runNativeBackupDryRun,
     runNativeBackupList,
+    runNativeBackupRestorePreflight,
     runRestoreNativeBackupSelected,
     runRestoreNativeBackupLatest,
     nodeBusy,
@@ -51,6 +52,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     nodeNativeBackupDryRunLoading,
     nodeNativeBackupListLoading,
     nodeNativeBackupList,
+    nodeNativeBackupPreflightLoading,
+    nodeNativeBackupPreflight,
     selectedNativeBackupId,
     setSelectedNativeBackupId,
     nodeRestoreNativeBackupLoading,
@@ -837,6 +840,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <button
                 type="button"
                 className="ghost-button"
+                onClick={() => { void runNativeBackupRestorePreflight() }}
+                disabled={!hasNodeControls || nodeBusy || settingsDirty || nativeBackupSnapshots.length === 0}
+              >
+                {nodeNativeBackupPreflightLoading ? 'Verifying backup...' : 'Verify selected backup'}
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
                 onClick={() => { void runRestoreNativeBackupSelected() }}
                 disabled={!hasNodeControls || nodeBusy || settingsDirty || nativeBackupSnapshots.length === 0}
                 title={t('node.restoreNativeLatestHelp')}
@@ -867,6 +878,21 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {nodeNativeBackupPreflight && (
+              <div className={`node-backup-preflight ${nodeNativeBackupPreflight.readyToRestore ? 'is-ok' : 'is-error'}`}>
+                <strong>{nodeNativeBackupPreflight.readyToRestore ? 'Selected backup is ready to restore' : 'Selected backup is not ready to restore'}</strong>
+                <p className="settings-inline-help">
+                  Backup {nodeNativeBackupPreflight.backupId || selectedNativeBackupId} · {nodeNativeBackupPreflight.fileCount} files · missing objects {nodeNativeBackupPreflight.missingObjectCount}
+                </p>
+                <p className="settings-inline-help">
+                  {nodeNativeBackupPreflight.spaceCheck.message || 'No disk-space message returned.'}
+                </p>
+                <p className="settings-inline-help">
+                  Available {formatBytes(nodeNativeBackupPreflight.spaceCheck.availableBytes, locale)} · minimum {formatBytes(nodeNativeBackupPreflight.restoreSpace.minimumTargetFreeBytes, locale)} · recommended {formatBytes(nodeNativeBackupPreflight.restoreSpace.recommendedTargetFreeBytes, locale)}
+                </p>
               </div>
             )}
 

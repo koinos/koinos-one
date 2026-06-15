@@ -24,6 +24,7 @@ import type {
   TelenoNodeCommandResult,
   TelenoNodeNativeBackupListResult,
   TelenoNodeNativeBackupDryRunResult,
+  TelenoNodeNativeBackupPreflightResult,
   TelenoNodeNativeBackupRestoreInput,
   TelenoNodeNativeBackupSnapshot,
   TelenoNodeSelectDirectoryResult,
@@ -367,6 +368,48 @@ function parseNativeBackupListOutput(output: string): Pick<TelenoNodeNativeBacku
   return {
     latestBackupId: stringField(payload.latest_backup_id),
     snapshots
+  }
+}
+
+function parseNativeBackupPreflightOutput(output: string): Pick<
+  TelenoNodeNativeBackupPreflightResult,
+  | 'backupId'
+  | 'readyToRestore'
+  | 'snapshotComplete'
+  | 'fileCount'
+  | 'missingObjectCount'
+  | 'missingObjectBytes'
+  | 'restoreSpace'
+  | 'spaceCheck'
+> {
+  const payload = JSON.parse(output) as Record<string, unknown>
+  const restoreSpace = payload.restore_space && typeof payload.restore_space === 'object'
+    ? payload.restore_space as Record<string, unknown>
+    : {}
+  const spaceCheck = payload.space_check && typeof payload.space_check === 'object'
+    ? payload.space_check as Record<string, unknown>
+    : {}
+  return {
+    backupId: stringField(payload.backup_id),
+    readyToRestore: payload.ready_to_restore === true,
+    snapshotComplete: payload.snapshot_complete === true,
+    fileCount: numberField(payload.file_count),
+    missingObjectCount: numberField(payload.missing_object_count),
+    missingObjectBytes: numberField(payload.missing_object_bytes),
+    restoreSpace: {
+      restoredDatabaseBytes: numberField(restoreSpace.restored_database_bytes),
+      runtimeFilesBytes: numberField(restoreSpace.runtime_files_bytes),
+      objectDownloadBytes: numberField(restoreSpace.object_download_bytes),
+      minimumTargetFreeBytes: numberField(restoreSpace.minimum_target_free_bytes),
+      recommendedTargetFreeBytes: numberField(restoreSpace.recommended_target_free_bytes)
+    },
+    spaceCheck: {
+      passesMinimum: spaceCheck.passes_minimum === true,
+      belowRecommended: spaceCheck.below_recommended === true,
+      availableBytes: numberField(spaceCheck.available_bytes),
+      targetPath: stringField(spaceCheck.target_path),
+      message: stringField(spaceCheck.message)
+    }
   }
 }
 
@@ -2260,6 +2303,66 @@ export function createBackupService(deps: BackupServiceDeps) {
     }
   }
 
+  async function nativeBackupRestorePreflight(
+    input: TelenoNodeNativeBackupRestoreInput | undefined
+  ): Promise<TelenoNodeNativeBackupPreflightResult> {
+    const empty = {
+      backupId: '',
+      readyToRestore: false,
+      snapshotComplete: false,
+      fileCount: 0,
+      missingObjectCount: 0,
+      missingObjectBytes: 0,
+      restoreSpace: {
+        restoredDatabaseBytes: 0,
+        runtimeFilesBytes: 0,
+        objectDownloadBytes: 0,
+        minimumTargetFreeBytes: 0,
+        recommendedTargetFreeBytes: 0
+      },
+      spaceCheck: {
+        passesMinimum: false,
+        belowRecommended: false,
+        availableBytes: 0,
+        targetPath: '',
+        message: ''
+      }
+    }
+    try {
+      const settings = deps.normalizeNodeSettings(input)
+      const backupId = typeof input?.backupId === 'string' ? input.backupId.trim() : ''
+      deps.assertRepoReady(settings)
+      const binaryPath = resolveMonolithBinaryPath()
+      if (!fs.existsSync(binaryPath)) {
+        return { ok: false, output: `teleno_node binary not found: ${binaryPath}`, ...empty }
+      }
+
+      const nativeBackup = writeNativeBackupConfig(settings)
+      const result = await deps.runCommand(
+        binaryPath,
+        [
+          `--basedir=${settings.baseDir}`,
+          `--config=${nativeBackup.configPath}`,
+          '--backup-restore-preflight',
+          '--backup-json',
+          ...(backupId && backupId !== 'latest' ? [`--backup-id=${backupId}`] : [])
+        ],
+        { cwd: settings.repoPath, timeoutMs: 30_000 }
+      )
+      const parsed = result.output ? parseNativeBackupPreflightOutput(result.output) : empty
+      return {
+        ok: result.ok,
+        output: result.output,
+        configPath: nativeBackup.configPath,
+        repositoryDir: nativeBackup.repositoryDir,
+        workspaceDir: nativeBackup.workspaceDir,
+        ...parsed
+      }
+    } catch (error) {
+      return { ok: false, output: error instanceof Error ? error.message : String(error), ...empty }
+    }
+  }
+
   async function restoreNativeBackup(
     input: TelenoNodeNativeBackupRestoreInput | undefined,
     sender: WebContents
@@ -2379,6 +2482,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     createLocalBackup,
     nativeBackupDryRun,
     nativeBackupList,
+    nativeBackupRestorePreflight,
     restoreNativeBackup,
     restoreNativeBackupLatest,
     cancelCreateBackup,

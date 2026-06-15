@@ -187,6 +187,28 @@ declare global {
     snapshots: TelenoNodeNativeBackupSnapshot[]
   }
 
+  type TelenoNodeNativeBackupPreflightResult = {
+    ok: boolean
+    output: string
+    configPath?: string
+    repositoryDir?: string
+    workspaceDir?: string
+    backupId: string
+    readyToRestore: boolean
+    snapshotComplete: boolean
+    fileCount: number
+    missingObjectCount: number
+    missingObjectBytes: number
+    restoreSpace: TelenoNodeNativeBackupRestoreSpace
+    spaceCheck: {
+      passesMinimum: boolean
+      belowRecommended: boolean
+      availableBytes: number
+      targetPath: string
+      message: string
+    }
+  }
+
   type TelenoNodeProducerAddressSource = 'config' | 'vault' | 'none'
 
   type TelenoNodeProducerRegistrationStatus =
@@ -981,6 +1003,7 @@ declare global {
       createBackup: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       nativeBackupDryRun: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupDryRunResult>
       nativeBackupList: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupListResult>
+      nativeBackupRestorePreflight: (settings?: TelenoNodeNativeBackupRestoreInput) => Promise<TelenoNodeNativeBackupPreflightResult>
       restoreNativeBackup: (settings?: TelenoNodeNativeBackupRestoreInput) => Promise<TelenoNodeBackupRestoreResult>
       restoreNativeBackupLatest: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       cancelCreateBackup: () => Promise<{ ok: boolean; output: string }>

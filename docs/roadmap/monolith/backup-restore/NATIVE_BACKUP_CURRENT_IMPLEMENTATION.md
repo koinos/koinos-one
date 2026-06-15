@@ -196,6 +196,7 @@ Electron now exposes native backup actions through IPC and preload:
 teleno:node:native-backup-dry-run
 teleno:node:create-backup
 teleno:node:native-backup-list
+teleno:node:native-backup-restore-preflight
 teleno:node:restore-native-backup
 teleno:node:restore-native-backup-latest
 ```
@@ -205,7 +206,7 @@ The Settings > Backup panel now shows:
 - first-class native backup configuration fields for local repository, remote SFTP, scheduler, and admin API settings
 - `Check native backup config`
 - `Create native backup`
-- local snapshot refresh, selection, and selected restore controls
+- local snapshot refresh, selection, selected preflight, and selected restore controls
 - `Restore latest native backup`
 
 Current UX behavior:
@@ -213,6 +214,7 @@ Current UX behavior:
 - `Check native backup config` runs `teleno_node --backup-dry-run --backup-json`.
 - `Create native backup` uses the native backup admin API when backup admin is enabled, the managed node is running, and remote upload is disabled. Otherwise it falls back to `teleno_node --backup-create --backup-json`.
 - `Refresh backup list` runs `teleno_node --backup-list --backup-json` and displays completed local snapshots.
+- `Verify selected backup` runs `teleno_node --backup-restore-preflight --backup-json --backup-id=<selected>` and displays readiness plus disk-space requirements.
 - `Restore selected native backup` runs `teleno_node --backup-restore --backup-json --backup-id=<selected>` for selected local snapshots.
 - `Restore latest native backup` stops the managed node if needed, runs `teleno_node --backup-restore --backup-json`, and leaves the restored node for observer-first restart.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.

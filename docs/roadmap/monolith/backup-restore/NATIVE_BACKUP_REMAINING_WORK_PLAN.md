@@ -36,6 +36,12 @@ The first slice of `UX Runtime Admin API Integration` is implemented:
 - The existing cancel button can cancel the active admin operation.
 - CLI fallback remains in place for stopped/offline flows and remote-enabled create flows.
 
+The first slice of `Safer Restore UX` is implemented:
+
+- Settings > Backup can run native selected-backup restore preflight before restore.
+- The preflight summary shows readiness, missing object count, disk-space message, available bytes, minimum bytes, and recommended bytes.
+- Preflight uses the same native `--backup-restore-preflight --backup-json --backup-id=<selected>` path that restore uses.
+
 ## 1. UX Backup Configuration
 
 ### Objective
@@ -185,9 +191,12 @@ Restore must be understandable and conservative for operators, especially when a
 
 ### Exit Criteria
 
-- UX restore cannot accidentally replace non-empty node state without an explicit operator decision.
-- UX warns before any multi-GB download.
-- UX gives the exact observer-first next step after activation.
+- Status: partially complete for selected local backup preflight visibility.
+- Remaining work:
+  - explicit confirmation before activation over non-empty node state;
+  - network/head/LIB mismatch display once manifest metadata includes those fields;
+  - preserve-path preview before activation;
+  - post-restore observer-first checklist in UX.
 
 ## 5. Larger Public-Testnet Validation
 
