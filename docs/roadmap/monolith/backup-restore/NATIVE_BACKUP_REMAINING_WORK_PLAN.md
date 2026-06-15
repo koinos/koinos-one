@@ -17,7 +17,7 @@ The first backlog item, `UX Backup Configuration`, is implemented:
 - Settings > Backup now has local repository, remote SFTP, scheduler, and backup admin fields.
 - Settings persistence includes normalized backup settings.
 - Electron writes those settings into the UX-scoped native backup config used by dry-run, create, and restore.
-- The UX validates missing remote host/user, non-absolute remote directory, missing credential file paths, invalid schedule intervals, and missing admin token files before saving.
+- The UX validates missing remote host/user, non-absolute remote directory, missing credential file paths, and invalid schedule intervals before saving.
 - Credential secrets are still represented only as file paths or environment-password references; raw SSH passwords are not stored by UX.
 - Tests cover normalization and generated native backup YAML.
 
@@ -163,7 +163,7 @@ When the node is running, UX should use the native local admin API for backup cr
 - Remaining work:
   - remote upload from admin-created backups;
   - admin-backed restore stage/activate UX;
-  - richer status view for active/previous operation IDs;
+  - richer status view for active/previous operation IDs.
 
 ## 4. Safer Restore UX
 
@@ -308,4 +308,4 @@ Current status: partially complete for package verification. Remaining work is o
 
 ## Recommended Next Step
 
-Implement the remaining remote and verification parts of `Backup Listing, Selection, And Verification` next, or proceed to `UX Runtime Admin API Integration` if running-node status/cancel UX is higher priority.
+Implement selected-backup verification separated from restore preflight next, then add richer manifest metadata for network/head/LIB so the restore UX can enforce mismatch checks before larger public-testnet validation.
