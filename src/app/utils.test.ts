@@ -8,11 +8,13 @@ import {
   formatBytes,
   formatCpuPercent,
   formatDurationSeconds,
+  formatKoinscanBlockUrl,
   loadInitialNodeSettings,
   mapBlockItem,
   normalizeBackupTarGzUrl,
   normalizeDashboardProducerWindowBlocks,
   normalizeDashboardRefreshSeconds,
+  normalizeExternalHttpsUrl,
   normalizeExplorerRpcSource,
   normalizeNodeBaseDirInput,
   parseAnsiTextSegments,
@@ -92,6 +94,11 @@ describe('URL normalization', () => {
     expect(tryNormalizeHttpUrl('https://api.koinos.io')).toBe('https://api.koinos.io/')
     expect(tryNormalizeHttpUrl('ftp://api.koinos.io')).toBeNull()
     expect(tryNormalizeHttpUrl('')).toBeNull()
+  })
+
+  it('normalizes the Koinscan address and builds block links', () => {
+    expect(normalizeExternalHttpsUrl('koinscan.com')).toBe('https://koinscan.com/')
+    expect(formatKoinscanBlockUrl('koinscan.com', 123)).toBe('https://koinscan.com/blocks/123')
   })
 
   it('clamps dashboard settings to supported ranges', () => {

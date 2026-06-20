@@ -293,6 +293,9 @@ function createPerformanceService(overrides: Record<string, unknown> = {}) {
       uptimeSeconds: 7200,
       freeDiskBytes: 100 * 1024 * 1024 * 1024,
       totalDiskBytes: 200 * 1024 * 1024 * 1024,
+      nodeVolumeName: null,
+      nodeVolumePath: null,
+      nodeVolumeFilesystem: null,
       blockchainDataBytes: null,
       blockchainDataPath: null
     })),
@@ -317,10 +320,12 @@ describe('dashboard performance', () => {
     const duOutput = process.platform === 'win32'
       ? '3072\n'
       : `3\t${tempBaseDir}\n`
-    const runCommand = vi.fn(async () => ({
+    const runCommand = vi.fn(async (command: string) => ({
       ok: true,
       code: 0,
-      output: duOutput
+      output: command === 'df'
+        ? `Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk4s1 234000000 1000 233999000 1% /Volumes/external\n`
+        : duOutput
     }))
     const { service } = createPerformanceService({
       normalizeNodeSettings: vi.fn(() => ({
@@ -341,6 +346,9 @@ describe('dashboard performance', () => {
 
       expect(result.host.blockchainDataPath).toBe(tempBaseDir)
       expect(result.host.blockchainDataBytes).toBe(3072)
+      expect(result.host.nodeVolumeName).toBe('external')
+      expect(result.host.nodeVolumePath).toBe('/Volumes/external')
+      expect(result.host.nodeVolumeFilesystem).toBe('/dev/disk4s1')
       expect(runCommand).toHaveBeenCalled()
     } finally {
       fs.rmSync(tempBaseDir, { recursive: true, force: true })

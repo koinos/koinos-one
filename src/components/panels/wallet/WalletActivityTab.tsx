@@ -13,10 +13,11 @@ type WalletActivityTabProps = {
   t: (key: string, values?: Record<string, string | number>) => string
   entries: WalletActivityEntry[]
   locale: string
+  advancedMode?: boolean
 }
 
 export function WalletActivityTab(props: WalletActivityTabProps) {
-  const { t, entries, locale } = props
+  const { t, entries, locale, advancedMode = false } = props
 
   if (!entries.length) {
     return (
@@ -54,7 +55,7 @@ export function WalletActivityTab(props: WalletActivityTabProps) {
                 {entry.accountName ? ` · ${entry.accountName}` : ''}
                 {entry.accountAddress ? ` · ${entry.accountAddress}` : ''}
               </p>
-              <p className="wallet-activity-output">{entry.output}</p>
+              {advancedMode && <p className="wallet-activity-output">{entry.output}</p>}
             </article>
           ))}
         </div>

@@ -46,6 +46,8 @@ import type {
   WalletScalarResult,
   WalletSetActiveAccountInput,
   WalletSetActiveAccountResult,
+  WalletSetProducerAccountInput,
+  WalletSetProducerAccountResult,
   WalletShowSeedInput,
   WalletShowSeedResult,
   WalletTokenBalanceInput,
@@ -106,6 +108,8 @@ type WalletServiceDeps = {
   loadProducerProfile: (network?: KoinosNetworkId) => TelenoProducerProfile | null
   updateConfigProducerAddress?: (address: string, input?: WalletRpcInput) => string | null
 }
+
+const PROTECTED_MAINNET_PRODUCER_ADDRESS = '14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb'
 
 export { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-accounts'
 
@@ -366,6 +370,57 @@ export function createWalletService(deps: WalletServiceDeps) {
         walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
         activeAccount: null
+      }
+    }
+  }
+
+  async function walletSetProducerAccount(
+    input?: WalletSetProducerAccountInput
+  ): Promise<WalletSetProducerAccountResult> {
+    const network = walletNetwork(input)
+    try {
+      const accountId = `${input?.accountId || ''}`.trim()
+      if (!accountId) throw new Error('Account id is required.')
+
+      const wallet = deps.loadTelenoWalletFile(network)
+      const accounts = deps.listWalletAccounts(network)
+      const account = accounts.find((entry) => entry.id === accountId) || null
+      if (!wallet || !account) throw new Error('Could not find the selected wallet account.')
+      if (!account.hasPrivateKey) throw new Error('Only an account with a private key can be used as producer.')
+
+      const address = account.address.trim()
+      if (!deps.safeIsChecksumAddress(address)) throw new Error('Invalid producer address format.')
+      if (network === 'mainnet' && address === PROTECTED_MAINNET_PRODUCER_ADDRESS) {
+        throw new Error(
+          'This funded mainnet producer address is protected by the project safety guardrail and was not written to runtime config.'
+        )
+      }
+      if (!deps.updateConfigProducerAddress) throw new Error('Producer config update is not available.')
+
+      const configPath = deps.updateConfigProducerAddress(address, input)
+      if (!configPath) throw new Error('Could not update runtime producer config.')
+
+      return {
+        ok: true,
+        output: [
+          `Set block_producer.producer = ${address}.`,
+          `Updated runtime producer config: ${configPath}`,
+          'Restart the node for a running block producer to use this address.'
+        ].join('\n'),
+        walletAddress: wallet.address,
+        activeAccountId: account.id,
+        activeAccount: account,
+        configPath
+      }
+    } catch (error) {
+      const wallet = deps.loadTelenoWalletFile(network)
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not set wallet account as producer',
+        walletAddress: wallet?.address ?? null,
+        activeAccountId: wallet?.activeAccountId ?? null,
+        activeAccount: null,
+        configPath: null
       }
     }
   }
@@ -1536,6 +1591,7 @@ export function createWalletService(deps: WalletServiceDeps) {
     walletImport,
     walletListAccounts,
     walletSetActiveAccount,
+    walletSetProducerAccount,
     walletCreateDerivedAccount,
     walletImportAccount,
     walletImportWatchAccount,

@@ -27,8 +27,11 @@ import type {
   TelenoNodeNativeBackupConfigResult,
   TelenoNodeNativeBackupListResult,
   TelenoNodeNativeBackupDryRunResult,
+  TelenoNodeNativeBackupPurgeInput,
+  TelenoNodeNativeBackupPurgeResult,
   TelenoNodeNativeBackupPreflightResult,
   TelenoNodeNativeBackupRestoreInput,
+  TelenoNodeNativeBackupRemoteSpace,
   TelenoNodeNativeBackupSnapshot,
   TelenoNodeSelectDirectoryResult,
   TelenoNodeServicePort,
@@ -60,6 +63,11 @@ function saveLastBackupPath(backupFilePath: string): void {
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.teleno-blockchain-backup-cache'
 const NATIVE_BACKUP_DIR = '.teleno-native-backups'
+const PUBLIC_TESTNET_BOOTSTRAP_URL = 'https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap'
+
+function publicBootstrapUrlForNetwork(network: TelenoNodeSettings['network']): string {
+  return network === 'testnet' ? PUBLIC_TESTNET_BOOTSTRAP_URL : ''
+}
 
 // ── Config.yml verify-blocks helper ──
 
@@ -406,6 +414,13 @@ export function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   doc.setIn(['backup', 'admin', 'listen'], backup.adminListen)
   doc.setIn(['backup', 'admin', 'token-file'], adminTokenFile)
   doc.setIn(['backup', 'admin', 'jobs'], backup.adminJobs)
+  const publicBootstrapUrl = publicBootstrapUrlForNetwork(settings.network)
+  doc.setIn(['backup', 'public-restore', 'enabled'], Boolean(publicBootstrapUrl))
+  doc.setIn(['backup', 'public-restore', 'base-url'], publicBootstrapUrl)
+  doc.setIn(['backup', 'public-restore', 'network'], settings.network)
+  doc.setIn(['backup', 'public-restore', 'require-https'], true)
+  doc.setIn(['backup', 'public-restore', 'timeout-seconds'], 30)
+  doc.setIn(['backup', 'public-restore', 'retries'], 3)
   applyNativeBackupRemoteEnv(doc)
 
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
@@ -424,11 +439,11 @@ function numberField(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
-type NativeBackupRestoreSource = 'local' | 'remote' | 'auto'
+type NativeBackupRestoreSource = 'local' | 'remote' | 'public' | 'auto'
 
 function nativeBackupRestoreSource(input: TelenoNodeNativeBackupRestoreInput | undefined): NativeBackupRestoreSource {
   const value = input?.backupSource
-  return value === 'local' || value === 'remote' ? value : 'auto'
+  return value === 'local' || value === 'remote' || value === 'public' ? value : 'auto'
 }
 
 type NativeBackupProgressPayload = {
@@ -513,7 +528,56 @@ function nativeBackupSnapshotFromPayload(value: unknown): TelenoNodeNativeBackup
   }
 }
 
-function parseNativeBackupListPayload(payload: Record<string, unknown>): Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'snapshots'> {
+function publicRestorePreflightFromFetchPayload(payload: Record<string, unknown>): Pick<
+  TelenoNodeNativeBackupPreflightResult,
+  | 'backupId'
+  | 'readyToRestore'
+  | 'snapshotComplete'
+  | 'fileCount'
+  | 'missingObjectCount'
+  | 'missingObjectBytes'
+  | 'restoreSpace'
+  | 'spaceCheck'
+> {
+  const preflight = payload.preflight && typeof payload.preflight === 'object'
+    ? payload.preflight as Record<string, unknown>
+    : {}
+  return {
+    backupId: stringField(payload.backup_id),
+    readyToRestore: payload.ready_to_stage === true,
+    snapshotComplete: preflight.snapshot_complete === true,
+    fileCount: numberField(payload.object_file_count),
+    missingObjectCount: numberField(preflight.missing_object_count),
+    missingObjectBytes: numberField(preflight.missing_object_bytes),
+    restoreSpace: {
+      restoredDatabaseBytes: 0,
+      runtimeFilesBytes: 0,
+      objectDownloadBytes: numberField(payload.repository_required_bytes),
+      minimumTargetFreeBytes: numberField(preflight.target_minimum_free_bytes),
+      recommendedTargetFreeBytes: numberField(preflight.target_recommended_free_bytes)
+    },
+    spaceCheck: {
+      passesMinimum: preflight.target_space_passes_minimum === true,
+      belowRecommended: false,
+      availableBytes: numberField(preflight.target_available_bytes),
+      targetPath: stringField(payload.target_basedir),
+      message: stringField(preflight.message)
+    }
+  }
+}
+
+function nativeBackupRemoteSpaceFromPayload(value: unknown): TelenoNodeNativeBackupRemoteSpace | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const item = value as Record<string, unknown>
+  return {
+    ok: item.ok === true,
+    availableBytes: numberField(item.available_bytes),
+    targetPath: stringField(item.target_path),
+    message: stringField(item.message)
+  }
+}
+
+function parseNativeBackupListPayload(payload: Record<string, unknown>): Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'remoteSpace' | 'snapshots'> {
   const snapshotPayload = payload.snapshots && typeof payload.snapshots === 'object' && !Array.isArray(payload.snapshots)
     ? payload.snapshots as Record<string, unknown>
     : payload
@@ -524,11 +588,12 @@ function parseNativeBackupListPayload(payload: Record<string, unknown>): Pick<Te
       : []
   return {
     latestBackupId: stringField(snapshotPayload.latest_backup_id),
+    remoteSpace: nativeBackupRemoteSpaceFromPayload(snapshotPayload.remote_space),
     snapshots
   }
 }
 
-function parseNativeBackupListOutput(output: string): Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'snapshots'> {
+function parseNativeBackupListOutput(output: string): Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'remoteSpace' | 'snapshots'> {
   return parseNativeBackupListPayload(JSON.parse(output) as Record<string, unknown>)
 }
 
@@ -2131,15 +2196,37 @@ export function createBackupService(deps: BackupServiceDeps) {
     body?: unknown,
     timeoutMs = 15_000
   ): Promise<Record<string, unknown>> {
-    const response = await fetch(`${baseUrl}${route}`, {
-      method,
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...(body === undefined ? {} : { 'content-type': 'application/json' })
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs)
-    })
+    let response: Awaited<ReturnType<typeof fetch>>
+    try {
+      response = await fetch(`${baseUrl}${route}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...(body === undefined ? {} : { 'content-type': 'application/json' })
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs)
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      const errorCause = error instanceof Error ? (error as { cause?: unknown }).cause : null
+      const cause =
+        errorCause instanceof Error && errorCause.message
+          ? ` (${errorCause.message})`
+          : ''
+      const timeoutNote =
+        error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
+          ? ' The request timed out.'
+          : ''
+      throw new Error(
+        [
+          `Backup admin API is not reachable at ${baseUrl}${route}.`,
+          'If the node is running, save Backup Admin settings and restart the node so the admin listener is active.',
+          'If you do not want to restart, stop the node before creating an offline native backup.',
+          `${timeoutNote} Underlying error: ${detail}${cause}`.trim()
+        ].join(' ')
+      )
+    }
     const text = await response.text()
     let payload: Record<string, unknown> = {}
     try {
@@ -2541,32 +2628,43 @@ export function createBackupService(deps: BackupServiceDeps) {
     input: TelenoNodeSettingsInput | undefined
   ): Promise<TelenoNodeNativeBackupListResult> {
     try {
-      const listRemote = Boolean((input as { remote?: boolean } | undefined)?.remote)
+      const listPublic = Boolean((input as { public?: boolean } | undefined)?.public)
+      const listRemote = !listPublic && Boolean((input as { remote?: boolean } | undefined)?.remote)
+      const listSource = listPublic ? 'public' : listRemote ? 'remote' : 'local'
       const settings = deps.normalizeNodeSettings(input)
       deps.assertRepoReady(settings)
       const nativeBackup = writeNativeBackupConfig(settings)
+      let adminListResult: TelenoNodeNativeBackupListResult | null = null
       const runningAdmin = await runningBackupAdminConnection(settings, input)
       if (runningAdmin) {
         try {
+          const route = listPublic
+            ? '/admin/backup/public/snapshots'
+            : listRemote
+              ? '/admin/backup/snapshots/remote'
+              : '/admin/backup/snapshots/local'
           const payload = await backupAdminRequest(
             runningAdmin.baseUrl,
             runningAdmin.token,
             'GET',
-            listRemote ? '/admin/backup/snapshots/remote' : '/admin/backup/snapshots/local',
+            route,
             undefined,
-            listRemote ? 120_000 : 30_000
+            listRemote || listPublic ? 120_000 : 30_000
           )
           const parsed = parseNativeBackupListPayload(payload)
-          return {
+          adminListResult = {
             ok: true,
             output: JSON.stringify(payload, null, 2),
-            source: listRemote ? 'remote' : 'local',
+            source: listSource,
             configPath: nativeBackup.configPath,
             repositoryDir: nativeBackup.repositoryDir,
             workspaceDir: nativeBackup.workspaceDir,
             latestBackupId: parsed.latestBackupId,
+            remoteSpace: parsed.remoteSpace,
             snapshots: parsed.snapshots
           }
+          if (listPublic) return adminListResult
+          if (!listRemote || adminListResult.remoteSpace) return adminListResult
         } catch {
           // A node started before backup admin was enabled has no admin port.
           // Listing is read-only, so keep the UX usable through the CLI fallback.
@@ -2589,35 +2687,98 @@ export function createBackupService(deps: BackupServiceDeps) {
         [
           `--basedir=${settings.baseDir}`,
           `--config=${nativeBackup.configPath}`,
-          listRemote ? '--backup-list-remote' : '--backup-list',
+          listPublic ? '--backup-public-list' : listRemote ? '--backup-list-remote' : '--backup-list',
           '--backup-json'
         ],
-        { cwd: settings.repoPath, timeoutMs: listRemote ? 120_000 : 30_000 }
+        { cwd: settings.repoPath, timeoutMs: listRemote || listPublic ? 120_000 : 30_000 }
       )
 
-      let parsed: Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'snapshots'> = {
+      let parsed: Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'remoteSpace' | 'snapshots'> = {
         latestBackupId: '',
         snapshots: []
       }
       if (result.ok) parsed = parseNativeBackupListOutput(result.output)
 
-      return {
+      const cliListResult: TelenoNodeNativeBackupListResult = {
         ok: result.ok,
         output: result.output,
-        source: listRemote ? 'remote' : 'local',
+        source: listSource,
         configPath: nativeBackup.configPath,
         repositoryDir: nativeBackup.repositoryDir,
         workspaceDir: nativeBackup.workspaceDir,
         latestBackupId: parsed.latestBackupId,
+        remoteSpace: parsed.remoteSpace,
         snapshots: parsed.snapshots
+      }
+      return cliListResult.ok || !adminListResult ? cliListResult : adminListResult
+    } catch (error) {
+      const listPublic = Boolean((input as { public?: boolean } | undefined)?.public)
+      const listRemote = !listPublic && Boolean((input as { remote?: boolean } | undefined)?.remote)
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : String(error),
+        source: listPublic ? 'public' : listRemote ? 'remote' : 'local',
+        latestBackupId: '',
+        snapshots: []
+      }
+    }
+  }
+
+  async function nativeBackupPurge(
+    input: TelenoNodeNativeBackupPurgeInput | undefined
+  ): Promise<TelenoNodeNativeBackupPurgeResult> {
+    const source = input?.backupSource === 'remote' ? 'remote' : 'local'
+    const backupId = typeof input?.backupId === 'string' ? input.backupId.trim() : ''
+    try {
+      if (!backupId || backupId === 'latest') {
+        throw new Error("Native backup purge requires an exact backup ID; 'latest' is not accepted")
+      }
+
+      const settings = deps.normalizeNodeSettings(input)
+      deps.assertRepoReady(settings)
+      const nativeBackup = writeNativeBackupConfig(settings)
+      const binaryPath = resolveMonolithBinaryPath()
+      if (!fs.existsSync(binaryPath)) {
+        return {
+          ok: false,
+          output: `teleno_node binary not found: ${binaryPath}`,
+          backupId,
+          source,
+          configPath: nativeBackup.configPath,
+          repositoryDir: nativeBackup.repositoryDir,
+          workspaceDir: nativeBackup.workspaceDir
+        }
+      }
+
+      const result = await deps.runCommand(
+        binaryPath,
+        [
+          `--basedir=${settings.baseDir}`,
+          `--config=${nativeBackup.configPath}`,
+          '--backup-delete',
+          '--backup-json',
+          `--backup-id=${backupId}`,
+          `--backup-scope=${source}`,
+          `--backup-delete-confirm=${backupId}`
+        ],
+        { cwd: settings.repoPath, timeoutMs: source === 'remote' ? 10 * 60_000 : 5 * 60_000 }
+      )
+
+      return {
+        ok: result.ok,
+        output: result.output,
+        backupId,
+        source,
+        configPath: nativeBackup.configPath,
+        repositoryDir: nativeBackup.repositoryDir,
+        workspaceDir: nativeBackup.workspaceDir
       }
     } catch (error) {
       return {
         ok: false,
         output: error instanceof Error ? error.message : String(error),
-        source: Boolean((input as { remote?: boolean } | undefined)?.remote) ? 'remote' : 'local',
-        latestBackupId: '',
-        snapshots: []
+        backupId,
+        source
       }
     }
   }
@@ -2650,6 +2811,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     try {
       const settings = deps.normalizeNodeSettings(input)
       const backupId = typeof input?.backupId === 'string' ? input.backupId.trim() : ''
+      const restoreSource = nativeBackupRestoreSource(input)
       deps.assertRepoReady(settings)
       const nativeBackup = writeNativeBackupConfig(settings)
       const runningAdmin = await runningBackupAdminConnection(settings, input)
@@ -2659,9 +2821,9 @@ export function createBackupService(deps: BackupServiceDeps) {
             runningAdmin.baseUrl,
             runningAdmin.token,
             'POST',
-            '/admin/backup/restore/preflight',
+            restoreSource === 'public' ? '/admin/backup/public/preflight' : '/admin/backup/restore/preflight',
             { backup_id: backupId || 'latest' },
-            30_000
+            restoreSource === 'public' ? 120_000 : 30_000
           )
           const parsed = parseNativeBackupPreflightPayload(payload)
           return {
@@ -2681,6 +2843,31 @@ export function createBackupService(deps: BackupServiceDeps) {
       const binaryPath = resolveMonolithBinaryPath()
       if (!fs.existsSync(binaryPath)) {
         return { ok: false, output: `teleno_node binary not found: ${binaryPath}`, ...empty }
+      }
+
+      if (restoreSource === 'public') {
+        const result = await deps.runCommand(
+          binaryPath,
+          [
+            `--basedir=${settings.baseDir}`,
+            `--config=${nativeBackup.configPath}`,
+            '--backup-public-fetch',
+            '--backup-json',
+            ...(backupId && backupId !== 'latest' ? [`--backup-id=${backupId}`] : [])
+          ],
+          { cwd: settings.repoPath, timeoutMs: 6 * 60 * 60 * 1000 }
+        )
+        const parsed = result.output
+          ? publicRestorePreflightFromFetchPayload(JSON.parse(result.output) as Record<string, unknown>)
+          : empty
+        return {
+          ok: result.ok,
+          output: result.output,
+          configPath: nativeBackup.configPath,
+          repositoryDir: nativeBackup.repositoryDir,
+          workspaceDir: nativeBackup.workspaceDir,
+          ...parsed
+        }
       }
 
       const result = await deps.runCommand(
@@ -2728,19 +2915,29 @@ export function createBackupService(deps: BackupServiceDeps) {
       if (restoreSource === 'remote' && !settings.backup.remoteEnabled) {
         throw new Error('Remote native backup restore was requested, but remote backup is disabled in settings')
       }
+      if (restoreSource === 'public' && !publicBootstrapUrlForNetwork(settings.network)) {
+        throw new Error('Public bootstrap restore is currently available only for testnet')
+      }
+      const shouldFetchPublic = restoreSource === 'public'
       const shouldFetchRemote = restoreSource === 'remote' || (restoreSource === 'auto' && settings.backup.remoteEnabled)
       const runningAdmin = await runningBackupAdminConnection(settings, input)
       if (runningAdmin) {
         const backupId = requestedBackupId || 'latest'
         emitProgress('prepare', 5, 'Preparing running-node native restore through admin API')
 
-        if (shouldFetchRemote) {
-          emitProgress('download', 20, 'Fetching remote native backup metadata and missing objects')
+        if (shouldFetchRemote || shouldFetchPublic) {
+          emitProgress(
+            'download',
+            20,
+            shouldFetchPublic
+              ? 'Fetching public bootstrap backup metadata and missing objects'
+              : 'Fetching remote native backup metadata and missing objects'
+          )
           const fetchPayload = await backupAdminRequest(
             runningAdmin.baseUrl,
             runningAdmin.token,
             'POST',
-            '/admin/backup/restore/fetch',
+            shouldFetchPublic ? '/admin/backup/public/fetch' : '/admin/backup/restore/fetch',
             { backup_id: backupId },
             30_000
           )
@@ -2755,8 +2952,9 @@ export function createBackupService(deps: BackupServiceDeps) {
               const state = stringField(currentStatus.state)
               const message = stringField(currentStatus.message) || `Native restore fetch state: ${state || 'unknown'}`
               if (state === 'succeeded') {
-                const restoreFetch = currentStatus.restore_fetch && typeof currentStatus.restore_fetch === 'object'
-                  ? currentStatus.restore_fetch as Record<string, unknown>
+                const fetchResultKey = shouldFetchPublic ? 'public_restore_fetch' : 'restore_fetch'
+                const restoreFetch = currentStatus[fetchResultKey] && typeof currentStatus[fetchResultKey] === 'object'
+                  ? currentStatus[fetchResultKey] as Record<string, unknown>
                   : {}
                 if (restoreFetch.ready_to_stage === false) {
                   emitProgress('error', 45, message)
@@ -2791,7 +2989,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           runningAdmin.baseUrl,
           runningAdmin.token,
           'POST',
-          '/admin/backup/restore/preflight',
+          shouldFetchPublic ? '/admin/backup/public/preflight' : '/admin/backup/restore/preflight',
           { backup_id: backupId },
           30_000
         )
@@ -2810,7 +3008,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           runningAdmin.baseUrl,
           runningAdmin.token,
           'POST',
-          '/admin/backup/restore/stage',
+          shouldFetchPublic ? '/admin/backup/public/restore/stage' : '/admin/backup/restore/stage',
           { backup_id: backupId, staging_dir: stagingDir },
           6 * 60 * 60 * 1000
         )
@@ -2819,7 +3017,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           runningAdmin.baseUrl,
           runningAdmin.token,
           'POST',
-          '/admin/backup/restore/activate',
+          shouldFetchPublic ? '/admin/backup/public/restore/activate' : '/admin/backup/restore/activate',
           { backup_id: backupId, staging_dir: stagingDir },
           30_000
         )
@@ -2859,7 +3057,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       emitProgress('download', 25, 'Fetching and validating latest native backup')
       const backupIdArgs = requestedBackupId && requestedBackupId !== 'latest' ? [`--backup-id=${requestedBackupId}`] : []
 
-      if (!shouldFetchRemote) {
+      if (!shouldFetchRemote && !shouldFetchPublic) {
         emitProgress('verify', 25, 'Verifying selected local native backup')
         const preflightResult = await deps.runCommand(
           binaryPath,
@@ -2932,7 +3130,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         [
           `--basedir=${settings.baseDir}`,
           `--config=${nativeBackup.configPath}`,
-          '--backup-restore',
+          shouldFetchPublic ? '--backup-public-restore' : '--backup-restore',
           '--backup-json',
           `--backup-output=${stagingDir}`,
           ...backupIdArgs
@@ -2949,11 +3147,26 @@ export function createBackupService(deps: BackupServiceDeps) {
             )
             return
           }
+          if (nativeProgress.phase.startsWith('public-restore-metadata')) {
+            emitProgress(
+              'download',
+              Math.min(35, 25 + Math.round(fraction * 10)),
+              suffix ? `Fetching public backup metadata (${suffix})` : 'Fetching public backup metadata'
+            )
+            return
+          }
           if (nativeProgress.phase === 'restore-objects') {
             emitProgress(
               'download',
               Math.min(60, 35 + Math.round(fraction * 25)),
               suffix ? `Fetching remote backup objects (${suffix})` : 'Fetching remote backup objects'
+            )
+          }
+          if (nativeProgress.phase === 'public-restore-objects') {
+            emitProgress(
+              'download',
+              Math.min(60, 35 + Math.round(fraction * 25)),
+              suffix ? `Fetching public backup objects (${suffix})` : 'Fetching public backup objects'
             )
           }
         }
@@ -3032,6 +3245,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     nativeBackupDryRun,
     nativeBackupConfig,
     nativeBackupList,
+    nativeBackupPurge,
     nativeBackupRestorePreflight,
     restoreNativeBackup,
     restoreNativeBackupLatest,

@@ -154,7 +154,22 @@ declare global {
 
   type TelenoNodeNativeBackupRestoreInput = TelenoNodeSettings & {
     backupId?: string
-    backupSource?: 'local' | 'remote' | 'auto'
+    backupSource?: 'local' | 'remote' | 'public' | 'auto'
+  }
+
+  type TelenoNodeNativeBackupPurgeInput = TelenoNodeSettings & {
+    backupId?: string
+    backupSource?: 'local' | 'remote'
+  }
+
+  type TelenoNodeNativeBackupPurgeResult = {
+    ok: boolean
+    output: string
+    backupId: string
+    source: 'local' | 'remote'
+    configPath?: string
+    repositoryDir?: string
+    workspaceDir?: string
   }
 
   type TelenoNodeNativeBackupRestoreSpace = {
@@ -183,14 +198,22 @@ declare global {
     restoreSpace: TelenoNodeNativeBackupRestoreSpace
   }
 
+  type TelenoNodeNativeBackupRemoteSpace = {
+    ok: boolean
+    availableBytes: number
+    targetPath: string
+    message: string
+  }
+
   type TelenoNodeNativeBackupListResult = {
     ok: boolean
     output: string
-    source?: 'local' | 'remote'
+    source?: 'local' | 'remote' | 'public'
     configPath?: string
     repositoryDir?: string
     workspaceDir?: string
     latestBackupId: string
+    remoteSpace?: TelenoNodeNativeBackupRemoteSpace
     snapshots: TelenoNodeNativeBackupSnapshot[]
   }
 
@@ -393,6 +416,9 @@ declare global {
     uptimeSeconds: number
     freeDiskBytes: number | null
     totalDiskBytes: number | null
+    nodeVolumeName: string | null
+    nodeVolumePath: string | null
+    nodeVolumeFilesystem: string | null
     blockchainDataBytes: number | null
     blockchainDataPath: string | null
   }
@@ -775,6 +801,12 @@ declare global {
     activeAccount: TelenoWalletAccountSummary | null
   }
 
+  type TelenoWalletSetProducerAccountParams = TelenoWalletSetActiveAccountParams
+
+  type TelenoWalletSetProducerAccountResult = TelenoWalletSetActiveAccountResult & {
+    configPath: string | null
+  }
+
   type TelenoWalletCreateDerivedAccountParams = TelenoWalletRpcParams & {
     name?: string
   }
@@ -1021,7 +1053,8 @@ declare global {
       createBackup: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
       nativeBackupDryRun: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupDryRunResult>
       nativeBackupConfig: (settings?: TelenoNodeSettings) => Promise<TelenoNodeNativeBackupConfigResult>
-      nativeBackupList: (settings?: TelenoNodeSettings & { remote?: boolean }) => Promise<TelenoNodeNativeBackupListResult>
+      nativeBackupList: (settings?: TelenoNodeSettings & { remote?: boolean; public?: boolean }) => Promise<TelenoNodeNativeBackupListResult>
+      nativeBackupPurge: (settings?: TelenoNodeNativeBackupPurgeInput) => Promise<TelenoNodeNativeBackupPurgeResult>
       nativeBackupRestorePreflight: (settings?: TelenoNodeNativeBackupRestoreInput) => Promise<TelenoNodeNativeBackupPreflightResult>
       restoreNativeBackup: (settings?: TelenoNodeNativeBackupRestoreInput) => Promise<TelenoNodeBackupRestoreResult>
       restoreNativeBackupLatest: (settings?: TelenoNodeSettings) => Promise<TelenoNodeBackupRestoreResult>
@@ -1074,6 +1107,9 @@ declare global {
       importWallet: (params?: TelenoWalletImportParams) => Promise<TelenoWalletImportResult>
       listAccounts: () => Promise<TelenoWalletListAccountsResult>
       setActiveAccount: (params?: TelenoWalletSetActiveAccountParams) => Promise<TelenoWalletSetActiveAccountResult>
+      setProducerAccount: (
+        params?: TelenoWalletSetProducerAccountParams
+      ) => Promise<TelenoWalletSetProducerAccountResult>
       createDerivedAccount: (
         params?: TelenoWalletCreateDerivedAccountParams
       ) => Promise<TelenoWalletAccountMutationResult>

@@ -9,6 +9,7 @@ import {
   DASHBOARD_REFRESH_SECONDS_DEFAULT,
   DASHBOARD_REFRESH_SECONDS_MAX,
   DASHBOARD_REFRESH_SECONDS_MIN,
+  DEFAULT_KOINSCAN_URL,
   DEFAULT_NODE_BACKUP_SETTINGS,
   DEFAULT_NODE_SETTINGS,
   DEFAULT_NODE_BASEDIR_BY_NETWORK,
@@ -61,6 +62,18 @@ export function formatDateTime(timestampMs: number, locale: string, emptyLabel: 
 export function formatTime(timestampMs: number, locale: string, emptyLabel = ''): string {
   if (!Number.isFinite(timestampMs) || timestampMs <= 0) return emptyLabel
   return new Date(timestampMs).toLocaleTimeString(locale)
+}
+
+export function remoteBackupDefaults(network: string) {
+  const directoryNetwork = network && network !== 'custom' ? network : 'testnet'
+
+  return {
+    sshHost: 'testnet.koinosfoundation.org',
+    sshUser: 'teleno_backup',
+    remoteDirectory: `/srv/teleno-backups/${directoryNetwork}/teleno-dev/teleno-ux-${directoryNetwork}`,
+    sshPrivateKeyFile: '~/.ssh/id_ed25519',
+    sshKnownHostsFile: '~/.ssh/known_hosts'
+  }
 }
 
 export function formatRelativeAge(timestampMs: number, nowMs: number): string {
@@ -234,6 +247,29 @@ export function tryNormalizeHttpUrl(raw: string): string | null {
   }
 }
 
+export function normalizeExternalHttpsUrl(raw: string | undefined, fallback = DEFAULT_KOINSCAN_URL): string {
+  const value = `${raw || ''}`.trim()
+  const candidate = value || fallback
+  const withProtocol = /^[a-z][a-z\d+\-.]*:\/\//i.test(candidate)
+    ? candidate
+    : `https://${candidate}`
+
+  try {
+    const parsed = new URL(withProtocol)
+    if (!/^https?:$/.test(parsed.protocol)) return fallback
+    return parsed.toString()
+  } catch {
+    return fallback
+  }
+}
+
+export function formatKoinscanBlockUrl(baseUrl: string | undefined, height: number | string): string {
+  const parsed = new URL(normalizeExternalHttpsUrl(baseUrl))
+  const cleanPath = parsed.pathname.replace(/\/+$/, '')
+  parsed.pathname = `${cleanPath}/blocks/${height}`.replace(/\/{2,}/g, '/')
+  return parsed.toString()
+}
+
 export function sanitizeStoredPublicRpcUrls(value: unknown): string[] {
   if (!Array.isArray(value)) return [...DEFAULT_PUBLIC_RPC_URLS]
   const seen = new Set<string>()
@@ -345,6 +381,7 @@ export function loadInitialSettings(): ExplorerSettings {
     return {
       rpcSource: normalizeExplorerRpcSource((parsed as { rpcSource?: unknown }).rpcSource, publicRpcUrls, legacyFallback),
       publicRpcUrls,
+      koinscanUrl: normalizeExternalHttpsUrl(typeof parsed.koinscanUrl === 'string' ? parsed.koinscanUrl : DEFAULT_SETTINGS.koinscanUrl),
       pollMs: clamp(typeof parsed.pollMs === 'number' ? parsed.pollMs : DEFAULT_SETTINGS.pollMs, 1000, 30000),
       rowLimit: clamp(typeof parsed.rowLimit === 'number' ? parsed.rowLimit : DEFAULT_SETTINGS.rowLimit, 5, 50),
       producerAdvancedMode: parsed.producerAdvancedMode === true,

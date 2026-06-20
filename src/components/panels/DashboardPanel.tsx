@@ -45,31 +45,31 @@ export function DashboardPanel(props: DashboardPanelProps) {
         </div>
       )}
 
-      <div className="wallet-subtabs dashboard-subtabs" role="tablist" aria-label={t('dashboard.subtabsAria')}>
+      <div className="settings-tabs dashboard-subtabs" role="tablist" aria-label={t('dashboard.subtabsAria')}>
         <button
           type="button"
-          className={`wallet-subtab-button ${dashboardSubtab === 'producers' ? 'is-active' : ''}`.trim()}
+          className={`settings-tab-button ${dashboardSubtab === 'producers' ? 'is-active' : ''}`.trim()}
           onClick={() => setDashboardSubtab('producers')}
         >
           {t('dashboard.subtab.producers')}
         </button>
         <button
           type="button"
-          className={`wallet-subtab-button ${dashboardSubtab === 'peers' ? 'is-active' : ''}`.trim()}
+          className={`settings-tab-button ${dashboardSubtab === 'peers' ? 'is-active' : ''}`.trim()}
           onClick={() => setDashboardSubtab('peers')}
         >
           {t('dashboard.subtab.peers')}
         </button>
         <button
           type="button"
-          className={`wallet-subtab-button ${dashboardSubtab === 'forecast' ? 'is-active' : ''}`.trim()}
+          className={`settings-tab-button ${dashboardSubtab === 'forecast' ? 'is-active' : ''}`.trim()}
           onClick={() => setDashboardSubtab('forecast')}
         >
           {t('dashboard.subtab.forecast')}
         </button>
         <button
           type="button"
-          className={`wallet-subtab-button ${dashboardSubtab === 'performance' ? 'is-active' : ''}`.trim()}
+          className={`settings-tab-button ${dashboardSubtab === 'performance' ? 'is-active' : ''}`.trim()}
           onClick={() => setDashboardSubtab('performance')}
         >
           {t('dashboard.subtab.performance')}
@@ -341,6 +341,16 @@ export function DashboardPanel(props: DashboardPanelProps) {
                   ? ` / ${formatBytes(dashboardPerformance.host.totalDiskBytes, locale, '')}`
                   : ''}
               </p>
+            </article>
+            <article
+              className="stat-card"
+              title={[
+                dashboardPerformance?.host.nodeVolumePath,
+                dashboardPerformance?.host.nodeVolumeFilesystem
+              ].filter(Boolean).join(' · ') || undefined}
+            >
+              <span className="stat-label">{t('dashboard.performance.nodeVolume')}</span>
+              <p className="stat-value">{dashboardPerformance?.host.nodeVolumeName || t('common.na')}</p>
             </article>
             <article className="stat-card" title={dashboardPerformance?.host.blockchainDataPath || undefined}>
               <span className="stat-label">{t('dashboard.performance.blockchainData')}</span>

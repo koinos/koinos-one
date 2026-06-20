@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createTelenoStorage } from './teleno-storage'
 import { createWalletService, deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-service'
@@ -191,5 +191,111 @@ describe('wallet-service helpers', () => {
       baseDir: '/tmp/mainnet-basedir'
     })
     expect(updates).toHaveLength(beforeMainnetImportCount)
+  })
+
+  it('sets a selected private-key wallet account as runtime producer config', async () => {
+    const updates: Array<{ address: string; network?: string; baseDir?: string }> = []
+    const { service } = createWalletTestService({
+      updateConfigProducerAddress: (address, input) => {
+        updates.push({ address, network: input?.network, baseDir: input?.baseDir })
+        return `${input?.baseDir || '/tmp/teleno'}/config.yml`
+      }
+    })
+    const [firstAccount] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 1)
+
+    const importResult = await service.walletImport({
+      privateKey: firstAccount.privateKeyWif,
+      password: 'secret-password',
+      network: 'testnet',
+      baseDir: '/tmp/testnet-basedir'
+    })
+    expect(importResult.ok).toBe(true)
+    updates.length = 0
+
+    const overview = await service.walletOverview({ network: 'testnet' })
+    const setProducer = await service.walletSetProducerAccount({
+      accountId: overview.activeAccountId || '',
+      network: 'testnet',
+      baseDir: '/tmp/testnet-basedir'
+    })
+
+    expect(setProducer.ok).toBe(true)
+    expect(setProducer.configPath).toBe('/tmp/testnet-basedir/config.yml')
+    expect(setProducer.activeAccount?.address).toBe(firstAccount.address)
+    expect(setProducer.output).toContain('Set block_producer.producer')
+    expect(updates).toEqual([
+      {
+        address: firstAccount.address,
+        network: 'testnet',
+        baseDir: '/tmp/testnet-basedir'
+      }
+    ])
+  })
+
+  it('does not write the protected funded mainnet producer address to runtime config', async () => {
+    const protectedAddress = '14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb'
+    const updateConfigProducerAddress = vi.fn(() => '/tmp/mainnet-basedir/config.yml')
+    const service = createWalletService({
+      loadTelenoWalletFile: () => ({
+        address: protectedAddress,
+        activeAccountId: 'acc_1'
+      }),
+      telenoProducerWalletFilePath: () => '/tmp/wallet.json',
+      currentUnlockedProducerWallet: () => null,
+      saveTelenoWallet: () => '/tmp/wallet.json',
+      deleteTelenoWallet: () => false,
+      closeTelenoWalletSession: () => null,
+      unlockTelenoWalletSession: () => null,
+      listWalletAccounts: () => [
+        {
+          id: 'acc_1',
+          name: 'Account 1',
+          kind: 'imported-wif',
+          address: protectedAddress,
+          derivationPath: null,
+          createdAt: '2026-06-17T00:00:00.000Z',
+          updatedAt: null,
+          hasPrivateKey: true,
+          isActive: true
+        }
+      ],
+      setActiveWalletAccount: () => null,
+      createDerivedWalletAccount: () => null,
+      importAdditionalWalletAccount: () => null,
+      importWatchWalletAccount: () => null,
+      renameWalletAccount: () => null,
+      removeWalletAccount: () => null,
+      loadWalletAccountSecrets: () => ({
+        walletAddress: null,
+        accountId: null,
+        accountName: null,
+        accountKind: null,
+        accountAddress: null,
+        privateKeyWif: null,
+        derivationPath: null,
+        seedPhrase: null
+      }),
+      resolveWalletRpcUrl: () => 'http://127.0.0.1:8080/',
+      resolveWalletQueryAddress: () => null,
+      parseWalletArgs: () => ({}),
+      loadContractWithFetchedAbi: async () => {
+        throw new Error('Not used in this test.')
+      },
+      formatWholeUnits: () => null,
+      safeIsChecksumAddress: () => true,
+      loadProducerProfile: () => null,
+      updateConfigProducerAddress
+    })
+
+    const result = await service.walletSetProducerAccount({
+      accountId: 'acc_1',
+      network: 'mainnet',
+      baseDir: '/tmp/mainnet-basedir'
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.output).toContain('protected by the project safety guardrail')
+    expect(result.configPath).toBeNull()
+    expect(updateConfigProducerAddress).not.toHaveBeenCalled()
   })
 })

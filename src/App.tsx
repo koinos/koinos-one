@@ -74,12 +74,14 @@ import {
   normalizeDashboardProducerWindowBlocks,
   normalizeDashboardRefreshSeconds,
   normalizeBackupTarGzUrl,
+  normalizeExternalHttpsUrl,
   normalizeExplorerRpcSource,
   normalizeNodeBaseDirInput,
   normalizeNodeBackupSettings,
   parseProfilesCsv,
   parsePublicRpcUrlsInput,
   renderAnsiLog,
+  remoteBackupDefaults,
   resolveNodeBaseDirForNetwork,
   resolveExplorerRpcUrl,
   resolveLocalNodeRpcUrl,
@@ -107,15 +109,16 @@ import pkg from '../package.json'
 
 const telenoLogoUrl = new URL('../assets/newbranding/logo.png', import.meta.url).href
 
-type NativeBackupSelectionSource = 'local' | 'remote' | 'auto'
+type NativeBackupSelectionSource = 'local' | 'remote' | 'public' | 'auto'
 
 function parseNativeBackupSelection(
   selection: string,
   localList?: TelenoNodeNativeBackupListResult | null,
-  remoteList?: TelenoNodeNativeBackupListResult | null
+  remoteList?: TelenoNodeNativeBackupListResult | null,
+  publicList?: TelenoNodeNativeBackupListResult | null
 ): { backupId: string; source: NativeBackupSelectionSource } {
   const value = selection.trim() || 'latest'
-  const prefixed = value.match(/^(local|remote):(.+)$/)
+  const prefixed = value.match(/^(local|remote|public):(.+)$/)
   if (prefixed) {
     return {
       source: prefixed[1] as NativeBackupSelectionSource,
@@ -126,13 +129,16 @@ function parseNativeBackupSelection(
   if (value === 'latest') {
     if (localList?.latestBackupId) return { backupId: 'latest', source: 'local' }
     if (remoteList?.latestBackupId) return { backupId: 'latest', source: 'remote' }
+    if (publicList?.latestBackupId) return { backupId: 'latest', source: 'public' }
     return { backupId: 'latest', source: 'auto' }
   }
 
   const localHasBackup = Boolean(localList?.snapshots.some((snapshot) => snapshot.backupId === value))
   const remoteHasBackup = Boolean(remoteList?.snapshots.some((snapshot) => snapshot.backupId === value))
+  const publicHasBackup = Boolean(publicList?.snapshots.some((snapshot) => snapshot.backupId === value))
   if (localHasBackup) return { backupId: value, source: 'local' }
   if (remoteHasBackup) return { backupId: value, source: 'remote' }
+  if (publicHasBackup) return { backupId: value, source: 'public' }
   return { backupId: value, source: 'auto' }
 }
 
@@ -164,6 +170,22 @@ const nodePanelOptionalComponentOrder = [
   'transaction_store',
   'account_history'
 ]
+
+function formatNodePresetText(value: string): string {
+  return value.replace(/\bObserver\b/g, 'Seed').replace(/\bobserver\b/g, 'seed')
+}
+
+function formatNodePresetLabel(preset: TelenoNodePreset): string {
+  return formatNodePresetText(preset.label)
+}
+
+function formatNodePresetProfileText(preset: TelenoNodePreset, language: AppLanguage): string {
+  return formatNodePresetText(formatPresetProfiles(preset, language))
+}
+
+function formatNodePresetDescription(preset: TelenoNodePreset): string {
+  return formatNodePresetText(preset.description)
+}
 
 function formatNetworkLabel(network: KoinosNetworkId): string {
   return KOINOS_NETWORK_OPTIONS.find((option) => option.id === network)?.label ?? network
@@ -252,6 +274,7 @@ export function App() {
   const [formError, setFormError] = useState<string | null>(null)
   const [freshBlockIds, setFreshBlockIds] = useState<string[]>([])
   const [draftPublicRpcUrls, setDraftPublicRpcUrls] = useState(settings.publicRpcUrls.join('\n'))
+  const [draftKoinscanUrl, setDraftKoinscanUrl] = useState(settings.koinscanUrl)
   const [publicRpcConfigLoaded, setPublicRpcConfigLoaded] = useState(() => !Boolean(getAppConfigBridge()?.loadPublicRpcUrls))
   const [draftPollMs, setDraftPollMs] = useState(String(settings.pollMs))
   const [draftRowLimit, setDraftRowLimit] = useState(String(settings.rowLimit))
@@ -279,13 +302,17 @@ export function App() {
   const [nodeNativeBackupDryRunLoading, setNodeNativeBackupDryRunLoading] = useState(false)
   const [nodeNativeBackupLocalListLoading, setNodeNativeBackupLocalListLoading] = useState(false)
   const [nodeNativeBackupRemoteListLoading, setNodeNativeBackupRemoteListLoading] = useState(false)
+  const [nodeNativeBackupPublicListLoading, setNodeNativeBackupPublicListLoading] = useState(false)
   const [nodeNativeBackupLocalList, setNodeNativeBackupLocalList] = useState<TelenoNodeNativeBackupListResult | null>(null)
   const [nodeNativeBackupRemoteList, setNodeNativeBackupRemoteList] = useState<TelenoNodeNativeBackupListResult | null>(null)
+  const [nodeNativeBackupPublicList, setNodeNativeBackupPublicList] = useState<TelenoNodeNativeBackupListResult | null>(null)
   const [nodeNativeBackupPreflightLoading, setNodeNativeBackupPreflightLoading] = useState(false)
   const [nodeNativeBackupPreflight, setNodeNativeBackupPreflight] = useState<TelenoNodeNativeBackupPreflightResult | null>(null)
   const [selectedNativeBackupId, setSelectedNativeBackupId] = useState('latest')
   const [nodeRestoreNativeBackupLoading, setNodeRestoreNativeBackupLoading] = useState(false)
-  const nodeNativeBackupListLoading = nodeNativeBackupLocalListLoading || nodeNativeBackupRemoteListLoading
+  const [nodeNativeBackupPurgeLoading, setNodeNativeBackupPurgeLoading] = useState<string | null>(null)
+  const [simpleRemoteBackupSaving, setSimpleRemoteBackupSaving] = useState(false)
+  const nodeNativeBackupListLoading = nodeNativeBackupLocalListLoading || nodeNativeBackupRemoteListLoading || nodeNativeBackupPublicListLoading
   const [nodeServiceActionLoading, setNodeServiceActionLoading] = useState<NodeServiceActionState | null>(null)
   const [nodeCloneLoading, setNodeCloneLoading] = useState(false)
   const [nodeProducerOverview, setNodeProducerOverview] = useState<TelenoNodeProducerOverviewResult | null>(null)
@@ -387,6 +414,8 @@ export function App() {
   const nodeLogsStreamIdRef = useRef<string | null>(null)
   const nodeLogsPreRef = useRef<HTMLPreElement | null>(null)
   const nodeRepoBootstrapAttemptsRef = useRef<Set<string>>(new Set())
+  const simpleBackupPerformanceRefreshKeyRef = useRef<string | null>(null)
+  const simpleBackupPreflightKeyRef = useRef<string | null>(null)
   const locale = localeForLanguage(language)
   const t = useMemo(() => {
     return (key: string, values?: Record<string, string | number>) => translate(language, key, values)
@@ -450,6 +479,7 @@ export function App() {
     const effectiveRowLimit = clamp(Number.parseInt(draftRowLimit, 10) || DEFAULT_SETTINGS.rowLimit, 5, 50)
     const effectiveDashboardProducerWindowBlocks = normalizeDashboardProducerWindowBlocks(draftDashboardProducerWindowBlocks)
     const effectiveDashboardRefreshSeconds = normalizeDashboardRefreshSeconds(draftDashboardRefreshSeconds)
+    const effectiveKoinscanUrl = normalizeExternalHttpsUrl(draftKoinscanUrl, DEFAULT_SETTINGS.koinscanUrl)
     const effectiveRepoPath = draftNodeRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
     const effectiveBaseDir = normalizeNodeBaseDirInput(draftNodeBaseDir)
     const effectiveProfiles = expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)).join(',')
@@ -466,6 +496,7 @@ export function App() {
       settings.nodeAdvancedMode !== savedSettings.nodeAdvancedMode ||
       settings.producerAdvancedMode !== savedSettings.producerAdvancedMode ||
       publicRpcUrlsChanged ||
+      effectiveKoinscanUrl !== settings.koinscanUrl ||
       effectivePollMs !== settings.pollMs ||
       effectiveRowLimit !== settings.rowLimit ||
       effectiveDashboardProducerWindowBlocks !== settings.dashboardProducerWindowBlocks ||
@@ -486,6 +517,7 @@ export function App() {
     draftNodeNetwork,
     draftNodeProfiles,
     draftNodeRepoPath,
+    draftKoinscanUrl,
     draftPollMs,
     draftPublicRpcUrls,
     draftRowLimit,
@@ -497,6 +529,7 @@ export function App() {
     savedSettings.producerAdvancedMode,
     settings.dashboardProducerWindowBlocks,
     settings.dashboardRefreshSeconds,
+    settings.koinscanUrl,
     settings.nodeAdvancedMode,
     settings.pollMs,
     settings.producerAdvancedMode,
@@ -505,12 +538,14 @@ export function App() {
 
   useEffect(() => {
     setDraftPublicRpcUrls(settings.publicRpcUrls.join('\n'))
+    setDraftKoinscanUrl(settings.koinscanUrl)
     setDraftPollMs(String(settings.pollMs))
     setDraftRowLimit(String(settings.rowLimit))
     setDraftDashboardProducerWindowBlocks(String(settings.dashboardProducerWindowBlocks))
     setDraftDashboardRefreshSeconds(String(settings.dashboardRefreshSeconds))
   }, [
     settings.publicRpcUrls,
+    settings.koinscanUrl,
     settings.pollMs,
     settings.rowLimit,
     settings.dashboardProducerWindowBlocks,
@@ -1191,6 +1226,7 @@ export function App() {
   const nodeCurrentProfiles = parseProfilesCsv(nodeSettings.profiles)
   const selectedNodePreset =
     nodePresets.find((preset) => sameProfiles(preset.profiles, nodeCurrentProfiles)) ?? null
+  const activeNodePresetLabel = selectedNodePreset ? formatNodePresetLabel(selectedNodePreset) : t('node.presetCustomLabel')
   const nodeNativeBuildServices = nodeNativeBuilds?.services ?? []
   const nodeNativeSupportedCount = nodeNativeBuildServices.filter((service) => service.supported).length
   const nodeNativeBuiltCount = nodeNativeBuildServices.filter(
@@ -1384,7 +1420,7 @@ export function App() {
     : false
   const nodePresetSummaryText = selectedNodePreset
     ? t('node.presetSummarySelected', {
-        label: selectedNodePreset.label,
+        label: formatNodePresetLabel(selectedNodePreset),
         count: selectedNodePreset.services.length,
         pending: selectedNodePresetMatchesRunningState ? '' : t('node.presetSummaryPendingSuffix')
       })
@@ -1458,6 +1494,7 @@ export function App() {
   )
   const producerVaultExists = Boolean(walletOverview?.walletExists)
   const producerVaultUnlocked = Boolean(walletOverview?.unlocked)
+  const appAdvancedMode = settings.nodeAdvancedMode || settings.producerAdvancedMode
   const producerAdvancedMode = settings.producerAdvancedMode
   const signingWalletAddress = activeWalletAddress
   const draftedProducerAddress = nodeProducerAddressDraft.trim()
@@ -2130,8 +2167,8 @@ export function App() {
     setNodeError(null)
     setNodeOutput(
       t('node.profileSelected', {
-        label: preset.label,
-        profiles: formatPresetProfiles(preset, language)
+        label: formatNodePresetLabel(preset),
+        profiles: formatNodePresetProfileText(preset, language)
       })
     )
     void refreshNodeStatus(nextSettings)
@@ -2178,7 +2215,7 @@ export function App() {
       setNodeOutput(result.output || result.status.output || '')
 
       if (!result.ok || !result.status.ok) {
-        setNodeError(result.output || result.status.output || t('node.unableApplyProfile', { label: preset.label }))
+        setNodeError(result.output || result.status.output || t('node.unableApplyProfile', { label: formatNodePresetLabel(preset) }))
       } else {
         setNodeError(null)
       }
@@ -2195,7 +2232,7 @@ export function App() {
         }
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : t('node.errorApplyingProfile', { label: preset.label }))
+      setNodeError(error instanceof Error ? error.message : t('node.errorApplyingProfile', { label: formatNodePresetLabel(preset) }))
     } finally {
       setNodePresetActionLoading(null)
     }
@@ -3102,6 +3139,52 @@ export function App() {
     }
   }
 
+  const setWalletAccountAsProducer = async (accountId: string) => {
+    const bridge = getWalletBridge()
+    if (!bridge?.setProducerAccount) return false
+
+    const requestedAccountId = accountId.trim()
+    const targetAccount = walletAccounts.find((entry) => entry.id === requestedAccountId) || null
+    if (!requestedAccountId || !targetAccount) {
+      setWalletError(t('wallet.unableSetProducerAccount'))
+      return false
+    }
+
+    setWalletActionLoading('wallet-set-producer')
+    setWalletError(null)
+    try {
+      const result = await bridge.setProducerAccount({
+        accountId: requestedAccountId,
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir
+      })
+      setWalletResultTitle(t('wallet.setAsProducerAction'))
+      setWalletResultData(result)
+      appendWalletActivity(t('wallet.setAsProducerAction'), result, result.activeAccountId || requestedAccountId)
+
+      if (!result.ok) {
+        setWalletError(result.output || t('wallet.unableSetProducerAccount'))
+        return false
+      }
+
+      setProducerUseWalletAddress(true)
+      setProducerAllowDelegatedSigner(false)
+      setNodeProducerAddressDraft('')
+      await Promise.all([
+        refreshNodeProducerOverview(undefined, targetAccount.address || undefined),
+        refreshProducerProfile(),
+        refreshProducerRecentBlocks(targetAccount.address || undefined),
+        refreshNodeStatus()
+      ])
+      return true
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : t('wallet.unableSetProducerAccount'))
+      return false
+    } finally {
+      setWalletActionLoading(null)
+    }
+  }
+
   const createWalletDerivedAccount = async (name: string) => {
     const bridge = getWalletBridge()
     if (!bridge?.createDerivedAccount) return false
@@ -3950,9 +4033,18 @@ export function App() {
     }
   }
 
-  const runCreateBackup = async () => {
+  const runCreateBackup = async (backupOverrides: Partial<NodeBackupSettings> = {}) => {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.createBackup) return
+
+    const backupSettings = normalizeNodeBackupSettings({
+      ...normalizeNodeBackupSettings(nodeSettings.backup),
+      ...backupOverrides
+    })
+    const createSettings = {
+      ...nodeSettings,
+      backup: backupSettings.remoteEnabled ? withRemoteBackupDefaults(backupSettings) : backupSettings
+    }
 
     setNodeCreateBackupLoading(true)
     setNodeError(null)
@@ -3965,7 +4057,7 @@ export function App() {
     })
 
     try {
-      const result = await bridge.createBackup(toNodeApiSettings(nodeSettings))
+      const result = await bridge.createBackup(toNodeApiSettings(createSettings))
       if (!result.ok) {
         setNodeError(result.output || 'Error creating backup')
       }
@@ -4022,54 +4114,69 @@ export function App() {
     }
   }
 
-  const runNativeBackupList = async (remote = false) => {
+  const runNativeBackupList = async (sourceArg: boolean | 'local' | 'remote' | 'public' = false) => {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.nativeBackupList) return
 
-    const setLoading = remote ? setNodeNativeBackupRemoteListLoading : setNodeNativeBackupLocalListLoading
+    const source = sourceArg === true
+      ? 'remote'
+      : sourceArg === 'remote' || sourceArg === 'public'
+        ? sourceArg
+        : 'local'
+    const setLoading = source === 'public'
+      ? setNodeNativeBackupPublicListLoading
+      : source === 'remote'
+        ? setNodeNativeBackupRemoteListLoading
+        : setNodeNativeBackupLocalListLoading
     setLoading(true)
     setNodeError(null)
 
     try {
       const result = await bridge.nativeBackupList({
         ...toNodeApiSettings(nodeSettings),
-        remote
+        remote: source === 'remote',
+        public: source === 'public'
       })
-      if (remote) {
+      if (source === 'public') {
+        setNodeNativeBackupPublicList(result)
+      } else if (source === 'remote') {
         setNodeNativeBackupRemoteList(result)
       } else {
         setNodeNativeBackupLocalList(result)
       }
       setNodeOutput([
-        `Native backup list source: ${result.source || (remote ? 'remote' : 'local')}`,
+        `Native backup list source: ${result.source || source}`,
         result.configPath ? `Native backup config: ${result.configPath}` : '',
         result.repositoryDir ? `Native backup repository: ${result.repositoryDir}` : '',
         result.workspaceDir ? `Native backup workspace: ${result.workspaceDir}` : '',
         result.output || ''
       ].filter(Boolean).join('\n'))
       if (result.ok) {
-        const pairedList = remote ? nodeNativeBackupLocalList : nodeNativeBackupRemoteList
         const availableIds = new Set([
           'latest',
-          ...result.snapshots.map((snapshot) => `${remote ? 'remote' : 'local'}:${snapshot.backupId}`),
-          ...(pairedList?.snapshots ?? []).map((snapshot) => `${remote ? 'local' : 'remote'}:${snapshot.backupId}`)
+          ...(source === 'local' ? result.snapshots : nodeNativeBackupLocalList?.snapshots ?? [])
+            .map((snapshot) => `local:${snapshot.backupId}`),
+          ...(source === 'remote' ? result.snapshots : nodeNativeBackupRemoteList?.snapshots ?? [])
+            .map((snapshot) => `remote:${snapshot.backupId}`),
+          ...(source === 'public' ? result.snapshots : nodeNativeBackupPublicList?.snapshots ?? [])
+            .map((snapshot) => `public:${snapshot.backupId}`)
         ])
         setSelectedNativeBackupId((current) =>
           current === 'latest' || !availableIds.has(current)
-            ? result.latestBackupId ? `${remote ? 'remote' : 'local'}:${result.latestBackupId}` : 'latest'
+            ? result.latestBackupId ? `${source}:${result.latestBackupId}` : 'latest'
             : current
         )
       } else {
-        setNodeError(result.output || `Unable to list ${remote ? 'remote' : 'local'} native backups`)
+        setNodeError(result.output || `Unable to list ${source} native backups`)
       }
     } catch (error) {
-      setNodeError(error instanceof Error ? error.message : `Unable to list ${remote ? 'remote' : 'local'} native backups`)
+      setNodeError(error instanceof Error ? error.message : `Unable to list ${source} native backups`)
     } finally {
       setLoading(false)
     }
   }
 
-  const runNativeBackupRestorePreflight = async () => {
+  const runNativeBackupRestorePreflight = async (backupId = selectedNativeBackupId) => {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.nativeBackupRestorePreflight) return
 
@@ -4078,7 +4185,12 @@ export function App() {
     setNodeError(null)
 
     try {
-      const selectedBackup = parseNativeBackupSelection(selectedNativeBackupId, nodeNativeBackupLocalList, nodeNativeBackupRemoteList)
+      const selectedBackup = parseNativeBackupSelection(
+        backupId || 'latest',
+        nodeNativeBackupLocalList,
+        nodeNativeBackupRemoteList,
+        nodeNativeBackupPublicList
+      )
       const apiSettings = toNodeApiSettings(nodeSettings)
       const result = await bridge.nativeBackupRestorePreflight({
         ...apiSettings,
@@ -4106,7 +4218,12 @@ export function App() {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreNativeBackupLatest) return
 
-    const selectedBackup = parseNativeBackupSelection(backupId, nodeNativeBackupLocalList, nodeNativeBackupRemoteList)
+    const selectedBackup = parseNativeBackupSelection(
+      backupId,
+      nodeNativeBackupLocalList,
+      nodeNativeBackupRemoteList,
+      nodeNativeBackupPublicList
+    )
     const trimmedBackupId = selectedBackup.backupId
     const apiSettings = toNodeApiSettings(nodeSettings)
     const confirmed = window.confirm(t('node.nativeRestoreConfirm', {
@@ -4147,9 +4264,131 @@ export function App() {
     }
   }
 
-  const runRestoreNativeBackupSelected = async () => {
-    await runRestoreNativeBackup(selectedNativeBackupId || 'latest')
+  const runRestoreNativeBackupSelected = async (backupId = selectedNativeBackupId) => {
+    await runRestoreNativeBackup(backupId || 'latest')
   }
+
+  const runPurgeNativeBackup = async (backupId: string) => {
+    const bridge = getTelenoNodeBridge()
+    if (!bridge?.nativeBackupPurge) return
+
+    const selectedBackup = parseNativeBackupSelection(
+      backupId,
+      nodeNativeBackupLocalList,
+      nodeNativeBackupRemoteList,
+      nodeNativeBackupPublicList
+    )
+    if (selectedBackup.source === 'auto' || selectedBackup.source === 'public' || !selectedBackup.backupId || selectedBackup.backupId === 'latest') {
+      setNodeError('Select an exact local or remote backup to purge.')
+      return
+    }
+
+    const confirmed = window.confirm(t('node.nativePurgeConfirm', {
+      backupId: selectedBackup.backupId,
+      source: selectedBackup.source
+    }))
+    if (!confirmed) return
+
+    const purgeSelection = `${selectedBackup.source}:${selectedBackup.backupId}`
+    setNodeNativeBackupPurgeLoading(purgeSelection)
+    setNodeError(null)
+
+    try {
+      const result = await bridge.nativeBackupPurge({
+        ...toNodeApiSettings(nodeSettings),
+        backupId: selectedBackup.backupId,
+        backupSource: selectedBackup.source
+      })
+      setNodeOutput([
+        result.configPath ? `Native backup config: ${result.configPath}` : '',
+        result.repositoryDir ? `Native backup repository: ${result.repositoryDir}` : '',
+        result.workspaceDir ? `Native backup workspace: ${result.workspaceDir}` : '',
+        result.output || ''
+      ].filter(Boolean).join('\n'))
+      if (!result.ok) {
+        setNodeError(result.output || t('node.unablePurgeNativeBackup'))
+        return
+      }
+
+      setSelectedNativeBackupId('latest')
+      await runNativeBackupList(selectedBackup.source === 'remote')
+    } catch (error) {
+      setNodeError(error instanceof Error ? error.message : t('node.unablePurgeNativeBackup'))
+    } finally {
+      setNodeNativeBackupPurgeLoading(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!hasNodeControls || settings.nodeAdvancedMode || activeTab !== 'node' || nodeSubtab !== 'backups') return
+
+    const backup = normalizeNodeBackupSettings(draftNodeBackup)
+    const backupKey = `${nodeSettings.network}|${normalizeNodeBaseDirInput(nodeSettings.baseDir)}`
+    if (!dashboardPerformanceLoading && simpleBackupPerformanceRefreshKeyRef.current !== backupKey) {
+      simpleBackupPerformanceRefreshKeyRef.current = backupKey
+      void refreshDashboardPerformance()
+    }
+
+    if (!nodeNativeBackupLocalList && !nodeNativeBackupLocalListLoading) {
+      void runNativeBackupList(false)
+    }
+
+    if (backup.remoteEnabled && !nodeNativeBackupRemoteList && !nodeNativeBackupRemoteListLoading) {
+      void runNativeBackupList(true)
+    }
+
+    if (nodeSettings.network === 'testnet' && !nodeNativeBackupPublicList && !nodeNativeBackupPublicListLoading) {
+      void runNativeBackupList('public')
+    }
+
+    const localLatestBackupId = nodeNativeBackupLocalList?.latestBackupId ||
+      nodeNativeBackupLocalList?.snapshots.find((snapshot) => snapshot.latest)?.backupId ||
+      ''
+    const remoteLatestBackupId = nodeNativeBackupRemoteList?.latestBackupId ||
+      nodeNativeBackupRemoteList?.snapshots.find((snapshot) => snapshot.latest)?.backupId ||
+      ''
+    const publicLatestBackupId = nodeNativeBackupPublicList?.latestBackupId ||
+      nodeNativeBackupPublicList?.snapshots.find((snapshot) => snapshot.latest)?.backupId ||
+      ''
+    const selectedSource = backup.remoteEnabled && remoteLatestBackupId
+      ? 'remote'
+      : localLatestBackupId
+        ? 'local'
+        : nodeSettings.network === 'testnet' && publicLatestBackupId
+          ? 'public'
+          : backup.remoteEnabled
+            ? 'remote'
+            : 'local'
+    const selectedList = selectedSource === 'public'
+      ? nodeNativeBackupPublicList
+      : selectedSource === 'remote'
+        ? nodeNativeBackupRemoteList
+        : nodeNativeBackupLocalList
+    const latestBackupId = selectedList?.latestBackupId || selectedList?.snapshots.find((snapshot) => snapshot.latest)?.backupId || ''
+    if (!latestBackupId || nodeNativeBackupPreflightLoading) return
+
+    const preflightKey = `${backupKey}|${selectedSource}|${latestBackupId}`
+    if (simpleBackupPreflightKeyRef.current === preflightKey) return
+    simpleBackupPreflightKeyRef.current = preflightKey
+    setSelectedNativeBackupId(`${selectedSource}:${latestBackupId}`)
+    void runNativeBackupRestorePreflight(`${selectedSource}:${latestBackupId}`)
+  }, [
+    activeTab,
+    dashboardPerformanceLoading,
+    draftNodeBackup,
+    hasNodeControls,
+    nodeNativeBackupLocalList,
+    nodeNativeBackupLocalListLoading,
+    nodeNativeBackupPreflightLoading,
+    nodeNativeBackupPublicList,
+    nodeNativeBackupPublicListLoading,
+    nodeNativeBackupRemoteList,
+    nodeNativeBackupRemoteListLoading,
+    nodeSettings.baseDir,
+    nodeSettings.network,
+    nodeSubtab,
+    settings.nodeAdvancedMode
+  ])
 
   const runCancelBackup = async () => {
     const bridge = getTelenoNodeBridge()
@@ -4377,8 +4616,8 @@ export function App() {
   }
   void runNodeNativeBuildService
 
-  const validateDraftNodeBackup = () => {
-    const backup = normalizeNodeBackupSettings(draftNodeBackup)
+  const validateDraftNodeBackup = (candidateBackup: NodeBackupSettings | Partial<NodeBackupSettings> = draftNodeBackup) => {
+    const backup = normalizeNodeBackupSettings(candidateBackup)
     if (backup.remoteEnabled) {
       if (!backup.sshHost.trim()) throw new Error(t('settings.backupRemoteHostRequired'))
       if (!backup.sshUser.trim()) throw new Error(t('settings.backupRemoteUserRequired'))
@@ -4396,13 +4635,13 @@ export function App() {
     return backup
   }
 
-  const applySettings = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!settingsDirty) return
+  const saveCurrentSettings = async (overrides: { backup?: NodeBackupSettings } = {}) => {
+    if (!settingsDirty && !overrides.backup) return
     setFormError(null)
 
     try {
       const publicRpcUrls = parsePublicRpcUrlsInput(draftPublicRpcUrls, language)
+      const koinscanUrl = normalizeExternalHttpsUrl(draftKoinscanUrl, DEFAULT_SETTINGS.koinscanUrl)
       const pollMs = clamp(Number.parseInt(draftPollMs, 10) || DEFAULT_SETTINGS.pollMs, 1000, 30000)
       const rowLimit = clamp(Number.parseInt(draftRowLimit, 10) || DEFAULT_SETTINGS.rowLimit, 5, 50)
       const dashboardProducerWindowBlocks = normalizeDashboardProducerWindowBlocks(draftDashboardProducerWindowBlocks)
@@ -4419,7 +4658,7 @@ export function App() {
         : network === 'mainnet'
           ? normalizeBackupTarGzUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl, language)
           : ''
-      const backup = validateDraftNodeBackup()
+      const backup = validateDraftNodeBackup(overrides.backup ?? draftNodeBackup)
 
       if (!repoPath) throw new Error(t('settings.repoRequired'))
       if (!draftNodeBaseDir.trim()) throw new Error(t('settings.baseDirRequired'))
@@ -4483,6 +4722,7 @@ export function App() {
         ...settings,
         publicRpcUrls,
         rpcSource: normalizeExplorerRpcSource(settings.rpcSource, publicRpcUrls, settings.rpcSource),
+        koinscanUrl,
         pollMs,
         rowLimit,
         dashboardProducerWindowBlocks,
@@ -4529,8 +4769,44 @@ export function App() {
     }
   }
 
+  const applySettings = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    await saveCurrentSettings()
+  }
+
+  const withRemoteBackupDefaults = (backup: NodeBackupSettings): NodeBackupSettings => {
+    if (!backup.remoteEnabled) return backup
+    const defaults = remoteBackupDefaults(draftNodeNetwork)
+    return normalizeNodeBackupSettings({
+      ...backup,
+      sshAuth: backup.sshAuth || 'private-key',
+      sshHost: backup.sshHost || defaults.sshHost,
+      sshUser: backup.sshUser || defaults.sshUser,
+      remoteDirectory: backup.remoteDirectory || defaults.remoteDirectory,
+      sshPrivateKeyFile: backup.sshPrivateKeyFile || defaults.sshPrivateKeyFile,
+      sshKnownHostsFile: backup.sshKnownHostsFile || defaults.sshKnownHostsFile
+    })
+  }
+
+  const setSimpleRemoteBackupEnabled = async (enabled: boolean) => {
+    const nextBackup = withRemoteBackupDefaults({
+      ...normalizeNodeBackupSettings(draftNodeBackup),
+      remoteEnabled: enabled
+    })
+    nativeBackupUserEditedRef.current = true
+    setFormError(null)
+    setDraftNodeBackup(nextBackup)
+    setSimpleRemoteBackupSaving(true)
+    try {
+      await saveCurrentSettings({ backup: nextBackup })
+    } finally {
+      setSimpleRemoteBackupSaving(false)
+    }
+  }
+
   const resetDefaults = () => {
     setDraftPublicRpcUrls(DEFAULT_SETTINGS.publicRpcUrls.join('\n'))
+    setDraftKoinscanUrl(DEFAULT_SETTINGS.koinscanUrl)
     setDraftPollMs(String(DEFAULT_SETTINGS.pollMs))
     setDraftRowLimit(String(DEFAULT_SETTINGS.rowLimit))
     setDraftDashboardProducerWindowBlocks(String(DEFAULT_SETTINGS.dashboardProducerWindowBlocks))
@@ -4673,6 +4949,8 @@ export function App() {
           setSettings={setSettings}
           draftPublicRpcUrls={draftPublicRpcUrls}
           setDraftPublicRpcUrls={setDraftPublicRpcUrls}
+          draftKoinscanUrl={draftKoinscanUrl}
+          setDraftKoinscanUrl={setDraftKoinscanUrl}
           draftPollMs={draftPollMs}
           setDraftPollMs={setDraftPollMs}
           draftRowLimit={draftRowLimit}
@@ -4703,7 +4981,6 @@ export function App() {
           resetDefaults={resetDefaults}
           settingsDirty={settingsDirty}
           onBlockedSettingsNavigation={() => setSettingsUnsavedDialogOpen(true)}
-          nodeComponents={nodeComponents}
         />
       )}
 
@@ -4750,12 +5027,58 @@ export function App() {
 
       {activeTab === 'node' && (
       <section id="panel-node" className="node-panel" aria-label={t('node.panelAria')} role="tabpanel" aria-labelledby="tab-node">
-        <div className="node-panel-header">
-          <div>
-            <h2>{t('node.singleName')}</h2>
-            <p>{t('node.singleDescription')}</p>
+        {!hasNodeControls && (
+          <div className="node-warning" role="note">
+            {t('node.electronOnlyWarning')}
           </div>
-          <div className="node-panel-actions">
+        )}
+
+        {hasNodeControls && nodeStatus && !nodeStatus.ok && /repo path not found/i.test(nodeStatus.output) && (
+          <div className="node-warning" role="note">
+            {t('node.repoMissingWarning', { repoPath: nodeSettings.repoPath })}
+          </div>
+        )}
+
+        {hasNodeControls && nodeHasPartialOutage && (
+          <div className="node-warning" role="note">
+            {t('node.partialOutagePrefix')} <strong>{nodeStoppedServices.map((service) => service.name).join(', ')}</strong>.
+            {t('node.partialOutageNativeDetail')}
+          </div>
+        )}
+
+        {nodeError && (
+          <div className="error-banner node-error-banner" role="alert">
+            <span>{nodeError}</span>
+          </div>
+        )}
+
+        <div className="node-subtabs settings-tabs" role="tablist" aria-label="Node views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={nodeSubtab === 'overview'}
+            className={`settings-tab-button ${nodeSubtab === 'overview' ? 'is-active' : ''}`}
+            onClick={() => setNodeSubtab('overview')}
+          >
+            {t('node.subtabOverview')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={nodeSubtab === 'backups'}
+            className={`settings-tab-button ${nodeSubtab === 'backups' ? 'is-active' : ''}`}
+            onClick={() => setNodeSubtab('backups')}
+          >
+            {t('node.subtabBackups')}
+          </button>
+        </div>
+
+        {nodeSubtab === 'overview' && (
+        <div className="node-services node-single-node">
+          <div className="node-panel-actions node-operation-actions">
+            <span className="node-active-preset">
+              {t('node.activePreset', { label: activeNodePresetLabel })}
+            </span>
             <button
               type="button"
               className="ghost-button"
@@ -4819,56 +5142,6 @@ export function App() {
               {nodeActionLoading === 'stop' ? t('common.stopping') : t('node.stopNode')}
             </button>
           </div>
-        </div>
-
-        {!hasNodeControls && (
-          <div className="node-warning" role="note">
-            {t('node.electronOnlyWarning')}
-          </div>
-        )}
-
-        {hasNodeControls && nodeStatus && !nodeStatus.ok && /repo path not found/i.test(nodeStatus.output) && (
-          <div className="node-warning" role="note">
-            {t('node.repoMissingWarning', { repoPath: nodeSettings.repoPath })}
-          </div>
-        )}
-
-        {hasNodeControls && nodeHasPartialOutage && (
-          <div className="node-warning" role="note">
-            {t('node.partialOutagePrefix')} <strong>{nodeStoppedServices.map((service) => service.name).join(', ')}</strong>.
-            {t('node.partialOutageNativeDetail')}
-          </div>
-        )}
-
-        {nodeError && (
-          <div className="error-banner node-error-banner" role="alert">
-            <span>{nodeError}</span>
-          </div>
-        )}
-
-        <div className="node-subtabs settings-tabs" role="tablist" aria-label="Node views">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={nodeSubtab === 'overview'}
-            className={`settings-tab-button ${nodeSubtab === 'overview' ? 'is-active' : ''}`}
-            onClick={() => setNodeSubtab('overview')}
-          >
-            {t('node.subtabOverview')}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={nodeSubtab === 'backups'}
-            className={`settings-tab-button ${nodeSubtab === 'backups' ? 'is-active' : ''}`}
-            onClick={() => setNodeSubtab('backups')}
-          >
-            {t('node.subtabBackups')}
-          </button>
-        </div>
-
-        {nodeSubtab === 'overview' && (
-        <div className="node-services node-single-node">
           {nodePrimaryService && nodePrimaryCapabilities ? (
             <section
               className="node-control-surface"
@@ -4882,13 +5155,6 @@ export function App() {
                 })
               }}
             >
-              <div className="node-control-top">
-                <span className={`node-service-status ${nodePrimaryStatusTone}`.trim()} title={nodePrimaryService.status}>
-                  <span className="node-service-dot" aria-hidden="true" />
-                  {nodePrimaryService.state}
-                </span>
-              </div>
-
               <div className="node-control-summary">
                 <article>
                   <span>{t('node.detailPid')}</span>
@@ -4908,47 +5174,49 @@ export function App() {
               </div>
 
               <div className="node-control-details">
-                <section>
-                  <h4>{t('node.detailRuntime')}</h4>
-                  <dl>
-                    <div>
-                      <dt>{t('node.detailPreset')}</dt>
-                      <dd>{selectedNodePreset?.label ?? t('node.presetCustomLabel')}</dd>
+                {appAdvancedMode && (
+                  <section className="node-runtime-detail">
+                    <h4>{t('node.detailRuntime')}</h4>
+                    <div className="node-runtime-cards">
+                      <article>
+                        <span>{t('node.detailPreset')}</span>
+                        <strong>{selectedNodePreset ? formatNodePresetLabel(selectedNodePreset) : t('node.presetCustomLabel')}</strong>
+                      </article>
+                      <article>
+                        <span>{t('common.version')}</span>
+                        <strong className="mono" title={nodePrimaryVersion}>
+                          {nodePrimaryVersion}
+                        </strong>
+                      </article>
+                      <article>
+                        <span>{t('node.detailBaseDir')}</span>
+                        <strong className="mono" title={nodeStatus?.baseDir || nodeSettings.baseDir}>
+                          {nodeStatus?.baseDir || nodeSettings.baseDir || t('common.na')}
+                        </strong>
+                      </article>
+                      <article>
+                        <span>{t('node.detailConfigPath')}</span>
+                        <strong className="mono" title={nodePrimaryConfigPath}>
+                          {nodePrimaryConfigPath}
+                        </strong>
+                      </article>
+                      <article>
+                        <span>{t('node.detailBinaryPath')}</span>
+                        <strong className="mono" title={nodePrimaryBinaryPath}>
+                          {nodePrimaryBinaryPath}
+                        </strong>
+                      </article>
+                      <article>
+                        <span>{t('node.detailLogPath')}</span>
+                        <strong className="mono" title={nodePrimaryLogPath}>
+                          {nodePrimaryLogPath}
+                        </strong>
+                      </article>
                     </div>
-                    <div>
-                      <dt>{t('common.version')}</dt>
-                      <dd className="mono" title={nodePrimaryVersion}>
-                        {nodePrimaryVersion}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t('node.detailBaseDir')}</dt>
-                      <dd className="mono" title={nodeStatus?.baseDir || nodeSettings.baseDir}>
-                        {nodeStatus?.baseDir || nodeSettings.baseDir || t('common.na')}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t('node.detailConfigPath')}</dt>
-                      <dd className="mono" title={nodePrimaryConfigPath}>
-                        {nodePrimaryConfigPath}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t('node.detailBinaryPath')}</dt>
-                      <dd className="mono" title={nodePrimaryBinaryPath}>
-                        {nodePrimaryBinaryPath}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t('node.detailLogPath')}</dt>
-                      <dd className="mono" title={nodePrimaryLogPath}>
-                        {nodePrimaryLogPath}
-                      </dd>
-                    </div>
-                  </dl>
-                </section>
+                  </section>
+                )}
 
-                <section>
+                <section className="node-components-detail">
                   <h4>{t('node.detailComponents')}</h4>
                   {nodePanelOptionalComponents.length > 0 ? (
                     <div className="component-health-grid node-component-health-grid">
@@ -5004,7 +5272,9 @@ export function App() {
             hasNodeControls={hasNodeControls}
             nodeBusy={nodeBusy}
             settingsDirty={settingsDirty}
+            advancedMode={settings.nodeAdvancedMode}
             nodeSettings={nodeSettings}
+            draftNodeBackup={draftNodeBackup}
             nodeStatus={nodeStatus}
             nodePrimaryConfigPath={nodePrimaryConfigPath}
             runCreateBackup={runCreateBackup}
@@ -5012,22 +5282,31 @@ export function App() {
             runNativeBackupList={runNativeBackupList}
             runNativeBackupRestorePreflight={runNativeBackupRestorePreflight}
             runRestoreNativeBackupSelected={runRestoreNativeBackupSelected}
+            runPurgeNativeBackup={runPurgeNativeBackup}
             nodeCreateBackupLoading={nodeCreateBackupLoading}
             nodeNativeBackupListLoading={nodeNativeBackupListLoading}
             nodeNativeBackupLocalListLoading={nodeNativeBackupLocalListLoading}
             nodeNativeBackupRemoteListLoading={nodeNativeBackupRemoteListLoading}
+            nodeNativeBackupPublicListLoading={nodeNativeBackupPublicListLoading}
             nodeNativeBackupLocalList={nodeNativeBackupLocalList}
             nodeNativeBackupRemoteList={nodeNativeBackupRemoteList}
+            nodeNativeBackupPublicList={nodeNativeBackupPublicList}
             nodeNativeBackupPreflightLoading={nodeNativeBackupPreflightLoading}
             nodeNativeBackupPreflight={nodeNativeBackupPreflight}
             selectedNativeBackupId={selectedNativeBackupId}
             setSelectedNativeBackupId={setSelectedNativeBackupId}
             nodeRestoreNativeBackupLoading={nodeRestoreNativeBackupLoading}
+            nodeNativeBackupPurgeLoading={nodeNativeBackupPurgeLoading}
+            simpleRemoteBackupSaving={simpleRemoteBackupSaving}
+            setSimpleRemoteBackupEnabled={setSimpleRemoteBackupEnabled}
+            dashboardPerformance={dashboardPerformance}
+            dashboardPerformanceLoading={dashboardPerformanceLoading}
+            formError={formError}
             nodeBackupProgress={nodeBackupProgress}
           />
         )}
 
-        {nodeOutput && (
+        {appAdvancedMode && nodeOutput && (
           <div className="node-output">
             <div className="node-services-header">
               <h3>{t('node.commandOutput')}</h3>
@@ -5079,15 +5358,17 @@ export function App() {
                     {nodePresets.map((preset) => {
                       const selected = selectedNodePreset?.id === preset.id
                       const matchesRunningState = presetMatchesNodeState(preset)
+                      const presetLabel = formatNodePresetLabel(preset)
+                      const presetDescription = formatNodePresetDescription(preset)
                       return (
                         <article
                           key={preset.id}
                           className={`node-preset-card ${selected ? 'is-selected' : ''}`.trim()}
-                          title={preset.description}
+                          title={presetDescription}
                         >
-                          <span className="node-preset-label">{preset.label}</span>
-                          <span className="node-preset-profiles mono">{formatPresetProfiles(preset, language)}</span>
-                          <span className="node-preset-description">{preset.description}</span>
+                          <span className="node-preset-label">{presetLabel}</span>
+                          <span className="node-preset-profiles mono">{formatNodePresetProfileText(preset, language)}</span>
+                          <span className="node-preset-description">{presetDescription}</span>
                           <span className="node-preset-services mono">{preset.services.join(', ') || t('common.none')}</span>
                           <span className={`node-preset-state ${matchesRunningState ? 'is-live' : 'is-pending'}`.trim()}>
                             {matchesRunningState ? t('node.profileStateMatch') : t('node.profileStatePending')}
@@ -5565,6 +5846,7 @@ export function App() {
           walletBurnUseFreeMana={walletBurnUseFreeMana}
           setWalletBurnUseFreeMana={setWalletBurnUseFreeMana}
           burnKoinToVhp={burnKoinToVhp}
+          advancedMode={appAdvancedMode}
           walletResultData={walletResultData}
           walletResultTitle={walletResultTitle}
           walletResultText={walletResultText}
@@ -5574,6 +5856,7 @@ export function App() {
           activeWalletAddress={activeWalletAddress}
           activeWalletCanSign={activeWalletCanSign}
           setWalletActiveAccount={setWalletActiveAccount}
+          setWalletAccountAsProducer={setWalletAccountAsProducer}
           createWalletDerivedAccount={createWalletDerivedAccount}
           importWalletWatchAccount={importWalletWatchAccount}
           renameWalletVaultAccount={renameWalletVaultAccount}
@@ -5587,6 +5870,7 @@ export function App() {
           effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
           settings={settings}
           language={language}
+          koinscanUrl={settings.koinscanUrl}
           head={head}
           locale={locale}
           headBlockTimeText={headBlockTimeText}
@@ -5629,13 +5913,14 @@ export function App() {
             </header>
             <div className="conflict-modal-body">
               <p className="conflict-modal-copy">{t('settings.unsavedCopy')}</p>
+              {formError && <p className="form-error" role="alert">{formError}</p>}
               <div className="conflict-modal-actions">
                 <button
                   type="button"
                   className="primary-button"
-                  onClick={() => setSettingsUnsavedDialogOpen(false)}
+                  onClick={() => { void saveCurrentSettings() }}
                 >
-                  {t('settings.unsavedStay')}
+                  {t('settings.saveSettings')}
                 </button>
               </div>
             </div>

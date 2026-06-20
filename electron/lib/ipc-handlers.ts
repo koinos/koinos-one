@@ -16,6 +16,7 @@ import type {
   TelenoNodeLogsFollowStopResult,
   TelenoNodeLogsInput,
   TelenoNodeManagedFileKind,
+  TelenoNodeNativeBackupPurgeInput,
   TelenoNodeNativeBackupRestoreInput,
   TelenoNodeNativeBuildCommandInput,
   TelenoNodePresetCommandInput,
@@ -39,6 +40,7 @@ import type {
   WalletReadContractInput,
   WalletRpcInput,
   WalletSetActiveAccountInput,
+  WalletSetProducerAccountInput,
   WalletTokenBalanceInput,
   WalletTransferKoinInput,
   WalletTransferVhpInput,
@@ -68,7 +70,8 @@ type IpcHandlerDeps = {
   createLocalBackup: (input: TelenoNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
   nativeBackupDryRun: (input: TelenoNodeSettingsInput | undefined) => Awaitable<unknown>
   nativeBackupConfig: (input: TelenoNodeSettingsInput | undefined) => Awaitable<unknown>
-  nativeBackupList: (input: TelenoNodeSettingsInput | undefined) => Awaitable<unknown>
+  nativeBackupList: (input: (TelenoNodeSettingsInput & { remote?: boolean; public?: boolean }) | undefined) => Awaitable<unknown>
+  nativeBackupPurge: (input: TelenoNodeNativeBackupPurgeInput | undefined) => Awaitable<unknown>
   nativeBackupRestorePreflight: (input: TelenoNodeNativeBackupRestoreInput | undefined) => Awaitable<unknown>
   restoreNativeBackup: (input: TelenoNodeNativeBackupRestoreInput | undefined, sender: WebContents) => Awaitable<unknown>
   restoreNativeBackupLatest: (input: TelenoNodeSettingsInput | undefined, sender: WebContents) => Awaitable<unknown>
@@ -92,6 +95,7 @@ type IpcHandlerDeps = {
   walletImport: (input?: WalletImportInput) => Awaitable<unknown>
   walletListAccounts: () => Awaitable<unknown>
   walletSetActiveAccount: (input?: WalletSetActiveAccountInput) => Awaitable<unknown>
+  walletSetProducerAccount: (input?: WalletSetProducerAccountInput) => Awaitable<unknown>
   walletCreateDerivedAccount: (input?: WalletCreateDerivedAccountInput) => Awaitable<unknown>
   walletImportAccount: (input?: WalletImportAccountInput) => Awaitable<unknown>
   walletImportWatchAccount: (input?: WalletImportWatchAccountInput) => Awaitable<unknown>
@@ -149,6 +153,7 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'teleno:node:create-backup',
     'teleno:node:native-backup-dry-run',
     'teleno:node:native-backup-list',
+    'teleno:node:native-backup-purge',
     'teleno:node:native-backup-restore-preflight',
     'teleno:node:restore-native-backup',
     'teleno:node:restore-native-backup-latest',
@@ -182,6 +187,7 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'teleno:wallet:import',
     'teleno:wallet:list-accounts',
     'teleno:wallet:set-active-account',
+    'teleno:wallet:set-producer-account',
     'teleno:wallet:create-derived-account',
     'teleno:wallet:import-account',
     'teleno:wallet:import-watch-account',
@@ -262,7 +268,8 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('teleno:node:create-backup', async (event, input?: TelenoNodeSettingsInput) => deps.createLocalBackup(input, event.sender))
   ipcMain.handle('teleno:node:native-backup-dry-run', async (_event, input?: TelenoNodeSettingsInput) => deps.nativeBackupDryRun(input))
   ipcMain.handle('teleno:node:native-backup-config', async (_event, input?: TelenoNodeSettingsInput) => deps.nativeBackupConfig(input))
-  ipcMain.handle('teleno:node:native-backup-list', async (_event, input?: TelenoNodeSettingsInput) => deps.nativeBackupList(input))
+  ipcMain.handle('teleno:node:native-backup-list', async (_event, input?: TelenoNodeSettingsInput & { remote?: boolean; public?: boolean }) => deps.nativeBackupList(input))
+  ipcMain.handle('teleno:node:native-backup-purge', async (_event, input?: TelenoNodeNativeBackupPurgeInput) => deps.nativeBackupPurge(input))
   ipcMain.handle('teleno:node:native-backup-restore-preflight', async (_event, input?: TelenoNodeNativeBackupRestoreInput) => deps.nativeBackupRestorePreflight(input))
   ipcMain.handle('teleno:node:restore-native-backup', async (event, input?: TelenoNodeNativeBackupRestoreInput) => deps.restoreNativeBackup(input, event.sender))
   ipcMain.handle('teleno:node:restore-native-backup-latest', async (event, input?: TelenoNodeSettingsInput) => deps.restoreNativeBackupLatest(input, event.sender))
@@ -302,6 +309,9 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('teleno:wallet:import', async (_event, input?: WalletImportInput) => deps.walletImport(input))
   ipcMain.handle('teleno:wallet:list-accounts', async () => deps.walletListAccounts())
   ipcMain.handle('teleno:wallet:set-active-account', async (_event, input?: WalletSetActiveAccountInput) => deps.walletSetActiveAccount(input))
+  ipcMain.handle('teleno:wallet:set-producer-account', async (_event, input?: WalletSetProducerAccountInput) =>
+    deps.walletSetProducerAccount(input)
+  )
   ipcMain.handle('teleno:wallet:create-derived-account', async (_event, input?: WalletCreateDerivedAccountInput) =>
     deps.walletCreateDerivedAccount(input)
   )

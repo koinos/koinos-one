@@ -36,6 +36,15 @@ Implemented CLI modes:
 --backup-json
 ```
 
+Implemented public read-only bootstrap CLI modes:
+
+```text
+--backup-public-list
+--backup-public-fetch
+--backup-public-restore
+--backup-public-url <url>
+```
+
 Important behavior:
 
 - `--backup-dry-run` validates backup configuration and does not open RocksDB or connect to SSH.
@@ -165,13 +174,26 @@ Implemented endpoints:
 ```text
 GET  /health
 GET  /healthz
+GET  /admin/backup/config
+GET  /admin/backup/snapshots/local
+GET  /admin/backup/snapshots/remote
 POST /admin/backup/create
+POST /admin/backup/upload-latest
+POST /admin/backup/delete
 GET  /admin/backup/status
 GET  /admin/backup/status/<operation-id>
 POST /admin/backup/cancel
 POST /admin/backup/cancel/<operation-id>
+POST /admin/backup/restore/fetch
+POST /admin/backup/restore/preflight
 POST /admin/backup/restore/stage
 POST /admin/backup/restore/activate
+GET  /admin/backup/public/config
+GET  /admin/backup/public/snapshots
+POST /admin/backup/public/fetch
+POST /admin/backup/public/preflight
+POST /admin/backup/public/restore/stage
+POST /admin/backup/public/restore/activate
 ```
 
 Security behavior:
@@ -181,6 +203,7 @@ Security behavior:
 - If UX enables backup admin with no custom token path, Electron generates a random `0600` token at `<basedir>/.teleno-native-backups/admin.token` and writes that path into the generated native backup config.
 - Enabling admin with a configured but unreadable or empty token file fails closed.
 - Public Koinos JSON-RPC exposes no backup or restore methods.
+- Public bootstrap restore through admin remains local-only and token-protected; public refers only to the read-only HTTP(S) backup source.
 
 ## Scheduler
 
@@ -205,32 +228,42 @@ Electron now exposes native backup actions through IPC and preload:
 teleno:node:native-backup-dry-run
 teleno:node:create-backup
 teleno:node:native-backup-list
+teleno:node:native-backup-purge
 teleno:node:native-backup-restore-preflight
 teleno:node:restore-native-backup
 teleno:node:restore-native-backup-latest
 ```
 
-The Settings > Backup panel now shows:
+Settings > Backup is now configuration-only. It shows:
 
-- first-class native backup configuration fields for local repository, remote SFTP, scheduler, and admin API settings
-- `Check native backup config`
-- `Create native backup`
-- local snapshot refresh, selection, selected preflight, and selected restore controls
-- `Restore latest native backup`
+- first-class native backup configuration fields for local repository, remote SFTP, scheduler, and admin API settings;
+- `Check native backup config`.
+
+Node > Backups now owns backup operation controls. It shows:
+
+- runtime context for BASEDIR, config path, local repository, workspace, private SFTP target, public bootstrap URL, and admin API listen address;
+- local native backup inventory;
+- private remote SFTP backup inventory;
+- public read-only bootstrap inventory for testnet;
+- create local backup and create remote backup actions;
+- verify, restore, and local/remote purge actions on selected snapshots;
+- progress and preflight status.
 
 Current UX behavior:
 
 - `Check native backup config` runs `teleno_node --backup-dry-run --backup-json`.
-- `Create native backup` uses the native backup admin API when backup admin is enabled, the managed node is running, and remote upload is disabled. Otherwise it falls back to `teleno_node --backup-create --backup-json`.
-- `Refresh backup list` runs `teleno_node --backup-list --backup-json` and displays completed local snapshots.
-- `Refresh remote list` runs `teleno_node --backup-list-remote --backup-json` and displays completed remote snapshots after metadata is cached locally.
-- `Verify selected backup` runs `teleno_node --backup-restore-preflight --backup-json --backup-id=<selected>` and displays readiness plus disk-space requirements.
-- `Restore selected native backup` runs `teleno_node --backup-restore --backup-json --backup-id=<selected>`. When remote backup is enabled, the native binary fetches the selected remote snapshot metadata and missing content-addressed objects before staging and activation.
+- `Create Backup` uses the native backup admin API when backup admin is enabled and the managed node is running. Otherwise it falls back to `teleno_node --backup-create --backup-json`.
+- `Refresh local list` uses `GET /admin/backup/snapshots/local` while the node is running, with CLI fallback to `teleno_node --backup-list --backup-json`.
+- `Refresh remote list` uses `GET /admin/backup/snapshots/remote` while the node is running, with CLI fallback to `teleno_node --backup-list-remote --backup-json`.
+- `Refresh public list` uses `GET /admin/backup/public/snapshots` while the node is running, with CLI fallback to `teleno_node --backup-public-list --backup-json`.
+- `Verify selected backup` uses the matching admin preflight route while the node is running. For stopped-node public restore, the CLI fallback uses `--backup-public-fetch` because public restore has no separate CLI preflight-only command.
+- `Restore selected native backup` routes local, private SFTP remote, and public bootstrap selections separately. Running-node restores use admin fetch/preflight/stage/activate routes; stopped-node restores use the matching native CLI path.
 - `Restore latest native backup` stops the managed node if needed, runs `teleno_node --backup-restore --backup-json`, and leaves the restored node for observer-first restart.
-- Backup deletion is currently CLI-only. UX delete actions should call `teleno_node --backup-delete --backup-json --backup-id=<selected> --backup-scope=<scope>` for dry-run and repeat with `--backup-delete-confirm=<selected>` after explicit user confirmation.
+- Backup deletion is available from Node > Backups for exact local or private SFTP remote snapshot IDs. Public bootstrap snapshots are read-only and are not purgeable from UX.
 - Restore activation requires an explicit UX confirmation that names the backup ID and BASEDIR, explains `.pre-restore` preservation, and states observer-first / block-production-disabled behavior.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.
 - The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.
+- The generated config writes `backup.public-restore` for testnet with `https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap` and keeps it disabled for mainnet/custom.
 - Remote SFTP settings are configured from UX fields for host, port, user, auth method, credential file paths, known hosts, strict host-key checking, remote directory, retention, and upload temp suffix.
 - Scheduler settings are configured from UX fields for enabled state, interval, startup catch-up, jitter, minimum head progress, and genesis-sync skipping.
 - Backup admin settings are configured from UX fields for enabled state, loopback listen address, optional token file, and job count.
@@ -238,7 +271,49 @@ Current UX behavior:
 - The UX stores credential references as file paths only. It does not store raw SSH passwords in localStorage or generated YAML.
 - `TELENO_BACKUP_*` environment variables still work as an explicit developer override when set.
 
-Current limitation: remote listing caches metadata only; the actual objects are fetched during selected remote restore/fetch. Running-node admin create currently covers local-only snapshots; remote upload from admin create, richer admin status views, richer restore preflight screens, and larger validation are tracked in `NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
+Current limitation: remote listing caches metadata only; the actual objects are fetched during selected remote restore/fetch. Richer public metadata, signed public manifests, richer admin status views, richer restore preflight screens, and larger validation are tracked in the remaining-work plans.
+
+## Public Read-Only Bootstrap Restore
+
+The first public bootstrap restore slice is implemented for Mac CLI testnet workflows. It lets a new operator restore from an HTTP(S) read-only native backup repository without SSH credentials.
+
+Implemented behavior:
+
+- `backup.public-restore` config parsing for `enabled`, `base-url`, `network`, `require-https`, `timeout-seconds`, and `retries`.
+- `--backup-public-url` CLI override for testing or first-install workflows.
+- `--backup-public-list` to read public `latest.json` or a selected backup ID over HTTP(S).
+- `--backup-public-fetch` to fetch public metadata and missing objects into the local content-addressed repository.
+- `--backup-public-restore` to fetch, preflight, stage, activate, and generate an observer-safe config when the target config does not exist.
+- `file://` support for deterministic local tests.
+- `http://` and `https://` support for public repositories.
+- SHA-256 verification for every accepted object.
+- Reuse of the same local native repository, restore preflight, restore staging, and activation logic used by authenticated backup restore.
+- Sanitized public testnet snapshot promotion through `scripts/promote-public-bootstrap-backup.js`.
+- Local public-bootstrap fixture/unit tests and promotion smoke test through `scripts/smoke-public-bootstrap-promotion.sh`.
+
+The public bootstrap route currently configured for testnet is:
+
+```text
+https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap
+```
+
+This public path is separate from the private restricted-SFTP backup repository. A sanitized testnet snapshot is now published:
+
+```text
+20260617T215046Z-ms-1781733046440-files-72
+```
+
+Public HTTPS validation completed:
+
+- `latest.json` and snapshot metadata return `200`.
+- `--backup-public-list` sees the published snapshot.
+- `--backup-public-fetch` downloaded 75 objects and `3,113,463,513` bytes from the public HTTPS route with zero retries.
+- `--backup-public-restore` activated the snapshot in a clean external-drive basedir and returned `ok: true`.
+- A restored-node smoke opened RocksDB and reached `[node] teleno_node ready` with block production disabled.
+- Local admin API public restore routes are implemented and covered by `koinos_backup_admin_server_test`.
+- Teleno UX lists public bootstrap snapshots separately from local and private SFTP remote snapshots, and can verify/restore them through admin API or CLI fallback.
+
+Detailed implementation notes and commands are in `PUBLIC_BOOTSTRAP_RESTORE_PLAN.md`.
 
 ## Validation Completed
 

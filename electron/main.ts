@@ -205,6 +205,8 @@ import type {
   WalletScalarResult,
   WalletSetActiveAccountInput,
   WalletSetActiveAccountResult,
+  WalletSetProducerAccountInput,
+  WalletSetProducerAccountResult,
   WalletShowSeedInput,
   WalletShowSeedResult,
   WalletTokenBalanceInput,
@@ -829,6 +831,9 @@ const producerService = createProducerService({
       uptimeSeconds: os.uptime(),
       freeDiskBytes,
       totalDiskBytes,
+      nodeVolumeName: null,
+      nodeVolumePath: null,
+      nodeVolumeFilesystem: null,
       blockchainDataBytes: null,
       blockchainDataPath: null
     }
@@ -1827,7 +1832,7 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
   const presets: TelenoNodePreset[] = [
     {
       id: 'profile:mainnet_observer',
-      label: 'Mainnet Observer',
+      label: 'Mainnet Seed',
       network: 'mainnet',
       source: 'features',
       profiles: ['mainnet_observer'],
@@ -1848,11 +1853,11 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
           { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
         ]
       },
-      description: 'Mainnet observer with P2P and local JSON-RPC enabled; block production disabled.'
+      description: 'Mainnet seed with P2P and local JSON-RPC enabled; block production disabled.'
     },
     {
       id: 'profile:testnet_observer',
-      label: 'Testnet Observer',
+      label: 'Testnet Seed',
       network: 'testnet',
       source: 'features',
       profiles: ['testnet_observer'],
@@ -1866,7 +1871,7 @@ function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
           { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
         ]
       },
-      description: 'Public testnet observer preset using the Koinos Foundation testnet seed and testnet local ports.'
+      description: 'Public testnet seed using the Koinos Foundation testnet peer and local testnet ports.'
     },
     {
       id: 'profile:mainnet_full_node',
@@ -4353,6 +4358,12 @@ async function walletSetActiveAccount(input?: WalletSetActiveAccountInput): Prom
   return walletService.walletSetActiveAccount(input)
 }
 
+async function walletSetProducerAccount(
+  input?: WalletSetProducerAccountInput
+): Promise<WalletSetProducerAccountResult> {
+  return walletService.walletSetProducerAccount(input)
+}
+
 async function walletCreateDerivedAccount(input?: WalletCreateDerivedAccountInput): Promise<WalletAccountMutationResult> {
   return walletService.walletCreateDerivedAccount(input)
 }
@@ -4477,6 +4488,7 @@ function registerIpcHandlers() {
     nativeBackupDryRun: backupService.nativeBackupDryRun,
     nativeBackupConfig: backupService.nativeBackupConfig,
     nativeBackupList: backupService.nativeBackupList,
+    nativeBackupPurge: backupService.nativeBackupPurge,
     nativeBackupRestorePreflight: backupService.nativeBackupRestorePreflight,
     restoreNativeBackup: backupService.restoreNativeBackup,
     restoreNativeBackupLatest: backupService.restoreNativeBackupLatest,
@@ -4500,6 +4512,7 @@ function registerIpcHandlers() {
     walletImport,
     walletListAccounts,
     walletSetActiveAccount,
+    walletSetProducerAccount,
     walletCreateDerivedAccount,
     walletImportAccount,
     walletImportWatchAccount,

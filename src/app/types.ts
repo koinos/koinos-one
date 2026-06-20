@@ -4,6 +4,7 @@ import type { KoinosNetworkId } from './network'
 export type ExplorerSettings = {
   rpcSource: ExplorerRpcSource
   publicRpcUrls: string[]
+  koinscanUrl: string
   pollMs: number
   rowLimit: number
   producerAdvancedMode: boolean

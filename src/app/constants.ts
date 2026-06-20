@@ -11,6 +11,7 @@ export const LEGACY_NODE_NETWORK_BASEDIRS_STORAGE_KEY = 'koinosgui.koinos-node.n
 export const LEGACY_LANGUAGE_STORAGE_KEY = 'koinosgui.ui.language.v1'
 export const LOCAL_RPC_SOURCE = 'local'
 export const DEFAULT_PUBLIC_RPC_URLS = MAINNET_PUBLIC_RPC_URLS
+export const DEFAULT_KOINSCAN_URL = 'https://koinscan.com/'
 export const LOCAL_NODE_RPC_FALLBACK_URL = 'http://127.0.0.1:8080/'
 export const DASHBOARD_PRODUCER_WINDOW_BLOCKS_DEFAULT = 200
 export const DASHBOARD_PRODUCER_WINDOW_BLOCKS_MIN = 20
@@ -22,6 +23,7 @@ export const DASHBOARD_REFRESH_SECONDS_MAX = 60
 export const DEFAULT_SETTINGS = {
   rpcSource: LOCAL_RPC_SOURCE,
   publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS],
+  koinscanUrl: DEFAULT_KOINSCAN_URL,
   pollMs: 3000,
   rowLimit: 20,
   producerAdvancedMode: false,

@@ -1,16 +1,16 @@
 import React from 'react'
 import { LOCAL_RPC_SOURCE } from '../../app/constants'
-import { formatDateTime, formatExplorerRpcSourceKind, formatRelativeAge, formatRpcDisplayUrl, normalizeExplorerRpcSource, shortHash } from '../../app/utils'
+import { formatDateTime, formatRelativeAge, formatRpcDisplayUrl, normalizeExplorerRpcSource, shortHash } from '../../app/utils'
 import { BlockInlineDetail } from './BlockInlineDetail'
 
 type ExplorerPanelProps = any
 
 export function ExplorerPanel(props: ExplorerPanelProps) {
-  const {
-    t,
-    effectiveExplorerRpcUrl,
-    settings,
-    language,
+	const {
+	  t,
+	  settings,
+	  language,
+    koinscanUrl,
     head,
     locale,
     headBlockTimeText,
@@ -28,15 +28,8 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
 
   return (
       <>
-      <section id="panel-explorer" className="overview-grid" aria-label={t('explorer.panelAria')} role="tabpanel" aria-labelledby="tab-explorer">
-        <article className="stat-card">
-          <span className="stat-label">{t('explorer.rpcLabel')}</span>
-          <p className="stat-value mono" title={effectiveExplorerRpcUrl}>
-            {effectiveExplorerRpcUrl}
-          </p>
-          <p className="stat-note">{formatExplorerRpcSourceKind(settings.rpcSource, language)}</p>
-        </article>
-        <article className="stat-card">
+	      <section id="panel-explorer" className="overview-grid" aria-label={t('explorer.panelAria')} role="tabpanel" aria-labelledby="tab-explorer">
+	        <article className="stat-card">
           <span className="stat-label">{t('explorer.headLabel')}</span>
           <p className="stat-value">{head ? `#${head.height.toLocaleString(locale)}` : '...'}</p>
         </article>
@@ -54,7 +47,6 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
         <div className="table-panel-header">
           <div className="table-panel-tools-left">
             <label className="table-select explorer-rpc-source-select">
-              <span>{t('explorer.rpcSource')}</span>
               <select
                 value={settings.rpcSource}
                 onChange={(event) => {
@@ -69,11 +61,8 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
                   </option>
                 ))}
               </select>
+              <span>{t('explorer.rpcSource')}</span>
             </label>
-            <div className="table-meta">
-              <span>{t('explorer.refreshMeta', { ms: settings.pollMs })}</span>
-              <span>{t('explorer.rowsMeta', { count: settings.rowLimit })}</span>
-            </div>
           </div>
         </div>
 
@@ -127,6 +116,7 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
                             locale={locale}
                             language={language}
                             rpcUrl={rpcUrl}
+                            koinscanUrl={koinscanUrl}
                             block={row}
                           />
                         </td>

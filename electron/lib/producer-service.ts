@@ -1,4 +1,6 @@
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 import { Contract, Provider, Signer, Transaction } from 'koilib'
 
@@ -110,6 +112,15 @@ type DashboardPerformancePsSample = {
 
 type DashboardPerformancePsResult = {
   rowsByPid: Map<number, DashboardPerformancePsSample>
+  warning: string | null
+}
+
+type NodeVolumeSnapshot = {
+  name: string | null
+  path: string | null
+  filesystem: string | null
+  freeDiskBytes: number | null
+  totalDiskBytes: number | null
   warning: string | null
 }
 
@@ -503,6 +514,149 @@ async function measureBlockchainDataSize(
     }
   } catch {
     return { bytes: null, path: targetPath, warning: `Could not measure blockchain data size at ${targetPath}.` }
+  }
+}
+
+function expandHomePath(inputPath: string): string {
+  if (inputPath === '~') return os.homedir()
+  if (inputPath.startsWith(`~${path.sep}`) || inputPath.startsWith('~/')) {
+    return path.join(os.homedir(), inputPath.slice(2))
+  }
+  return inputPath
+}
+
+function nearestExistingFilesystemPath(inputPath: string): string | null {
+  const targetPath = path.resolve(expandHomePath(inputPath))
+  let currentPath = targetPath
+
+  while (currentPath) {
+    try {
+      fs.accessSync(currentPath, fs.constants.F_OK)
+      return currentPath
+    } catch {
+      const parentPath = path.dirname(currentPath)
+      if (parentPath === currentPath) break
+      currentPath = parentPath
+    }
+  }
+
+  const rootPath = path.parse(targetPath).root
+  try {
+    fs.accessSync(rootPath, fs.constants.F_OK)
+    return rootPath
+  } catch {
+    return null
+  }
+}
+
+function parseDfPortableOutput(output: string): { filesystem: string | null; mountPath: string | null } {
+  const rows = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const dataRow = rows.find((line) => !/^filesystem\b/i.test(line))
+  if (!dataRow) return { filesystem: null, mountPath: null }
+
+  const parts = dataRow.split(/\s+/)
+  if (parts.length < 6) return { filesystem: parts[0] || null, mountPath: null }
+
+  return {
+    filesystem: parts[0] || null,
+    mountPath: parts.slice(5).join(' ') || null
+  }
+}
+
+function displayNameForMountPath(mountPath: string | null, filesystem: string | null): string | null {
+  if (!mountPath) return filesystem || null
+
+  const normalizedMountPath = mountPath.replace(/\\/g, '/')
+  if (normalizedMountPath === '/') return 'System volume'
+
+  if (normalizedMountPath.startsWith('/Volumes/')) {
+    const volumeName = normalizedMountPath.slice('/Volumes/'.length).split('/')[0]?.trim()
+    if (volumeName) return volumeName
+  }
+
+  if (process.platform === 'win32') {
+    return path.parse(mountPath).root || mountPath
+  }
+
+  return mountPath
+}
+
+async function resolveNodeVolumeSnapshot(
+  deps: ProducerServiceDeps,
+  baseDir: string | null | undefined
+): Promise<NodeVolumeSnapshot> {
+  const targetPath = baseDir?.trim() || ''
+  if (!targetPath) {
+    return {
+      name: null,
+      path: null,
+      filesystem: null,
+      freeDiskBytes: null,
+      totalDiskBytes: null,
+      warning: null
+    }
+  }
+
+  const probePath = nearestExistingFilesystemPath(targetPath)
+  if (!probePath) {
+    return {
+      name: null,
+      path: null,
+      filesystem: null,
+      freeDiskBytes: null,
+      totalDiskBytes: null,
+      warning: `Could not resolve node volume for ${targetPath}.`
+    }
+  }
+
+  let freeDiskBytes: number | null = null
+  let totalDiskBytes: number | null = null
+  try {
+    const stats = fs.statfsSync(probePath)
+    freeDiskBytes = stats.bavail * stats.bsize
+    totalDiskBytes = stats.blocks * stats.bsize
+  } catch {
+    // Keep the volume label if df succeeds below.
+  }
+
+  if (process.platform === 'win32') {
+    const rootPath = path.parse(probePath).root || probePath
+    return {
+      name: rootPath,
+      path: rootPath,
+      filesystem: rootPath,
+      freeDiskBytes,
+      totalDiskBytes,
+      warning: null
+    }
+  }
+
+  try {
+    const result = await deps.runCommand('df', ['-Pk', probePath], {
+      cwd: process.cwd(),
+      timeoutMs: 5000
+    })
+    const parsed = parseDfPortableOutput(result.output)
+    const mountPath = parsed.mountPath || probePath
+    const filesystem = parsed.filesystem
+
+    return {
+      name: displayNameForMountPath(mountPath, filesystem),
+      path: mountPath,
+      filesystem,
+      freeDiskBytes,
+      totalDiskBytes,
+      warning: result.ok ? null : `Could not resolve node volume for ${targetPath}.`
+    }
+  } catch {
+    return {
+      name: displayNameForMountPath(probePath, null),
+      path: probePath,
+      filesystem: null,
+      freeDiskBytes,
+      totalDiskBytes,
+      warning: `Could not resolve node volume for ${targetPath}.`
+    }
   }
 }
 
@@ -1147,6 +1301,9 @@ export function createProducerService(deps: ProducerServiceDeps) {
     const sampledAt = deps.now()
     const host: TelenoNodeDashboardPerformanceHost = {
       ...deps.hostSnapshot(),
+      nodeVolumeName: null,
+      nodeVolumePath: null,
+      nodeVolumeFilesystem: null,
       blockchainDataBytes: null,
       blockchainDataPath: null
     }
@@ -1166,6 +1323,13 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
     try {
       const settings = deps.normalizeNodeSettings(input)
+      const nodeVolume = await resolveNodeVolumeSnapshot(deps, settings.baseDir)
+      host.nodeVolumeName = nodeVolume.name
+      host.nodeVolumePath = nodeVolume.path
+      host.nodeVolumeFilesystem = nodeVolume.filesystem
+      if (nodeVolume.freeDiskBytes !== null) host.freeDiskBytes = nodeVolume.freeDiskBytes
+      if (nodeVolume.totalDiskBytes !== null) host.totalDiskBytes = nodeVolume.totalDiskBytes
+
       const blockchainDataSize = await measureBlockchainDataSize(deps, settings.baseDir)
       host.blockchainDataBytes = blockchainDataSize.bytes
       host.blockchainDataPath = blockchainDataSize.path
@@ -1246,6 +1410,10 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
       if (blockchainDataSize.warning) {
         notes.push(blockchainDataSize.warning)
+      }
+
+      if (nodeVolume.warning) {
+        notes.push(nodeVolume.warning)
       }
 
       return {

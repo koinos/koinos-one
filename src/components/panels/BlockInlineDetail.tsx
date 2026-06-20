@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatDateTime, fetchBlockDetail } from '../../app/utils'
+import { formatDateTime, fetchBlockDetail, formatKoinscanBlockUrl } from '../../app/utils'
 import type { BlockDetail, TransactionDetail } from '../../app/types'
 import type { AppLanguage } from '../../i18n'
 
@@ -8,6 +8,7 @@ type BlockInlineDetailProps = {
   locale: string
   language: AppLanguage
   rpcUrl: string
+  koinscanUrl: string
   block: { height: number; blockId: string; previousId: string; signer: string; timestampMs: number }
 }
 
@@ -107,7 +108,7 @@ function TxCard({ tx, index, total, t }: { tx: TransactionDetail; index: number;
   )
 }
 
-export function BlockInlineDetail({ t, locale, language, rpcUrl, block }: BlockInlineDetailProps) {
+export function BlockInlineDetail({ t, locale, language, rpcUrl, koinscanUrl, block }: BlockInlineDetailProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [detail, setDetail] = useState<BlockDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -151,7 +152,7 @@ export function BlockInlineDetail({ t, locale, language, rpcUrl, block }: BlockI
         </button>
 
         <div className="bid-tab-actions">
-          <a className="ghost-button bid-action-btn" href={`https://www.koinscan.io/blocks/${d?.height ?? block.height}`} target="_blank" rel="noopener noreferrer">
+          <a className="ghost-button bid-action-btn" href={formatKoinscanBlockUrl(koinscanUrl, d?.height ?? block.height)} target="_blank" rel="noopener noreferrer">
             Koinscan ↗
           </a>
           {d?.raw && (

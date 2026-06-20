@@ -208,7 +208,22 @@ export type TelenoNodeNativeBackupDryRunResult = {
 
 export type TelenoNodeNativeBackupRestoreInput = TelenoNodeSettingsInput & {
   backupId?: string
-  backupSource?: 'local' | 'remote' | 'auto'
+  backupSource?: 'local' | 'remote' | 'public' | 'auto'
+}
+
+export type TelenoNodeNativeBackupPurgeInput = TelenoNodeSettingsInput & {
+  backupId?: string
+  backupSource?: 'local' | 'remote'
+}
+
+export type TelenoNodeNativeBackupPurgeResult = {
+  ok: boolean
+  output: string
+  backupId: string
+  source: 'local' | 'remote'
+  configPath?: string
+  repositoryDir?: string
+  workspaceDir?: string
 }
 
 export type TelenoNodeNativeBackupRestoreSpace = {
@@ -237,14 +252,22 @@ export type TelenoNodeNativeBackupSnapshot = {
   restoreSpace: TelenoNodeNativeBackupRestoreSpace
 }
 
+export type TelenoNodeNativeBackupRemoteSpace = {
+  ok: boolean
+  availableBytes: number
+  targetPath: string
+  message: string
+}
+
 export type TelenoNodeNativeBackupListResult = {
   ok: boolean
   output: string
-  source?: 'local' | 'remote'
+  source?: 'local' | 'remote' | 'public'
   configPath?: string
   repositoryDir?: string
   workspaceDir?: string
   latestBackupId: string
+  remoteSpace?: TelenoNodeNativeBackupRemoteSpace
   snapshots: TelenoNodeNativeBackupSnapshot[]
 }
 
@@ -466,6 +489,9 @@ export type TelenoNodeDashboardPerformanceHost = {
   uptimeSeconds: number
   freeDiskBytes: number | null
   totalDiskBytes: number | null
+  nodeVolumeName: string | null
+  nodeVolumePath: string | null
+  nodeVolumeFilesystem: string | null
   blockchainDataBytes: number | null
   blockchainDataPath: string | null
 }
@@ -955,6 +981,8 @@ export type WalletListAccountsResult = {
 
 export type WalletSetActiveAccountInput = WalletAccountRefInput
 
+export type WalletSetProducerAccountInput = WalletAccountRefInput
+
 export type WalletCreateDerivedAccountInput = WalletRpcInput & {
   name?: string
 }
@@ -993,6 +1021,10 @@ export type WalletSetActiveAccountResult = {
   walletAddress: string | null
   activeAccountId: string | null
   activeAccount: TelenoWalletAccountSummary | null
+}
+
+export type WalletSetProducerAccountResult = WalletSetActiveAccountResult & {
+  configPath: string | null
 }
 
 export type WalletAccountMutationResult = {

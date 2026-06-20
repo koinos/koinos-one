@@ -1,0 +1,377 @@
+# Public Bootstrap Restore Remaining Work Plan
+
+- Date: 2026-06-20
+- Scope: remaining work after the first Mac CLI/admin/UX testnet implementation
+- Status: CLI implementation, admin API, Teleno UX integration, promotion tooling, sanitized testnet publication, and real HTTPS restore validation are complete; richer metadata and signatures remain pending
+
+## Baseline
+
+Already implemented in `teleno_node`:
+
+- `--backup-public-list`
+- `--backup-public-fetch`
+- `--backup-public-restore`
+- `--backup-public-url <url>`
+- `backup.public-restore` config parsing
+- HTTP(S) and `file://` fetch support
+- SHA-256 verification for downloaded objects
+- restore preflight, staging, activation, and observer-safe first-install config generation
+- local admin API public restore routes for config, snapshots, fetch, preflight, stage, and activation
+- Teleno UX Node > Backups integration with separate local, private SFTP remote, and public bootstrap inventories
+- unit tests and synthetic CLI fixture validation
+
+Configured public testnet route:
+
+```text
+https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap
+```
+
+Server path:
+
+```text
+/srv/teleno-backups/testnet/public/teleno-bootstrap
+```
+
+Published public snapshot:
+
+```text
+20260617T215046Z-ms-1781733046440-files-72
+```
+
+Publication and restore validation completed on 2026-06-20:
+
+- `latest.json` is published at the public HTTPS route.
+- Public list from a clean basedir succeeds.
+- Public fetch downloaded 75 objects and `3,113,463,513` bytes with zero retries.
+- Public restore activated into `/Volumes/external/teleno-public-bootstrap-https-validate/basedir`.
+- Restored-node smoke opened RocksDB and reached `[node] teleno_node ready`.
+
+## Key Constraint
+
+Native snapshots currently include:
+
+- `db/**`
+- `config.yml`
+- `chain/genesis_data.json`
+- `jsonrpc/descriptors/koinos_descriptors.pb`
+
+Restore activation does not overwrite active `config.yml`; restored config is copied to `.teleno-restored-config.yml`. Still, the public snapshot publishes `config.yml` as a content-addressed object, so it must be sanitized before publication.
+
+If `config.yml` is rewritten during promotion, the promotion process must also:
+
+- compute the new SHA-256 object;
+- write the new object under `objects/sha256/<aa>/<bb>/<sha256>`;
+- update the `config.yml` entry in `files.json`;
+- update manifest counts, byte totals, and public metadata if they change.
+
+## Required Public Snapshot Contract
+
+The public snapshot may contain only:
+
+- `db/**`
+- `chain/genesis_data.json`
+- `jsonrpc/descriptors/koinos_descriptors.pb`
+- sanitized `config.yml`
+
+The public snapshot must not contain:
+
+- producer private keys;
+- wallet files;
+- SSH keys, password files, or passphrase files;
+- admin tokens;
+- `.teleno-native-backups/admin.token`;
+- `.teleno-native-backups/teleno-native-backup-config.yml`;
+- private remote SFTP configuration or credential references.
+
+The sanitized `config.yml` must be observer-safe:
+
+- testnet network;
+- public testnet seed;
+- loopback JSON-RPC by default;
+- normal P2P default;
+- `features.block_producer: false`;
+- `chain.verify-blocks: true`;
+- no backup admin token path;
+- no private remote backup credentials.
+
+Public metadata should include, when available:
+
+- network;
+- chain ID;
+- source head height;
+- source LIB height;
+- created time;
+- source backup ID;
+- public restore schema version;
+- producer mode disabled.
+
+## Completed Implementation
+
+### 1. Promotion Script
+
+Created:
+
+```text
+scripts/promote-public-bootstrap-backup.js
+```
+
+Inputs:
+
+- source native backup repository;
+- backup ID or `latest`;
+- destination public repository path;
+- network;
+- public base URL;
+- observer-safe config template path;
+- `--dry-run`.
+
+Implemented behavior:
+
+1. Resolve the source snapshot.
+2. Parse `latest.json`, `manifest.json`, and `files.json`.
+3. Validate every referenced object exists and matches its SHA-256.
+4. Enforce the public allowlist and denylist.
+5. Replace `config.yml` with the observer-safe template.
+6. Recompute the config object hash and update `files.json`.
+7. Update manifest totals and public metadata.
+8. Stage objects and metadata in a temporary destination.
+9. Validate the staged tree.
+10. Publish atomically by writing `latest.json` last.
+11. Emit a machine-readable report.
+
+Dry-run performs validation and emits a machine-readable report without changing the public directory.
+
+Tests added:
+
+```text
+tests/helpers/public-bootstrap-fixture.js
+tests/promote-public-bootstrap-backup.test.js
+scripts/smoke-public-bootstrap-promotion.sh
+```
+
+Validated with:
+
+```bash
+node --check scripts/promote-public-bootstrap-backup.js
+node --check tests/promote-public-bootstrap-backup.test.js
+node --check tests/helpers/public-bootstrap-fixture.js
+node --test tests/promote-public-bootstrap-backup.test.js
+scripts/smoke-public-bootstrap-promotion.sh
+```
+
+### 2. Published Sanitized Testnet Snapshot
+
+The promotion script dry-run passed against the real local testnet native backup repository. The sanitized repository was then published to:
+
+```text
+/srv/teleno-backups/testnet/public/teleno-bootstrap
+```
+
+Publication order:
+
+1. Stage content under a temporary server directory.
+2. Copy or hardlink content-addressed objects.
+3. Write snapshot metadata: `manifest.json`, `files.json`, `COMPLETE`.
+4. Move the snapshot into `snapshots/<backup-id>`.
+5. Write `latest.json.partial`.
+6. Rename `latest.json.partial` to `latest.json`.
+
+Validation over HTTPS:
+
+- `GET latest.json` returns `200`.
+- `GET snapshots/<backup-id>/manifest.json` returns `200`.
+- `GET snapshots/<backup-id>/files.json` returns `200`.
+- `GET snapshots/<backup-id>/COMPLETE` returns `200`.
+- at least one referenced object URL returns `200`.
+- HTTP write methods remain rejected.
+
+### 3. Real CLI Restore From HTTPS
+
+Validated with a clean non-producer basedir:
+
+```text
+/Volumes/external/teleno-public-bootstrap-https-validate/basedir
+```
+
+Commands:
+
+```bash
+node/teleno-node/build/teleno_node \
+  --basedir /Volumes/external/teleno-testnet-bootstrap/basedir \
+  --config /Volumes/external/teleno-testnet-bootstrap/basedir/config.yml \
+  --backup-public-list \
+  --backup-public-url https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap \
+  --backup-json
+```
+
+```bash
+node/teleno-node/build/teleno_node \
+  --basedir /Volumes/external/teleno-testnet-bootstrap/basedir \
+  --config /Volumes/external/teleno-testnet-bootstrap/basedir/config.yml \
+  --backup-public-fetch \
+  --backup-public-url https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap \
+  --backup-id latest \
+  --backup-json
+```
+
+```bash
+node/teleno-node/build/teleno_node \
+  --basedir /Volumes/external/teleno-testnet-bootstrap/basedir \
+  --config /Volumes/external/teleno-testnet-bootstrap/basedir/config.yml \
+  --backup-public-restore \
+  --backup-public-url https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap \
+  --backup-id latest \
+  --backup-json
+```
+
+Acceptance checks:
+
+- no SSH credentials are required: passed;
+- disk-space preflight runs before staging: passed;
+- hash mismatch would abort through object SHA-256 verification: covered by unit tests and fetch implementation;
+- restore activates successfully: passed;
+- active config is observer-safe: passed;
+- restored snapshot config is only copied to `.teleno-restored-config.yml`: covered by restore activation behavior;
+- node starts as testnet observer: smoke started with `--disable block_producer`;
+- block production remains disabled: observer config and restore marker enforce this;
+- restored DB opens: passed;
+- no secret-looking files are expected in the restored basedir because promotion allowlist excludes them.
+
+### 4. Local Admin API Support
+
+Implemented after the CLI path was validated against the real HTTPS route.
+
+Endpoints:
+
+```text
+GET  /admin/backup/public/config
+GET  /admin/backup/public/snapshots
+POST /admin/backup/public/fetch
+POST /admin/backup/public/preflight
+POST /admin/backup/public/restore/stage
+POST /admin/backup/public/restore/activate
+```
+
+Implemented rules:
+
+- loopback-only through the existing backup admin server;
+- bearer-token protected through the existing admin token model;
+- long fetch operations report status through the existing backup operation status model;
+- cancel interrupts between object downloads;
+- activation writes a request only and does not replace a live open RocksDB database;
+- CLI fallback remains required for first-install and stopped-node flows.
+
+Covered by `koinos_backup_admin_server_test` with a synthetic `file://` public repository.
+
+## Remaining Implementation Plan
+
+### 5. Improve CLI Metadata Only Where Needed
+
+After the first real HTTPS restore, add only the missing metadata needed by UX or diagnostics.
+
+Likely useful additions:
+
+- public source URL;
+- repository cache path;
+- target basedir;
+- required cache bytes;
+- required restore bytes;
+- network;
+- created time;
+- backup ID;
+- approximate head height.
+
+Do not add metadata fields until the real CLI validation shows they are useful.
+
+The useful additions now visible from the HTTPS validation are:
+
+- source chain head height and LIB height from the backup source;
+- public snapshot creation time in ISO-8601 form;
+- explicit network and chain ID;
+- sanitized config hash;
+- byte totals split between DB, runtime files, and repository cache;
+- warning field when the backup is older than a configurable freshness threshold.
+
+### 6. Add Teleno UX Integration
+
+Status: implemented for the current testnet public bootstrap flow.
+
+UX distinguishes clearly between:
+
+- public bootstrap restore;
+- local native backups;
+- private remote SFTP backups.
+
+Implemented UX behavior:
+
+- no SSH credential fields for public restore;
+- show public source URL;
+- show backup date/time and size; network and approximate head height will use richer metadata when available;
+- check disk space before restore;
+- explain whether insufficient space is in the repository cache path, restore target path, or both;
+- warn that restored nodes start as observer;
+- keep block production disabled after restore;
+- show restored basedir and config path.
+
+### 7. Add Signed Public Manifests Before Prodnet
+
+Keep object-level SHA-256 verification. Add a signed metadata envelope before any prodnet public bootstrap.
+
+The signed payload should cover:
+
+- `latest.json`;
+- `manifest.json`;
+- `files.json`;
+- public metadata;
+- selected backup ID;
+- network;
+- chain ID;
+- object count and total bytes.
+
+Use a Teleno public-bootstrap signing key that is separate from producer and wallet keys. Bundle or pin the verification key in the app/binary.
+
+Prodnet public bootstrap remains blocked until signature verification is implemented and tested.
+
+## Tests
+
+Completed promotion script unit tests:
+
+- resolve `latest` and exact backup IDs;
+- reject missing content-addressed objects;
+- reject object hash mismatch;
+- reject unsafe paths and path traversal;
+- reject producer/private/wallet/admin-token paths through denylist coverage;
+- rewrite `config.yml` and update its `files.json` hash;
+- dry-run produces a report and does not write to the public destination;
+- publish writes `latest.json` last.
+
+Completed promotion script smoke tests:
+
+- local `file://` style repository smoke using a generated fixture and dry-run;
+- local publish smoke to a temporary public directory;
+- public CLI smoke against that temporary directory using `--backup-public-list` and `--backup-public-fetch`;
+- real HTTPS smoke against `testnet.koinosfoundation.org` after sanitized `latest.json` publication.
+
+C++ build:
+
+```bash
+cmake --build node/teleno-node/build --target teleno_node koinos_config_test koinos_backup_public_restore_test koinos_backup_snapshot_test koinos_backup_admin_server_test --parallel
+```
+
+C++ tests:
+
+```bash
+ctest --test-dir node/teleno-node/build --output-on-failure -R 'koinos_(config|backup_public_restore|backup_snapshot|backup_admin_server)_test'
+```
+
+Manual acceptance:
+
+1. Run promotion script in dry-run mode. Complete.
+2. Publish one sanitized snapshot. Complete.
+3. Validate public list/fetch/restore from a clean Mac basedir. Complete.
+4. Start restored node. Complete for DB-open smoke with producer/P2P/JSON-RPC disabled.
+5. Verify observer mode, JSON-RPC health, head progress, and no secret files. Pending as a longer live observer acceptance test.
+
+## Immediate Next Step
+
+Add signed public manifest verification before any prodnet public bootstrap publication. After that, add only the richer metadata that improves diagnostics or UX decisions.

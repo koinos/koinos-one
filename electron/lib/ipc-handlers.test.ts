@@ -63,6 +63,7 @@ function createDeps() {
     walletImport: vi.fn(async () => ({ ok: true })),
     walletListAccounts: vi.fn(async () => ({ ok: true, accounts: [] })),
     walletSetActiveAccount: vi.fn(async () => ({ ok: true })),
+    walletSetProducerAccount: vi.fn(async () => ({ ok: true })),
     walletCreateDerivedAccount: vi.fn(async () => ({ ok: true })),
     walletImportAccount: vi.fn(async () => ({ ok: true })),
     walletImportWatchAccount: vi.fn(async () => ({ ok: true })),
@@ -168,6 +169,10 @@ describe('ipc-handlers', () => {
     const setActivePayload = { accountId: 'acc_1' }
     await ipcMain.handlers.get('teleno:wallet:set-active-account')?.({ sender: {} }, setActivePayload)
     expect(deps.walletSetActiveAccount).toHaveBeenCalledWith(setActivePayload)
+
+    const setProducerPayload = { accountId: 'acc_1', network: 'testnet', baseDir: '/tmp/teleno' }
+    await ipcMain.handlers.get('teleno:wallet:set-producer-account')?.({ sender: {} }, setProducerPayload)
+    expect(deps.walletSetProducerAccount).toHaveBeenCalledWith(setProducerPayload)
 
     const importWatchPayload = { address: '1WatchOnlyAddress', name: 'Observer' }
     await ipcMain.handlers.get('teleno:wallet:import-watch-account')?.({ sender: {} }, importWatchPayload)

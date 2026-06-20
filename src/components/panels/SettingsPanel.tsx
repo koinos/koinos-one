@@ -1,22 +1,11 @@
 import { useEffect, useState } from 'react'
 import { normalizeAppLanguage } from '../../i18n'
 import { KOINOS_NETWORK_OPTIONS, normalizeKoinosNetworkId } from '../../app/network'
+import { remoteBackupDefaults } from '../../app/utils'
 import { NodeConfigPanel } from './MicroservicesConfigPanel'
 type SettingsPanelProps = any
 
 type SettingsTab = 'general' | 'explorer' | 'dashboard' | 'backup' | 'node'
-
-function remoteBackupDefaults(network: string) {
-  const directoryNetwork = network && network !== 'custom' ? network : 'testnet'
-
-  return {
-    sshHost: 'testnet.koinosfoundation.org',
-    sshUser: 'teleno_backup',
-    remoteDirectory: `/srv/teleno-backups/${directoryNetwork}/teleno-dev/teleno-ux-${directoryNetwork}`,
-    sshPrivateKeyFile: '~/.ssh/id_ed25519',
-    sshKnownHostsFile: '~/.ssh/known_hosts'
-  }
-}
 
 export function SettingsPanel(props: SettingsPanelProps) {
   const {
@@ -28,6 +17,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setSettings,
     draftPublicRpcUrls,
     setDraftPublicRpcUrls,
+    draftKoinscanUrl,
+    setDraftKoinscanUrl,
     draftPollMs,
     setDraftPollMs,
     draftRowLimit,
@@ -57,8 +48,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
     formError,
     resetDefaults,
     settingsDirty,
-    onBlockedSettingsNavigation,
-    nodeComponents
+    onBlockedSettingsNavigation
   } = props
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
@@ -70,6 +60,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const renderFormError = () => (
     formError ? <p className="form-error" role="alert">{formError}</p> : null
   )
+  const advancedMode = settings.nodeAdvancedMode || settings.producerAdvancedMode
+  const setAdvancedMode = (enabled: boolean) => {
+    setSettings((current: any) => ({
+      ...current,
+      nodeAdvancedMode: enabled,
+      producerAdvancedMode: enabled
+    }))
+  }
 
   useEffect(() => {
     if (!draftNodeBackup.remoteEnabled) return
@@ -107,6 +105,12 @@ export function SettingsPanel(props: SettingsPanelProps) {
     draftNodeNetwork,
     setDraftNodeBackup
   ])
+
+  useEffect(() => {
+    if (settings.nodeAdvancedMode === settings.producerAdvancedMode) return
+    const enabled = settings.nodeAdvancedMode || settings.producerAdvancedMode
+    setAdvancedMode(enabled)
+  }, [settings.nodeAdvancedMode, settings.producerAdvancedMode])
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: 'general', label: t('settings.tabGeneral') },
@@ -151,10 +155,22 @@ export function SettingsPanel(props: SettingsPanelProps) {
         {/* ─── General ─── */}
         {activeTab === 'general' && (
           <>
-            <div className="settings-subheader">
-              <h3>{t('settings.interfaceTitle')}</h3>
-              <p>{t('settings.interfaceDescription')}</p>
+            <div>
+              <label className="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={advancedMode}
+                  onChange={(event) => {
+                    setAdvancedMode(event.target.checked)
+                  }}
+                />
+                <span>{t('settings.advancedMode')}</span>
+              </label>
+              <span className="settings-inline-help">
+                {advancedMode ? t('settings.advancedModeHelpOn') : t('settings.advancedModeHelpOff')}
+              </span>
             </div>
+
             <label>
               {t('settings.language')}
               <select style={{ maxWidth: '200px' }} value={language} onChange={(event) => setLanguage(normalizeAppLanguage(event.target.value))}>
@@ -162,46 +178,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <option value="es">{t('language.spanish')}</option>
               </select>
             </label>
-
-            <div className="settings-subheader">
-              <h3>{t('settings.nodeModeTitle')}</h3>
-              <p>{t('settings.nodeModeDescription')}</p>
-            </div>
-            <div>
-              <label className="settings-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={settings.nodeAdvancedMode}
-                  onChange={(event) => {
-                    setSettings((current: any) => ({ ...current, nodeAdvancedMode: event.target.checked }))
-                  }}
-                />
-                <span>{t('settings.nodeAdvancedMode')}</span>
-              </label>
-              <span className="settings-inline-help">
-                {settings.nodeAdvancedMode ? t('settings.nodeAdvancedHelpOn') : t('settings.nodeAdvancedHelpOff')}
-              </span>
-            </div>
-
-            <div className="settings-subheader">
-              <h3>{t('settings.producerModeTitle')}</h3>
-              <p>{t('settings.producerModeDescription')}</p>
-            </div>
-            <div>
-              <label className="settings-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={settings.producerAdvancedMode}
-                  onChange={(event) => {
-                    setSettings((current: any) => ({ ...current, producerAdvancedMode: event.target.checked }))
-                  }}
-                />
-                <span>{t('settings.producerAdvancedMode')}</span>
-              </label>
-              <span className="settings-inline-help">
-                {settings.producerAdvancedMode ? t('settings.producerAdvancedHelpOn') : t('settings.producerAdvancedHelpOff')}
-              </span>
-            </div>
 
             <label>
               Network
@@ -307,6 +283,18 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 autoComplete="off"
               />
               <span className="settings-inline-help">{t('settings.publicRpcUrlsHelp')}</span>
+            </label>
+
+            <label>
+              {t('settings.koinscanUrl')}
+              <input
+                type="text"
+                value={draftKoinscanUrl}
+                onChange={(event) => setDraftKoinscanUrl(event.target.value)}
+                placeholder="koinscan.com"
+                autoComplete="off"
+              />
+              <span className="settings-inline-help">{t('settings.koinscanUrlHelp')}</span>
             </label>
 
             <div className="settings-row">
@@ -791,7 +779,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
           t={t}
           hasNodeControls={hasNodeControls}
           nodeSettings={nodeSettings}
-          components={nodeComponents}
           advancedMode={settings.nodeAdvancedMode}
         />
       )}

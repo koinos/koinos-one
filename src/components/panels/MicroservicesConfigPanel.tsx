@@ -15,23 +15,14 @@ import {
 import { getTelenoNodeBridge, toNodeApiSettings } from '../../app/utils'
 import type { NodeManagerSettings } from '../../app/types'
 
-type ComponentHealthEntry = {
-  name: string
-  enabled: boolean
-  healthy: boolean
-  state?: 'running' | 'passive' | 'waiting' | 'disabled' | 'stopped'
-  details?: string
-}
-
 type MicroservicesConfigPanelProps = {
   t: (key: string) => string
   hasNodeControls: boolean
   nodeSettings: NodeManagerSettings
-  components?: ComponentHealthEntry[]
   advancedMode?: boolean
 }
 
-export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, components, advancedMode = false }: MicroservicesConfigPanelProps) {
+export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, advancedMode = false }: MicroservicesConfigPanelProps) {
   const [configDoc, setConfigDoc] = useState<Document | null>(null)
   const [draftValues, setDraftValues] = useState<KoinosConfigValues>({
     global: {}, block_producer: {}, chain: {}, jsonrpc: {}, grpc: {}, mempool: {}, p2p: {}
@@ -285,24 +276,6 @@ export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, components, 
         <h3>{t('config.title')}</h3>
         <p>{advancedMode ? t('config.subtitleAdvanced') : t('config.subtitleSimple')}</p>
       </div>
-
-      {components && components.length > 0 && (
-        <div className="component-health-grid">
-          {components.map((comp) => {
-            const componentState = comp.state ?? (!comp.enabled ? 'disabled' : comp.healthy ? 'running' : 'waiting')
-            return (
-              <div
-                key={comp.name}
-                className={`component-health-item is-${componentState}`}
-                title={comp.details || comp.name}
-              >
-                <span className="component-health-indicator" />
-                <span className="component-health-name">{comp.name}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
 
       {loading && <p className="settings-inline-help is-busy">{t('config.loading')}</p>}
       {error && <p className="form-error">{error}</p>}

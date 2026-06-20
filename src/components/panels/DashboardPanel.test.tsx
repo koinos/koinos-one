@@ -16,6 +16,7 @@ const translations: Record<string, string> = {
   'dashboard.performance.servicesRam': 'Node RAM',
   'dashboard.performance.freeSystemRam': 'Free system RAM',
   'dashboard.performance.freeDisk': 'Disk Space',
+  'dashboard.performance.nodeVolume': 'Node Volume',
   'dashboard.performance.blockchainData': 'Blockchain Data',
   'dashboard.performance.lastSample': 'Last sample',
   'dashboard.performance.hostUptime': 'Host uptime',
@@ -70,6 +71,9 @@ describe('DashboardPanel', () => {
             uptimeSeconds: 3661,
             freeDiskBytes: 128 * 1024 * 1024 * 1024,
             totalDiskBytes: 512 * 1024 * 1024 * 1024,
+            nodeVolumeName: 'external',
+            nodeVolumePath: '/Volumes/external',
+            nodeVolumeFilesystem: '/dev/disk4s1',
             blockchainDataBytes: 84 * 1024 * 1024 * 1024,
             blockchainDataPath: '/tmp/.teleno'
           },
@@ -123,6 +127,8 @@ describe('DashboardPanel', () => {
     expect(html).toContain('Indexer')
     expect(html).toContain('Component')
     expect(html).toContain('Blockchain Data')
+    expect(html).toContain('Node Volume')
+    expect(html).toContain('external')
     expect(html).toContain('84 GB')
     expect(html).toContain('12.5%')
     expect(html).toContain('512 MB')

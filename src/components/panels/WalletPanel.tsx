@@ -80,6 +80,7 @@ export function WalletPanel(props: WalletPanelProps) {
     walletBurnUseFreeMana,
     setWalletBurnUseFreeMana,
     burnKoinToVhp,
+    advancedMode = false,
     walletResultData,
     walletResultTitle,
     walletResultText,
@@ -88,6 +89,7 @@ export function WalletPanel(props: WalletPanelProps) {
     activeWalletAddress,
     activeWalletCanSign,
     setWalletActiveAccount,
+    setWalletAccountAsProducer,
     createWalletDerivedAccount,
     importWalletWatchAccount,
     renameWalletVaultAccount,
@@ -359,7 +361,7 @@ export function WalletPanel(props: WalletPanelProps) {
               onOpenSend={() => openSendModal('send')}
               onOpenBurn={() => openSendModal('burn')}
               onSetAsProducer={() => {
-                void setWalletActiveAccount(activeWalletAccountId)
+                void setWalletAccountAsProducer(activeWalletAccountId)
               }}
               onToggleTokens={() => toggleWalletView('tokens')}
               onToggleSecurity={() => toggleWalletView('security')}
@@ -910,7 +912,7 @@ export function WalletPanel(props: WalletPanelProps) {
         }}
       />
 
-      {(walletResultData || walletLoading) && (!hasWallet || walletUnlocked) && (
+      {advancedMode && (walletResultData || walletLoading) && (!hasWallet || walletUnlocked) && (
         <div className="wallet-output">
           <div className="node-services-header">
             <h3>{walletResultTitle || t('wallet.outputTitle')}</h3>

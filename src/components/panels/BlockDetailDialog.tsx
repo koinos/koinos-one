@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatDateTime, fetchBlockDetail } from '../../app/utils'
+import { formatDateTime, fetchBlockDetail, formatKoinscanBlockUrl } from '../../app/utils'
 import type { BlockDetail, TransactionDetail, OperationDetail } from '../../app/types'
 import type { AppLanguage } from '../../i18n'
 
@@ -8,6 +8,7 @@ type BlockDetailDialogProps = {
   locale: string
   language: AppLanguage
   rpcUrl: string
+  koinscanUrl: string
   block: {
     height: number
     blockId: string
@@ -136,7 +137,7 @@ function TransactionCard({ tx, index, total, t }: { tx: TransactionDetail; index
   )
 }
 
-export function BlockDetailDialog({ t, locale, language, rpcUrl, block, onClose }: BlockDetailDialogProps) {
+export function BlockDetailDialog({ t, locale, language, rpcUrl, koinscanUrl, block, onClose }: BlockDetailDialogProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [detail, setDetail] = useState<BlockDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -260,7 +261,7 @@ export function BlockDetailDialog({ t, locale, language, rpcUrl, block, onClose 
         <div className="block-detail-footer">
           <a
             className="ghost-button"
-            href={`https://www.koinscan.io/blocks/${d?.height ?? block.height}`}
+            href={formatKoinscanBlockUrl(koinscanUrl, d?.height ?? block.height)}
             target="_blank"
             rel="noopener noreferrer"
           >
