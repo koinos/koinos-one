@@ -7,7 +7,8 @@ This directory tracks the native `teleno_node` backup and restore work.
 - `NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md` describes the implementation that is currently in the branch.
 - `NATIVE_BACKUP_REMAINING_WORK_PLAN.md` is the active backlog and validation plan for the remaining work.
 - `PUBLIC_BOOTSTRAP_RESTORE_PLAN.md` describes the implemented public read-only restore path for first-time testnet installs, including the published sanitized testnet snapshot and validation evidence.
-- `PUBLIC_BOOTSTRAP_RESTORE_REMAINING_WORK_PLAN.md` tracks the remaining public bootstrap restore steps: richer metadata, longer signed-public observer acceptance, and the later gated prodnet publication plan.
+- `PUBLIC_BOOTSTRAP_RESTORE_REMAINING_WORK_PLAN.md` tracks the remaining public bootstrap restore validation gates after the testnet implementation.
+- `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md` defines the gated future prodnet publication workflow. It is planning-only and does not enable prodnet public bootstrap publication.
 - `NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md` records the latest live-testnet and restricted-SFTP validation evidence.
 - `MONOLITH_BACKUP_RESTORE_REPORT.md` is historical evidence for the earlier monolith restore path.
 

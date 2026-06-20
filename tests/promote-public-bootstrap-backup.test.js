@@ -77,6 +77,15 @@ test('publish writes sanitized snapshot', () => withTempDir((root) => {
   assert.equal(latest.backup_id, backupId);
   assert.equal(manifest.repository.type, 'public-bootstrap-object-store');
   assert.equal(manifest.public_bootstrap.producer_mode, false);
+  assert.equal(manifest.public_bootstrap.network, 'testnet');
+  assert.equal(manifest.public_bootstrap.chain_id, 'EiBZK_TEST_CHAIN_ID');
+  assert.equal(manifest.public_bootstrap.source.node_id, 'private-node');
+  assert.equal(manifest.public_bootstrap.source.node_version, 'test');
+  assert.equal(manifest.public_bootstrap.source.head_height, 12345);
+  assert.equal(manifest.public_bootstrap.source.lib_height, 12300);
+  assert.equal(manifest.public_bootstrap.restore_space.object_download_bytes, plan.publicMetadataJson.total_bytes);
+  assert.equal(plan.publicMetadataJson.source.storage_layout, 'unified');
+  assert.equal(plan.publicMetadataJson.restore_space.minimum_target_free_bytes, manifest.sizes.minimum_target_free_bytes);
 }));
 
 test('publish can write and verify a signed public bootstrap envelope', () => withTempDir((root) => {
@@ -105,6 +114,7 @@ test('publish can write and verify a signed public bootstrap envelope', () => wi
   assert.equal(envelope.algorithm, 'ed25519');
   assert.equal(envelope.key_id, 'unit-test-key');
   assert.equal(envelope.payload.backup_id, backupId);
+  assert.equal(envelope.payload.chain_id, 'EiBZK_TEST_CHAIN_ID');
   assert.equal(
     crypto.verify(
       null,

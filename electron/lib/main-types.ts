@@ -242,6 +242,16 @@ export type TelenoNodeNativeBackupSnapshot = {
   nodeId: string
   nodeVersion: string
   storageLayout: string
+  publicBootstrap: boolean
+  network: string
+  chainId: string
+  publicBaseUrl: string
+  promotedAt: string
+  sourceBackupId: string
+  sourceCreatedAt: string
+  sourceNodeVersion: string
+  sourceHeadHeight: number
+  sourceLibHeight: number
   repositoryDir: string
   snapshotDir: string
   manifest: string

@@ -224,6 +224,23 @@ The public repository serves the same content-addressed native backup layout ove
 
 The client only needs ordinary `GET` requests. Static HTTP directory enumeration is not required.
 
+Public metadata now carries operator-facing provenance fields in both the public `manifest.json` and `public-bootstrap.json`:
+
+- network;
+- chain ID when present in the source manifest;
+- public base URL;
+- promotion time;
+- source backup ID;
+- source created time;
+- source node ID and node version;
+- source storage layout;
+- source head and LIB height when present in the source manifest;
+- restore-space byte estimates split by database, runtime files, object download bytes, minimum free space, and recommended free space;
+- sanitized config SHA-256 and size;
+- explicit `producer_mode: false`.
+
+The native snapshot list JSON exposes these fields for public bootstrap snapshots so CLI, local admin API, and Teleno UX can show provenance without reading raw metadata files.
+
 ## Restore Flow
 
 `--backup-public-restore` currently performs this flow:
@@ -384,6 +401,16 @@ Real public testnet validation:
   - restore activation wrote `.backup-just-restored`;
   - a DB-open smoke started from the restored basedir, opened RocksDB with 9 column families, indexed 60 blocks, and reached `[node] teleno_node ready`;
   - temporary Linux restore data was removed after validation.
+- Longer Linux observer acceptance from a signed public snapshot passed on 2026-06-20:
+  - restored snapshot `20260617T215046Z-ms-1781733046440-files-72` from the public HTTPS route with `signature_verified: true`;
+  - started as a testnet observer from `/tmp/teleno-linux-observer-acceptance/basedir` with `features.block_producer: false` and `chain.verify-blocks: true`;
+  - opened RocksDB with 9 column families and reached `[node] teleno_node ready`;
+  - collected 20 JSON-RPC `chain.get_head_info` samples over roughly 10 minutes;
+  - advanced from height `5893626` to `5905541`, a delta of `11915` blocks;
+  - logged connected peer snapshots every 60 seconds against `testnet.koinosfoundation.org`;
+  - a single initial block-application warning at height `5893622` was observed, then sync continued normally and no repeated mismatch/stall occurred;
+  - the restored basedir secret scan found no wallet, private key, password, passphrase, PEM/P12/PFX, or admin-token files;
+  - SIGINT shutdown completed cleanly.
 - Admin API public restore routes are covered by `koinos_backup_admin_server_test`.
 - Teleno UX exposes public bootstrap snapshots separately from local and private SFTP backups in Node > Backups.
 
@@ -397,9 +424,7 @@ Real public testnet validation:
 
 The detailed remaining implementation plan is tracked in `PUBLIC_BOOTSTRAP_RESTORE_REMAINING_WORK_PLAN.md`.
 
-1. Add richer public metadata only where it improves diagnostics or UX.
-2. Run a longer live observer acceptance test from a UX-restored signed public snapshot.
-3. Only after the signed testnet flow is validated over a longer observer run, design the gated prodnet publication process.
+There is no remaining testnet implementation work for the signed public bootstrap restore path. Prodnet public bootstrap remains disabled pending explicit approval for the gated publication process in `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`.
 
 ## Acceptance Criteria
 

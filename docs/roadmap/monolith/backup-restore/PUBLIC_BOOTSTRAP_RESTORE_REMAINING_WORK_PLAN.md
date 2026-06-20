@@ -2,7 +2,7 @@
 
 - Date: 2026-06-20
 - Scope: remaining work after the first Mac CLI/admin/UX testnet implementation
-- Status: CLI implementation, admin API, Teleno UX integration, promotion tooling, sanitized signed testnet publication, real HTTPS restore validation, pinned testnet verification key, and signature-required HTTPS validation are complete; richer metadata, longer observer acceptance, and a separate prodnet publication plan remain pending
+- Status: CLI implementation, admin API, Teleno UX integration, promotion tooling, sanitized signed testnet publication, real HTTPS restore validation, pinned testnet verification key, signature-required HTTPS validation, richer public metadata, longer Linux observer acceptance, and the prodnet publication plan are complete; prodnet publication remains blocked pending explicit approval
 
 ## Baseline
 
@@ -114,7 +114,7 @@ The sanitized `config.yml` must be observer-safe:
 - no backup admin token path;
 - no private remote backup credentials.
 
-Public metadata should include, when available:
+Public metadata includes, when available:
 
 - network;
 - chain ID;
@@ -122,7 +122,10 @@ Public metadata should include, when available:
 - source LIB height;
 - created time;
 - source backup ID;
-- public restore schema version;
+- source node version;
+- public restore schema version through the metadata `version`;
+- restore-space byte estimates split by DB/runtime/object cache;
+- sanitized config hash and size;
 - producer mode disabled.
 
 ## Completed Implementation
@@ -364,14 +367,16 @@ Completed for testnet:
 - pin or bundle the public verification key in the app/binary or generated config;
 - publish a signed public testnet snapshot and validate it with `signature-required: true`;
 
-Still required before prodnet:
+Prodnet planning is now captured in `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`.
 
-- decide whether prodnet uses a separate signing key from testnet;
-- create and pin the prodnet verification key only after the prodnet publication workflow is approved;
+Still required before prodnet can be enabled:
+
+- explicit approval for a prodnet publication workflow;
+- create and pin a separate prodnet verification key only after approval;
 - publish and validate a signed prodnet observer snapshot in a guided, non-mutating flow;
-- only then design the gated prodnet publication flow.
+- complete the prodnet validation gates before moving any prodnet `latest.json`.
 
-Prodnet public bootstrap remains blocked until the signed testnet flow has a longer observer acceptance run and the prodnet signing/publication process is reviewed.
+Prodnet public bootstrap remains blocked until the prodnet signing/publication process is explicitly approved.
 
 ## Tests
 
@@ -412,8 +417,8 @@ Manual acceptance:
 2. Publish one sanitized snapshot. Complete.
 3. Validate public list/fetch/restore from a clean Mac basedir. Complete.
 4. Start restored node. Complete for DB-open smoke with producer/P2P/JSON-RPC disabled.
-5. Verify observer mode, JSON-RPC health, head progress, and no secret files. Pending as a longer live observer acceptance test.
+5. Verify observer mode, JSON-RPC health, head progress, and no secret files. Complete on Ubuntu with signed public restore.
 
 ## Immediate Next Step
 
-Run a longer live observer acceptance test from a UX-restored signed public snapshot. In parallel, add only the richer metadata that improves diagnostics or UX decisions.
+No further testnet implementation work remains for this path. The next decision is whether to approve the gated prodnet publication workflow in `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`.

@@ -95,6 +95,9 @@ function createSourceRepository(root, extraEntries = []) {
       basedir: '/private/operator/path/should/not/publish',
       node_id: 'private-node',
       storage_layout: 'unified',
+      chain_id: 'EiBZK_TEST_CHAIN_ID',
+      head_height: 12345,
+      lib_height: 12300,
     },
     repository: {
       type: 'local-object-store',

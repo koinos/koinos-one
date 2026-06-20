@@ -237,6 +237,25 @@ function recomputeSizes(entries) {
   };
 }
 
+function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return null;
+}
+
+function optionalString(...values) {
+  const value = firstDefined(...values);
+  return value === null ? '' : String(value);
+}
+
+function optionalSafeInteger(...values) {
+  const value = firstDefined(...values);
+  if (value === null) return 0;
+  const number = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+  return Number.isSafeInteger(number) && number >= 0 ? number : 0;
+}
+
 function signPublicBootstrapPayload(payload, privateKeyFile, keyId) {
   const privateKeyPem = fs.readFileSync(path.resolve(privateKeyFile));
   const privateKey = crypto.createPrivateKey(privateKeyPem);
@@ -312,12 +331,41 @@ function buildPlan(options) {
   const totalBytes = sizes.object_download_bytes;
   const promotedAt = utcTimestamp();
   const publicBaseUrl = options.publicBaseUrl.replace(/\/+$/, '');
+  const sourceNode = sourceManifest.node || {};
+  const sourceInfo = sourceManifest.source || {};
+  const sourceChain = sourceManifest.chain || {};
+  const sourceHead = sourceManifest.head || {};
+  const sourceLib = sourceManifest.lib || {};
+  const sourceSnapshot = sourceManifest.snapshot || {};
+  const publicSourceMetadata = {
+    backup_id: backupId,
+    created_at: optionalString(sourceManifest.created_at),
+    node_id: optionalString(sourceInfo.node_id),
+    node_version: optionalString(sourceNode.version),
+    storage_layout: optionalString(sourceInfo.storage_layout, 'unified'),
+    chain_id: optionalString(sourceInfo.chain_id, sourceChain.chain_id, sourceManifest.chain_id),
+    head_height: optionalSafeInteger(
+      sourceManifest.head_height,
+      sourceInfo.head_height,
+      sourceSnapshot.head_height,
+      sourceHead.height,
+      sourceChain.head_height
+    ),
+    lib_height: optionalSafeInteger(
+      sourceManifest.lib_height,
+      sourceInfo.lib_height,
+      sourceSnapshot.lib_height,
+      sourceLib.height,
+      sourceChain.lib_height
+    ),
+  };
 
   const manifest = JSON.parse(JSON.stringify(sourceManifest));
   manifest.source = {
     node_id: `public-bootstrap-${options.network}`,
     storage_layout: sourceManifest.source?.storage_layout || 'unified',
     network: options.network,
+    chain_id: publicSourceMetadata.chain_id || '',
   };
   manifest.repository = {
     type: 'public-bootstrap-object-store',
@@ -337,11 +385,14 @@ function buildPlan(options) {
   manifest.public_bootstrap = {
     version: 1,
     network: options.network,
+    chain_id: publicSourceMetadata.chain_id || '',
     source_backup_id: backupId,
     public_base_url: publicBaseUrl,
     promoted_at: promotedAt,
     producer_mode: false,
     sanitized_config: true,
+    source: publicSourceMetadata,
+    restore_space: sizes,
   };
 
   const filesJson = {
@@ -355,15 +406,19 @@ function buildPlan(options) {
     format: 'teleno-public-bootstrap-snapshot',
     version: 1,
     network: options.network,
+    chain_id: publicSourceMetadata.chain_id || '',
     backup_id: backupId,
     source_backup_id: backupId,
     public_base_url: publicBaseUrl,
     promoted_at: promotedAt,
     sanitized_config_sha256: configSha,
+    sanitized_config_size_bytes: configSize,
     file_count: outputEntries.length,
     object_count: objects.size,
     total_bytes: totalBytes,
     producer_mode: false,
+    source: publicSourceMetadata,
+    restore_space: sizes,
   };
 
   const signed = Boolean(options.signingPrivateKeyFile);
@@ -376,7 +431,7 @@ function buildPlan(options) {
       algorithm: 'ed25519',
       backup_id: backupId,
       network: options.network,
-      chain_id: sourceManifest.source?.chain_id || sourceManifest.chain_id || '',
+      chain_id: publicSourceMetadata.chain_id || '',
       public_base_url: publicBaseUrl,
       latest_sha256: sha256Buffer(jsonBytes(latestJson)),
       manifest_sha256: sha256Buffer(jsonBytes(manifest)),

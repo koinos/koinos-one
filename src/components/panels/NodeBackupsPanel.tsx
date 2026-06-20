@@ -5,12 +5,12 @@ type BackupSourceLabel = 'local' | 'remote' | 'public'
 
 const TESTNET_PUBLIC_BOOTSTRAP_URL = 'https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap'
 
-function parseBackupTimestampMs(snapshot: TelenoNodeNativeBackupSnapshot): number {
-  const rawCreatedAt = snapshot.createdAt?.trim()
+function parseTimestampMs(rawValue?: string, fallbackValue?: string): number {
+  const rawCreatedAt = rawValue?.trim()
   const isoMs = rawCreatedAt ? Date.parse(rawCreatedAt) : Number.NaN
   if (Number.isFinite(isoMs)) return isoMs
 
-  const compactTimestamp = rawCreatedAt || snapshot.backupId
+  const compactTimestamp = rawCreatedAt || fallbackValue || ''
   const match = compactTimestamp.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/)
   if (!match) return 0
 
@@ -23,6 +23,10 @@ function parseBackupTimestampMs(snapshot: TelenoNodeNativeBackupSnapshot): numbe
     Number.parseInt(minute, 10),
     Number.parseInt(second, 10)
   )
+}
+
+function parseBackupTimestampMs(snapshot: TelenoNodeNativeBackupSnapshot): number {
+  return parseTimestampMs(snapshot.createdAt, snapshot.backupId)
 }
 
 function backupDefaultRepository(baseDir: string): string {
@@ -116,6 +120,8 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
   const adminListen = backupSettings.adminEnabled ? backupSettings.adminListen || '127.0.0.1:18088' : 'Disabled'
   const formatBackupCreatedAt = (snapshot: TelenoNodeNativeBackupSnapshot) =>
     formatDateTime(parseBackupTimestampMs(snapshot), locale, 'N/A')
+  const formatBackupTimestamp = (value?: string, fallback?: string) =>
+    formatDateTime(parseTimestampMs(value, fallback), locale, 'N/A')
   const formatSpaceLine = (availableBytes: number | null | undefined, neededBytes: number | null | undefined) =>
     `Free ${formatBytes(availableBytes, locale)} · needed ${formatBytes(neededBytes, locale)}`
   const backupActionDisabled =
@@ -214,6 +220,13 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
               <p title={snapshot.createdAt || snapshot.backupId}>
                 Created {formatBackupCreatedAt(snapshot)} · {formatBytes(snapshot.totalBytes, locale)} · {snapshot.fileCount} files
               </p>
+              {sourceLabel === 'public' && (
+                <p title={snapshot.publicBaseUrl || undefined}>
+                  Public {snapshot.network || 'network unknown'} · published {formatBackupTimestamp(snapshot.promotedAt, snapshot.createdAt)} · source {snapshot.sourceNodeVersion || snapshot.nodeVersion || 'version unknown'}
+                  {snapshot.sourceHeadHeight > 0 ? ` · head ${snapshot.sourceHeadHeight}` : ''}
+                  {snapshot.sourceLibHeight > 0 ? ` · LIB ${snapshot.sourceLibHeight}` : ''}
+                </p>
+              )}
               {!preflightMatches && (
                 <p>
                   Estimated restore free space: minimum {formatBytes(snapshot.restoreSpace.minimumTargetFreeBytes, locale)}, recommended {formatBytes(snapshot.restoreSpace.recommendedTargetFreeBytes, locale)}
