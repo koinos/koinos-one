@@ -2,7 +2,7 @@
 
 - Date: 2026-06-20
 - Scope: remaining work after the first Mac CLI/admin/UX testnet implementation
-- Status: CLI implementation, admin API, Teleno UX integration, promotion tooling, sanitized testnet publication, and real HTTPS restore validation are complete; richer metadata and signatures remain pending
+- Status: CLI implementation, admin API, Teleno UX integration, promotion tooling, sanitized signed testnet publication, real HTTPS restore validation, pinned testnet verification key, and signature-required HTTPS validation are complete; richer metadata, longer observer acceptance, and a separate prodnet publication plan remain pending
 
 ## Baseline
 
@@ -18,6 +18,9 @@ Already implemented in `teleno_node`:
 - restore preflight, staging, activation, and observer-safe first-install config generation
 - local admin API public restore routes for config, snapshots, fetch, preflight, stage, and activation
 - Teleno UX Node > Backups integration with separate local, private SFTP remote, and public bootstrap inventories
+- optional Ed25519 public-bootstrap signature verification through `backup.public-restore.signature-required` and `backup.public-restore.signature-public-key-file`
+- optional signed snapshot promotion through `scripts/promote-public-bootstrap-backup.js --signing-private-key-file`
+- pinned testnet public verification key at `config/public-bootstrap/testnet-ed25519.pub`
 - unit tests and synthetic CLI fixture validation
 
 Configured public testnet route:
@@ -41,10 +44,27 @@ Published public snapshot:
 Publication and restore validation completed on 2026-06-20:
 
 - `latest.json` is published at the public HTTPS route.
+- `latest.json` points at `public-bootstrap-signature.json`.
 - Public list from a clean basedir succeeds.
+- Public list over HTTPS with `signature-required: true` succeeds using `config/public-bootstrap/testnet-ed25519.pub`.
 - Public fetch downloaded 75 objects and `3,113,463,513` bytes with zero retries.
 - Public restore activated into `/Volumes/external/teleno-public-bootstrap-https-validate/basedir`.
 - Restored-node smoke opened RocksDB and reached `[node] teleno_node ready`.
+- Linux Ubuntu validation on `192.168.178.188` passed:
+  - HTTPS signed public list with `signature-required: true`;
+  - full signed public restore of 75 objects and `3,113,463,513` bytes with zero retries;
+  - `signature_required: true` and `signature_verified: true` in restore JSON;
+  - DB-open smoke reached `[node] teleno_node ready`;
+  - temporary `/tmp` restore data was removed.
+
+Signed publication details:
+
+```text
+signature_key_id: teleno-testnet-bootstrap-20260620
+signature_public_key_sha256: b8a4c7573eea54c86a4ed2649b0de525dd7bd21bcdbd8e99eef0c629e4ab7c00
+public_key_file: config/public-bootstrap/testnet-ed25519.pub
+private_key_file: ~/.teleno/public-bootstrap-signing/testnet-ed25519.pem
+```
 
 ## Key Constraint
 
@@ -313,11 +333,11 @@ Implemented UX behavior:
 - keep block production disabled after restore;
 - show restored basedir and config path.
 
-### 7. Add Signed Public Manifests Before Prodnet
+### 7. Signed Public Manifests Before Prodnet
 
-Keep object-level SHA-256 verification. Add a signed metadata envelope before any prodnet public bootstrap.
+Status: implemented and validated against the public HTTPS testnet route. The currently published testnet snapshot is signed and Teleno UX-generated testnet configs require the pinned verification key when present.
 
-The signed payload should cover:
+Implemented signed payload coverage:
 
 - `latest.json`;
 - `manifest.json`;
@@ -328,9 +348,30 @@ The signed payload should cover:
 - chain ID;
 - object count and total bytes.
 
-Use a Teleno public-bootstrap signing key that is separate from producer and wallet keys. Bundle or pin the verification key in the app/binary.
+Implemented behavior:
 
-Prodnet public bootstrap remains blocked until signature verification is implemented and tested.
+- Promotion can write `snapshots/<backup-id>/public-bootstrap-signature.json` when `--signing-private-key-file` is provided.
+- The signature envelope uses Ed25519 and signs a canonical JSON payload.
+- Public restore verifies the envelope when `backup.public-restore.signature-required=true`.
+- Public restore also attempts verification when `backup.public-restore.signature-public-key-file` is configured.
+- Synthetic C++ tests cover successful verification and tampered public metadata rejection.
+- Promotion unit tests cover signed envelope creation and Node-side verification with the generated public key.
+
+Completed for testnet:
+
+- create a Teleno public-bootstrap signing key that is separate from producer and wallet keys;
+- store and document the private signing key operationally outside the repo;
+- pin or bundle the public verification key in the app/binary or generated config;
+- publish a signed public testnet snapshot and validate it with `signature-required: true`;
+
+Still required before prodnet:
+
+- decide whether prodnet uses a separate signing key from testnet;
+- create and pin the prodnet verification key only after the prodnet publication workflow is approved;
+- publish and validate a signed prodnet observer snapshot in a guided, non-mutating flow;
+- only then design the gated prodnet publication flow.
+
+Prodnet public bootstrap remains blocked until the signed testnet flow has a longer observer acceptance run and the prodnet signing/publication process is reviewed.
 
 ## Tests
 
@@ -344,6 +385,7 @@ Completed promotion script unit tests:
 - rewrite `config.yml` and update its `files.json` hash;
 - dry-run produces a report and does not write to the public destination;
 - publish writes `latest.json` last.
+- signed publish writes a signature envelope and verifies it with the generated public key.
 
 Completed promotion script smoke tests:
 
@@ -374,4 +416,4 @@ Manual acceptance:
 
 ## Immediate Next Step
 
-Add signed public manifest verification before any prodnet public bootstrap publication. After that, add only the richer metadata that improves diagnostics or UX decisions.
+Run a longer live observer acceptance test from a UX-restored signed public snapshot. In parallel, add only the richer metadata that improves diagnostics or UX decisions.

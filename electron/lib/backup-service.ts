@@ -8,7 +8,7 @@ import { Readable, Transform } from 'node:stream'
 import { BrowserWindow, dialog, type OpenDialogOptions, type WebContents } from 'electron'
 import { parseDocument } from 'yaml'
 
-import { DEFAULT_BASEDIR, resolveMonolithBinaryPath } from './constants'
+import { DEFAULT_BASEDIR, resolveMonolithBinaryPath, resolveTelenoConfigRoot } from './constants'
 import type {
   BlockchainBackupArchiveState,
   BlockchainBackupExtractState,
@@ -64,9 +64,16 @@ const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.teleno-blockchain-backup-cache'
 const NATIVE_BACKUP_DIR = '.teleno-native-backups'
 const PUBLIC_TESTNET_BOOTSTRAP_URL = 'https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap'
+const PUBLIC_TESTNET_BOOTSTRAP_KEY_RELATIVE = path.join('public-bootstrap', 'testnet-ed25519.pub')
 
 function publicBootstrapUrlForNetwork(network: TelenoNodeSettings['network']): string {
   return network === 'testnet' ? PUBLIC_TESTNET_BOOTSTRAP_URL : ''
+}
+
+function publicBootstrapSignaturePublicKeyFileForNetwork(network: TelenoNodeSettings['network']): string {
+  if (network !== 'testnet') return ''
+  const keyFile = path.join(resolveTelenoConfigRoot(), PUBLIC_TESTNET_BOOTSTRAP_KEY_RELATIVE)
+  return fs.existsSync(keyFile) ? keyFile : ''
 }
 
 // ── Config.yml verify-blocks helper ──
@@ -421,6 +428,9 @@ export function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   doc.setIn(['backup', 'public-restore', 'require-https'], true)
   doc.setIn(['backup', 'public-restore', 'timeout-seconds'], 30)
   doc.setIn(['backup', 'public-restore', 'retries'], 3)
+  const publicBootstrapSignatureKeyFile = publicBootstrapSignaturePublicKeyFileForNetwork(settings.network)
+  doc.setIn(['backup', 'public-restore', 'signature-required'], Boolean(publicBootstrapUrl && publicBootstrapSignatureKeyFile))
+  doc.setIn(['backup', 'public-restore', 'signature-public-key-file'], publicBootstrapSignatureKeyFile)
   applyNativeBackupRemoteEnv(doc)
 
   fs.mkdirSync(path.dirname(configPath), { recursive: true })

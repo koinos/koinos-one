@@ -44,7 +44,7 @@ function readJson(file) {
 function writeJsonAtomic(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
+  fs.writeFileSync(tmp, jsonBytes(value));
   fs.renameSync(tmp, file);
 }
 
@@ -63,6 +63,20 @@ function sha256File(file) {
   const hash = crypto.createHash('sha256');
   hash.update(fs.readFileSync(file));
   return hash.digest('hex');
+}
+
+function jsonBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function canonicalizeJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalizeJson(entry)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalizeJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function objectPath(repository, sha256) {
@@ -178,15 +192,18 @@ function validateObserverConfig(buffer) {
   }
 }
 
-function latestForBackupId(backupId) {
-  return {
+function latestForBackupId(backupId, signed = false) {
+  const latest = {
     format: 'teleno-native-latest-snapshot',
     version: 1,
     backup_id: backupId,
     snapshot_dir: backupId,
     manifest: `snapshots/${backupId}/manifest.json`,
     files: `snapshots/${backupId}/files.json`,
+    public_metadata: `snapshots/${backupId}/public-bootstrap.json`,
   };
+  if (signed) latest.signature = `snapshots/${backupId}/public-bootstrap-signature.json`;
+  return latest;
 }
 
 function resolveBackupId(repository, requestedBackupId) {
@@ -217,6 +234,24 @@ function recomputeSizes(entries) {
     archive_bytes: 0,
     minimum_target_free_bytes: minimum,
     recommended_target_free_bytes: recommended,
+  };
+}
+
+function signPublicBootstrapPayload(payload, privateKeyFile, keyId) {
+  const privateKeyPem = fs.readFileSync(path.resolve(privateKeyFile));
+  const privateKey = crypto.createPrivateKey(privateKeyPem);
+  const publicKey = crypto.createPublicKey(privateKey);
+  const publicKeyDer = publicKey.export({ type: 'spki', format: 'der' });
+  const canonicalPayload = canonicalizeJson(payload);
+  const signature = crypto.sign(null, Buffer.from(canonicalPayload), privateKey);
+  return {
+    format: 'teleno-public-bootstrap-signature',
+    version: 1,
+    algorithm: 'ed25519',
+    key_id: keyId || 'teleno-public-bootstrap',
+    public_key_sha256: sha256Buffer(publicKeyDer),
+    payload,
+    signature_hex: signature.toString('hex'),
   };
 }
 
@@ -331,18 +366,44 @@ function buildPlan(options) {
     producer_mode: false,
   };
 
+  const signed = Boolean(options.signingPrivateKeyFile);
+  const latestJson = latestForBackupId(backupId, signed);
+  let signatureJson = null;
+  if (signed) {
+    const payload = {
+      format: 'teleno-public-bootstrap-signature-payload',
+      version: 1,
+      algorithm: 'ed25519',
+      backup_id: backupId,
+      network: options.network,
+      chain_id: sourceManifest.source?.chain_id || sourceManifest.chain_id || '',
+      public_base_url: publicBaseUrl,
+      latest_sha256: sha256Buffer(jsonBytes(latestJson)),
+      manifest_sha256: sha256Buffer(jsonBytes(manifest)),
+      files_sha256: sha256Buffer(jsonBytes(filesJson)),
+      public_metadata_sha256: sha256Buffer(jsonBytes(publicMetadataJson)),
+      object_count: objects.size,
+      total_bytes: totalBytes,
+      sanitized_config_sha256: configSha,
+      signed_at: promotedAt,
+    };
+    signatureJson = signPublicBootstrapPayload(payload, options.signingPrivateKeyFile, options.signatureKeyId);
+  }
+
   return {
     sourceRepository,
     destinationRepository,
     backupId,
-    latestJson: latestForBackupId(backupId),
+    latestJson,
     manifestJson: manifest,
     filesJson,
     publicMetadataJson,
+    signatureJson,
     objects,
     sanitizedConfigSha256: configSha,
     sanitizedConfigSize: configSize,
     promotedAt,
+    signed,
   };
 }
 
@@ -387,6 +448,9 @@ function publish(plan) {
     writeJsonAtomic(path.join(partialSnapshot, 'manifest.json'), plan.manifestJson);
     writeJsonAtomic(path.join(partialSnapshot, 'files.json'), plan.filesJson);
     writeJsonAtomic(path.join(partialSnapshot, 'public-bootstrap.json'), plan.publicMetadataJson);
+    if (plan.signatureJson) {
+      writeJsonAtomic(path.join(partialSnapshot, 'public-bootstrap-signature.json'), plan.signatureJson);
+    }
     writeBytesAtomic(path.join(partialSnapshot, 'COMPLETE'), Buffer.from('complete\n'));
     fs.renameSync(partialSnapshot, finalSnapshot);
   } catch (error) {
@@ -412,6 +476,9 @@ function validatePublishedTree(plan) {
       throw new PromotionError(`published snapshot is missing ${name}`);
     }
   }
+  if (plan.signatureJson && !fs.existsSync(path.join(snapshotDir, 'public-bootstrap-signature.json'))) {
+    throw new PromotionError('published signed snapshot is missing public-bootstrap-signature.json');
+  }
   const latest = readJson(path.join(plan.destinationRepository, 'latest.json'));
   if (latest.backup_id !== plan.backupId) {
     throw new PromotionError('published latest.json does not point at promoted backup');
@@ -433,6 +500,9 @@ function reportForPlan(plan, dryRun) {
     sanitized_config_sha256: plan.sanitizedConfigSha256,
     sanitized_config_size: plan.sanitizedConfigSize,
     promoted_at: plan.promotedAt,
+    signed: plan.signed,
+    signature_key_id: plan.signatureJson?.key_id || '',
+    signature_public_key_sha256: plan.signatureJson?.public_key_sha256 || '',
     latest_written: !dryRun,
   };
 }
@@ -454,6 +524,8 @@ function parseArgs(argv) {
     else if (arg === '--network') options.network = next;
     else if (arg === '--public-base-url') options.publicBaseUrl = next;
     else if (arg === '--observer-config-template') options.observerConfigTemplate = next;
+    else if (arg === '--signing-private-key-file') options.signingPrivateKeyFile = next;
+    else if (arg === '--signature-key-id') options.signatureKeyId = next;
     else if (arg === '--report') options.report = next;
     else throw new PromotionError(`unknown argument: ${arg}`);
   }
@@ -493,7 +565,10 @@ module.exports = {
   objectPath,
   publish,
   reportForPlan,
+  canonicalizeJson,
+  jsonBytes,
   sha256Buffer,
+  signPublicBootstrapPayload,
   validatePublishedTree,
 };
 

@@ -14,7 +14,7 @@ import {
   parseBlockchainBackupSha256Checksum,
   writeNativeBackupConfig
 } from './backup-service'
-import { resolveMonolithBinaryPath } from './constants'
+import { resolveMonolithBinaryPath, resolveTelenoConfigRoot } from './constants'
 import type { TelenoNodeBackupSettings, TelenoNodeSettings } from './main-types'
 
 const tempDirs: string[] = []
@@ -207,6 +207,10 @@ foo
     expect(doc.getIn(['backup', 'public-restore', 'base-url'])).toBe('https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap')
     expect(doc.getIn(['backup', 'public-restore', 'network'])).toBe('testnet')
     expect(doc.getIn(['backup', 'public-restore', 'require-https'])).toBe(true)
+    expect(doc.getIn(['backup', 'public-restore', 'signature-required'])).toBe(true)
+    expect(doc.getIn(['backup', 'public-restore', 'signature-public-key-file'])).toBe(
+      path.join(resolveTelenoConfigRoot(), 'public-bootstrap', 'testnet-ed25519.pub')
+    )
     expect(fs.existsSync(repositoryDir)).toBe(true)
     expect(fs.existsSync(workspaceDir)).toBe(true)
   })
@@ -219,6 +223,8 @@ foo
     expect(doc.getIn(['backup', 'public-restore', 'enabled'])).toBe(false)
     expect(doc.getIn(['backup', 'public-restore', 'base-url'])).toBe('')
     expect(doc.getIn(['backup', 'public-restore', 'network'])).toBe('mainnet')
+    expect(doc.getIn(['backup', 'public-restore', 'signature-required'])).toBe(false)
+    expect(doc.getIn(['backup', 'public-restore', 'signature-public-key-file'])).toBe('')
   })
 
   it('loads native backup settings from the generated config', async () => {

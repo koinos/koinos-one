@@ -80,6 +80,14 @@ export function resolveKoinosConfigRoot(): string {
   return path.join(resolveDefaultKoinosSourceRoot(), 'koinos', 'config-example')
 }
 
+/** Root directory for Teleno-owned packaged config resources. */
+export function resolveTelenoConfigRoot(): string {
+  if (isPackagedBuild()) {
+    return path.join(process.resourcesPath!, 'teleno', 'config')
+  }
+  return path.resolve(__dirname, '..', '..', 'config')
+}
+
 /** Path to bundled GarageMQ broker binary. @deprecated Use resolveMonolithBinaryPath() for monolith mode. */
 export function resolveAmqpBrokerPath(): string {
   const ext = executableExtension()

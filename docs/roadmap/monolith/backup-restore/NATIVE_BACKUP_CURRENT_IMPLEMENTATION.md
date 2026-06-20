@@ -271,7 +271,7 @@ Current UX behavior:
 - The UX stores credential references as file paths only. It does not store raw SSH passwords in localStorage or generated YAML.
 - `TELENO_BACKUP_*` environment variables still work as an explicit developer override when set.
 
-Current limitation: remote listing caches metadata only; the actual objects are fetched during selected remote restore/fetch. Richer public metadata, signed public manifests, richer admin status views, richer restore preflight screens, and larger validation are tracked in the remaining-work plans.
+Current limitation: remote listing caches metadata only; the actual objects are fetched during selected remote restore/fetch. Richer public metadata, longer signed public restore observer validation, richer admin status views, richer restore preflight screens, and larger validation are tracked in the remaining-work plans.
 
 ## Public Read-Only Bootstrap Restore
 
@@ -279,7 +279,7 @@ The first public bootstrap restore slice is implemented for Mac CLI testnet work
 
 Implemented behavior:
 
-- `backup.public-restore` config parsing for `enabled`, `base-url`, `network`, `require-https`, `timeout-seconds`, and `retries`.
+- `backup.public-restore` config parsing for `enabled`, `base-url`, `network`, `require-https`, `timeout-seconds`, `retries`, `signature-required`, and `signature-public-key-file`.
 - `--backup-public-url` CLI override for testing or first-install workflows.
 - `--backup-public-list` to read public `latest.json` or a selected backup ID over HTTP(S).
 - `--backup-public-fetch` to fetch public metadata and missing objects into the local content-addressed repository.
@@ -287,8 +287,10 @@ Implemented behavior:
 - `file://` support for deterministic local tests.
 - `http://` and `https://` support for public repositories.
 - SHA-256 verification for every accepted object.
+- Ed25519 signature verification for public bootstrap metadata when `signature-required` is true or a verification key file is configured.
 - Reuse of the same local native repository, restore preflight, restore staging, and activation logic used by authenticated backup restore.
-- Sanitized public testnet snapshot promotion through `scripts/promote-public-bootstrap-backup.js`.
+- Sanitized public testnet snapshot promotion through `scripts/promote-public-bootstrap-backup.js`, including optional signed-envelope generation with `--signing-private-key-file`.
+- Bundled testnet public verification key at `config/public-bootstrap/testnet-ed25519.pub`.
 - Local public-bootstrap fixture/unit tests and promotion smoke test through `scripts/smoke-public-bootstrap-promotion.sh`.
 
 The public bootstrap route currently configured for testnet is:
@@ -312,6 +314,12 @@ Public HTTPS validation completed:
 - A restored-node smoke opened RocksDB and reached `[node] teleno_node ready` with block production disabled.
 - Local admin API public restore routes are implemented and covered by `koinos_backup_admin_server_test`.
 - Teleno UX lists public bootstrap snapshots separately from local and private SFTP remote snapshots, and can verify/restore them through admin API or CLI fallback.
+- The currently published public testnet snapshot is signed with key ID `teleno-testnet-bootstrap-20260620`.
+- `--backup-public-list` over HTTPS passed with `signature-required: true` and the pinned `config/public-bootstrap/testnet-ed25519.pub` verification key.
+- Teleno UX-generated testnet native backup configs now require that public bootstrap signature when the bundled key exists; mainnet/custom public restore remains disabled.
+- Linux Ubuntu validation on node `192.168.178.188` passed for signed HTTPS list, full signed restore, and DB-open smoke. This required adding `/etc/ssl/certs/ca-certificates.crt` to the public restore HTTPS CA bundle search path.
+
+The public bootstrap trust model is intentionally layered: HTTPS authenticates the bootstrap server and protects transport integrity, Ed25519 signatures authorize the published bootstrap metadata, and SHA-256 verifies every content-addressed object. The detailed rationale for keeping HTTPS required is documented in `PUBLIC_BOOTSTRAP_RESTORE_PLAN.md`.
 
 Detailed implementation notes and commands are in `PUBLIC_BOOTSTRAP_RESTORE_PLAN.md`.
 

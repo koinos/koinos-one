@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -25,6 +26,13 @@ function options(root, dryRun) {
     observerConfigTemplate: path.join(root, 'observer-template.yml'),
     dryRun,
   };
+}
+
+function writeEd25519PrivateKey(root) {
+  const { privateKey } = crypto.generateKeyPairSync('ed25519');
+  const privateKeyFile = path.join(root, 'public-bootstrap-signing-key.pem');
+  fs.writeFileSync(privateKeyFile, privateKey.export({ type: 'pkcs8', format: 'pem' }));
+  return privateKeyFile;
 }
 
 function withTempDir(fn) {
@@ -69,6 +77,44 @@ test('publish writes sanitized snapshot', () => withTempDir((root) => {
   assert.equal(latest.backup_id, backupId);
   assert.equal(manifest.repository.type, 'public-bootstrap-object-store');
   assert.equal(manifest.public_bootstrap.producer_mode, false);
+}));
+
+test('publish can write and verify a signed public bootstrap envelope', () => withTempDir((root) => {
+  const backupId = createSourceRepository(root);
+  writeTemplate(root);
+  const privateKeyFile = writeEd25519PrivateKey(root);
+
+  const plan = promote.buildPlan({
+    ...options(root, false),
+    signingPrivateKeyFile: privateKeyFile,
+    signatureKeyId: 'unit-test-key',
+  });
+  promote.publish(plan);
+  promote.validatePublishedTree(plan);
+
+  const dest = path.join(root, 'teleno-bootstrap');
+  const latest = JSON.parse(fs.readFileSync(path.join(dest, 'latest.json'), 'utf8'));
+  const envelope = JSON.parse(
+    fs.readFileSync(path.join(dest, 'snapshots', backupId, 'public-bootstrap-signature.json'), 'utf8')
+  );
+  const privateKey = crypto.createPrivateKey(fs.readFileSync(privateKeyFile));
+  const publicKey = crypto.createPublicKey(privateKey);
+
+  assert.equal(latest.signature, `snapshots/${backupId}/public-bootstrap-signature.json`);
+  assert.equal(envelope.format, 'teleno-public-bootstrap-signature');
+  assert.equal(envelope.algorithm, 'ed25519');
+  assert.equal(envelope.key_id, 'unit-test-key');
+  assert.equal(envelope.payload.backup_id, backupId);
+  assert.equal(
+    crypto.verify(
+      null,
+      Buffer.from(promote.canonicalizeJson(envelope.payload)),
+      publicKey,
+      Buffer.from(envelope.signature_hex, 'hex')
+    ),
+    true
+  );
+  assert.equal(promote.reportForPlan(plan, false).signed, true);
 }));
 
 test('rejects producer private key path', () => withTempDir((root) => {

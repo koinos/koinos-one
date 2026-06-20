@@ -21,6 +21,7 @@ const requiredFiles = [
   path.join('config', 'config.yml'),
   path.join('config', 'genesis_data.json'),
   path.join('config', 'koinos_descriptors.pb'),
+  path.join('config', 'public-bootstrap', 'testnet-ed25519.pub'),
 ];
 
 const optionalGroups = [
@@ -47,6 +48,10 @@ const requiredBackupFlags = [
   '--backup-restore-preflight',
   '--backup-id',
   '--backup-json',
+  '--backup-public-list',
+  '--backup-public-fetch',
+  '--backup-public-restore',
+  '--backup-public-url',
 ];
 
 const failures = [];

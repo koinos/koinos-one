@@ -2,7 +2,7 @@
 
 - Date: 2026-06-20
 - Scope: Mac `teleno_node` CLI, local admin API, and Teleno UX, testnet only
-- Status: CLI/admin API/UX integration completed; sanitized testnet public snapshot promoted and validated end-to-end over HTTPS
+- Status: CLI/admin API/UX integration completed; sanitized signed testnet public snapshot promoted and validated end-to-end over HTTPS with signature enforcement
 
 ## Goal
 
@@ -13,7 +13,7 @@ This is intentionally separate from authenticated remote backup creation:
 - `backup.remote` remains the operator-owned SFTP upload target for creating private remote backups.
 - `backup.public-restore` is the read-only bootstrap source used by new installations.
 
-The current implementation covers the Mac CLI testnet flow, local backup admin API orchestration, and Teleno UX restore/list integration. Signed public manifests and prodnet publication remain follow-up work.
+The current implementation covers the Mac CLI testnet flow, local backup admin API orchestration, Teleno UX restore/list integration, and Ed25519 signed-manifest verification for the published testnet bootstrap snapshot. Prodnet publication remains follow-up work and requires a separate signed production snapshot plus a guided operator validation plan.
 
 ## Server State
 
@@ -53,8 +53,21 @@ Published metadata:
 
 - `GET /backups/testnet/teleno-bootstrap/latest.json` returns `200`.
 - `GET /backups/testnet/teleno-bootstrap/snapshots/20260617T215046Z-ms-1781733046440-files-72/manifest.json` returns `200`.
+- `latest.json` includes `signature: snapshots/20260617T215046Z-ms-1781733046440-files-72/public-bootstrap-signature.json`.
 - CORS headers are present for public GET/HEAD access.
 - The published repository contains 75 content-addressed objects and 3.11 GB of backup payload.
+
+Pinned testnet verification key:
+
+```text
+config/public-bootstrap/testnet-ed25519.pub
+```
+
+Public key SHA-256 over SPKI DER:
+
+```text
+b8a4c7573eea54c86a4ed2649b0de525dd7bd21bcdbd8e99eef0c629e4ab7c00
+```
 
 ## Implemented Code
 
@@ -169,6 +182,8 @@ backup:
     require-https: true
     timeout-seconds: 30
     retries: 3
+    signature-required: true
+    signature-public-key-file: /path/to/config/public-bootstrap/testnet-ed25519.pub
 ```
 
 Parsed fields:
@@ -179,8 +194,12 @@ Parsed fields:
 - `backup.public-restore.require-https`
 - `backup.public-restore.timeout-seconds`
 - `backup.public-restore.retries`
+- `backup.public-restore.signature-required`
+- `backup.public-restore.signature-public-key-file`
 
 The config test suite now covers parsing of this section.
+
+Teleno UX-generated testnet native backup configs now set `signature-required: true` when the bundled testnet verification key exists. Mainnet and custom networks keep public restore disabled.
 
 ## Public Repository Format
 
@@ -193,6 +212,8 @@ The public repository serves the same content-addressed native backup layout ove
     <backup-id>/
       manifest.json
       files.json
+      public-bootstrap.json
+      public-bootstrap-signature.json   # optional
       COMPLETE
   objects/
     sha256/
@@ -211,13 +232,14 @@ The client only needs ordinary `GET` requests. Static HTTP directory enumeration
 2. Resolve `latest.json` or the requested exact `--backup-id`.
 3. Download metadata first: `manifest.json`, `files.json`, and `COMPLETE`.
 4. Validate manifest format, backup ID, file inventory, sizes, and SHA-256 object references.
-5. Run disk-space preflight before staging.
-6. Download only missing content-addressed objects into the local native backup repository.
-7. Verify every downloaded object by size and SHA-256.
-8. Run existing native restore preflight.
-9. Stage restored files into the existing restore staging path.
-10. Activate restore through the existing stopped-node restore activation path.
-11. Write an observer-safe config if the target config file does not already exist.
+5. When configured, download `public-bootstrap.json` and `public-bootstrap-signature.json`, verify the Ed25519 signature, and verify the signed hashes for `latest.json`, `manifest.json`, `files.json`, and public metadata.
+6. Run disk-space preflight before staging.
+7. Download only missing content-addressed objects into the local native backup repository.
+8. Verify every downloaded object by size and SHA-256.
+9. Run existing native restore preflight.
+10. Stage restored files into the existing restore staging path.
+11. Activate restore through the existing stopped-node restore activation path.
+12. Write an observer-safe config if the target config file does not already exist.
 
 Observer-first behavior for new installs:
 
@@ -237,8 +259,32 @@ Implemented behavior:
 - JSON progress events use the same stderr shape as native backup progress.
 - Every accepted object is verified by SHA-256.
 - Hash or size mismatch aborts the restore.
+- Optional Ed25519 signature verification covers the selected backup ID, network, chain ID, `latest.json`, `manifest.json`, `files.json`, public metadata, object count, and total bytes.
+- Signature verification is enforced when `backup.public-restore.signature-required=true`. It is also attempted when a `signature-public-key-file` is configured, but unsigned repositories can still be used only when signature-required is false.
 
 The implementation does not shell out to `curl`, `scp`, `rsync`, or `ssh`.
+
+### Why HTTPS Remains Required
+
+Public bootstrap restore uses a public, unauthenticated repository. That is intentional: first-time node operators should be able to download a bootstrap DB without SSH credentials. Because there is no login step, the restore path must get origin authentication and transport integrity from HTTPS, then get repository integrity from the signed metadata envelope and object SHA-256 checks.
+
+The production default is therefore:
+
+- HTTPS required for public network sources;
+- Ed25519 signature required for published bootstrap metadata;
+- SHA-256 verification required for every content-addressed object;
+- `file://` allowed for deterministic local tests;
+- plain `http://` only allowed when `require-https: false`, which is a developer/test override and not a user default.
+
+If plain HTTP were accepted for normal public bootstrap, the following risks remain even with signed manifests:
+
+- A network attacker could replay an older signed `latest.json` and make a new node restore an outdated but still validly signed snapshot. Signatures prove that Teleno signed the payload; HTTPS helps prove the client received the current response from the intended server.
+- If signature enforcement were disabled, misconfigured, or temporarily bypassed during development, an attacker controlling the HTTP path could replace metadata and point the client at attacker-selected objects. Object hashes help only when the trusted metadata is also protected.
+- Captive portals, proxies, routers, ISPs, or compromised Wi-Fi could inject redirects, HTML login pages, partial content, or corrupted files. The best case is a failed restore; the worse operational outcome is wasted bandwidth, confusing errors, or a bootstrap process that looks unreliable to a new operator.
+- DNS or local-network interception could silently point a first-install node at a fake bootstrap origin. HTTPS certificate validation blocks that class of fake-origin response.
+- Allowing insecure transport in the first-install path trains operators and tooling to accept weaker bootstrap practices. That is especially dangerous before any prodnet bootstrap support exists.
+
+The signed manifest and object hashes are still necessary because HTTPS alone only protects the connection to the server; it does not prove that the published repository content is a Teleno-approved bootstrap snapshot. Conversely, signatures and hashes do not fully replace HTTPS because they do not, by themselves, provide freshness, origin authentication, or protection from network-level interference. The intended trust model is layered: HTTPS for server origin and transport integrity, Ed25519 for Teleno publication authorization, and SHA-256 for object integrity.
 
 ## Example Commands
 
@@ -282,19 +328,19 @@ Restore from the public bootstrap source:
 Build:
 
 ```bash
-cmake --build node/teleno-node/build --target teleno_node koinos_config_test koinos_backup_public_restore_test koinos_backup_snapshot_test --parallel
+cmake --build node/teleno-node/build --target teleno_node koinos_config_test koinos_backup_public_restore_test koinos_backup_snapshot_test koinos_backup_admin_server_test --parallel
 ```
 
 Tests:
 
 ```bash
-ctest --test-dir node/teleno-node/build --output-on-failure -R 'koinos_(config|backup_public_restore|backup_snapshot)_test'
+ctest --test-dir node/teleno-node/build --output-on-failure -R 'koinos_(config|backup_public_restore|backup_snapshot|backup_admin_server)_test'
 ```
 
 Result:
 
 ```text
-100% tests passed, 0 tests failed out of 3
+100% tests passed, 0 tests failed out of 4
 ```
 
 Manual CLI validation:
@@ -317,7 +363,7 @@ scripts/smoke-public-bootstrap-promotion.sh
 Result:
 
 ```text
-5 promotion unit tests passed.
+6 promotion unit tests passed.
 public bootstrap promotion smoke passed.
 ```
 
@@ -330,21 +376,30 @@ Real public testnet validation:
 - Restore preflight reported `missing_object_count: 0`, minimum free space `3,247,681,241` bytes, and recommended free space `13,985,099,481` bytes.
 - `--backup-public-restore` activated the snapshot in `/Volumes/external/teleno-public-bootstrap-https-validate/basedir`, wrote `.backup-just-restored`, and returned `ok: true`.
 - A restored-node smoke opened RocksDB from the restored basedir, reached `[node] teleno_node ready`, and shut down cleanly.
+- Signed testnet publication completed with key ID `teleno-testnet-bootstrap-20260620`.
+- `--backup-public-list` over HTTPS passed with `signature-required: true` and the pinned `config/public-bootstrap/testnet-ed25519.pub` verification key.
+- Linux validation on Ubuntu node `192.168.178.188` passed after adding the Ubuntu CA bundle path `/etc/ssl/certs/ca-certificates.crt` to the HTTPS loader:
+  - `--backup-public-list` over HTTPS passed with `signature-required: true`;
+  - `--backup-public-restore` downloaded 75 objects, `3,113,463,513` bytes, with `retry_count: 0`, `signature_required: true`, and `signature_verified: true`;
+  - restore activation wrote `.backup-just-restored`;
+  - a DB-open smoke started from the restored basedir, opened RocksDB with 9 column families, indexed 60 blocks, and reached `[node] teleno_node ready`;
+  - temporary Linux restore data was removed after validation.
 - Admin API public restore routes are covered by `koinos_backup_admin_server_test`.
 - Teleno UX exposes public bootstrap snapshots separately from local and private SFTP backups in Node > Backups.
 
 ## Current Limitations
 
-- Public manifests are not signed yet.
-- Prodnet publication is intentionally not enabled.
+- The current signed publication is testnet-only.
+- The private signing key is intentionally outside the repo at `~/.teleno/public-bootstrap-signing/testnet-ed25519.pem` on the publishing Mac; only the public verification key is committed.
+- Prodnet publication is intentionally not enabled until a separate prodnet signing/publication process and restore validation plan are completed.
 
 ## Remaining Work
 
 The detailed remaining implementation plan is tracked in `PUBLIC_BOOTSTRAP_RESTORE_REMAINING_WORK_PLAN.md`.
 
-1. Add signed public manifests before considering prodnet bootstrap publication.
-2. Add richer public metadata only where it improves diagnostics or UX.
-3. Run a longer live observer acceptance test from a UX-restored public snapshot.
+1. Add richer public metadata only where it improves diagnostics or UX.
+2. Run a longer live observer acceptance test from a UX-restored signed public snapshot.
+3. Only after the signed testnet flow is validated over a longer observer run, design the gated prodnet publication process.
 
 ## Acceptance Criteria
 

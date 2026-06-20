@@ -131,6 +131,14 @@ if (fs.existsSync(harbingerSrc)) {
   passed++;
 }
 
+// Copy Teleno-owned config resources such as public bootstrap verification keys.
+const telenoConfigSrc = path.join(ROOT, 'config');
+if (fs.existsSync(telenoConfigSrc)) {
+  copyDirRecursive(telenoConfigSrc, CONFIG_DIR);
+  console.log(`  OK:   teleno config resources`);
+  passed++;
+}
+
 // --- Core contract ABIs ---
 console.log('\n=== Core Contract ABIs ===');
 copyFileChecked(
