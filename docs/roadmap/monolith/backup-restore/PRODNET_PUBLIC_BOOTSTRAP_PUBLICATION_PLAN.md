@@ -41,13 +41,13 @@ Use the same public repository contract already implemented for testnet:
           <sha256>
 ```
 
-The eventual public base URL should be under the same host family as testnet, but in a clearly separated prodnet route:
+The prodnet public backup route should live under `seed.koinosfoundation.org/backups`, separated from the testnet route:
 
 ```text
-https://testnet.koinosfoundation.org/backups/prodnet/teleno-bootstrap
+https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap
 ```
 
-This route name can change before implementation if the production hosting decision changes. The important constraint is that testnet and prodnet must not share a `latest.json`, snapshot directory, signing key, or route.
+The important constraint is that testnet and prodnet must not share a `latest.json`, snapshot directory, signing key, or route. The prodnet route root is `https://seed.koinosfoundation.org/backups`; the `prodnet/teleno-bootstrap` suffix keeps the Teleno public-bootstrap repository distinct from any other backup content served by that host.
 
 ## Snapshot Source Requirements
 
@@ -161,7 +161,7 @@ When enabled, UX must show:
 
 ## Open Decisions
 
-- Final prodnet public URL and server path.
+- Final server filesystem path behind `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap`.
 - Prodnet signing key creation date and reviewer.
 - Minimum freshness threshold for published prodnet snapshots.
 - Retention policy for old prodnet public bootstrap snapshots.
