@@ -11,7 +11,7 @@ This gives the project two clear distribution surfaces:
 - **Koinos One**: the user-friendly Mac GUI app, distributed first as a downloadable `.dmg`.
 - **Teleno Node**: the standalone high-performance monolithic node engine, installable through CLI on Linux servers and macOS, and later through Docker.
 
-The immediate goal is not a full repository or package migration. The visual/product rebrand is now implemented in the working tree, while the broader package identity and GitHub strategy remain intentionally deferred until the Mac DMG and Linux/Docker install story are stable.
+The immediate goal is to ship a clear Koinos One Mac app while keeping the `teleno_node` engine stable for CLI, Linux, and Docker operators. The visual/product rebrand, Electron package identity, and public `pgarciagon/koinos-one` repository migration are now implemented. Official-org migration, CI release automation, Linux CLI artifacts, and Docker publishing remain separate release steps.
 
 ## Final Naming Architecture
 
@@ -63,7 +63,7 @@ This subtitle should be used consistently in the app header, README, release pag
 
 ## Current Implementation Result
 
-Status: implemented in the working tree, not yet treated as a full package/repository migration.
+Status: implemented for the GUI product identity and the public `pgarciagon/koinos-one` repository. The native runtime remains Teleno Node.
 
 Already done:
 
@@ -76,6 +76,13 @@ Already done:
 - README now introduces the project as Koinos One powered by the Teleno native node engine.
 - UI strings now use Koinos One for the public app name.
 - Electron smoke test expectation updated to `Koinos One`.
+- Electron `productName` is now `Koinos One`.
+- Electron `appId` is now `io.koinos.one.desktop`.
+- Packaged app verification now expects `Koinos One.app` and the macOS executable `Contents/MacOS/Koinos One`.
+- Release artifact names now use `Koinos-One-<version>-<arch>.<ext>`.
+- The app title and shutdown dialogs now use Koinos One.
+- Existing local user data is migrated from the legacy `Teleno` app support path into the new `Koinos One` app support path when the new path does not already exist.
+- A public GitHub repository has been created at `https://github.com/pgarciagon/koinos-one`.
 - The visible subtitle was changed to:
 
 ```text
@@ -86,20 +93,30 @@ Validation already performed after the rebrand:
 
 - `npm run build`
 - `TELENO_PLAYWRIGHT_ELECTRON=1 npx playwright test --config=playwright.electron.config.ts tests/ui/electron-smoke.spec.ts`
+- `npx vitest run electron/lib/core-contract-abis.test.ts electron/lib/node-paths.test.ts electron/lib/logs-service.test.ts`
+- `cmake --build node/teleno-node/build --target teleno_node --parallel` with `KOINOS_ENABLE_LIBP2P=ON`, static GMP, static zstd/RocksDB, and native libssh.
+- `otool -L node/teleno-node/build/src/teleno_node` confirmed no `/opt/homebrew` or `/usr/local` runtime dylib dependency.
+- `npm run package:mac:dir`
+- `npx cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg`
 - `git diff --check`
 - Renderer screenshot verification using local Chrome against `http://127.0.0.1:5173/`
 - Development Electron app launched successfully with the rebranded UI.
+
+Local unsigned package outputs generated during validation:
+
+- `release/mac-arm64/Koinos One.app`
+- `release/Koinos-One-0.10.1-arm64.dmg`
 
 Intentionally unchanged:
 
 - `teleno_node` binary name.
 - `node/teleno-node/` source path.
 - Internal TypeScript `Teleno*` types and bridge names.
-- Existing storage/app support paths.
-- Electron `appId` and packaged app bundle name.
-- Release asset names and GitHub repository names.
+- Bundled native resource folder name `Resources/teleno`.
+- Existing user data is copied forward, not deleted or moved.
+- The original `pgarciagon/teleno` repository remains available as the source history and compatibility reference.
 
-These unchanged areas should be handled later only if we decide to do a full package migration.
+These unchanged areas are intentional compatibility boundaries. They should only be renamed if there is a specific migration benefit and a tested compatibility path.
 
 ## Current Branding Asset Map
 
@@ -238,19 +255,19 @@ Do not flatten `node/teleno-node/` right now.
 
 ### Phase 1: Current Rebrand
 
-Status: visual/product rebrand implemented; pending commit and release packaging.
+Status: visual/product rebrand and Electron package identity implemented; release packaging still needs final DMG validation.
 
 - Koinos One public branding has been applied in the app header, README, package description, translation strings, and smoke test expectations.
 - Official Koinos-based SVG/PNG assets have replaced the previous custom Teleno mark for the public brand surface.
 - Teleno Node binary/source naming has been kept.
-- Current repo and branch strategy have been kept.
-- App storage paths and app bundle identity have not been changed yet.
-- Release packaging has not yet been renamed to a final Koinos One bundle identity.
+- The public working repository is `pgarciagon/koinos-one`.
+- Electron app storage now uses the Koinos One support path with one-time copy-forward migration from the legacy Teleno support path.
+- Release packaging now uses the Koinos One bundle identity and artifact naming.
 
 ### Phase 2: Mac Beta Packaging
 
-- Decide whether the first beta DMG still uses the existing Electron package identity internally or performs the optional full app identity migration first.
-- Produce unsigned and signed/notarized Mac DMG builds.
+- Build and verify an unsigned local Mac DMG with the Koinos One bundle identity.
+- Produce the signed/notarized Mac DMG for beta distribution.
 - Verify installed app can launch from `/Applications`.
 - Verify public bootstrap restore from a clean user profile.
 - Verify node start/stop, backup restore, and producer setup from the GUI.
@@ -269,24 +286,27 @@ Status: visual/product rebrand implemented; pending commit and release packaging
 - Publish GUI DMG, CLI tarballs, Docker images, and checksums from CI.
 - Keep redirects and compatibility docs for the old repository location.
 
-### Phase 5: Optional Full App Identity Migration
+### Phase 5: Completed App Identity Migration
 
-Only after beta validation:
+Completed:
 
-- Rename Electron `productName` from Teleno to Koinos One.
-- Decide whether to change `appId`.
-- Migrate user data paths carefully.
-- Keep compatibility with existing Teleno user data.
-- Update package verification scripts and app bundle tests.
+- Renamed Electron `productName` from Teleno to Koinos One.
+- Changed Electron `appId` to `io.koinos.one.desktop`.
+- Added copy-forward user data migration from the legacy Teleno support directory to the Koinos One support directory.
+- Kept compatibility with existing Teleno user data by leaving the original directory untouched.
+- Updated package verification scripts and app bundle tests for `Koinos One.app`.
+
+Still open:
+
 - Decide whether existing developer shortcuts should stay named with `teleno` or gain new `koinos-one` aliases.
 
 ## Explicit Non-Goals For Now
 
 - Do not rename `teleno_node`.
 - Do not flatten `node/teleno-node/`.
-- Do not migrate GitHub repositories yet.
+- Do not move the repository under `koinos/` until the account permissions and official release process are confirmed.
 - Do not change mainnet producer data or prodnet user data.
-- Do not force a new app support directory until a migration plan exists.
+- Do not delete legacy Teleno app support data during migration.
 
 ## Recommended Public Copy
 

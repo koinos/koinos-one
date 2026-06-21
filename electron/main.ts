@@ -231,11 +231,33 @@ import { createNativeRuntimeService } from './lib/native-runtime-service'
 import { createWalletService } from './lib/wallet-service'
 import { createWorkspaceService } from './lib/workspace-service'
 
+const LEGACY_APP_NAME = 'Teleno'
+const CURRENT_APP_NAME = 'Koinos One'
 const isDev = !!process.env.VITE_DEV_SERVER_URL
-app.setName('Teleno')
+app.setName(CURRENT_APP_NAME)
 let appShutdownInProgress = false
 let appShutdownApproved = false
 let mainWindow: BrowserWindow | null = null
+
+function migrateLegacyUserDataPath(): void {
+  const appDataPath = app.getPath('appData')
+  const currentUserDataPath = app.getPath('userData')
+  const legacyUserDataPath = path.join(appDataPath, LEGACY_APP_NAME)
+
+  if (legacyUserDataPath === currentUserDataPath) return
+  if (!fs.existsSync(legacyUserDataPath) || fs.existsSync(currentUserDataPath)) return
+
+  try {
+    fs.mkdirSync(path.dirname(currentUserDataPath), { recursive: true })
+    fs.cpSync(legacyUserDataPath, currentUserDataPath, { recursive: true, force: false })
+    console.info(`[app] migrated user data from ${legacyUserDataPath} to ${currentUserDataPath}`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[app] failed to migrate user data from ${legacyUserDataPath} to ${currentUserDataPath}: ${message}`)
+  }
+}
+
+migrateLegacyUserDataPath()
 const telenoStorage = createTelenoStorage(app.getPath('userData'))
 
 const LOGS_FOLLOW_EVENT_CHANNEL = 'teleno:node:logs-follow:event'

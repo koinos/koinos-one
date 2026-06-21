@@ -14,7 +14,7 @@ const ext = isWindowsTarget ? '.exe' : '';
 function defaultPackagedAppDir() {
   if (isMacTarget) {
     const archDir = process.arch === 'arm64' ? 'mac-arm64' : 'mac';
-    return path.join(ROOT, 'release', archDir, 'Teleno.app');
+    return path.join(ROOT, 'release', archDir, 'Koinos One.app');
   }
   if (isWindowsTarget) {
     return path.join(ROOT, 'release', 'win-unpacked');
@@ -25,8 +25,8 @@ function defaultPackagedAppDir() {
 const APP_DIR = path.resolve(process.env.PACKAGED_APP_DIR || defaultPackagedAppDir());
 const RESOURCES_DIR = isMacTarget ? path.join(APP_DIR, 'Contents', 'Resources') : path.join(APP_DIR, 'resources');
 const APP_EXECUTABLE = isMacTarget
-  ? path.join(APP_DIR, 'Contents', 'MacOS', 'Teleno')
-  : path.join(APP_DIR, `Teleno${ext}`);
+  ? path.join(APP_DIR, 'Contents', 'MacOS', 'Koinos One')
+  : path.join(APP_DIR, `Koinos One${ext}`);
 
 const requiredFiles = [
   path.join(RESOURCES_DIR, 'app.asar'),
@@ -137,7 +137,7 @@ function requireTelenoNodeBackupCli(filePath) {
 }
 
 console.log('============================================================================');
-console.log('Verifying Teleno packaged app');
+console.log('Verifying Koinos One packaged app');
 console.log(`  App:       ${APP_DIR}`);
 console.log(`  Resources: ${RESOURCES_DIR}`);
 console.log(`  Target:    ${targetPlatform}`);
@@ -169,4 +169,4 @@ if (failures.length > 0) {
 
 const appSizeMb = (dirSizeBytes(APP_DIR) / (1024 * 1024)).toFixed(1);
 const resourceSizeMb = (dirSizeBytes(path.join(RESOURCES_DIR, 'teleno')) / (1024 * 1024)).toFixed(1);
-console.log(`Packaged app verification passed: ${requiredFiles.length} required files, app ${appSizeMb} MB, Teleno resources ${resourceSizeMb} MB.`);
+console.log(`Packaged app verification passed: ${requiredFiles.length} required files, app ${appSizeMb} MB, teleno resources ${resourceSizeMb} MB.`);
