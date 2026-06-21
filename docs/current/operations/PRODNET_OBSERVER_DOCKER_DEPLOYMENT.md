@@ -335,6 +335,10 @@ The next cost test should be a second observer deployment on a 2 vCPU / 4 GB RAM
 / 120 GB disk VPS using the same public restore process. Compare catch-up rate,
 steady-state CPU, memory, and peer stability before replacing VPS1.
 
+The current basedir size includes both the live RocksDB and the retained public
+backup object cache. The future low-disk restore idea is tracked in
+`../../backlog/backup-restore/PUBLIC_BOOTSTRAP_DISK_OPTIMIZATION_IDEA.md`.
+
 ## Security Notes
 
 - Keep JSON-RPC bound to host loopback with `-p 127.0.0.1:18080:18080`.
