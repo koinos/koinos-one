@@ -18,7 +18,7 @@ test('launches the Electron desktop shell', async () => {
     const page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
 
-    await expect(page.getByLabel('Teleno UX')).toBeVisible()
+    await expect(page.getByLabel('Koinos One')).toBeVisible()
     await expect(page.locator('#tab-settings')).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Explorer' })).toBeVisible()
   } finally {

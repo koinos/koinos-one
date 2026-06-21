@@ -1,15 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
-  <title id="title">Teleno dark icon</title>
-  <desc id="desc">Teleno app icon on a dark rounded square.</desc>
-  <defs>
-    <linearGradient id="bg" x1="120" y1="90" x2="880" y2="920" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#14283b"/>
-      <stop offset="1" stop-color="#06111c"/>
-    </linearGradient>
-  </defs>
-  <rect x="72" y="72" width="880" height="880" rx="116" fill="url(#bg)"/>
-  <g transform="translate(226 278)" fill="none" stroke-linecap="butt" stroke-linejoin="miter">
-    <path d="M 118 198 A 168 168 0 0 1 454 198" stroke="#c9d7e3" stroke-width="28"/>
-    <path d="M 32 410 L 286 154 L 540 410" stroke="#ffffff" stroke-width="48"/>
+  <title id="title">Koinos One dark icon</title>
+  <desc id="desc">Koinos One app icon using the official Koinos mark with a small one badge.</desc>
+  <rect x="72" y="72" width="880" height="880" rx="116" fill="#5d00b3"/>
+  <g transform="translate(80 80) scale(0.54)">
+    <circle cx="800" cy="800" r="750" fill="#5d00b3"/>
+    <path d="M1249 541.75L801.006 283L353 541.75V1059.25L801.006 1318M1249 541.75V1059.25L801.006 1318M1249 541.75L801.006 800.5M801.006 1318V800.5M801.006 800.5L354.242 542.461M612.638 691.704V909.285L801.006 1018.08L989.373 909.285V691.704L801.006 582.908L612.638 691.704Z" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="60"/>
   </g>
+  <circle cx="786" cy="786" r="112" fill="#ffffff" stroke="#5d00b3" stroke-width="20"/>
+  <text x="786" y="840" text-anchor="middle" fill="#5d00b3" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="170" font-weight="800">1</text>
 </svg>

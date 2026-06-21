@@ -1,8 +1,8 @@
 {
-  "name": "teleno",
+  "name": "koinos-one",
   "version": "0.10.1",
   "private": true,
-  "description": "Teleno desktop app for the monolithic Koinos node (Electron + React + TypeScript)",
+  "description": "Koinos One desktop app powered by the Teleno native Koinos node (Electron + React + TypeScript)",
   "author": "pgarciagon",
   "main": "dist-electron/main.js",
   "scripts": {

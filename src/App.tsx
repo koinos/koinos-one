@@ -107,7 +107,7 @@ import type { AutoRestartState, IndexerProgress, P2pRestartState } from './app/c
 import { KOINOS_NETWORK_OPTIONS, nativeTokenSymbolForNetwork, publicRpcUrlsForNetwork, type KoinosNetworkId } from './app/network'
 import pkg from '../package.json'
 
-const telenoLogoUrl = new URL('../assets/newbranding/logo.png', import.meta.url).href
+const appLogoUrl = new URL('../assets/newbranding/logo.svg', import.meta.url).href
 
 type NativeBackupSelectionSource = 'local' | 'remote' | 'public' | 'auto'
 
@@ -4861,7 +4861,7 @@ export function App() {
       <div className="app-chrome">
         <nav className="tabs-bar" aria-label={t('sections.aria')}>
           <div className="app-brand" aria-label={t('app.name')}>
-            <img className="app-brand-logo" src={telenoLogoUrl} alt="" aria-hidden="true" />
+            <img className="app-brand-logo" src={appLogoUrl} alt="" aria-hidden="true" />
             {(activeTab === 'settings' ? draftNodeNetwork : nodeSettings.network) === 'testnet' && (
               <span className="app-brand-network">(Testnet)</span>
             )}

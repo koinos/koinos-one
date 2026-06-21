@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="assets/newbranding/logo.png" alt="Teleno logo" width="520" />
+  <img src="assets/newbranding/logo.svg" alt="Koinos One logo" width="520" />
 </p>
 
-# Teleno
+# Koinos One
 
-Teleno is a desktop app for operating a monolithic **Koinos** node implementation. It includes Teleno UX, the dashboard, block explorer, wallet, producer tools, local configuration, and lifecycle management for the single `teleno_node` runtime.
+Koinos One is the Koinos Foundation desktop app for running, restoring, backing up, and producing with a native **Koinos** node. It is powered by the Teleno native node engine and manages the single `teleno_node` runtime.
 
 ## Stack
 
-- **Desktop app:** Teleno, built with Electron + React + TypeScript
+- **Desktop app:** Koinos One, built with Electron + React + TypeScript
 - **Node runtime:** monolithic `teleno_node`
 - **Runtime model:** one local process with in-process Koinos components
 - **Platforms:** macOS first, Windows planned
@@ -18,7 +18,7 @@ Teleno is a desktop app for operating a monolithic **Koinos** node implementatio
 The active node code and UX live in this repository. Legacy Koinos material remains only where it is needed for protocol compatibility evidence, migrations, or upstream references.
 
 ```text
-assets/                 Teleno branding and UI assets
+assets/                 Koinos One branding and UI assets
 config/                 Ready-to-use node config templates
 docs/operations/        Operator docs, including command-line startup
 docs/roadmap/monolith/  Current monolith plans, reports, and validation history
@@ -58,7 +58,7 @@ The previous `koinos_node` binary name is no longer the active runtime name. Use
 
 ## Running The Node
 
-Teleno UX manages one local `teleno_node` process. The Node tab now reports the resolved runtime version, BASEDIR, binary path, and log path together so operators can confirm exactly what is running.
+Koinos One manages one local `teleno_node` process. The Node tab reports the resolved runtime version, BASEDIR, binary path, and log path together so operators can confirm exactly what is running.
 
 For direct command-line startup on public testnet or mainnet, see:
 
@@ -83,7 +83,7 @@ Observer runs should explicitly disable block production:
   --disable block_producer grpc
 ```
 
-Legacy microservice build/start scripts are not part of the active Teleno command surface. Legacy-facing scripts are retained only when they prove protocol compatibility, migration safety, or parity with existing Koinos clients and peers.
+Legacy microservice build/start scripts are not part of the active Koinos One command surface. Legacy-facing scripts are retained only when they prove protocol compatibility, migration safety, or parity with existing Koinos clients and peers.
 
 ## Building For Distribution
 
