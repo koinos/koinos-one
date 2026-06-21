@@ -1,14 +1,14 @@
 # Prodnet Public Bootstrap Publication Plan
 
-- Date: 2026-06-20
-- Scope: future prodnet read-only public bootstrap publication and restore
-- Status: planning only; no prodnet data, wallet, producer key, or publication path has been touched
+- Date: 2026-06-21
+- Scope: prodnet read-only public bootstrap publication and restore
+- Status: published and operator-validated for the current ProdNet release track; see `PRODNET_PUBLIC_BOOTSTRAP_VALIDATION_20260621.md`
 
 ## Goal
 
 Provide the same first-install experience that now exists for testnet: a node operator can restore a recent prodnet observer database from a public read-only HTTPS repository without SSH credentials, then start the node as an observer before deciding whether to enable any producer workflow.
 
-Prodnet bootstrap publication must be treated as a release operation, not as an ad hoc backup copy. The published snapshot becomes a trust anchor for new operators, so it needs a signed metadata chain, deterministic promotion steps, validation evidence, rollback, and explicit human approval before it is made visible as `latest`.
+Prodnet bootstrap publication must be treated as a release operation, not as an ad hoc backup copy. The published snapshot becomes a trust anchor for new operators, so it needs deterministic promotion steps, validation evidence, rollback, and explicit human approval before it is made visible as `latest`.
 
 ## Non-Negotiable Safety Rules
 
@@ -49,6 +49,32 @@ https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap
 
 The important constraint is that testnet and prodnet must not share a `latest.json`, snapshot directory, signing key, or route. The prodnet route root is `https://seed.koinosfoundation.org/backups`; the `prodnet/teleno-bootstrap` suffix keeps the Teleno public-bootstrap repository distinct from any other backup content served by that host.
 
+## Published ProdNet State
+
+The current public ProdNet route is live and listable:
+
+```text
+https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap
+```
+
+Current latest snapshot:
+
+```text
+20260620T201059Z-ms-1781986259826-files-452
+```
+
+`teleno_node --backup-public-list --backup-json` returned this snapshot on 2026-06-21 with:
+
+- network `mainnet`;
+- node ID `public-bootstrap-mainnet`;
+- storage layout `unified`;
+- `455` files/objects;
+- `26,959,549,655` object bytes;
+- minimum restore free space `27,093,767,383` bytes;
+- recommended restore free space `37,831,185,623` bytes.
+
+The operator also confirmed on 2026-06-21 that the ProdNet node has been validated in production and production tests passed. The acceptance record is `PRODNET_PUBLIC_BOOTSTRAP_VALIDATION_20260621.md`.
+
 ## Snapshot Source Requirements
 
 Use an observer-only prodnet source basedir, not a producer basedir.
@@ -75,7 +101,7 @@ The audit must return no publishable secrets. Any positive result must be review
 
 ## Signing Plan
 
-Create a prodnet Ed25519 public-bootstrap signing key only after the workflow is approved:
+Create or document the prodnet Ed25519 public-bootstrap signing key as part of formal release hardening:
 
 ```bash
 mkdir -p ~/.teleno/public-bootstrap-signing
@@ -87,7 +113,7 @@ openssl pkey -in ~/.teleno/public-bootstrap-signing/prodnet-ed25519.pem \
   -out config/public-bootstrap/prodnet-ed25519.pub
 ```
 
-The private key remains outside the repo. The public key is reviewed and committed only after the first prodnet dry-run validates the full signed payload.
+The private key remains outside the repo. The public key should be reviewed and committed only after the signed payload and operational ownership are confirmed.
 
 Signed payload coverage must include:
 
@@ -146,7 +172,7 @@ Rollback is a single atomic replace of `latest.json` back to the previous signed
 
 ## Teleno UX Exposure
 
-UX should keep prodnet public restore disabled until the first signed prodnet snapshot has passed the gates above.
+UX can expose prodnet public restore once the product decision is made, because the ProdNet route is now published and operator-validated. It must still default restored nodes to observer mode.
 
 When enabled, UX must show:
 
@@ -161,7 +187,6 @@ When enabled, UX must show:
 
 ## Open Decisions
 
-- Final server filesystem path behind `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap`.
 - Prodnet signing key creation date and reviewer.
 - Minimum freshness threshold for published prodnet snapshots.
 - Retention policy for old prodnet public bootstrap snapshots.
@@ -169,4 +194,4 @@ When enabled, UX must show:
 
 ## Current Status
 
-Blocked pending explicit prodnet publication approval. Testnet implementation, signed metadata verification, public HTTPS restore, and Linux smoke validation are complete; prodnet remains a planned release workflow only.
+ProdNet public bootstrap is no longer blocked as a working path. The public route is published, `--backup-public-list` sees the latest mainnet snapshot over HTTPS, and the operator has confirmed production-node validation and tests. Remaining items are release-governance hardening tasks: signing-key evidence, freshness/retention policy, optional two-person promotion approval, and attaching detailed production test transcripts if needed for a formal release audit.

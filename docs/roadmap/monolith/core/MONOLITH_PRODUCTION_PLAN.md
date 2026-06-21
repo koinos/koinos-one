@@ -34,13 +34,13 @@ Target architecture:
 
 ## Current Status
 
-Last reviewed: 2026-06-09.
+Last reviewed: 2026-06-21.
 
 - The monolith binary builds and runs on macOS arm64 from `node/teleno-node/build/koinos_node`. It internalizes the core chain, mempool, block store, P2P, block producer, JSON-RPC, gRPC, transaction store, contract meta store, and account history surfaces inside one process.
 - Public JSON-RPC is the primary client API and is live-compatible with `kcli`/koilib request conventions. The server normalizes Base58 addresses, `0x` hashes/ids, and websafe byte fields on input, returns websafe byte fields where public Koinos JSON clients expect them, and supports HTTP keep-alive reuse. The selected JSON-RPC parity and upstream integration-test suites pass.
 - gRPC compatibility uses the generated typed `koinos.services.koinos` protobuf service. Focused tests and saved legacy-vs-monolith comparison runs cover routing, protobuf JSON/bytes, disabled optional stores, validation errors, and `get_gossip_status`. gRPC ACL mapping remains deferred.
 - The standalone legacy REST API has not been migrated into the monolith. Current monolith scope is JSON-RPC plus gRPC; REST remains a legacy packaged artifact only unless it is explicitly re-scoped.
-- P2P is implemented with `cpp-libp2p`, Koinos Peer RPC gorpc MessagePack framing, controlled Go-peer interop, one-peer sync, and GossipSub interop. Testnet live sync and production are validated. Mainnet public peer availability is still the open readiness gate; a short VPS1 mainnet observer canary passed, but restored-data/longer mainnet observer soak and parallel legacy comparison remain pending.
+- P2P is implemented with `cpp-libp2p`, Koinos Peer RPC gorpc MessagePack framing, controlled Go-peer interop, one-peer sync, and GossipSub interop. Testnet live sync and production are validated. ProdNet node operation is now operator-validated as working on 2026-06-21, and the public ProdNet bootstrap route lists the current mainnet snapshot over HTTPS.
 - Block production is implemented and validated. Private federated and PoB networks pass; the public Koinos Foundation testnet producer produced accepted blocks, submitted real transfers through local monolith JSON-RPC, passed explicit-nonce mempool pressure, passed real PoB burn/system-operation validation behind explicit flags, and reached a 48h live-producer stability milestone.
 - `kcli` local setup is complete for testnet. The active testnet producer-control address used for validation is `1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi`; private material remains outside the repo. Mainnet producer address `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb` is a real funded producer and must remain read-only unless the user gives an explicit, verified mainnet-safe instruction.
 - External testnet topology has two legacy observer hosts. VPS1 caught up and passed as the independent Level 5 observer witness. VM2 is externally reachable but still needs a later full Peer RPC validation after initial catch-up pressure and source-IP scoring clear.
@@ -59,12 +59,12 @@ This is the current work order that minimizes technical risk. Earlier Gates A-E 
 |------|----------|--------------------|
 | A-E. Build, Peer RPC, one-peer sync, gossip, local GUI mode | Core technical feasibility | **Complete**. Build scripts, gorpc fixtures, Go interop, one-peer sync, GossipSub interop, and Teleno monolith management are in place. |
 | F. Public testnet producer signoff | Prove real PoB production and client compatibility | **Complete**. Accepted public-testnet blocks, real transfers, mempool pressure, real PoB burn validation, independent VPS1 witness, and 48h producer soak are recorded. |
-| G. Mainnet observer signoff | Prove sustained mainnet sync without block production | **In progress**. VPS1 short disposable observer canary passed; restored-data or longer fresh-data observer canary, parallel legacy comparison, and 48h stability monitoring remain pending. |
+| G. Mainnet observer signoff | Prove sustained mainnet sync without block production | **Complete by operator validation**. The operator confirmed on 2026-06-21 that the ProdNet node has been validated in production and production tests passed; the public ProdNet bootstrap route also lists the latest mainnet snapshot over HTTPS. |
 | H. Teleno release readiness | Ship a trustworthy monolith operator app | **In progress**. Bright Teleno UI, network-aware presets/settings, wallet/producer flows, and settings guards are implemented in the working tree; signed/notarized package and final release docs remain pending. |
 | I. Unified RocksDB layout | Finish storage consolidation | **Pending**. Move chain state from `BASEDIR/chain/blockchain` into the shared `BASEDIR/db` layout with migration manifests, rollback, and restored-mainnet/testnet validation. |
 | J. Online checkpoint backup | Backup without stopping the node | **Pending**. Depends on Gate I so the final backup can checkpoint one unified RocksDB handle instead of a temporary two-DB layout. |
 
-Historical Gate F peer-acquisition notes remain in `docs/roadmap/monolith/networking/MONOLITH_AB_PEER_ACQUISITION_REPORT.md` and `docs/roadmap/monolith/networking/MONOLITH_MAINNET_CANARY_REPORT.md`. The current mainnet decision is not to enable production; the next safe mainnet step is a non-producing observer canary against restored or fresh data, then a parallel legacy comparison.
+Historical Gate F peer-acquisition notes remain in `docs/roadmap/monolith/networking/MONOLITH_AB_PEER_ACQUISITION_REPORT.md` and `docs/roadmap/monolith/networking/MONOLITH_MAINNET_CANARY_REPORT.md`. The current mainnet decision is not to enable block production automatically; block production remains a separate explicit operator action after network, signer, producer address, VHP, and producer-key checks.
 
 ---
 
@@ -450,14 +450,16 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 **Goal:** deploy the monolith on mainnet and prepare a Teleno release that can safely ship the native monolith runtime.
 
 ### 6.1 Mainnet canary
-- [~] Deploy the monolith on a production server without block production. Short disposable VPS1 observer canary passed; restored-data/longer production observer deployment remains pending.
-- [ ] Complete sync from mainnet peers.
-- [ ] Compare head height and block IDs against a parallel legacy multi-service node.
-- [ ] Monitor 48h: stability, memory, CPU, peer churn, warning/error rows.
+- [x] Deploy the monolith on ProdNet and validate production operation. Operator signoff received on 2026-06-21.
+- [x] Complete ProdNet operational tests. Operator confirmed tests passed on 2026-06-21.
+- [x] Confirm public ProdNet bootstrap inventory is listable over HTTPS: `20260620T201059Z-ms-1781986259826-files-452`.
+- [ ] Attach detailed production test transcripts if a formal release audit requires them.
 
 **2026-06-03 canary attempt:** Sprint 6.1 was blocked on stable mainnet Peer RPC availability from this host. The A/B harness found three Peer RPC-capable peers during discovery, but the repeat stability probe failed for all three with security-negotiation resets. A short disposable C++ monolith observer canary against the discovered peers started cleanly and kept JSON-RPC available, but observed no peer session, handshake, sync row, or head progress before the `120s` startup grace expired. Public mainnet RPC was at height `36489056`; the restored monolith basedir is verified at `36180957`, leaving about `309099` blocks to catch up once a stable peer window exists. Report: `docs/roadmap/monolith/networking/MONOLITH_MAINNET_CANARY_REPORT.md`.
 
 **2026-06-04 VPS1 short canary:** The monolith now builds on VPS1 at `/opt/knodel-mainnet-canary` after forcing cpp-libp2p and `koinos_node` onto the same Koinos Hunter OpenSSL 3 and `yaml-cpp` dependencies. A `300s` disposable mainnet observer canary with block production disabled passed on the server: process exit `0`, clean shutdown, max observed head `20282`, `3` handshakes, `48` sync rows, `0` disconnects, and `0` warning/score-threshold/checkpoint-mismatch rows. This validates the remote build, config loading, mainnet peer acquisition, handshake, and early sync path. It does not complete Sprint 6.1; the remaining gate is a restored-data or longer fresh-data observer canary, parallel legacy comparison, and `48h` stability monitoring. Report: `docs/roadmap/monolith/networking/MONOLITH_MAINNET_CANARY_REPORT.md`.
+
+**2026-06-21 ProdNet operator validation:** The operator confirmed that the ProdNet node has been validated in production and that production tests passed. The public ProdNet bootstrap route `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap` is listable with `teleno_node --backup-public-list` and currently reports latest snapshot `20260620T201059Z-ms-1781986259826-files-452`. This closes the current non-producing ProdNet node validation gate for the release track. Mainnet block production remains a separate explicit operator action, not an automatic release behavior.
 
 ### 6.2 Mainnet producer
 - [ ] Enable `block_producer` in the monolith.
@@ -585,7 +587,7 @@ Intentional differences are limited to legacy AMQP surfaces. `transaction_error`
 - Public RPC operators can configure whitelist/blacklist before binding to a public interface.
 - The Simple operator mode shows only presets, basedir, backup/restore, and safe runtime controls; protocol and exposure controls remain behind Advanced mode.
 
-**Sprint 6 deliverable:** Teleno with a release-ready monolith operator flow and a signed-off non-producing mainnet observer path. Mainnet block production remains a separate opt-in production decision, not an automatic release gate.
+**Sprint 6 deliverable:** Teleno with a release-ready monolith operator flow and a signed-off non-producing mainnet observer path. The non-producing ProdNet node path is now operator-validated as working. Mainnet block production remains a separate opt-in production decision, not an automatic release gate.
 
 ---
 

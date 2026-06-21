@@ -1,8 +1,8 @@
 # Public Bootstrap Restore Remaining Work Plan
 
-- Date: 2026-06-20
-- Scope: remaining work after the first Mac CLI/admin/UX testnet implementation
-- Status: CLI implementation, admin API, Teleno UX integration, promotion tooling, sanitized signed testnet publication, real HTTPS restore validation, pinned testnet verification key, signature-required HTTPS validation, richer public metadata, longer Linux observer acceptance, and the prodnet publication plan are complete; prodnet publication remains blocked pending explicit approval
+- Date: 2026-06-21
+- Scope: remaining work after Mac CLI/admin/UX testnet implementation and ProdNet operator validation
+- Status: CLI implementation, admin API, Teleno UX integration, promotion tooling, sanitized signed testnet publication, real HTTPS restore validation, pinned testnet verification key, signature-required HTTPS validation, richer public metadata, longer Linux observer acceptance, and ProdNet public bootstrap publication are complete; ProdNet node operation is operator-validated
 
 ## Baseline
 
@@ -369,14 +369,19 @@ Completed for testnet:
 
 Prodnet planning is now captured in `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`.
 
-Still required before prodnet can be enabled:
+Completed for ProdNet:
 
-- explicit approval for a prodnet publication workflow;
-- create and pin a separate prodnet verification key only after approval;
-- publish and validate a signed prodnet observer snapshot in a guided, non-mutating flow;
-- complete the prodnet validation gates before moving any prodnet `latest.json`.
+- public route published at `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap`;
+- latest snapshot `20260620T201059Z-ms-1781986259826-files-452` is listable with `teleno_node --backup-public-list`;
+- operator confirmed on 2026-06-21 that the ProdNet node has been validated in production and production tests passed;
+- acceptance record added in `PRODNET_PUBLIC_BOOTSTRAP_VALIDATION_20260621.md`.
 
-Prodnet public bootstrap remains blocked until the prodnet signing/publication process is explicitly approved.
+Still useful for formal release hardening:
+
+- attach detailed production test transcripts if a release audit requires them;
+- document prodnet signing-key creation date and reviewer;
+- define freshness and retention policy for published prodnet snapshots;
+- decide whether future prodnet `latest.json` promotions require two-person approval.
 
 ## Tests
 
@@ -421,4 +426,4 @@ Manual acceptance:
 
 ## Immediate Next Step
 
-No further testnet implementation work remains for this path. The next decision is whether to approve the gated prodnet publication workflow in `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`.
+No further testnet or basic ProdNet implementation work remains for this path. The next work is formal release governance: signing evidence, retention policy, promotion approval policy, and attaching detailed ProdNet test transcripts if needed.

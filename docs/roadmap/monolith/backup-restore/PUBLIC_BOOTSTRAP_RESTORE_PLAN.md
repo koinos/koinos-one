@@ -1,19 +1,19 @@
 # Public Bootstrap Restore Implementation
 
-- Date: 2026-06-20
-- Scope: Mac `teleno_node` CLI, local admin API, and Teleno UX, testnet only
-- Status: CLI/admin API/UX integration completed; sanitized signed testnet public snapshot promoted and validated end-to-end over HTTPS with signature enforcement
+- Date: 2026-06-21
+- Scope: Mac `teleno_node` CLI, local admin API, Teleno UX, testnet public bootstrap, and ProdNet public bootstrap
+- Status: CLI/admin API/UX integration completed; testnet signed public snapshot validated end-to-end; ProdNet public bootstrap route is published, listable, and operator-validated
 
 ## Goal
 
-Let a first-time Teleno node operator restore a testnet database from a public, read-only backup repository without entering an SSH user, SSH key, or password.
+Let a first-time Teleno node operator restore a testnet or ProdNet database from a public, read-only backup repository without entering an SSH user, SSH key, or password.
 
 This is intentionally separate from authenticated remote backup creation:
 
 - `backup.remote` remains the operator-owned SFTP upload target for creating private remote backups.
 - `backup.public-restore` is the read-only bootstrap source used by new installations.
 
-The current implementation covers the Mac CLI testnet flow, local backup admin API orchestration, Teleno UX restore/list integration, and Ed25519 signed-manifest verification for the published testnet bootstrap snapshot. Prodnet publication remains follow-up work and requires a separate signed production snapshot plus a guided operator validation plan.
+The current implementation covers the Mac CLI flow, local backup admin API orchestration, Teleno UX restore/list integration, and Ed25519 signed-manifest verification for the published testnet bootstrap snapshot. ProdNet public bootstrap is now published and operator-validated for the current release track; the detailed acceptance record is `PRODNET_PUBLIC_BOOTSTRAP_VALIDATION_20260621.md`.
 
 ## Server State
 
@@ -37,6 +37,12 @@ Public HTTPS base URL:
 https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap
 ```
 
+ProdNet public HTTPS base URL:
+
+```text
+https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap
+```
+
 Server validation completed:
 
 - `GET /backups/testnet/teleno-bootstrap/README.txt` returns `200`.
@@ -47,6 +53,12 @@ Published public snapshot:
 
 ```text
 20260617T215046Z-ms-1781733046440-files-72
+```
+
+Published ProdNet public snapshot:
+
+```text
+20260620T201059Z-ms-1781986259826-files-452
 ```
 
 Published metadata:
@@ -413,24 +425,26 @@ Real public testnet validation:
   - SIGINT shutdown completed cleanly.
 - Admin API public restore routes are covered by `koinos_backup_admin_server_test`.
 - Teleno UX exposes public bootstrap snapshots separately from local and private SFTP backups in Node > Backups.
+- ProdNet public bootstrap metadata listing passed on 2026-06-21 against `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap`.
+- The operator confirmed on 2026-06-21 that the ProdNet node has been validated in production and production tests passed.
 
 ## Current Limitations
 
-- The current signed publication is testnet-only.
+- The current documented signed-publication evidence is testnet-focused. ProdNet is published and operator-validated; formal release hardening should attach signing-key/reviewer evidence when available.
 - The private signing key is intentionally outside the repo at `~/.teleno/public-bootstrap-signing/testnet-ed25519.pem` on the publishing Mac; only the public verification key is committed.
-- Prodnet publication is intentionally not enabled until a separate prodnet signing/publication process and restore validation plan are completed.
+- ProdNet restore should still start as an observer. Mainnet block production remains an explicit operator action and must not be enabled automatically by restore or first-run setup.
 
 ## Remaining Work
 
 The detailed remaining implementation plan is tracked in `PUBLIC_BOOTSTRAP_RESTORE_REMAINING_WORK_PLAN.md`.
 
-There is no remaining testnet implementation work for the signed public bootstrap restore path. Prodnet public bootstrap remains disabled pending explicit approval for the gated publication process in `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`.
+There is no remaining testnet implementation work for the signed public bootstrap restore path. ProdNet public bootstrap is now marked working for the current release track; remaining ProdNet items are release-governance hardening tasks tracked in `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`.
 
 ## Acceptance Criteria
 
 - No SSH user, key, password, or known-hosts file is required.
 - The CLI fails before large downloads when disk space is insufficient.
 - Hash mismatch aborts the restore.
-- The restored node starts as a testnet observer first.
+- The restored node starts as an observer first.
 - Block production remains disabled after restore.
 - The existing private SFTP backup create/upload path is unchanged.

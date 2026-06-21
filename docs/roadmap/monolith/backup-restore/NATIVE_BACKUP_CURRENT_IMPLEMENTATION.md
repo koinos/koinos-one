@@ -263,7 +263,7 @@ Current UX behavior:
 - Restore activation requires an explicit UX confirmation that names the backup ID and BASEDIR, explains `.pre-restore` preservation, and states observer-first / block-production-disabled behavior.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.
 - The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.
-- The generated config writes `backup.public-restore` for testnet with `https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap` and keeps it disabled for mainnet/custom.
+- The generated config writes `backup.public-restore` for testnet with `https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap`. ProdNet public bootstrap is published and operator-validated at `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap`; custom networks remain disabled by default.
 - Remote SFTP settings are configured from UX fields for host, port, user, auth method, credential file paths, known hosts, strict host-key checking, remote directory, retention, and upload temp suffix.
 - Scheduler settings are configured from UX fields for enabled state, interval, startup catch-up, jitter, minimum head progress, and genesis-sync skipping.
 - Backup admin settings are configured from UX fields for enabled state, loopback listen address, optional token file, and job count.
@@ -299,10 +299,22 @@ The public bootstrap route currently configured for testnet is:
 https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap
 ```
 
+The public bootstrap route currently published for ProdNet is:
+
+```text
+https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap
+```
+
 This public path is separate from the private restricted-SFTP backup repository. A sanitized testnet snapshot is now published:
 
 ```text
 20260617T215046Z-ms-1781733046440-files-72
+```
+
+A ProdNet snapshot is now published and listable:
+
+```text
+20260620T201059Z-ms-1781986259826-files-452
 ```
 
 Public HTTPS validation completed:
@@ -316,8 +328,9 @@ Public HTTPS validation completed:
 - Teleno UX lists public bootstrap snapshots separately from local and private SFTP remote snapshots, and can verify/restore them through admin API or CLI fallback.
 - The currently published public testnet snapshot is signed with key ID `teleno-testnet-bootstrap-20260620`.
 - `--backup-public-list` over HTTPS passed with `signature-required: true` and the pinned `config/public-bootstrap/testnet-ed25519.pub` verification key.
-- Teleno UX-generated testnet native backup configs now require that public bootstrap signature when the bundled key exists; mainnet/custom public restore remains disabled.
+- Teleno UX-generated testnet native backup configs now require that public bootstrap signature when the bundled key exists; ProdNet public bootstrap is published and operator-validated, while custom-network public restore remains disabled by default.
 - Linux Ubuntu validation on node `192.168.178.188` passed for signed HTTPS list, full signed restore, and DB-open smoke. This required adding `/etc/ssl/certs/ca-certificates.crt` to the public restore HTTPS CA bundle search path.
+- ProdNet public metadata listing passed on 2026-06-21 over HTTPS against `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap`; the operator confirmed the ProdNet node has been validated in production and production tests passed. See `PRODNET_PUBLIC_BOOTSTRAP_VALIDATION_20260621.md`.
 
 The public bootstrap trust model is intentionally layered: HTTPS authenticates the bootstrap server and protects transport integrity, Ed25519 signatures authorize the published bootstrap metadata, and SHA-256 verifies every content-addressed object. The detailed rationale for keeping HTTPS required is documented in `PUBLIC_BOOTSTRAP_RESTORE_PLAN.md`.
 
