@@ -254,7 +254,7 @@ export function createWalletService(deps: WalletServiceDeps) {
     const activeAccount = activeWalletSummary(wallet, accounts)
     return {
       ok: true,
-      output: wallet ? `Wallet vault stored for ${wallet.address}` : 'No wallet stored in Teleno UX yet.',
+      output: wallet ? `Wallet vault stored for ${wallet.address}` : 'No wallet stored in Koinos One yet.',
       rpcUrl: deps.resolveWalletRpcUrl(input),
       walletFilePath: deps.telenoProducerWalletFilePath(network),
       walletExists: Boolean(wallet),
@@ -340,7 +340,7 @@ export function createWalletService(deps: WalletServiceDeps) {
     const accounts = deps.listWalletAccounts(network)
     return {
       ok: true,
-      output: wallet ? `Loaded ${accounts.length} wallet account(s).` : 'No wallet stored in Teleno UX yet.',
+      output: wallet ? `Loaded ${accounts.length} wallet account(s).` : 'No wallet stored in Koinos One yet.',
       walletAddress: wallet?.address || null,
       activeAccountId: wallet?.activeAccountId || null,
       accounts
@@ -429,7 +429,7 @@ export function createWalletService(deps: WalletServiceDeps) {
     const network = walletNetwork(input)
     try {
       const wallet = deps.loadTelenoWalletFile(network)
-      if (!wallet) throw new Error('No wallet stored in Teleno UX yet.')
+      if (!wallet) throw new Error('No wallet stored in Koinos One yet.')
       if (!deps.currentUnlockedProducerWallet(network)?.seedPhrase) {
         throw new Error('Unlock a seed-backed wallet first to derive another account.')
       }
@@ -460,7 +460,7 @@ export function createWalletService(deps: WalletServiceDeps) {
     const network = walletNetwork(input)
     try {
       const wallet = deps.loadTelenoWalletFile(network)
-      if (!wallet) throw new Error('No wallet stored in Teleno UX yet.')
+      if (!wallet) throw new Error('No wallet stored in Koinos One yet.')
       const privateKey = `${input?.privateKey || ''}`.trim()
       const password = `${input?.password || ''}`
       if (!privateKey) throw new Error('Private key is required.')
@@ -492,7 +492,7 @@ export function createWalletService(deps: WalletServiceDeps) {
     const network = walletNetwork(input)
     try {
       const wallet = deps.loadTelenoWalletFile(network)
-      if (!wallet) throw new Error('No wallet stored in Teleno UX yet.')
+      if (!wallet) throw new Error('No wallet stored in Koinos One yet.')
       const address = `${input?.address || ''}`.trim()
       if (!address) throw new Error('Address is required.')
       const account = deps.importWatchWalletAccount(address, input?.name, network)
@@ -580,7 +580,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       if (!walletFile) {
         return {
           ok: false,
-          output: 'No producer account stored in Teleno UX yet.',
+          output: 'No producer account stored in Koinos One yet.',
           walletAddress: null,
           accountId: null,
           accountName: null,
@@ -678,7 +678,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       if (!walletFile) {
         return {
           ok: false,
-          output: 'No producer account stored in Teleno UX yet.',
+          output: 'No producer account stored in Koinos One yet.',
           walletAddress: null,
           unlocked: false
         }
@@ -687,7 +687,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       const walletAddress = deps.closeTelenoWalletSession(network)
       return {
         ok: true,
-        output: `Producer account closed for this Teleno UX session: ${walletAddress || walletFile.address}.`,
+        output: `Producer account closed for this Koinos One session: ${walletAddress || walletFile.address}.`,
         walletAddress: walletAddress || walletFile.address,
         unlocked: false
       }
@@ -708,7 +708,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       if (!walletFile) {
         return {
           ok: false,
-          output: 'No producer account stored in Teleno UX yet.',
+          output: 'No producer account stored in Koinos One yet.',
           walletAddress: null,
           unlocked: false
         }
@@ -736,7 +736,7 @@ export function createWalletService(deps: WalletServiceDeps) {
 
       return {
         ok: true,
-        output: `Producer account unlocked for this Teleno UX session: ${wallet.address}.`,
+        output: `Producer account unlocked for this Koinos One session: ${wallet.address}.`,
         walletAddress: wallet.address,
         unlocked: true
       }
@@ -1135,7 +1135,7 @@ export function createWalletService(deps: WalletServiceDeps) {
     })
 
     const walletFile = deps.loadTelenoWalletFile(network)
-    if (!walletFile) return fail('No producer account stored in Teleno UX yet.')
+    if (!walletFile) return fail('No producer account stored in Koinos One yet.')
 
     const hasPercent = typeof input?.percent === 'number' && Number.isFinite(input.percent)
     const hasAmount = typeof input?.amount === 'number' && Number.isFinite(input.amount)
@@ -1147,7 +1147,7 @@ export function createWalletService(deps: WalletServiceDeps) {
       const wallet = deps.currentUnlockedProducerWallet(network) || (password ? deps.unlockTelenoWalletSession(password, network) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Producer tab.')
       const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
-      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Teleno UX session.')
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Koinos One session.')
       if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
       if (useProducerBurnAccount) {
         if (!producerProfile?.burnAccountId) return fail('No producer burn account is configured yet.')
@@ -1344,14 +1344,14 @@ export function createWalletService(deps: WalletServiceDeps) {
     if (!Number.isFinite(amount) || amount <= 0) return fail('Transfer amount must be greater than zero.')
 
     const walletFile = deps.loadTelenoWalletFile(network)
-    if (!walletFile) return fail('No producer account stored in Teleno UX yet.')
+    if (!walletFile) return fail('No producer account stored in Koinos One yet.')
 
     try {
       const password = `${input?.password || ''}`
       const wallet = deps.currentUnlockedProducerWallet(network) || (password ? deps.unlockTelenoWalletSession(password, network) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Wallet tab.')
       const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
-      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Teleno UX session.')
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Koinos One session.')
       if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
 
       const provider = new Provider([rpcUrl])
@@ -1476,14 +1476,14 @@ export function createWalletService(deps: WalletServiceDeps) {
     if (!Number.isFinite(amount) || amount <= 0) return fail('Transfer amount must be greater than zero.')
 
     const walletFile = deps.loadTelenoWalletFile(network)
-    if (!walletFile) return fail('No producer account stored in Teleno UX yet.')
+    if (!walletFile) return fail('No producer account stored in Koinos One yet.')
 
     try {
       const password = `${input?.password || ''}`
       const wallet = deps.currentUnlockedProducerWallet(network) || (password ? deps.unlockTelenoWalletSession(password, network) : null)
       if (!wallet) return fail('Producer account is locked. Unlock it in the Wallet tab.')
       const signingAccount = resolveUnlockedWalletAccount(wallet, requestedAccountId)
-      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Teleno UX session.')
+      if (!signingAccount) return fail('Selected wallet account is not unlocked in this Koinos One session.')
       if (!signingAccount.privateKey) return fail('Selected wallet account is watch-only and cannot sign transactions.')
 
       const provider = new Provider([rpcUrl])

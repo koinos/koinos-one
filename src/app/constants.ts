@@ -4,6 +4,7 @@ import { MAINNET_PUBLIC_RPC_URLS } from './network'
 export const SETTINGS_STORAGE_KEY = 'teleno.explorer.settings.v1'
 export const NODE_SETTINGS_STORAGE_KEY = 'teleno.node.settings.v1'
 export const NODE_NETWORK_BASEDIRS_STORAGE_KEY = 'teleno.node.network-basedirs.v1'
+export const FIRST_RUN_SETUP_STORAGE_KEY = 'teleno.first-run-setup.completed.v1'
 export const LANGUAGE_STORAGE_KEY = 'teleno.ui.language.v1'
 export const LEGACY_SETTINGS_STORAGE_KEY = 'koinosgui.explorer.settings.v1'
 export const LEGACY_NODE_SETTINGS_STORAGE_KEY = 'koinosgui.koinos-node.settings.v1'
@@ -59,7 +60,7 @@ export const DEFAULT_NODE_BACKUP_SETTINGS = {
   scheduleMinimumHeadProgress: 1,
   scheduleSkipIfSyncingFromGenesis: true,
   scheduleMaxConcurrentBackups: 1,
-  adminEnabled: false,
+  adminEnabled: true,
   adminListen: '127.0.0.1:18088',
   adminTokenFile: '',
   adminJobs: 1

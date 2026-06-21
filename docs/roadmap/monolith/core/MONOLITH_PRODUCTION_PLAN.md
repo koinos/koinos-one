@@ -209,7 +209,7 @@ Historical Gate F peer-acquisition notes remain in `docs/roadmap/monolith/networ
 
 **2026-05-30 external legacy observer VM2:** VM2 `46.62.155.105` was configured as a second non-producing legacy observer under `/opt/koinos-testnet-legacy-observer`. It uses the same live testnet genesis/descriptors, connects to the public seed, exposes public P2P on `28888/tcp`, and keeps JSON-RPC private on remote localhost `18080`. The persistent P2P identity is `/ip4/46.62.155.105/tcp/28888/p2p/QmXfSaJjSPSivJURC9RrCGKGmKtB3EA3AWEUksY2e189R3`. The stack started cleanly, all eight expected observer containers stayed running, and JSON-RPC advanced from height `23` to `6194`. TCP `28888` was reachable from the Mac, and the first full Peer RPC probe reached `GetChainID`; `GetHeadBlock` reset while the 2-vCPU host was under heavy initial catch-up, then later probes from this Mac hit security resets consistent with temporary source-IP scoring. Full Peer RPC signoff remains pending.
 
-Private-testnet signoff plan: `docs/roadmap/monolith/testnets/MONOLITH_PRIVATE_TESTNET_PLAN.md`.
+Private-testnet signoff plan: `docs/archive/implementation-plans/monolith/testnets/MONOLITH_PRIVATE_TESTNET_PLAN.md`.
 Latest private-testnet report: `docs/roadmap/monolith/testnets/MONOLITH_PRIVATE_TESTNET_REPORT.md`.
 Latest external-testnet report: `docs/roadmap/monolith/testnets/MONOLITH_EXTERNAL_TESTNET_REPORT.md`.
 
@@ -621,8 +621,8 @@ This track must be completed before the final online backup/restore design:
    - Archive checkpoint data with manifest, config, genesis, and descriptors.
    - Exclude wallets, secure storage, producer private keys, logs, and legacy microservice directories.
 
-The current native backup implementation is documented in `docs/roadmap/monolith/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`.
-The remaining work is tracked in `docs/roadmap/monolith/backup-restore/NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
+The current native backup implementation is documented in `docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`.
+The remaining work is tracked in `docs/backlog/backup-restore/NATIVE_BACKUP_REMAINING_WORK_PLAN.md`.
 
 ---
 

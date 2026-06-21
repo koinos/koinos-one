@@ -19,6 +19,17 @@ export type TelenoNodeBackupAuthMethod = 'private-key' | 'password-file' | 'env-
 
 export type TelenoNodeBackupSettingsInput = Partial<TelenoNodeBackupSettings>
 
+export type TelenoNodeBackupPasswordFileInput = {
+  network?: KoinosNetworkId
+  password?: string
+}
+
+export type TelenoNodeBackupPasswordFileResult = {
+  ok: boolean
+  output: string
+  filePath: string | null
+}
+
 export type TelenoNodeBackupSettings = {
   localEnabled: boolean
   localDirectory: string

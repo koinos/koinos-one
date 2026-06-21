@@ -215,16 +215,31 @@ foo
     expect(fs.existsSync(workspaceDir)).toBe(true)
   })
 
-  it('keeps public bootstrap restore disabled for mainnet generated native backup configs', () => {
+  it('enables the hardcoded prodnet public bootstrap in mainnet generated native backup configs', () => {
     const settings = nodeSettings({ network: 'mainnet' })
     const result = writeNativeBackupConfig(settings)
     const doc = parseDocument(fs.readFileSync(result.configPath, 'utf8'))
 
-    expect(doc.getIn(['backup', 'public-restore', 'enabled'])).toBe(false)
-    expect(doc.getIn(['backup', 'public-restore', 'base-url'])).toBe('')
+    expect(doc.getIn(['backup', 'public-restore', 'enabled'])).toBe(true)
+    expect(doc.getIn(['backup', 'public-restore', 'base-url'])).toBe('https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap')
     expect(doc.getIn(['backup', 'public-restore', 'network'])).toBe('mainnet')
     expect(doc.getIn(['backup', 'public-restore', 'signature-required'])).toBe(false)
     expect(doc.getIn(['backup', 'public-restore', 'signature-public-key-file'])).toBe('')
+  })
+
+  it('enables the local staging repository when remote backups are enabled', () => {
+    const settings = nodeSettings({
+      backup: backupSettings({
+        localEnabled: false,
+        remoteEnabled: true,
+        remoteDirectory: '/srv/teleno-backups/prodnet/teleno-dev/teleno-ux-mainnet'
+      })
+    })
+    const result = writeNativeBackupConfig(settings)
+    const doc = parseDocument(fs.readFileSync(result.configPath, 'utf8'))
+
+    expect(doc.getIn(['backup', 'local', 'enabled'])).toBe(true)
+    expect(doc.getIn(['backup', 'remote', 'enabled'])).toBe(true)
   })
 
   it('loads native backup settings from the generated config', async () => {
@@ -388,6 +403,75 @@ foo
     )
   })
 
+  it('reports a clear interrupted backup when running-node admin status disappears mid-operation', async () => {
+    vi.useFakeTimers()
+    try {
+      const root = makeTempDir()
+      const tokenFile = path.join(root, 'admin.token')
+      fs.writeFileSync(tokenFile, 'secret-token\n')
+      const settings = nodeSettings({
+        backup: backupSettings({
+          adminEnabled: true,
+          adminListen: '127.0.0.1:18088',
+          adminTokenFile: tokenFile,
+          remoteEnabled: true
+        })
+      })
+      const sender = { send: vi.fn() }
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url.endsWith('/admin/backup/create')) {
+          return {
+            ok: true,
+            text: async () => JSON.stringify({
+              ok: true,
+              status: {
+                operation_id: 'admin-op-interrupted',
+                state: 'running',
+                phase: 'checkpoint',
+                message: 'creating checkpoint'
+              }
+            })
+          }
+        }
+        throw new TypeError('fetch failed')
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const service = createBackupService({
+        normalizeNodeSettings: () => settings,
+        assertRepoReady: () => {},
+        telenoNodeStatus: async () => ({
+          services: [{ managedByTeleno: true, state: 'running', status: 'running' }]
+        }),
+        telenoNodeAction: async () => ({ ok: true, output: '' }),
+        runCommand: async () => ({ ok: true, code: 0, output: '' })
+      } as any)
+
+      const resultPromise = service.createLocalBackup(undefined, sender as any)
+      await vi.advanceTimersByTimeAsync(1000)
+      const result = await resultPromise
+
+      expect(result.ok).toBe(false)
+      expect(result.output).toContain('The running node stopped while the native backup was in progress.')
+      expect(result.output).toContain('The backup did not complete')
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:18088/admin/backup/status/admin-op-interrupted',
+        expect.objectContaining({ method: 'GET' })
+      )
+      expect(sender.send).toHaveBeenCalledWith(
+        'teleno:node:backup-progress:event',
+        expect.objectContaining({
+          action: 'create-backup',
+          phase: 'error',
+          progress: 70,
+          message: expect.stringContaining('The running node stopped while the native backup was in progress.')
+        })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('explains when running-node backup admin API is unreachable', async () => {
     const root = makeTempDir()
     const tokenFile = path.join(root, 'admin.token')
@@ -428,6 +512,44 @@ foo
         phase: 'error',
         progress: 0,
         message: expect.stringContaining('Backup admin API is not reachable')
+      })
+    )
+  })
+
+  it('does not launch an offline backup command while the node is already running without backup admin', async () => {
+    const settings = nodeSettings({
+      backup: backupSettings({
+        adminEnabled: false,
+        remoteEnabled: true,
+        remoteDirectory: '/srv/teleno-backups/prodnet/teleno-dev/teleno-ux-mainnet',
+        sshHost: 'seed.koinosfoundation.org',
+        sshUser: 'teleno_backup'
+      })
+    })
+    const sender = { send: vi.fn() }
+    const runCommand = vi.fn(async () => ({ ok: true, code: 0, output: '' }))
+
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      telenoNodeStatus: async () => ({
+        services: [{ managedByTeleno: true, state: 'running', status: 'running' }]
+      }),
+      telenoNodeAction: async () => ({ ok: true, output: '' }),
+      runCommand
+    } as any)
+
+    const result = await service.createLocalBackup(undefined, sender as any)
+
+    expect(result.ok).toBe(false)
+    expect(result.output).toContain('Backup Admin is disabled')
+    expect(runCommand).not.toHaveBeenCalled()
+    expect(sender.send).toHaveBeenCalledWith(
+      'teleno:node:backup-progress:event',
+      expect.objectContaining({
+        action: 'create-backup',
+        phase: 'error',
+        message: expect.stringContaining('Backup Admin is disabled')
       })
     )
   })
@@ -545,6 +667,50 @@ foo
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:18088/admin/backup/public/snapshots',
       expect.objectContaining({ method: 'GET' })
+    )
+  })
+
+  it('passes the hardcoded prodnet public bootstrap URL to the native CLI list command', async () => {
+    const settings = nodeSettings({
+      network: 'mainnet',
+      profiles: ['mainnet_observer']
+    })
+    const binaryPath = resolveMonolithBinaryPath()
+    const originalExistsSync = fs.existsSync
+    vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+      const value = typeof filePath === 'string' ? filePath : filePath.toString()
+      if (value === binaryPath) return true
+      return originalExistsSync(filePath)
+    })
+
+    const runCommand = vi.fn(async () => ({
+      ok: true,
+      code: 0,
+      output: JSON.stringify({
+        latest_backup_id: 'prodnet-public-1',
+        snapshot_count: 1,
+        snapshots: [{ backup_id: 'prodnet-public-1', latest: true, complete: true }]
+      })
+    }))
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      runCommand
+    } as any)
+
+    const result = await service.nativeBackupList({ ...settings, public: true } as any)
+
+    expect(result.ok).toBe(true)
+    expect(result.source).toBe('public')
+    expect(runCommand).toHaveBeenCalledWith(
+      binaryPath,
+      expect.arrayContaining([
+        '--backup-public-list',
+        '--backup-public-url',
+        'https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap',
+        '--backup-json'
+      ]),
+      expect.objectContaining({ timeoutMs: 120_000 })
     )
   })
 

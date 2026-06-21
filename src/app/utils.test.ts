@@ -16,9 +16,11 @@ import {
   normalizeDashboardRefreshSeconds,
   normalizeExternalHttpsUrl,
   normalizeExplorerRpcSource,
+  normalizeNodeBackupSettings,
   normalizeNodeBaseDirInput,
   parseAnsiTextSegments,
   parsePublicRpcUrlsInput,
+  remoteBackupDefaults,
   resolveNodeBaseDirForNetwork,
   resolveLocalNodeRpcUrl,
   resolveNodeFileDisplayPath,
@@ -231,6 +233,34 @@ describe('node path and state helpers', () => {
   it('uses network-specific default node profiles', () => {
     expect(defaultNodeProfilesForNetwork('mainnet')).toBe('mainnet_observer')
     expect(defaultNodeProfilesForNetwork('testnet')).toBe('testnet_observer')
+  })
+
+  it('uses network-specific remote backup defaults', () => {
+    expect(remoteBackupDefaults('testnet')).toMatchObject({
+      sshHost: 'testnet.koinosfoundation.org',
+      sshUser: 'teleno_backup',
+      remoteDirectory: '/srv/teleno-backups/testnet/teleno-dev/teleno-ux-testnet'
+    })
+    expect(remoteBackupDefaults('mainnet')).toMatchObject({
+      sshHost: 'seed.koinosfoundation.org',
+      sshUser: 'teleno_backup',
+      remoteDirectory: '/srv/teleno-backups/prodnet/teleno-dev/teleno-ux-mainnet'
+    })
+    expect(remoteBackupDefaults('custom')).toEqual({
+      sshHost: '',
+      sshUser: '',
+      remoteDirectory: '',
+      sshPrivateKeyFile: '',
+      sshKnownHostsFile: ''
+    })
+  })
+
+  it('enables backup admin when remote backups are enabled', () => {
+    expect(normalizeNodeBackupSettings({ remoteEnabled: true, localEnabled: false, adminEnabled: false })).toMatchObject({
+      remoteEnabled: true,
+      localEnabled: true,
+      adminEnabled: true
+    })
   })
 
   it('resolves relative managed file paths against repo path', () => {

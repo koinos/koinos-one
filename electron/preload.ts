@@ -25,12 +25,19 @@ function parseLaunchDefaults(): LaunchDefaults {
 contextBridge.exposeInMainWorld('teleno', {
   version: appVersion,
   launchDefaults: parseLaunchDefaults(),
+  app: {
+    quit: () => ipcRenderer.invoke('teleno:app:quit'),
+    firstRunSetupState: () => ipcRenderer.invoke('teleno:app:first-run-state'),
+    completeFirstRunSetup: (params?: unknown) => ipcRenderer.invoke('teleno:app:first-run-complete', params),
+    resetFirstRunSetup: () => ipcRenderer.invoke('teleno:app:first-run-reset')
+  },
   appConfig: {
     loadPublicRpcUrls: () => ipcRenderer.invoke('teleno:app-config:public-rpcs:load'),
     savePublicRpcUrls: (params?: unknown) => ipcRenderer.invoke('teleno:app-config:public-rpcs:save', params)
   },
   telenoNode: {
     defaults: () => ipcRenderer.invoke('teleno:node:defaults'),
+    saveBackupPasswordFile: (params?: unknown) => ipcRenderer.invoke('teleno:node:backup-password-file', params),
     cloneRepo: (settings?: unknown) => ipcRenderer.invoke('teleno:node:clone-repo', settings),
     fileRead: (params?: unknown) => ipcRenderer.invoke('teleno:node:file-read', params),
     fileWrite: (params?: unknown) => ipcRenderer.invoke('teleno:node:file-write', params),

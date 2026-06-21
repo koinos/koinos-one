@@ -2,6 +2,7 @@ import type { IpcMain, WebContents } from 'electron'
 
 import type {
   KoinosJsonRpcProxyInput,
+  TelenoNodeBackupPasswordFileInput,
   TelenoNodeBaseDirCopyInput,
   TelenoNodeComponentToggleInput,
   TelenoNodeComponentToggleResult,
@@ -50,8 +51,13 @@ import type {
 type Awaitable<T> = T | Promise<T>
 
 type IpcHandlerDeps = {
+  quitApp: () => void
+  firstRunSetupState: () => Awaitable<unknown>
+  completeFirstRunSetup: (input?: unknown) => Awaitable<unknown>
+  resetFirstRunSetup: () => Awaitable<unknown>
   loadPublicRpcConfig: () => Awaitable<unknown>
   savePublicRpcConfig: (input?: PublicRpcConfigInput) => Awaitable<unknown>
+  saveBackupPasswordFile: (input?: TelenoNodeBackupPasswordFileInput) => Awaitable<unknown>
   getNodeDefaults: () => Awaitable<unknown>
   cloneKoinosRepo: (input?: TelenoNodeSettingsInput) => Awaitable<unknown>
   readKoinosManagedFile: (input: TelenoNodeFileReadInput) => Awaitable<TelenoNodeFileReadResult>
@@ -132,8 +138,13 @@ function isManagedFileKind(kind: unknown): kind is TelenoNodeManagedFileKind {
 
 export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps): void {
   const handlers = [
+    'teleno:app:quit',
+    'teleno:app:first-run-state',
+    'teleno:app:first-run-complete',
+    'teleno:app:first-run-reset',
     'teleno:app-config:public-rpcs:load',
     'teleno:app-config:public-rpcs:save',
+    'teleno:node:backup-password-file',
     'teleno:node:defaults',
     'teleno:node:clone-repo',
     'teleno:node:file-read',
@@ -223,8 +234,20 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     }
   })
 
+  ipcMain.handle('teleno:app:quit', async () => {
+    deps.quitApp()
+    return { ok: true }
+  })
+
+  ipcMain.handle('teleno:app:first-run-state', async () => deps.firstRunSetupState())
+  ipcMain.handle('teleno:app:first-run-complete', async (_event, input?: unknown) => deps.completeFirstRunSetup(input))
+  ipcMain.handle('teleno:app:first-run-reset', async () => deps.resetFirstRunSetup())
+
   ipcMain.handle('teleno:app-config:public-rpcs:load', async () => deps.loadPublicRpcConfig())
   ipcMain.handle('teleno:app-config:public-rpcs:save', async (_event, input?: PublicRpcConfigInput) => deps.savePublicRpcConfig(input))
+  ipcMain.handle('teleno:node:backup-password-file', async (_event, input?: TelenoNodeBackupPasswordFileInput) =>
+    deps.saveBackupPasswordFile(input)
+  )
   ipcMain.handle('teleno:node:defaults', async () => deps.getNodeDefaults())
   ipcMain.handle('teleno:node:clone-repo', async (_event, input?: TelenoNodeSettingsInput) => deps.cloneKoinosRepo(input))
 

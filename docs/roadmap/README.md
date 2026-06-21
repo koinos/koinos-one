@@ -1,25 +1,46 @@
-# Roadmap Index
+# Historical Roadmap And Validation Reports
 
-Roadmap documents are grouped by topic so active work is easier to find.
+The active documentation entrypoint is now `../README.md`.
 
-## Monolith
+This directory keeps long-running roadmap records and validation reports that
+are still useful as historical release evidence. It is no longer the primary
+place for current implementation docs or backlog planning.
 
-- `monolith/core/MONOLITH_PRODUCTION_PLAN.md` — main monolith roadmap and source of truth.
-- `monolith/core/MONOLITHIC_NODE_ARCHITECTURE.md` — monolithic node architecture plan.
-- `monolith/core/MONOLITH_JSONRPC_PARITY_REPORT.md` — JSON-RPC parity report.
-- `monolith/networking/CPP_LIBP2P_INTEGRATION_STATUS.md` — cpp-libp2p integration status.
-- `monolith/networking/MONOLITH_GATE_EF_REPORT.md` — Gate E/F report.
-- `monolith/networking/MONOLITH_GATE_F_SOAK_REPORT.md` — Gate F soak report.
-- `monolith/networking/MONOLITH_AB_PEER_ACQUISITION_REPORT.md` — mainnet peer acquisition A/B report.
-- `monolith/testnets/MONOLITH_PRIVATE_TESTNET_PLAN.md` — private testnet validation plan.
-- `monolith/testnets/MONOLITH_PRIVATE_TESTNET_REPORT.md` — private testnet validation report.
-- `monolith/testnets/MONOLITH_EXTERNAL_TESTNET_REPORT.md` — external/shared testnet report.
-- `monolith/backup-restore/README.md` — native backup documentation index.
-- `monolith/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md` — current native backup implementation.
-- `monolith/backup-restore/NATIVE_BACKUP_REMAINING_WORK_PLAN.md` — remaining native backup work plan.
-- `monolith/backup-restore/NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md` — latest native libssh backup validation report.
-- `monolith/backup-restore/MONOLITH_BACKUP_RESTORE_REPORT.md` — historical monolith backup restore report.
+## Current Implementation
 
-## Operations
+- `../current/README.md` - current implementation index.
+- `../current/monolith/CURRENT_MONOLITH_STATUS.md` - detailed current status.
+- `../current/monolith/SERVICE_COVERAGE.md` - service coverage and known parity
+  limits.
+- `../current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md` - current
+  native backup implementation.
+- `../current/backup-restore/PUBLIC_BOOTSTRAP_RESTORE.md` - current public
+  bootstrap restore implementation.
 
-- `operations/POST_PACKAGING_SMOKE_TESTS_PLAN.md` — post-packaging smoke test plan.
+## Backlog
+
+- `../backlog/README.md` - missing work and new ideas.
+- `../backlog/backup-restore/` - remaining backup and bootstrap work.
+- `../backlog/producer/` - producer wallet and fleet ideas.
+- `../backlog/storage/` - unified RocksDB migration follow-up.
+
+## Legacy And Compatibility
+
+- `../legacy/README.md` - legacy boundary.
+- `../legacy/compatibility/README.md` - retained compatibility evidence map.
+
+## Archived Implementation Plans
+
+- `../archive/implementation-plans/README.md` - old implementation plans that
+  should not be treated as current work instructions.
+
+## Reports Retained Here
+
+- `monolith/core/MONOLITH_PRODUCTION_PLAN.md` - historical production roadmap and
+  long-running validation record.
+- `monolith/core/MONOLITH_JSONRPC_PARITY_REPORT.md` - JSON-RPC parity report.
+- `monolith/networking/` - networking, P2P, soak, and mainnet canary reports.
+- `monolith/testnets/` - private and external testnet validation reports.
+- `monolith/storage/` - unified RocksDB validation reports.
+- `monolith/backup-restore/` - backup and restore validation reports plus
+  compatibility stubs for moved current docs.

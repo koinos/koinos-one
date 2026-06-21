@@ -64,16 +64,30 @@ const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.teleno-blockchain-backup-cache'
 const NATIVE_BACKUP_DIR = '.teleno-native-backups'
 const PUBLIC_TESTNET_BOOTSTRAP_URL = 'https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap'
+const PUBLIC_MAINNET_BOOTSTRAP_URL = 'https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap'
 const PUBLIC_TESTNET_BOOTSTRAP_KEY_RELATIVE = path.join('public-bootstrap', 'testnet-ed25519.pub')
+const PUBLIC_MAINNET_BOOTSTRAP_KEY_RELATIVE = path.join('public-bootstrap', 'prodnet-ed25519.pub')
 
 function publicBootstrapUrlForNetwork(network: TelenoNodeSettings['network']): string {
-  return network === 'testnet' ? PUBLIC_TESTNET_BOOTSTRAP_URL : ''
+  if (network === 'testnet') return PUBLIC_TESTNET_BOOTSTRAP_URL
+  if (network === 'mainnet') return PUBLIC_MAINNET_BOOTSTRAP_URL
+  return ''
 }
 
 function publicBootstrapSignaturePublicKeyFileForNetwork(network: TelenoNodeSettings['network']): string {
-  if (network !== 'testnet') return ''
-  const keyFile = path.join(resolveTelenoConfigRoot(), PUBLIC_TESTNET_BOOTSTRAP_KEY_RELATIVE)
+  const relativePath = network === 'testnet'
+    ? PUBLIC_TESTNET_BOOTSTRAP_KEY_RELATIVE
+    : network === 'mainnet'
+      ? PUBLIC_MAINNET_BOOTSTRAP_KEY_RELATIVE
+      : ''
+  if (!relativePath) return ''
+  const keyFile = path.join(resolveTelenoConfigRoot(), relativePath)
   return fs.existsSync(keyFile) ? keyFile : ''
+}
+
+function publicBootstrapCliArgs(settings: TelenoNodeSettings): string[] {
+  const publicBootstrapUrl = publicBootstrapUrlForNetwork(settings.network)
+  return publicBootstrapUrl ? ['--backup-public-url', publicBootstrapUrl] : []
 }
 
 // ── Config.yml verify-blocks helper ──
@@ -374,6 +388,7 @@ export function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   const repositoryDir = nativeBackupRepositoryDir(settings.baseDir)
   const workspaceDir = nativeBackupWorkspaceDir(settings.baseDir)
   const backup = settings.backup
+  const localEnabled = backup.remoteEnabled || backup.localEnabled
   const localDirectory = expandBackupFilePath(backup.localDirectory) || repositoryDir
   const workspace = expandBackupFilePath(backup.workspace) || workspaceDir
   const sshPrivateKeyFile = expandBackupFilePath(backup.sshPrivateKeyFile)
@@ -390,7 +405,7 @@ export function writeNativeBackupConfig(settings: TelenoNodeSettings): {
   doc.setIn(['backup', 'enabled'], true)
   doc.setIn(['backup', 'node-id'], `teleno-ux-${settings.network}`)
   doc.setIn(['backup', 'workspace'], workspace)
-  doc.setIn(['backup', 'local', 'enabled'], backup.localEnabled)
+  doc.setIn(['backup', 'local', 'enabled'], localEnabled)
   doc.setIn(['backup', 'local', 'directory'], localDirectory)
   doc.setIn(['backup', 'local', 'retention-count'], backup.localRetentionCount)
   doc.setIn(['backup', 'ssh', 'enabled'], backup.remoteEnabled)
@@ -2393,6 +2408,8 @@ export function createBackupService(deps: BackupServiceDeps) {
       const settings = deps.normalizeNodeSettings(input)
       deps.assertRepoReady(settings)
       const nativeBackup = writeNativeBackupConfig(settings)
+      const currentNodeStatus = await deps.telenoNodeStatus(input).catch(() => null)
+      const nodeRunning = nodeStatusLooksRunning(currentNodeStatus)
       const runningAdmin = await runningBackupAdminConnection(settings, input)
       if (runningAdmin) {
             emitProgress('prepare', 5, 'Requesting running-node backup through native admin API')
@@ -2470,14 +2487,32 @@ export function createBackupService(deps: BackupServiceDeps) {
                   emitProgress('save', currentPhase === 'checkpoint' ? 20 : 35, message)
                 }
                 await delay(1000)
-                currentStatus = backupStatusPayload(
-                  await backupAdminRequest(runningAdmin.baseUrl, runningAdmin.token, 'GET', `/admin/backup/status/${encodeURIComponent(operationId)}`)
-                )
+                try {
+                  currentStatus = backupStatusPayload(
+                    await backupAdminRequest(runningAdmin.baseUrl, runningAdmin.token, 'GET', `/admin/backup/status/${encodeURIComponent(operationId)}`)
+                  )
+                } catch (error) {
+                  const detail = error instanceof Error ? error.message : String(error)
+                  const interruptedMessage = [
+                    'The running node stopped while the native backup was in progress.',
+                    'The backup did not complete; clear the partial local staging data and start the backup again.',
+                    detail
+                  ].join(' ')
+                  emitProgress('error', 70, interruptedMessage)
+                  return { ok: false, action, output: interruptedMessage, status: 'error' }
+                }
               }
               throw new Error('Native admin backup timed out')
             } finally {
               activeBackupAdminOperation = null
             }
+      }
+      if (nodeRunning) {
+        const message = settings.backup.adminEnabled
+          ? 'The node is already running, but the Backup Admin API is not reachable. Save Backup Admin settings and restart the node, then create the backup again.'
+          : 'The node is already running, but Backup Admin is disabled. Enable Backup Admin, save settings, restart the node, then create the backup again.'
+        emitProgress('error', 0, message)
+        return { ok: false, action, output: message, status: 'error' }
       }
       const binaryPath = resolveMonolithBinaryPath()
       if (!fs.existsSync(binaryPath)) {
@@ -2696,7 +2731,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         return {
           ok: false,
           output: `teleno_node binary not found: ${binaryPath}`,
-          source: listRemote ? 'remote' : 'local',
+          source: listSource,
           latestBackupId: '',
           snapshots: []
         }
@@ -2708,6 +2743,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           `--basedir=${settings.baseDir}`,
           `--config=${nativeBackup.configPath}`,
           listPublic ? '--backup-public-list' : listRemote ? '--backup-list-remote' : '--backup-list',
+          ...(listPublic ? publicBootstrapCliArgs(settings) : []),
           '--backup-json'
         ],
         { cwd: settings.repoPath, timeoutMs: listRemote || listPublic ? 120_000 : 30_000 }
@@ -2872,6 +2908,7 @@ export function createBackupService(deps: BackupServiceDeps) {
             `--basedir=${settings.baseDir}`,
             `--config=${nativeBackup.configPath}`,
             '--backup-public-fetch',
+            ...publicBootstrapCliArgs(settings),
             '--backup-json',
             ...(backupId && backupId !== 'latest' ? [`--backup-id=${backupId}`] : [])
           ],
@@ -2936,7 +2973,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         throw new Error('Remote native backup restore was requested, but remote backup is disabled in settings')
       }
       if (restoreSource === 'public' && !publicBootstrapUrlForNetwork(settings.network)) {
-        throw new Error('Public bootstrap restore is currently available only for testnet')
+        throw new Error('Public bootstrap restore is not available for this network.')
       }
       const shouldFetchPublic = restoreSource === 'public'
       const shouldFetchRemote = restoreSource === 'remote' || (restoreSource === 'auto' && settings.backup.remoteEnabled)
@@ -3151,6 +3188,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           `--basedir=${settings.baseDir}`,
           `--config=${nativeBackup.configPath}`,
           shouldFetchPublic ? '--backup-public-restore' : '--backup-restore',
+          ...(shouldFetchPublic ? publicBootstrapCliArgs(settings) : []),
           '--backup-json',
           `--backup-output=${stagingDir}`,
           ...backupIdArgs

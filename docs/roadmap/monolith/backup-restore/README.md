@@ -1,21 +1,28 @@
-# Teleno Native Backup Documentation
+# Backup And Restore Historical Reports
 
-This directory tracks the native `teleno_node` backup and restore work.
+Current backup and restore documentation has moved out of the roadmap tree.
 
-## Active Documents
+## Current Implementation
 
-- `NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md` describes the implementation that is currently in the branch.
-- `NATIVE_BACKUP_REMAINING_WORK_PLAN.md` is the active backlog and validation plan for the remaining work.
-- `PUBLIC_BOOTSTRAP_RESTORE_PLAN.md` describes the implemented public read-only restore path for first-time testnet installs, including the published sanitized testnet snapshot and validation evidence.
-- `PUBLIC_BOOTSTRAP_RESTORE_REMAINING_WORK_PLAN.md` tracks the remaining public bootstrap restore validation gates after the testnet implementation.
-- `PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md` defines the gated future prodnet publication workflow. It is planning-only and does not enable prodnet public bootstrap publication.
-- `NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md` records the latest live-testnet and restricted-SFTP validation evidence.
-- `MONOLITH_BACKUP_RESTORE_REPORT.md` is historical evidence for the earlier monolith restore path.
+- `../../../current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`
+- `../../../current/backup-restore/PUBLIC_BOOTSTRAP_RESTORE.md`
 
-## Historical Documents
+## Active Backlog
 
-The older planning documents below are retained only as historical context. They are superseded by the active documents above.
+- `../../../backlog/backup-restore/NATIVE_BACKUP_REMAINING_WORK_PLAN.md`
+- `../../../backlog/backup-restore/PUBLIC_BOOTSTRAP_RESTORE_REMAINING_WORK_PLAN.md`
+- `../../../backlog/backup-restore/PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`
 
-- `EXECUTIVE_NATIVE_BACKUP_IMPLEMENTATION_PLAN.md`
-- `NATIVE_SSH_HOT_BACKUP_IMPLEMENTATION_PLAN.md`
-- `ONLINE_ROCKSDB_CHECKPOINT_BACKUP_PLAN.md`
+## Archived Implementation Plans
+
+- `../../../archive/implementation-plans/monolith/backup-restore/EXECUTIVE_NATIVE_BACKUP_IMPLEMENTATION_PLAN.md`
+- `../../../archive/implementation-plans/monolith/backup-restore/NATIVE_SSH_HOT_BACKUP_IMPLEMENTATION_PLAN.md`
+- `../../../archive/implementation-plans/monolith/backup-restore/ONLINE_ROCKSDB_CHECKPOINT_BACKUP_PLAN.md`
+
+## Reports Retained Here
+
+- `MONOLITH_BACKUP_RESTORE_REPORT.md`
+- `NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md`
+
+Compatibility stubs remain in this directory for old links to moved current
+documents.

@@ -83,7 +83,7 @@ function copyDirRecursive(src, dest) {
 const platformLabel = isWindows ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux';
 
 console.log('============================================================================');
-console.log(`Staging Teleno monolith bundle for ${platformLabel} installer`);
+console.log(`Staging Koinos One monolith bundle for ${platformLabel} installer`);
 console.log(`  Platform: ${platformLabel} (ext: "${EXT}", cpp build dir: ${CPP_BUILD_DIR})`);
 console.log(`  Node:     ${NODE_DIR}`);
 console.log(`  Vendor:   ${VENDOR}`);
@@ -98,8 +98,8 @@ ensureDir(BIN_DIR);
 ensureDir(CONFIG_DIR);
 ensureDir(ABI_DIR);
 
-// --- Monolithic Teleno node ---
-console.log('=== Monolithic Teleno Node ===');
+// --- Monolithic Koinos One node ---
+console.log('=== Monolithic Koinos One Node ===');
 copyFirstExistingChecked(
   [
     path.join(NODE_DIR, CPP_BUILD_DIR, 'teleno_node' + EXT),
@@ -131,7 +131,7 @@ if (fs.existsSync(harbingerSrc)) {
   passed++;
 }
 
-// Copy Teleno-owned config resources such as public bootstrap verification keys.
+// Copy Koinos One config resources such as public bootstrap verification keys.
 const telenoConfigSrc = path.join(ROOT, 'config');
 if (fs.existsSync(telenoConfigSrc)) {
   copyDirRecursive(telenoConfigSrc, CONFIG_DIR);

@@ -80,7 +80,7 @@ export function resolveKoinosConfigRoot(): string {
   return path.join(resolveDefaultKoinosSourceRoot(), 'koinos', 'config-example')
 }
 
-/** Root directory for Teleno-owned packaged config resources. */
+/** Root directory for Koinos One packaged config resources. */
 export function resolveTelenoConfigRoot(): string {
   if (isPackagedBuild()) {
     return path.join(process.resourcesPath!, 'teleno', 'config')

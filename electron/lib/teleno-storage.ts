@@ -769,8 +769,56 @@ export function createTelenoStorage(userDataPath: string) {
       return listWalletAccounts(network)[0] || null
     }
 
-    if (existingWallet.accounts?.some((account) => account.address.toLowerCase() === address.toLowerCase())) {
-      return null
+    const existingAccounts = existingWallet.accounts || []
+    const existingIndex = existingAccounts.findIndex((account) => account.address.toLowerCase() === address.toLowerCase())
+    if (existingIndex >= 0) {
+      const existingAccount = existingAccounts[existingIndex]
+      if (existingAccount.kind !== 'watch-only') return null
+
+      const updatedAt = new Date().toISOString()
+      const upgradedAccount: TelenoEncryptedWalletAccount = {
+        ...existingAccount,
+        name: sanitizeAccountName(name, existingAccount.name),
+        kind: 'imported-wif',
+        updatedAt,
+        derivationPath: null,
+        encryptedKey: encryptTelenoWalletSecret(privateKey, password)
+      }
+
+      existingWallet.accounts = [...existingAccounts]
+      existingWallet.accounts[existingIndex] = upgradedAccount
+      existingWallet.activeAccountId = upgradedAccount.id
+      writeWalletFile(existingWallet, network)
+
+      const scopedUnlockedWallet = getUnlockedWalletForNetwork(network)
+      if (scopedUnlockedWallet) {
+        const unlockedAccount: TelenoUnlockedWalletAccount = {
+          id: upgradedAccount.id,
+          name: upgradedAccount.name,
+          kind: upgradedAccount.kind,
+          address: upgradedAccount.address,
+          derivationPath: null,
+          privateKey,
+          createdAt: upgradedAccount.createdAt,
+          updatedAt
+        }
+        const unlockedIndex = scopedUnlockedWallet.accounts.findIndex(
+          (account) => account.id === upgradedAccount.id || account.address.toLowerCase() === address.toLowerCase()
+        )
+        if (unlockedIndex >= 0) {
+          scopedUnlockedWallet.accounts[unlockedIndex] = unlockedAccount
+        } else {
+          scopedUnlockedWallet.accounts.push(unlockedAccount)
+        }
+        scopedUnlockedWallet.address = upgradedAccount.address
+        scopedUnlockedWallet.privateKey = privateKey
+        scopedUnlockedWallet.seedDerivationPath = null
+        scopedUnlockedWallet.activeAccountId = upgradedAccount.id
+        scopedUnlockedWallet.accountName = upgradedAccount.name
+        scopedUnlockedWallet.accountKind = upgradedAccount.kind
+      }
+
+      return accountSummary(upgradedAccount, existingWallet.activeAccountId || null)
     }
 
     const createdAt = new Date().toISOString()

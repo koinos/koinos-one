@@ -320,7 +320,7 @@ export function createNativeBuildService(deps: NativeBuildServiceDeps) {
 
     const service: TelenoNodeNativeBuildStatus = {
       serviceId: 'teleno-node',
-      serviceName: 'Teleno Node',
+      serviceName: 'Koinos One Node',
       supported: true,
       buildSystem: 'cmake',
       repoPath: definition.repoPath,

@@ -24,8 +24,18 @@ function createFakeIpcMain() {
 
 function createDeps() {
   return {
+    quitApp: vi.fn(),
+    firstRunSetupState: vi.fn(async () => ({ ok: true, completed: false })),
+    completeFirstRunSetup: vi.fn(async (input?: unknown) => ({ ok: true, completed: true, setup: input })),
+    resetFirstRunSetup: vi.fn(async () => ({ ok: true, completed: false })),
     loadPublicRpcConfig: vi.fn(async () => ({ ok: true })),
     savePublicRpcConfig: vi.fn(async () => ({ ok: true })),
+    saveBackupPasswordFile: vi.fn(async (input?: unknown) => ({
+      ok: true,
+      filePath: '/tmp/koinos-one/backup-ssh-password.txt',
+      output: 'stored',
+      input
+    })),
     getNodeDefaults: vi.fn(async () => ({ ok: true, baseDir: '/tmp' })),
     cloneKoinosRepo: vi.fn(async () => ({ ok: true })),
     readKoinosManagedFile: vi.fn(async () => ({ ok: true })),
@@ -96,6 +106,36 @@ function createDeps() {
 }
 
 describe('ipc-handlers', () => {
+  it('registers the app quit handler', async () => {
+    const ipcMain = createFakeIpcMain()
+    const deps = createDeps()
+
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
+
+    const result = await ipcMain.handlers.get('teleno:app:quit')?.({ sender: {} })
+    expect(result).toEqual({ ok: true })
+    expect(deps.quitApp).toHaveBeenCalledTimes(1)
+  })
+
+  it('registers first-run setup state handlers', async () => {
+    const ipcMain = createFakeIpcMain()
+    const deps = createDeps()
+
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
+
+    const payload = { baseDir: '/tmp/koinos-one', network: 'mainnet' }
+    const initial = await ipcMain.handlers.get('teleno:app:first-run-state')?.({ sender: {} })
+    const complete = await ipcMain.handlers.get('teleno:app:first-run-complete')?.({ sender: {} }, payload)
+    const reset = await ipcMain.handlers.get('teleno:app:first-run-reset')?.({ sender: {} })
+
+    expect(initial).toEqual({ ok: true, completed: false })
+    expect(complete).toEqual({ ok: true, completed: true, setup: payload })
+    expect(reset).toEqual({ ok: true, completed: false })
+    expect(deps.firstRunSetupState).toHaveBeenCalledTimes(1)
+    expect(deps.completeFirstRunSetup).toHaveBeenCalledWith(payload)
+    expect(deps.resetFirstRunSetup).toHaveBeenCalledTimes(1)
+  })
+
   it('registers handlers and uses getNodeDefaults', async () => {
     const ipcMain = createFakeIpcMain()
     const deps = createDeps()
@@ -105,6 +145,24 @@ describe('ipc-handlers', () => {
     const defaults = await ipcMain.handlers.get('teleno:node:defaults')?.({ sender: {} })
     expect(defaults).toEqual({ ok: true, baseDir: '/tmp' })
     expect(deps.getNodeDefaults).toHaveBeenCalledTimes(1)
+  })
+
+  it('registers the backup SSH password-file helper', async () => {
+    const ipcMain = createFakeIpcMain()
+    const deps = createDeps()
+
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
+
+    const payload = { network: 'mainnet', password: 'secret' }
+    const result = await ipcMain.handlers.get('teleno:node:backup-password-file')?.({ sender: {} }, payload)
+
+    expect(result).toEqual({
+      ok: true,
+      filePath: '/tmp/koinos-one/backup-ssh-password.txt',
+      output: 'stored',
+      input: payload
+    })
+    expect(deps.saveBackupPasswordFile).toHaveBeenCalledWith(payload)
   })
 
   it('returns the invalid kind error without calling file-read deps', async () => {

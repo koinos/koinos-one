@@ -11,7 +11,7 @@ This directory is for the monolithic Teleno node, desktop packaging, validation,
 - `build-rocksdb-zstd.sh` builds or reuses the zstd-enabled RocksDB package used by the monolith build; it uses the local static zstd package by default and records the zstd library fingerprint before reusing an install. Set `TELENO_ROCKSDB_WITH_ZSTD=0` only when intentionally testing the old no-zstd RocksDB path.
 - `stage-bundle.js` stages `teleno_node`, network config templates, and core contract ABIs for Electron packaging.
 - `verify-package-staging.js` verifies the staged Teleno bundle before packaging.
-- `verify-packaged-app.js` verifies the final packaged app contains the expected Teleno resources.
+- `verify-packaged-app.js` verifies the final packaged app contains the expected Koinos One resources.
 - `build-mac-icon.js` generates the macOS icon.
 - `check-notarize-credentials.js` validates signing/notarization environment variables.
 
@@ -39,6 +39,6 @@ These scripts are retained because they prove Teleno remains compatible with Koi
 - `validate-grpc-client-compatibility.sh` validates external gRPC client behavior.
 - `compare-receipts.py`, `verify-backup-receipts.py`, and `verify-monolith-backup-restore.sh` support backup/migration parity checks.
 
-See `docs/compatibility/README.md` for the retained evidence map.
+See `docs/legacy/compatibility/README.md` for the retained evidence map.
 
 Native legacy baseline scripts do not use bundled legacy service submodules. Set external binary paths such as `LEGACY_GARAGEMQ_BIN`, `LEGACY_CHAIN_BIN`, `LEGACY_MEMPOOL_BIN`, `LEGACY_BLOCK_STORE_BIN`, and `LEGACY_JSONRPC_BIN` when those modes are needed.

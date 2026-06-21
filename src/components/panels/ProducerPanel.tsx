@@ -36,14 +36,16 @@ export function ProducerPanel(props: ProducerPanelProps) {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const localPublicKey = producerLocalPublicKey || ''
-  const displayProducerAddress = resolveProducerDisplayAddress({
-    configuredAddress: producerConfiguredAddress,
-    signingWalletAddress
-  })
+  const displayProducerAddress = producerSetupComplete
+    ? resolveProducerDisplayAddress({
+        configuredAddress: producerConfiguredAddress,
+        signingWalletAddress
+      })
+    : producerConfiguredAddress
   const runtimeProducerVisible = hasRuntimeProducerIdentity({
     configuredAddress: producerConfiguredAddress,
-    localPublicKey,
-    registeredPublicKey: producerRegisteredPublicKey
+    localPublicKey: producerConfiguredAddress ? localPublicKey : '',
+    registeredPublicKey: producerConfiguredAddress ? producerRegisteredPublicKey : ''
   })
   const vhpBalanceValue = nodeProducerOverview?.vhpBalance ? Number.parseFloat(nodeProducerOverview.vhpBalance) : null
   const showNoVhpNotice = vhpBalanceValue !== null && Number.isFinite(vhpBalanceValue) && vhpBalanceValue <= 0

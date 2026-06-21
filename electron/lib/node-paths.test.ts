@@ -98,6 +98,20 @@ describe('electron node paths', () => {
     })
   })
 
+  it('keeps backup admin enabled for remote backup settings migrated from older app versions', () => {
+    expect(
+      normalizeBackupSettings({
+        remoteEnabled: true,
+        localEnabled: false,
+        adminEnabled: false
+      })
+    ).toMatchObject({
+      remoteEnabled: true,
+      localEnabled: true,
+      adminEnabled: true
+    })
+  })
+
   it('normalizes node settings with profiles', () => {
     const normalized = normalizeNodeSettings({
       repoPath: '~/repo',
@@ -111,6 +125,7 @@ describe('electron node paths', () => {
     expect(normalized.profiles).toEqual(['block_producer'])
     expect(normalized.backup.localEnabled).toBe(true)
     expect(normalized.backup.remoteEnabled).toBe(false)
+    expect(normalized.backup.adminEnabled).toBe(true)
   })
 
   it('infers testnet from persisted profiles when network is omitted', () => {

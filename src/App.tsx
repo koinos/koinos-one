@@ -4,6 +4,7 @@ import {
   DEFAULT_NODE_SETTINGS,
   DEFAULT_PUBLIC_RPC_URLS,
   DEFAULT_SETTINGS,
+  FIRST_RUN_SETUP_STORAGE_KEY,
   LANGUAGE_STORAGE_KEY,
   LOCAL_RPC_SOURCE,
   NODE_SETTINGS_STORAGE_KEY,
@@ -99,15 +100,17 @@ import { ExplorerPanel } from './components/panels/ExplorerPanel'
 import { BlockDetailDialog } from './components/panels/BlockDetailDialog'
 import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { NodeBackupsPanel } from './components/panels/NodeBackupsPanel'
+import { FirstRunSetupModal } from './components/panels/FirstRunSetupModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
 import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, hasStateMerkleMismatch, parseIndexerProgress, shouldDisableVerifyBlocks } from './app/chain-sync'
 import type { AutoRestartState, IndexerProgress, P2pRestartState } from './app/chain-sync'
 import { KOINOS_NETWORK_OPTIONS, nativeTokenSymbolForNetwork, publicRpcUrlsForNetwork, type KoinosNetworkId } from './app/network'
+import { publicBootstrapDescriptionForNetwork, publicBootstrapUrlForNetwork } from './app/public-bootstrap'
 import pkg from '../package.json'
 
-const telenoLogoUrl = new URL('../assets/newbranding/logo.png', import.meta.url).href
+const appLogoUrl = new URL('../assets/newbranding/logo.svg', import.meta.url).href
 
 type NativeBackupSelectionSource = 'local' | 'remote' | 'public' | 'auto'
 
@@ -290,6 +293,7 @@ export function App() {
   const [draftNodeProfiles, setDraftNodeProfiles] = useState(nodeSettings.profiles)
   const [draftNodeBlockchainBackupUrl, setDraftNodeBlockchainBackupUrl] = useState(nodeSettings.blockchainBackupUrl)
   const [draftNodeBackup, setDraftNodeBackup] = useState(() => normalizeNodeBackupSettings(nodeSettings.backup))
+  const [draftNodeBackupPassword, setDraftNodeBackupPassword] = useState('')
   const [nodeBaseDirPickerLoading, setNodeBaseDirPickerLoading] = useState(false)
   const [nodeBaseDirValidationLoading, setNodeBaseDirValidationLoading] = useState(false)
   const [nodeBaseDirValidation, setNodeBaseDirValidation] = useState<NodeBaseDirValidationState | null>(null)
@@ -373,10 +377,12 @@ export function App() {
   const [nodeBaseDirCopyLoading, setNodeBaseDirCopyLoading] = useState(false)
   const [nodeBaseDirRestartLoading, setNodeBaseDirRestartLoading] = useState(false)
   const [settingsUnsavedDialogOpen, setSettingsUnsavedDialogOpen] = useState(false)
+  const [settingsUnsavedTargetTab, setSettingsUnsavedTargetTab] = useState<AppTab | null>(null)
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
   const [nodeSubtab, setNodeSubtab] = useState<NodeSubtab>('overview')
   const [dashboardSubtab, setDashboardSubtab] = useState<DashboardSubtab>('producers')
   const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
+  const [firstRunSetupOpen, setFirstRunSetupOpen] = useState(true)
   const [walletOverview, setWalletOverview] = useState<TelenoWalletOverviewResult | null>(null)
   const [producerSigningWalletBalance, setProducerSigningWalletBalance] = useState<TelenoWalletBalanceResult | null>(null)
   const [producerSigningWalletBalanceNetwork, setProducerSigningWalletBalanceNetwork] = useState<KoinosNetworkId | null>(null)
@@ -416,6 +422,7 @@ export function App() {
   const nodeRepoBootstrapAttemptsRef = useRef<Set<string>>(new Set())
   const simpleBackupPerformanceRefreshKeyRef = useRef<string | null>(null)
   const simpleBackupPreflightKeyRef = useRef<string | null>(null)
+  const nodeBackupOperationActiveRef = useRef(false)
   const locale = localeForLanguage(language)
   const t = useMemo(() => {
     return (key: string, values?: Record<string, string | number>) => translate(language, key, values)
@@ -448,6 +455,14 @@ export function App() {
   const activeWalletAddress = activeWalletAccount?.address?.trim() || walletOverview?.walletAddress?.trim() || ''
   const activeWalletCanSign = Boolean(walletOverview?.unlocked && activeWalletAccount?.hasPrivateKey)
   const nativeTokenSymbol = nativeTokenSymbolForNetwork(nodeSettings.network)
+  const firstRunPublicBootstrapUrl = useMemo(
+    () => publicBootstrapUrlForNetwork(nodeSettings.network),
+    [nodeSettings.network]
+  )
+  const firstRunPublicBootstrapDescription = useMemo(
+    () => publicBootstrapDescriptionForNetwork(nodeSettings.network),
+    [nodeSettings.network]
+  )
   const activeWalletBalanceCacheEntry = useMemo(() => {
     const keys = walletBalanceCacheKeys(nodeSettings.network, activeWalletAddress, activeWalletAccountId)
     for (const key of keys) {
@@ -493,6 +508,7 @@ export function App() {
 
     return (
       language !== savedLanguage ||
+      Boolean(draftNodeBackupPassword) ||
       settings.nodeAdvancedMode !== savedSettings.nodeAdvancedMode ||
       settings.producerAdvancedMode !== savedSettings.producerAdvancedMode ||
       publicRpcUrlsChanged ||
@@ -514,6 +530,7 @@ export function App() {
     draftNodeBaseDir,
     draftNodeBlockchainBackupUrl,
     draftNodeBackup,
+    draftNodeBackupPassword,
     draftNodeNetwork,
     draftNodeProfiles,
     draftNodeRepoPath,
@@ -535,6 +552,35 @@ export function App() {
     settings.producerAdvancedMode,
     settings.rowLimit
   ])
+
+  useEffect(() => {
+    let disposed = false
+
+    const loadFirstRunSetupState = async () => {
+      try {
+        const state = await window.teleno?.app?.firstRunSetupState?.()
+        if (!disposed && state?.ok) {
+          setFirstRunSetupOpen(!state.completed)
+          return
+        }
+      } catch {
+        // Fall through to the browser/localStorage fallback below.
+      }
+
+      if (disposed) return
+      try {
+        setFirstRunSetupOpen(window.localStorage.getItem(FIRST_RUN_SETUP_STORAGE_KEY) !== 'complete')
+      } catch {
+        setFirstRunSetupOpen(true)
+      }
+    }
+
+    void loadFirstRunSetupState()
+
+    return () => {
+      disposed = true
+    }
+  }, [])
 
   useEffect(() => {
     setDraftPublicRpcUrls(settings.publicRpcUrls.join('\n'))
@@ -611,6 +657,7 @@ export function App() {
     setDraftNodeProfiles(nodeSettings.profiles)
     setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
     setDraftNodeBackup(normalizeNodeBackupSettings(nodeSettings.backup))
+    setDraftNodeBackupPassword('')
     nativeBackupUserEditedRef.current = false
     setNodeBaseDirValidation(null)
   }, [nodeSettings])
@@ -654,11 +701,16 @@ export function App() {
       (formError === t('settings.backupRemoteUserRequired') && (!backup.remoteEnabled || Boolean(backup.sshUser.trim()))) ||
       (formError === t('settings.backupRemoteDirectoryRequired') && (!backup.remoteEnabled || backup.remoteDirectory.trim().startsWith('/'))) ||
       (formError === t('settings.backupPrivateKeyRequired') && (!backup.remoteEnabled || backup.sshAuth !== 'private-key' || Boolean(backup.sshPrivateKeyFile.trim()))) ||
-      (formError === t('settings.backupPasswordFileRequired') && (!backup.remoteEnabled || backup.sshAuth !== 'password-file' || Boolean(backup.sshPasswordFile.trim()))) ||
+      (formError === t('settings.backupPasswordFileRequired') && (
+        !backup.remoteEnabled ||
+        backup.sshAuth !== 'password-file' ||
+        Boolean(backup.sshPasswordFile.trim()) ||
+        Boolean(draftNodeBackupPassword)
+      )) ||
       (formError === t('settings.backupScheduleIntervalInvalid') && (!backup.scheduleEnabled || /^\d+(ms|s|m|h|d)?$/.test(backup.scheduleInterval.trim())))
 
     if (shouldClear) setFormError(null)
-  }, [draftNodeBackup, formError, t])
+  }, [draftNodeBackup, draftNodeBackupPassword, formError, t])
 
   useEffect(() => {
     setNodeNativeBackupPreflight(null)
@@ -1532,8 +1584,7 @@ export function App() {
     runtimeConfigAddress: runtimeConfiguredProducerAddress,
     overviewAddress: nodeProducerOverview?.producerAddress,
     overviewAddressSource: nodeProducerOverview?.producerAddressSource,
-    profileAddress: producerProfile?.profile?.producerAddress,
-    fallbackAddress: effectiveProducerTargetAddress
+    profileAddress: producerProfile?.profile?.producerAddress
   })
   const producerAndSigningWalletMatch =
     Boolean(producerConfiguredAddress && signingWalletAddress) &&
@@ -1805,6 +1856,7 @@ export function App() {
 
     const timer = window.setInterval(() => {
       if (disposed) return
+      if (nodeBackupOperationActiveRef.current) return
 
       const bridge = getTelenoNodeBridge()
       const now = Date.now()
@@ -2498,10 +2550,9 @@ export function App() {
         if (!producerSetupComplete) {
           const localInfo = await refreshProducerLocalInfo()
           const nextSigningWalletAddress = activeWalletAddress
-          const runtimeProducerAddress =
+          const configuredRuntimeProducerAddress =
             localInfo?.producerAddress?.trim() ||
             producerConfiguredAddress ||
-            nextSigningWalletAddress ||
             ''
           const requests: Promise<unknown>[] = []
           if (nextSigningWalletAddress) {
@@ -2522,8 +2573,8 @@ export function App() {
             setProducerSigningWalletBalanceError(null)
             setProducerSigningWalletBalanceLoading(false)
           }
-          if (runtimeProducerAddress) {
-            requests.push(refreshProducerRecentBlocks(runtimeProducerAddress, controller.signal, nodeNetworkPublicRpcUrl))
+          if (configuredRuntimeProducerAddress) {
+            requests.push(refreshProducerRecentBlocks(configuredRuntimeProducerAddress, controller.signal, nodeNetworkPublicRpcUrl))
           } else {
             setProducerRecentBlocks([])
             setProducerRecentBlocksError(null)
@@ -2989,6 +3040,64 @@ export function App() {
     }
   }
 
+  const firstRunProducerSetupMatchesTarget = () => {
+    const configuredAddress = producerConfiguredAddress.trim()
+    const targetAddress = effectiveProducerTargetAddress.trim()
+    return Boolean(
+      producerSetupComplete &&
+      producerPublicKeyAlreadyRegistered &&
+      configuredAddress &&
+      targetAddress &&
+      configuredAddress.toLowerCase() === targetAddress.toLowerCase()
+    )
+  }
+
+  const clearUnregisteredProducerSetupFromFirstRun = async (
+    options: { preserveCurrentComplete?: boolean } = {}
+  ): Promise<boolean> => {
+    if (options.preserveCurrentComplete !== false && firstRunProducerSetupMatchesTarget()) return true
+
+    const bridge = getTelenoNodeBridge()
+    if (!bridge?.producerDelete) return true
+
+    setNodeProducerActionLoading('delete')
+    setNodeProducerError(null)
+    try {
+      const result = await bridge.producerDelete(toNodeApiSettings(nodeSettings))
+      setNodeProducerOverview(result.overview)
+      setNodeProducerAddressDraft('')
+      setProducerPreviewRegisteredPublicKey(null)
+      setProducerRecentBlocks([])
+      setProducerRecentBlocksError(null)
+      await Promise.all([
+        refreshProducerProfile(),
+        refreshProducerLocalInfo()
+      ])
+
+      if (!result.ok) {
+        setNodeProducerError(result.output || t('producer.unableDelete'))
+        return false
+      }
+
+      return true
+    } catch (error) {
+      setNodeProducerError(error instanceof Error ? error.message : t('producer.unableDelete'))
+      return false
+    } finally {
+      setNodeProducerActionLoading(null)
+    }
+  }
+
+  const createWalletAccountFromSetup = async (
+    password: string,
+    confirmPassword: string,
+    generatedWalletOverride?: Parameters<typeof createWalletAccount>[2]
+  ): Promise<boolean> => {
+    const ok = await createWalletAccount(password, confirmPassword, generatedWalletOverride)
+    if (!ok) return false
+    return clearUnregisteredProducerSetupFromFirstRun({ preserveCurrentComplete: false })
+  }
+
   const showWalletSeed = async () => {
     const bridge = getWalletBridge()
     if (!bridge?.showSeed) {
@@ -3298,6 +3407,36 @@ export function App() {
     } finally {
       setWalletActionLoading(null)
     }
+  }
+
+  const useExistingProducerAddressFromSetup = async (address: string): Promise<boolean> => {
+    const producerAddress = address.trim()
+    if (!producerAddress) {
+      setWalletError('Enter the producer address to continue.')
+      return false
+    }
+
+    const cleared = await clearUnregisteredProducerSetupFromFirstRun({ preserveCurrentComplete: false })
+    if (!cleared) return false
+
+    setWalletError(null)
+    setNodeProducerError(null)
+    setProducerUseWalletAddress(false)
+    setProducerAllowDelegatedSigner(false)
+    setNodeProducerAddressDraft(producerAddress)
+    setWalletResultTitle('Producer address selected')
+    setWalletResultData({
+      ok: true,
+      output: `Producer address selected for setup: ${producerAddress}`,
+      address: producerAddress
+    })
+    return true
+  }
+
+  const restorePublicBootstrapFromSetup = async (backupId: string): Promise<boolean> => {
+    const ok = await runRestoreNativeBackupSelected(backupId)
+    if (!ok) return false
+    return clearUnregisteredProducerSetupFromFirstRun({ preserveCurrentComplete: false })
   }
 
   const renameWalletVaultAccount = async (accountId: string, name: string) => {
@@ -3713,7 +3852,7 @@ export function App() {
 
   const pickNodeBaseDir = async () => {
     const bridge = getTelenoNodeBridge()
-    if (!bridge?.selectBaseDir) return
+    if (!bridge?.selectBaseDir) return false
 
     setNodeBaseDirPickerLoading(true)
     setFormError(null)
@@ -3729,7 +3868,7 @@ export function App() {
           message: result.output || ''
         })
         setFormError(result.output || t('node.unableSelectBaseDir'))
-        return
+        return false
       }
 
       if (!result.canceled && result.path.trim()) {
@@ -3741,9 +3880,12 @@ export function App() {
           message: result.output || ''
         })
         setNodeOutput(result.output || `BASEDIR seleccionado: ${result.path}`)
+        return true
       }
+      return false
     } catch (error) {
       setFormError(error instanceof Error ? error.message : t('node.errorOpeningFolderPicker'))
+      return false
     } finally {
       setNodeBaseDirPickerLoading(false)
     }
@@ -3964,6 +4106,66 @@ export function App() {
     }
   }
 
+  const startObserverNodeFromSetup = async () => {
+    const bridge = getTelenoNodeBridge()
+    if (!bridge) {
+      return { ok: false, output: t('node.electronOnlyWarning') }
+    }
+
+    if (!producerSetupComplete) {
+      const cleared = await clearUnregisteredProducerSetupFromFirstRun()
+      if (!cleared) {
+        return {
+          ok: false,
+          output: nodeProducerError || t('producer.unableDelete')
+        }
+      }
+    }
+
+    const observerProfiles = defaultNodeProfilesForNetwork(nodeSettings.network)
+    const observerPresetId =
+      nodeSettings.network === 'mainnet'
+        ? 'profile:mainnet_observer'
+        : nodeSettings.network === 'testnet'
+          ? 'profile:testnet_observer'
+          : 'profile:custom_advanced'
+    const observerSettings = {
+      ...nodeSettings,
+      profiles: observerProfiles
+    }
+    setNodeActionLoading('start')
+    setNodeError(null)
+    try {
+      const result = bridge.presetReconcile
+        ? await bridge.presetReconcile({
+            ...toNodeApiSettings(observerSettings),
+            presetId: observerPresetId
+          })
+        : await bridge.start(toNodeApiSettings(observerSettings))
+      setNodeSettings(observerSettings)
+      setDraftNodeProfiles(observerProfiles)
+      setNodeStatus(result.status)
+      setNodeOutput(result.output || result.status.output || '')
+      if (!result.ok || !result.status.ok) {
+        const output = result.output || result.status.output || t('node.unableStartNode')
+        setNodeError(output)
+        return { ok: false, output }
+      }
+      setNodeSubtab('overview')
+      setActiveTab('node')
+      if (nodeLogsModalOpen && nodeLogsService) {
+        void refreshNodeLogs(nodeLogsService)
+      }
+      return { ok: true, output: result.output || result.status.output || '' }
+    } catch (error) {
+      const output = error instanceof Error ? error.message : t('node.errorStartingNode')
+      setNodeError(output)
+      return { ok: false, output }
+    } finally {
+      setNodeActionLoading(null)
+    }
+  }
+
   const runNodeRestoreBackup = async () => {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreBackup) return
@@ -4039,7 +4241,8 @@ export function App() {
 
     const backupSettings = normalizeNodeBackupSettings({
       ...normalizeNodeBackupSettings(nodeSettings.backup),
-      ...backupOverrides
+      ...backupOverrides,
+      adminEnabled: true
     })
     const createSettings = {
       ...nodeSettings,
@@ -4047,6 +4250,7 @@ export function App() {
     }
 
     setNodeCreateBackupLoading(true)
+    nodeBackupOperationActiveRef.current = true
     setNodeError(null)
     setNodeBackupProgress({
       action: 'create-backup',
@@ -4064,6 +4268,7 @@ export function App() {
     } catch (error) {
       setNodeError(error instanceof Error ? error.message : 'Error creating backup')
     } finally {
+      nodeBackupOperationActiveRef.current = false
       setNodeCreateBackupLoading(false)
     }
   }
@@ -4116,7 +4321,7 @@ export function App() {
 
   const runNativeBackupList = async (sourceArg: boolean | 'local' | 'remote' | 'public' = false) => {
     const bridge = getTelenoNodeBridge()
-    if (!bridge?.nativeBackupList) return
+    if (!bridge?.nativeBackupList) return null
 
     const source = sourceArg === true
       ? 'remote'
@@ -4169,8 +4374,10 @@ export function App() {
       } else {
         setNodeError(result.output || `Unable to list ${source} native backups`)
       }
+      return result
     } catch (error) {
       setNodeError(error instanceof Error ? error.message : `Unable to list ${source} native backups`)
+      return null
     } finally {
       setLoading(false)
     }
@@ -4214,9 +4421,9 @@ export function App() {
     }
   }
 
-  const runRestoreNativeBackup = async (backupId: string) => {
+  const runRestoreNativeBackup = async (backupId: string): Promise<boolean> => {
     const bridge = getTelenoNodeBridge()
-    if (!bridge?.restoreNativeBackupLatest) return
+    if (!bridge?.restoreNativeBackupLatest) return false
 
     const selectedBackup = parseNativeBackupSelection(
       backupId,
@@ -4230,7 +4437,7 @@ export function App() {
       backupId: trimmedBackupId,
       baseDir: apiSettings.baseDir || nodeSettings.baseDir || ''
     }))
-    if (!confirmed) return
+    if (!confirmed) return false
 
     setNodeRestoreNativeBackupLoading(true)
     setNodeError(null)
@@ -4254,18 +4461,21 @@ export function App() {
       setNodeOutput(result.output || '')
       if (!result.ok) {
         setNodeError(result.output || t('node.unableRestoreNativeBackup'))
+        return false
       } else {
         setNodeError(null)
+        return true
       }
     } catch (error) {
       setNodeError(error instanceof Error ? error.message : t('node.unableRestoreNativeBackup'))
+      return false
     } finally {
       setNodeRestoreNativeBackupLoading(false)
     }
   }
 
-  const runRestoreNativeBackupSelected = async (backupId = selectedNativeBackupId) => {
-    await runRestoreNativeBackup(backupId || 'latest')
+  const runRestoreNativeBackupSelected = async (backupId = selectedNativeBackupId): Promise<boolean> => {
+    return runRestoreNativeBackup(backupId || 'latest')
   }
 
   const runPurgeNativeBackup = async (backupId: string) => {
@@ -4320,7 +4530,7 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!hasNodeControls || settings.nodeAdvancedMode || activeTab !== 'node' || nodeSubtab !== 'backups') return
+    if (!hasNodeControls || activeTab !== 'node' || nodeSubtab !== 'backups') return
 
     const backup = normalizeNodeBackupSettings(draftNodeBackup)
     const backupKey = `${nodeSettings.network}|${normalizeNodeBaseDirInput(nodeSettings.baseDir)}`
@@ -4340,6 +4550,8 @@ export function App() {
     if (nodeSettings.network === 'testnet' && !nodeNativeBackupPublicList && !nodeNativeBackupPublicListLoading) {
       void runNativeBackupList('public')
     }
+
+    if (settings.nodeAdvancedMode) return
 
     const localLatestBackupId = nodeNativeBackupLocalList?.latestBackupId ||
       nodeNativeBackupLocalList?.snapshots.find((snapshot) => snapshot.latest)?.backupId ||
@@ -4616,7 +4828,10 @@ export function App() {
   }
   void runNodeNativeBuildService
 
-  const validateDraftNodeBackup = (candidateBackup: NodeBackupSettings | Partial<NodeBackupSettings> = draftNodeBackup) => {
+  const validateDraftNodeBackup = (
+    candidateBackup: NodeBackupSettings | Partial<NodeBackupSettings> = draftNodeBackup,
+    options: { sshPassword?: string } = {}
+  ) => {
     const backup = normalizeNodeBackupSettings(candidateBackup)
     if (backup.remoteEnabled) {
       if (!backup.sshHost.trim()) throw new Error(t('settings.backupRemoteHostRequired'))
@@ -4625,7 +4840,7 @@ export function App() {
       if (backup.sshAuth === 'private-key' && !backup.sshPrivateKeyFile.trim()) {
         throw new Error(t('settings.backupPrivateKeyRequired'))
       }
-      if (backup.sshAuth === 'password-file' && !backup.sshPasswordFile.trim()) {
+      if (backup.sshAuth === 'password-file' && !backup.sshPasswordFile.trim() && !options.sshPassword) {
         throw new Error(t('settings.backupPasswordFileRequired'))
       }
     }
@@ -4636,7 +4851,7 @@ export function App() {
   }
 
   const saveCurrentSettings = async (overrides: { backup?: NodeBackupSettings } = {}) => {
-    if (!settingsDirty && !overrides.backup) return
+    if (!settingsDirty && !overrides.backup) return true
     setFormError(null)
 
     try {
@@ -4658,7 +4873,9 @@ export function App() {
         : network === 'mainnet'
           ? normalizeBackupTarGzUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl, language)
           : ''
-      const backup = validateDraftNodeBackup(overrides.backup ?? draftNodeBackup)
+      let backup = validateDraftNodeBackup(overrides.backup ?? draftNodeBackup, {
+        sshPassword: draftNodeBackupPassword
+      })
 
       if (!repoPath) throw new Error(t('settings.repoRequired'))
       if (!draftNodeBaseDir.trim()) throw new Error(t('settings.baseDirRequired'))
@@ -4668,6 +4885,23 @@ export function App() {
         throw new Error(baseDirValidation.output || t('settings.baseDirNotUsable', { baseDir: draftNodeBaseDir }))
       }
       const baseDir = baseDirValidation.baseDir
+      if (backup.remoteEnabled && backup.sshAuth === 'password-file' && draftNodeBackupPassword) {
+        const bridge = getTelenoNodeBridge()
+        if (!bridge?.saveBackupPasswordFile) {
+          throw new Error(t('settings.backupPasswordFileRequired'))
+        }
+        const passwordResult = await bridge.saveBackupPasswordFile({
+          network,
+          password: draftNodeBackupPassword
+        })
+        if (!passwordResult.ok || !passwordResult.filePath) {
+          throw new Error(passwordResult.output || t('settings.backupPasswordFileRequired'))
+        }
+        backup = normalizeNodeBackupSettings({
+          ...backup,
+          sshPasswordFile: passwordResult.filePath
+        })
+      }
       const networkChanged = previousNetwork !== network
       const baseDirChanged = previousBaseDir !== baseDir
       const previousNodeWasRunning = (nodeStatus?.services ?? []).some(
@@ -4739,6 +4973,8 @@ export function App() {
       setNodeSettings({ network, repoPath, baseDir, profiles, blockchainBackupUrl, backup })
       setDraftNodeNetwork(network)
       setDraftNodeBaseDir(baseDir)
+      setDraftNodeBackup(backup)
+      setDraftNodeBackupPassword('')
       const settingsSummary = networkChanged
         ? t('settings.savedNetworkChangedStopped', {
             previous: formatNetworkLabel(previousNetwork),
@@ -4764,14 +5000,63 @@ export function App() {
       setIsInitialLoading(true)
       setErrorMessage(null)
       setSettingsUnsavedDialogOpen(false)
+      return true
     } catch (error) {
       setFormError(error instanceof Error ? error.message : t('settings.invalidConfig'))
+      return false
     }
   }
 
   const applySettings = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     await saveCurrentSettings()
+  }
+
+  const restoreDraftSettingsFromSaved = () => {
+    const savedPublicRpcUrls = publicRpcUrlsForActiveNetwork(nodeSettings.network, publicRpcUrlsByNetwork)
+    setLanguage(savedLanguage)
+    setSettings(savedSettings)
+    setDraftPublicRpcUrls(savedPublicRpcUrls.join('\n'))
+    setDraftKoinscanUrl(savedSettings.koinscanUrl)
+    setDraftPollMs(String(savedSettings.pollMs))
+    setDraftRowLimit(String(savedSettings.rowLimit))
+    setDraftDashboardProducerWindowBlocks(String(savedSettings.dashboardProducerWindowBlocks))
+    setDraftDashboardRefreshSeconds(String(savedSettings.dashboardRefreshSeconds))
+    setDraftNodeRepoPath(nodeSettings.repoPath)
+    setDraftNodeNetwork(nodeSettings.network)
+    setDraftNodeBaseDir(nodeSettings.baseDir)
+    setDraftNodeProfiles(nodeSettings.profiles)
+    setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
+    setDraftNodeBackup(normalizeNodeBackupSettings(nodeSettings.backup))
+    setDraftNodeBackupPassword('')
+    nativeBackupUserEditedRef.current = false
+    setNodeBaseDirValidation(null)
+    setFormError(null)
+  }
+
+  const closeSettingsUnsavedDialog = () => {
+    setSettingsUnsavedDialogOpen(false)
+    setSettingsUnsavedTargetTab(null)
+  }
+
+  const discardSettingsChanges = () => {
+    const targetTab = settingsUnsavedTargetTab
+    restoreDraftSettingsFromSaved()
+    setSettingsUnsavedDialogOpen(false)
+    setSettingsUnsavedTargetTab(null)
+    if (targetTab && targetTab !== activeTab) {
+      setActiveTab(targetTab)
+    }
+  }
+
+  const saveSettingsFromUnsavedDialog = async () => {
+    const targetTab = settingsUnsavedTargetTab
+    const ok = await saveCurrentSettings()
+    if (!ok) return
+    setSettingsUnsavedTargetTab(null)
+    if (targetTab && targetTab !== activeTab) {
+      setActiveTab(targetTab)
+    }
   }
 
   const withRemoteBackupDefaults = (backup: NodeBackupSettings): NodeBackupSettings => {
@@ -4784,7 +5069,8 @@ export function App() {
       sshUser: backup.sshUser || defaults.sshUser,
       remoteDirectory: backup.remoteDirectory || defaults.remoteDirectory,
       sshPrivateKeyFile: backup.sshPrivateKeyFile || defaults.sshPrivateKeyFile,
-      sshKnownHostsFile: backup.sshKnownHostsFile || defaults.sshKnownHostsFile
+      sshKnownHostsFile: backup.sshKnownHostsFile || defaults.sshKnownHostsFile,
+      adminEnabled: true
     })
   }
 
@@ -4842,9 +5128,43 @@ export function App() {
     }
   }
 
+  const completeFirstRunSetup = () => {
+    if (window.teleno?.app?.completeFirstRunSetup) {
+      void window.teleno.app.completeFirstRunSetup({
+        appVersion: pkg.version,
+        network: nodeSettings.network,
+        baseDir: nodeSettings.baseDir,
+        completedFrom: 'first-run-assistant'
+      })
+    }
+    try {
+      window.localStorage.setItem(FIRST_RUN_SETUP_STORAGE_KEY, 'complete')
+    } catch {
+      // If localStorage is unavailable, this session can continue but setup will be required again next launch.
+    }
+    setFirstRunSetupOpen(false)
+  }
+
+  const quitUnfinishedFirstRunSetup = () => {
+    if (window.teleno?.app?.resetFirstRunSetup) {
+      void window.teleno.app.resetFirstRunSetup()
+    }
+    try {
+      window.localStorage.removeItem(FIRST_RUN_SETUP_STORAGE_KEY)
+    } catch {
+      // If localStorage is unavailable, the assistant will open again on next launch.
+    }
+    if (window.teleno?.app?.quit) {
+      void window.teleno.app.quit()
+    } else {
+      window.close()
+    }
+  }
+
   const requestActiveTab = (nextTab: AppTab) => {
     if (nextTab === activeTab) return
     if (activeTab === 'settings' && nextTab !== 'settings' && settingsDirty) {
+      setSettingsUnsavedTargetTab(nextTab)
       setSettingsUnsavedDialogOpen(true)
       return
     }
@@ -4855,13 +5175,13 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${firstRunSetupOpen ? 'is-first-run-locked' : ''}`.trim()}>
       <div className="app-background" aria-hidden="true" />
 
       <div className="app-chrome">
         <nav className="tabs-bar" aria-label={t('sections.aria')}>
           <div className="app-brand" aria-label={t('app.name')}>
-            <img className="app-brand-logo" src={telenoLogoUrl} alt="" aria-hidden="true" />
+            <img className="app-brand-logo" src={appLogoUrl} alt="" aria-hidden="true" />
             {(activeTab === 'settings' ? draftNodeNetwork : nodeSettings.network) === 'testnet' && (
               <span className="app-brand-network">(Testnet)</span>
             )}
@@ -4964,6 +5284,8 @@ export function App() {
           hasNodeControls={hasNodeControls}
           draftNodeBackup={draftNodeBackup}
           setDraftNodeBackup={setDraftNodeBackupFromUser}
+          draftNodeBackupPassword={draftNodeBackupPassword}
+          setDraftNodeBackupPassword={setDraftNodeBackupPassword}
           runNativeBackupDryRun={runNativeBackupDryRun}
           nodeBusy={nodeBusy}
           nodeSettings={nodeSettings}
@@ -5303,6 +5625,7 @@ export function App() {
             dashboardPerformanceLoading={dashboardPerformanceLoading}
             formError={formError}
             nodeBackupProgress={nodeBackupProgress}
+            openSettings={() => requestActiveTab('settings')}
           />
         )}
 
@@ -5895,7 +6218,7 @@ export function App() {
       </div>
 
       {settingsUnsavedDialogOpen && (
-        <div className="log-modal-backdrop" role="presentation" onClick={() => setSettingsUnsavedDialogOpen(false)}>
+        <div className="log-modal-backdrop" role="presentation" onClick={closeSettingsUnsavedDialog}>
           <section
             className="log-modal conflict-modal settings-unsaved-modal"
             role="dialog"
@@ -5914,11 +6237,25 @@ export function App() {
             <div className="conflict-modal-body">
               <p className="conflict-modal-copy">{t('settings.unsavedCopy')}</p>
               {formError && <p className="form-error" role="alert">{formError}</p>}
-              <div className="conflict-modal-actions">
+              <div className="conflict-modal-actions conflict-modal-actions-spread settings-unsaved-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={closeSettingsUnsavedDialog}
+                >
+                  {t('settings.unsavedStay')}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={discardSettingsChanges}
+                >
+                  {t('settings.unsavedDiscard')}
+                </button>
                 <button
                   type="button"
                   className="primary-button"
-                  onClick={() => { void saveCurrentSettings() }}
+                  onClick={() => { void saveSettingsFromUnsavedDialog() }}
                 >
                   {t('settings.saveSettings')}
                 </button>
@@ -5926,6 +6263,53 @@ export function App() {
             </div>
           </section>
         </div>
+      )}
+
+      {firstRunSetupOpen && (
+        <FirstRunSetupModal
+          network={formatNetworkLabel(nodeSettings.network)}
+          baseDir={nodeSettings.baseDir}
+          draftBaseDir={draftNodeBaseDir}
+          settingsDirty={settingsDirty}
+          formError={formError}
+          nodeError={nodeError}
+          walletError={walletError}
+          producerError={nodeProducerError}
+          publicBootstrapUrl={firstRunPublicBootstrapUrl}
+          publicBootstrapDescription={firstRunPublicBootstrapDescription}
+          publicBootstrapList={nodeNativeBackupPublicList}
+          publicBootstrapListLoading={nodeNativeBackupPublicListLoading}
+          publicBootstrapRestoreLoading={nodeRestoreNativeBackupLoading}
+          nodeActionLoading={nodeActionLoading}
+          nodeProducerActionLoading={nodeProducerActionLoading}
+          walletActionLoading={walletActionLoading}
+          walletAddress={activeWalletAddress}
+          walletCanSign={activeWalletCanSign}
+          nodeRunning={nodeRunningCount > 0}
+          producerAddress={producerConfiguredAddress}
+          producerLocalPublicKey={producerLocalPublicKey}
+          producerRegisteredPublicKey={producerRegisteredPublicKey}
+          producerSetupComplete={producerSetupComplete}
+          producerRegisterDisabled={producerRegisterDisabled}
+          producerRegisterHintText={producerRegisterHintText}
+          producerRegisterActionText={producerRegisterActionText}
+          syncStatusClass={footerStatusClass}
+          syncStatusText={footerStatusText}
+          syncStatusMeta={footerStatusMeta}
+          syncStatusProgressVisible={showChainSyncProgress}
+          syncStatusPercent={chainSyncPercent}
+          chooseDataFolder={pickNodeBaseDir}
+          saveSettings={saveCurrentSettings}
+          checkPublicBootstrap={() => runNativeBackupList('public')}
+          restorePublicBootstrap={restorePublicBootstrapFromSetup}
+          generateWalletDraft={generateWalletDraft}
+          createWalletAccount={createWalletAccountFromSetup}
+          useExistingProducerAddress={useExistingProducerAddressFromSetup}
+          registerProducer={() => registerNodeProducer()}
+          startObserverNode={startObserverNodeFromSetup}
+          onQuitSetup={quitUnfinishedFirstRunSetup}
+          onComplete={completeFirstRunSetup}
+        />
       )}
 
       <AppFooter

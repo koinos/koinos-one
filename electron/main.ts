@@ -68,6 +68,7 @@ import {
 import {
   MAINNET_PEER_ADDRESSES,
   TESTNET_PEER_ADDRESSES,
+  normalizeKoinosNetworkId,
   primaryPublicRpcUrlForNetwork,
   resolveNetworkProfile,
   type KoinosNetworkId
@@ -99,6 +100,8 @@ import type {
   BlockchainBackupWorkspacePaths,
   KoinosJsonRpcProxyInput,
   KoinosJsonRpcProxyResult,
+  TelenoNodeBackupPasswordFileInput,
+  TelenoNodeBackupPasswordFileResult,
   TelenoNodeBackupProgressAction,
   TelenoNodeBackupProgressEvent,
   TelenoNodeBackupProgressPhase,
@@ -232,11 +235,12 @@ import { createWalletService } from './lib/wallet-service'
 import { createWorkspaceService } from './lib/workspace-service'
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL
-app.setName('Teleno')
+app.setName('KoinosOne')
 let appShutdownInProgress = false
 let appShutdownApproved = false
 let mainWindow: BrowserWindow | null = null
 const telenoStorage = createTelenoStorage(app.getPath('userData'))
+const FIRST_RUN_SETUP_STATE_FILE = 'first-run-setup-state.v1.json'
 
 const LOGS_FOLLOW_EVENT_CHANNEL = 'teleno:node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'teleno:node:backup-progress:event'
@@ -252,6 +256,131 @@ const MONOLITH_DEFAULT_DISABLED_FEATURES: readonly string[] = []
 function nativeServiceLogFilePath(serviceId: string): string {
   const safeServiceId = serviceId.replace(/[^a-z0-9_.-]+/gi, '-')
   return path.join(app.getPath('userData'), 'logs', `${safeServiceId}.log`)
+}
+
+function firstRunSetupStateFilePath(): string {
+  return path.join(app.getPath('userData'), FIRST_RUN_SETUP_STATE_FILE)
+}
+
+function currentInstallDescriptor() {
+  const appPath = app.getPath('exe') || process.execPath || ''
+  let appPathStats: { mtimeMs: number | null; birthtimeMs: number | null } = {
+    mtimeMs: null,
+    birthtimeMs: null
+  }
+
+  try {
+    const stats = fs.statSync(appPath)
+    appPathStats = {
+      mtimeMs: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : null,
+      birthtimeMs: Number.isFinite(stats.birthtimeMs) ? stats.birthtimeMs : null
+    }
+  } catch {
+    // Best effort only. Name, version and executable path still identify the install.
+  }
+
+  return {
+    appName: app.getName(),
+    appVersion: app.getVersion(),
+    appPath,
+    packaged: app.isPackaged,
+    ...appPathStats
+  }
+}
+
+function readFirstRunSetupState() {
+  const filePath = firstRunSetupStateFilePath()
+  const install = currentInstallDescriptor()
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as {
+      completed?: boolean
+      completedAt?: string
+      install?: ReturnType<typeof currentInstallDescriptor>
+      setup?: unknown
+    }
+    const stateInstall = raw.install || null
+    const installMatches = stateInstall
+      ? (
+      stateInstall.appName === install.appName &&
+      stateInstall.appVersion === install.appVersion &&
+      stateInstall.appPath === install.appPath
+        )
+      : false
+
+    return {
+      ok: true,
+      completed: raw.completed === true && installMatches,
+      filePath,
+      install,
+      completedAt: raw.completedAt || null,
+      setup: raw.setup || null
+    }
+  } catch {
+    return {
+      ok: true,
+      completed: false,
+      filePath,
+      install,
+      completedAt: null,
+      setup: null
+    }
+  }
+}
+
+function completeFirstRunSetup(input?: unknown) {
+  const filePath = firstRunSetupStateFilePath()
+  const payload = {
+    completed: true,
+    completedAt: new Date().toISOString(),
+    install: currentInstallDescriptor(),
+    setup: input && typeof input === 'object' ? input : null
+  }
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 0o600 })
+  return readFirstRunSetupState()
+}
+
+function resetFirstRunSetup() {
+  const filePath = firstRunSetupStateFilePath()
+  try {
+    fs.rmSync(filePath, { force: true })
+  } catch {
+    // Best effort; the next read reports whatever remains on disk.
+  }
+  return readFirstRunSetupState()
+}
+
+function saveBackupPasswordFile(input?: TelenoNodeBackupPasswordFileInput): TelenoNodeBackupPasswordFileResult {
+  const password = `${input?.password || ''}`
+  if (!password) {
+    return {
+      ok: false,
+      output: 'SSH password is required.',
+      filePath: null
+    }
+  }
+
+  try {
+    const network = normalizeKoinosNetworkId(input?.network)
+    const dirPath = path.join(app.getPath('userData'), TELENO_SECURE_STORAGE_DIR, network)
+    const filePath = path.join(dirPath, 'backup-ssh-password.txt')
+    fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 })
+    fs.chmodSync(dirPath, 0o700)
+    fs.writeFileSync(filePath, password.endsWith('\n') ? password : `${password}\n`, { mode: 0o600 })
+    fs.chmodSync(filePath, 0o600)
+    return {
+      ok: true,
+      output: 'SSH backup password stored in a private password file.',
+      filePath
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      output: error instanceof Error ? error.message : 'Could not save SSH backup password.',
+      filePath: null
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +442,7 @@ function shouldUseMonolithMode(): boolean {
 
 function monolithFallbackMessage(reason: string): string {
   return [
-    `Monolith startup failed. Teleno UX manages only the monolithic ${TELENO_NODE_BINARY_NAME} runtime.`,
+    `Monolith startup failed. Koinos One manages only the monolithic ${TELENO_NODE_BINARY_NAME} runtime.`,
     reason
   ].filter(Boolean).join('\n')
 }
@@ -1720,7 +1849,7 @@ function parseLatestP2pPeersSnapshot(logOutput: string): {
 async function fetchCoinMarketCapKoinPriceUsd(): Promise<number | null> {
   try {
     const response = await fetch('https://coinmarketcap.com/currencies/koinos/', {
-      headers: { 'user-agent': 'Mozilla/5.0 (Teleno UX Producer Panel)' }
+      headers: { 'user-agent': 'Mozilla/5.0 (Koinos One Producer Panel)' }
     })
     if (!response.ok) return null
     const html = await response.text()
@@ -2313,7 +2442,7 @@ function describeBaseDirLockConflict(
   owners: ProcessSnapshotEntry[]
 ): string {
   const ownerList = owners.map((entry) => `${entry.command || 'unknown'} (pid ${entry.pid})`).join(', ')
-  return `External ${serviceId} is already using BASEDIR ${settings.baseDir} (${ownerList}). Teleno UX will not start a second node against the same RocksDB database. Stop that process first, or choose a different BASEDIR.`
+  return `External ${serviceId} is already using BASEDIR ${settings.baseDir} (${ownerList}). Koinos One will not start a second node against the same RocksDB database. Stop that process first, or choose a different BASEDIR.`
 }
 
 function uniqueProcessSnapshotEntries(entries: ProcessSnapshotEntry[]): ProcessSnapshotEntry[] {
@@ -2711,7 +2840,7 @@ function ensureNativeAmqpRuntimeFiles(
   const amqpAdminPort = composeServicePortByTarget(serviceDefinitions.get('amqp'), 15672)
   const configLines = [
     sourceConfig,
-    '# Generated by Teleno UX for native runtime compatibility',
+    '# Generated by Koinos One for native runtime compatibility',
     `listeners.tcp.default = ${nativeRabbitmqListenerValue(amqpPort, 5672)}`,
     amqpAdminPort?.host && amqpAdminPort.host !== '0.0.0.0' ? `management.tcp.ip = ${amqpAdminPort.host}` : '',
     `management.tcp.port = ${amqpAdminPort?.publishedPort ?? 15672}`
@@ -3715,7 +3844,7 @@ async function nativeComposeStatus(input?: TelenoNodeSettingsInput): Promise<Tel
       .filter((pid, index, allPids) => allPids.indexOf(pid) === index)
     const monolithService: ServiceStatus = {
       id: 'teleno-node',
-      name: 'Teleno Node',
+      name: 'Koinos One Node',
       service: 'teleno-node',
       runtimeName: TELENO_NODE_BINARY_NAME,
       binaryPath,
@@ -4465,8 +4594,13 @@ async function telenoNodeLogsFollowStart(
 
 function registerIpcHandlers() {
   return registerTelenoIpcHandlers(ipcMain, {
+    quitApp: () => app.quit(),
+    firstRunSetupState: readFirstRunSetupState,
+    completeFirstRunSetup,
+    resetFirstRunSetup,
     loadPublicRpcConfig,
     savePublicRpcConfig,
+    saveBackupPasswordFile,
     getNodeDefaults: () => {
       return normalizeNodeSettings()
     },

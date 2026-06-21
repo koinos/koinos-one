@@ -176,7 +176,7 @@ describe('producer-service helpers', () => {
     expect(aggregateDashboardPerformanceTotals([
       {
         id: 'teleno:1',
-        label: 'Teleno UX Main',
+        label: 'Koinos One Main',
         kind: 'teleno',
         serviceId: null,
         pid: 1,
@@ -364,7 +364,7 @@ describe('dashboard performance', () => {
     expect(result.rows).toHaveLength(1)
     expect(result.rows[0]).toMatchObject({
       kind: 'teleno',
-      label: 'Teleno UX Main',
+      label: 'Koinos One Main',
       pid: 101
     })
     expect(result.totals).toEqual({

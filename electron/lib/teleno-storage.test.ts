@@ -198,4 +198,38 @@ describe('teleno storage', () => {
     expect(remaining?.some((account) => account.id === watchOnly?.id)).toBe(false)
     expect(storage.loadWalletFile()?.accounts).toHaveLength(2)
   })
+
+  it('upgrades a matching watch-only account when its WIF is imported', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-upgrade-watch-'))
+    const seedPhrase = 'test test test test test test test test test test test junk'
+    const [firstAccount, secondAccount] = deriveWalletAccountsFromSeed(seedPhrase, 2)
+
+    storage.saveWallet(firstAccount.privateKeyWif, firstAccount.address, 'secret-password', {
+      seedPhrase,
+      derivationPath: firstAccount.derivationPath
+    })
+
+    const watchOnly = storage.importWatchWalletAccount(secondAccount.address, 'Producer address')
+    expect(watchOnly).toMatchObject({
+      address: secondAccount.address,
+      kind: 'watch-only',
+      hasPrivateKey: false,
+      isActive: true
+    })
+
+    const upgraded = storage.importWalletAccount(secondAccount.privateKeyWif, 'secret-password', 'Producer address')
+    expect(upgraded).toMatchObject({
+      id: watchOnly?.id,
+      address: secondAccount.address,
+      kind: 'imported-wif',
+      hasPrivateKey: true,
+      isActive: true
+    })
+
+    const accounts = storage.listWalletAccounts()
+    expect(accounts).toHaveLength(2)
+    expect(accounts.filter((account) => account.address === secondAccount.address)).toHaveLength(1)
+    expect(storage.getUnlockedWallet()?.activeAccountId).toBe(watchOnly?.id)
+    expect(storage.getUnlockedWallet()?.privateKey).toBe(secondAccount.privateKeyWif)
+  })
 })

@@ -203,6 +203,71 @@ describe('NodeBackupsPanel', () => {
     expect(textContent(tree)).not.toContain('Allow remote backup')
   })
 
+  it('does not call a remote space check unavailable when only the backup size estimate is missing', () => {
+    const html = renderToStaticMarkup(
+      <NodeBackupsPanel
+        t={t}
+        locale="en-US"
+        hasNodeControls
+        nodeBusy={false}
+        settingsDirty={false}
+        advancedMode
+        nodeSettings={{
+          baseDir: '/tmp/teleno',
+          backup: {
+            remoteEnabled: true,
+            sshUser: 'backup',
+            sshHost: 'example.invalid',
+            remoteDirectory: '/srv/teleno-backups'
+          }
+        }}
+        draftNodeBackup={{
+          remoteEnabled: true
+        }}
+        nodeStatus={{ baseDir: '/tmp/teleno' }}
+        nodePrimaryConfigPath="/tmp/teleno/config.yml"
+        runCreateBackup={vi.fn()}
+        runCancelBackup={vi.fn()}
+        runNativeBackupList={vi.fn()}
+        runNativeBackupRestorePreflight={vi.fn()}
+        runRestoreNativeBackupSelected={vi.fn()}
+        nodeCreateBackupLoading={false}
+        nodeNativeBackupListLoading={false}
+        nodeNativeBackupLocalListLoading={false}
+        nodeNativeBackupRemoteListLoading={false}
+        nodeNativeBackupLocalList={null}
+        nodeNativeBackupRemoteList={{
+          ok: true,
+          source: 'remote',
+          remoteSpace: {
+            ok: true,
+            availableBytes: 98.9 * 1024 * 1024 * 1024,
+            targetPath: '/srv/teleno-backups',
+            message: 'ok'
+          },
+          snapshots: []
+        }}
+        nodeNativeBackupPreflightLoading={false}
+        nodeNativeBackupPreflight={null}
+        selectedNativeBackupId="latest"
+        setSelectedNativeBackupId={vi.fn()}
+        nodeRestoreNativeBackupLoading={false}
+        simpleRemoteBackupSaving={false}
+        setSimpleRemoteBackupEnabled={vi.fn()}
+        dashboardPerformance={null}
+        dashboardPerformanceLoading={false}
+        formError={null}
+        nodeBackupProgress={null}
+      />
+    )
+
+    expect(html).toContain('Remote backup: backup size estimate unavailable')
+    expect(html).toContain('Free 98.9 GB')
+    expect(html).toContain('needed not available')
+    expect(html).not.toContain('Remote backup: space check unavailable')
+    expect(html).not.toContain('needed N/A')
+  })
+
   it('shows verified restore information inside the selected advanced backup card', () => {
     const html = renderToStaticMarkup(
       <NodeBackupsPanel
@@ -340,7 +405,9 @@ describe('NodeBackupsPanel', () => {
       />
     )
 
-    expect(html.match(/<button/g)).toHaveLength(2)
+    expect(html.match(/<button/g)).toHaveLength(4)
+    expect(html).toContain('Choose data folder')
+    expect(html).toContain('Check bootstrap')
     expect(html).toContain('Create Backup')
     expect(html).toContain('Restore Backup')
     expect(html).toContain('Allow remote backup')

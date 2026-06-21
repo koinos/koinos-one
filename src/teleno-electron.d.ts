@@ -60,8 +60,35 @@ declare global {
     runtimeMode?: TelenoNodeServiceRuntime
   }
 
+  type TelenoNodeBackupPasswordFileParams = {
+    network?: TelenoNetworkId
+    password?: string
+  }
+
+  type TelenoNodeBackupPasswordFileResult = {
+    ok: boolean
+    output: string
+    filePath: string | null
+  }
+
   type TelenoLaunchDefaults = {
     nodeSettings?: Partial<TelenoNodeSettings>
+  }
+
+  type TelenoFirstRunSetupState = {
+    ok: boolean
+    completed: boolean
+    filePath?: string
+    completedAt?: string | null
+    setup?: unknown
+    install?: {
+      appName?: string
+      appVersion?: string
+      appPath?: string
+      packaged?: boolean
+      mtimeMs?: number | null
+      birthtimeMs?: number | null
+    }
   }
 
   type TelenoNodeServiceStatus = {
@@ -1037,12 +1064,21 @@ declare global {
   type TelenoApi = {
     version: string
     launchDefaults?: TelenoLaunchDefaults
+    app?: {
+      quit: () => Promise<{ ok: boolean }>
+      firstRunSetupState?: () => Promise<TelenoFirstRunSetupState>
+      completeFirstRunSetup?: (params?: unknown) => Promise<TelenoFirstRunSetupState>
+      resetFirstRunSetup?: () => Promise<TelenoFirstRunSetupState>
+    }
     appConfig?: {
       loadPublicRpcUrls: () => Promise<TelenoPublicRpcConfigResult>
       savePublicRpcUrls: (params?: TelenoPublicRpcConfigParams) => Promise<TelenoPublicRpcConfigResult>
     }
     telenoNode?: {
       defaults: () => Promise<Required<TelenoNodeSettings>>
+      saveBackupPasswordFile?: (
+        params?: TelenoNodeBackupPasswordFileParams
+      ) => Promise<TelenoNodeBackupPasswordFileResult>
       cloneRepo: (settings?: TelenoNodeSettings) => Promise<TelenoNodeCloneRepoResult>
       fileRead: (params: TelenoNodeFileReadParams) => Promise<TelenoNodeFileReadResult>
       fileWrite: (params: TelenoNodeFileWriteParams) => Promise<TelenoNodeFileWriteResult>

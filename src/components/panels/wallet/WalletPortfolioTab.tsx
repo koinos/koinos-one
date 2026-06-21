@@ -6,10 +6,11 @@ type WalletPortfolioTabProps = {
   isBusy: boolean
   onOpenSend: () => void
   onOpenBurn: () => void
+  onOpenImportWif: () => void
 }
 
 export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
-  const { t, nativeTokenSymbol, walletBalance, activeWalletCanSign, isBusy, onOpenSend, onOpenBurn } = props
+  const { t, nativeTokenSymbol, walletBalance, activeWalletCanSign, isBusy, onOpenSend, onOpenBurn, onOpenImportWif } = props
 
   return (
     <div className="wallet-subpanel">
@@ -38,7 +39,10 @@ export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
         </div>
         {!activeWalletCanSign && (
           <div className="node-warning" role="note">
-            {t('wallet.watchOnlyCannotSign')}
+            <span>{t('wallet.watchOnlyCannotSign')}</span>
+            <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={isBusy}>
+              {t('wallet.importSigningKeyAction')}
+            </button>
           </div>
         )}
       </article>

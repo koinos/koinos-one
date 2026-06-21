@@ -65,14 +65,32 @@ export function formatTime(timestampMs: number, locale: string, emptyLabel = '')
 }
 
 export function remoteBackupDefaults(network: string) {
-  const directoryNetwork = network && network !== 'custom' ? network : 'testnet'
+  if (network === 'mainnet') {
+    return {
+      sshHost: 'seed.koinosfoundation.org',
+      sshUser: 'teleno_backup',
+      remoteDirectory: '/srv/teleno-backups/prodnet/teleno-dev/teleno-ux-mainnet',
+      sshPrivateKeyFile: '~/.ssh/id_ed25519',
+      sshKnownHostsFile: '~/.ssh/known_hosts'
+    }
+  }
+
+  if (network === 'testnet') {
+    return {
+      sshHost: 'testnet.koinosfoundation.org',
+      sshUser: 'teleno_backup',
+      remoteDirectory: '/srv/teleno-backups/testnet/teleno-dev/teleno-ux-testnet',
+      sshPrivateKeyFile: '~/.ssh/id_ed25519',
+      sshKnownHostsFile: '~/.ssh/known_hosts'
+    }
+  }
 
   return {
-    sshHost: 'testnet.koinosfoundation.org',
-    sshUser: 'teleno_backup',
-    remoteDirectory: `/srv/teleno-backups/${directoryNetwork}/teleno-dev/teleno-ux-${directoryNetwork}`,
-    sshPrivateKeyFile: '~/.ssh/id_ed25519',
-    sshKnownHostsFile: '~/.ssh/known_hosts'
+    sshHost: '',
+    sshUser: '',
+    remoteDirectory: '',
+    sshPrivateKeyFile: '',
+    sshKnownHostsFile: ''
   }
 }
 
@@ -420,7 +438,7 @@ function normalizeBackupRemoteDirectory(value: unknown): string {
 export function normalizeNodeBackupSettings(input?: Partial<NodeBackupSettings> | null): NodeBackupSettings {
   const value = input && typeof input === 'object' ? input : {}
   return {
-    localEnabled: value.localEnabled !== false,
+    localEnabled: value.remoteEnabled === true || value.localEnabled !== false,
     localDirectory: stringValue(value.localDirectory, DEFAULT_NODE_BACKUP_SETTINGS.localDirectory),
     workspace: stringValue(value.workspace, DEFAULT_NODE_BACKUP_SETTINGS.workspace),
     localRetentionCount: numberValue(value.localRetentionCount, DEFAULT_NODE_BACKUP_SETTINGS.localRetentionCount, 1, 365),
@@ -456,7 +474,7 @@ export function normalizeNodeBackupSettings(input?: Partial<NodeBackupSettings> 
     ),
     scheduleSkipIfSyncingFromGenesis: value.scheduleSkipIfSyncingFromGenesis !== false,
     scheduleMaxConcurrentBackups: 1,
-    adminEnabled: value.adminEnabled === true,
+    adminEnabled: value.remoteEnabled === true || value.adminEnabled !== false,
     adminListen: stringValue(value.adminListen, DEFAULT_NODE_BACKUP_SETTINGS.adminListen) || '127.0.0.1:18088',
     adminTokenFile: stringValue(value.adminTokenFile, DEFAULT_NODE_BACKUP_SETTINGS.adminTokenFile),
     adminJobs: numberValue(value.adminJobs, DEFAULT_NODE_BACKUP_SETTINGS.adminJobs, 1, 16)

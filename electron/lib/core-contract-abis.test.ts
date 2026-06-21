@@ -23,18 +23,18 @@ afterEach(() => {
 
 describe('core contract ABI resolution', () => {
   it('looks for packaged ABIs in the Teleno resource bundle', () => {
-    setResourcesPath('/Applications/Teleno.app/Contents/Resources')
+    setResourcesPath('/Applications/Koinos One.app/Contents/Resources')
 
     expect(coreContractAbiCandidatePaths('koin')).toContain(
-      path.join('/Applications/Teleno.app/Contents/Resources', 'teleno', 'abis', 'koin.abi')
+      path.join('/Applications/Koinos One.app/Contents/Resources', 'teleno', 'abis', 'koin.abi')
     )
   })
 
   it('keeps the legacy koinos resource ABI path as a fallback', () => {
-    setResourcesPath('/Applications/Teleno.app/Contents/Resources')
+    setResourcesPath('/Applications/Koinos One.app/Contents/Resources')
 
     expect(coreContractAbiCandidatePaths('koin')).toContain(
-      path.join('/Applications/Teleno.app/Contents/Resources', 'koinos', 'abis', 'koin.abi')
+      path.join('/Applications/Koinos One.app/Contents/Resources', 'koinos', 'abis', 'koin.abi')
     )
   })
 

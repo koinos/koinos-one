@@ -1,6 +1,6 @@
 forceCodeSigning: false
-appId: io.teleno.desktop
-productName: Teleno
+appId: io.koinosone.desktop
+productName: KoinosOne
 directories:
   buildResources: assets/branding
   output: release

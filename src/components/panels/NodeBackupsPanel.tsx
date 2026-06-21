@@ -1,9 +1,11 @@
 import { formatBytes, formatDateTime, formatTime } from '../../app/utils'
+import {
+  publicBootstrapDescriptionForNetwork,
+  publicBootstrapUrlForNetwork
+} from '../../app/public-bootstrap'
 
 type NodeBackupsPanelProps = any
 type BackupSourceLabel = 'local' | 'remote' | 'public'
-
-const TESTNET_PUBLIC_BOOTSTRAP_URL = 'https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap'
 
 function parseTimestampMs(rawValue?: string, fallbackValue?: string): number {
   const rawCreatedAt = rawValue?.trim()
@@ -93,7 +95,8 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
     dashboardPerformance,
     dashboardPerformanceLoading,
     formError,
-    nodeBackupProgress
+    nodeBackupProgress,
+    openSettings
   } = props
 
   const backupSettings = nodeSettings.backup ?? {}
@@ -116,7 +119,9 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
   const remoteTarget = backupSettings.remoteEnabled
     ? `${backupSettings.sshUser || '?'}@${backupSettings.sshHost || '?'}:${backupSettings.remoteDirectory || '?'}`
     : 'Disabled'
-  const publicBootstrapTarget = nodeSettings.network === 'testnet' ? TESTNET_PUBLIC_BOOTSTRAP_URL : 'Disabled'
+  const publicBootstrapUrl = publicBootstrapUrlForNetwork(nodeSettings.network)
+  const publicBootstrapTarget = publicBootstrapUrl || 'Disabled'
+  const publicBootstrapDescription = publicBootstrapDescriptionForNetwork(nodeSettings.network)
   const adminListen = backupSettings.adminEnabled ? backupSettings.adminListen || '127.0.0.1:18088' : 'Disabled'
   const formatBackupCreatedAt = (snapshot: TelenoNodeNativeBackupSnapshot) =>
     formatDateTime(parseBackupTimestampMs(snapshot), locale, 'N/A')
@@ -124,6 +129,14 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
     formatDateTime(parseTimestampMs(value, fallback), locale, 'N/A')
   const formatSpaceLine = (availableBytes: number | null | undefined, neededBytes: number | null | undefined) =>
     `Free ${formatBytes(availableBytes, locale)} · needed ${formatBytes(neededBytes, locale)}`
+  const formatCreateSpaceLine = (availableBytes: number | null | undefined, neededBytes: number | null | undefined) => {
+    const neededLabel = neededBytes !== null && neededBytes !== undefined
+      ? formatBytes(neededBytes, locale)
+      : dashboardPerformanceLoading
+        ? 'estimating'
+        : 'not available'
+    return `Free ${formatBytes(availableBytes, locale)} · needed ${neededLabel}`
+  }
   const backupActionDisabled =
     !hasNodeControls ||
     nodeBusy ||
@@ -133,7 +146,7 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
     nodeRestoreNativeBackupLoading ||
     nodeNativeBackupPurgeLoading !== null
   const remoteBackupAllowed = simpleBackupSettings.remoteEnabled === true
-  const publicBootstrapAllowed = nodeSettings.network === 'testnet'
+  const publicBootstrapAllowed = Boolean(publicBootstrapUrl)
   const localCreateNeededBytes = latestLocalBackup?.totalBytes || dashboardPerformance?.host.blockchainDataBytes || null
   const localCreateAvailableBytes = dashboardPerformance?.host.freeDiskBytes ?? null
   const localCreatePasses = localCreateAvailableBytes !== null && localCreateNeededBytes !== null
@@ -146,6 +159,24 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
     ? remoteSpace.availableBytes >= remoteCreateNeededBytes
     : null
   const remoteCreateLoading = nodeNativeBackupRemoteListLoading
+  const localCreateStatus = localCreatePasses === true
+    ? 'enough space'
+    : localCreatePasses === false
+      ? 'not enough space'
+      : dashboardPerformanceLoading
+        ? 'checking space'
+        : 'backup size estimate unavailable'
+  const remoteCreateStatus = remoteCreatePasses === true
+    ? 'enough space'
+    : remoteCreatePasses === false
+      ? 'not enough space'
+      : remoteCreateLoading
+        ? 'checking space'
+        : remoteSpace?.ok && remoteCreateNeededBytes === null
+          ? dashboardPerformanceLoading
+            ? 'checking backup size'
+            : 'backup size estimate unavailable'
+          : 'space check unavailable'
   const renderNativeBackupSnapshots = (
     snapshots: TelenoNodeNativeBackupSnapshot[],
     sourceLabel: BackupSourceLabel,
@@ -326,6 +357,41 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
 
     return (
       <div className="node-backups-panel node-backups-panel-simple">
+        <section className="node-backup-bootstrap-guide">
+          <div>
+            <span>Data folder</span>
+            <strong className="mono" title={activeBaseDir || 'N/A'}>{activeBaseDir || 'N/A'}</strong>
+          </div>
+          <div>
+            <span>Bootstrap source</span>
+            <strong className="mono" title={publicBootstrapTarget}>{publicBootstrapTarget}</strong>
+          </div>
+          <div>
+            <span>Restore mode</span>
+            <strong>Observer first</strong>
+          </div>
+          <div className="node-backup-bootstrap-guide-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => { if (typeof openSettings === 'function') openSettings() }}
+              disabled={nodeBusy || typeof openSettings !== 'function'}
+            >
+              Choose data folder
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => { void runNativeBackupList('public') }}
+              disabled={!hasNodeControls || nodeBusy || settingsDirty || !publicBootstrapAllowed || nodeNativeBackupPublicListLoading}
+            >
+              {nodeNativeBackupPublicListLoading ? 'Checking bootstrap...' : 'Check bootstrap'}
+            </button>
+          </div>
+          <p className="settings-inline-help">
+            {publicBootstrapDescription}
+          </p>
+        </section>
         <div className="node-backup-simple-actions">
           <div className="node-backup-simple-action-card">
             <button
@@ -338,25 +404,19 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
             </button>
             <div className="node-backup-simple-space">
               <p className={`settings-inline-help ${spaceStatusClass(localCreatePasses, dashboardPerformanceLoading)}`.trim()}>
-                Local backup: {localCreatePasses === true ? 'enough space' : localCreatePasses === false ? 'not enough space' : 'checking space'}.
+                Local backup: {localCreateStatus}.
               </p>
               <p className="settings-inline-help">
-                {formatSpaceLine(localCreateAvailableBytes, localCreateNeededBytes)}
+                {formatCreateSpaceLine(localCreateAvailableBytes, localCreateNeededBytes)}
               </p>
               {remoteBackupAllowed && (
                 <>
                   <p className={`settings-inline-help ${spaceStatusClass(remoteCreatePasses, remoteCreateLoading)}`.trim()}>
-                    Remote backup: {remoteCreatePasses === true
-                      ? 'enough space'
-                      : remoteCreatePasses === false
-                        ? 'not enough space'
-                        : remoteCreateLoading
-                          ? 'checking space'
-                          : 'space check unavailable'}.
+                    Remote backup: {remoteCreateStatus}.
                   </p>
                   {remoteSpace?.ok ? (
                     <p className="settings-inline-help">
-                      {formatSpaceLine(remoteCreateAvailableBytes, remoteCreateNeededBytes)}
+                      {formatCreateSpaceLine(remoteCreateAvailableBytes, remoteCreateNeededBytes)}
                     </p>
                   ) : (
                     <p className="settings-inline-help">
@@ -457,10 +517,10 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
             </button>
             <div className="node-backup-simple-space">
               <p className={`settings-inline-help ${spaceStatusClass(localCreatePasses, dashboardPerformanceLoading)}`.trim()}>
-                Local backup: {localCreatePasses === true ? 'enough space' : localCreatePasses === false ? 'not enough space' : 'checking space'}.
+                Local backup: {localCreateStatus}.
               </p>
               <p className="settings-inline-help">
-                {formatSpaceLine(localCreateAvailableBytes, localCreateNeededBytes)}
+                {formatCreateSpaceLine(localCreateAvailableBytes, localCreateNeededBytes)}
               </p>
             </div>
           </div>
@@ -475,17 +535,11 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
             </button>
             <div className="node-backup-simple-space">
               <p className={`settings-inline-help ${spaceStatusClass(remoteCreatePasses, remoteCreateLoading)}`.trim()}>
-                Remote backup: {remoteCreatePasses === true
-                    ? 'enough space'
-                    : remoteCreatePasses === false
-                      ? 'not enough space'
-                      : remoteCreateLoading
-                        ? 'checking space'
-                        : 'space check unavailable'}.
+                Remote backup: {remoteCreateStatus}.
               </p>
               {remoteSpace?.ok ? (
                 <p className="settings-inline-help">
-                  {formatSpaceLine(remoteCreateAvailableBytes, remoteCreateNeededBytes)}
+                  {formatCreateSpaceLine(remoteCreateAvailableBytes, remoteCreateNeededBytes)}
                 </p>
               ) : (
                 <p className="settings-inline-help">
@@ -561,9 +615,9 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
               {nodeNativeBackupPublicListLoading ? 'Refreshing public...' : 'Refresh public list'}
             </button>
           </div>
-          <p className="settings-inline-help">Read-only bootstrap snapshots for new testnet nodes. No SSH credentials are required.</p>
+          <p className="settings-inline-help">{publicBootstrapDescription}</p>
           {!publicBootstrapAllowed ? (
-            <p className="settings-inline-help">Public bootstrap restore is currently enabled only for testnet.</p>
+            <p className="settings-inline-help">Public bootstrap restore is not available for this network.</p>
           ) : nodeNativeBackupPublicList ? (
             renderNativeBackupSnapshots(publicBackupSnapshots, 'public', 'No public bootstrap snapshots were found.')
           ) : (

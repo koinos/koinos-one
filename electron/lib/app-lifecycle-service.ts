@@ -43,13 +43,13 @@ function localizedShutdownCopy(language: string | null | undefined): {
   if (spanish) {
     return {
       confirmTitle: 'Detener nodo antes de cerrar',
-      confirmMessage: 'Teleno debe detener los servicios activos del nodo antes de cerrar.',
+      confirmMessage: 'Koinos One debe detener los servicios activos del nodo antes de cerrar.',
       confirmDetailPrefix: 'Servicios activos',
       confirmAction: 'Detener y cerrar',
       cancelAction: 'Cancelar',
-      stoppingWindowTitle: 'Teleno - Deteniendo nodo...',
+      stoppingWindowTitle: 'Koinos One - Deteniendo nodo...',
       stopFailedTitle: 'No se pudo detener el nodo',
-      stopFailedMessage: 'Teleno no pudo detener todos los servicios antes de cerrar.',
+      stopFailedMessage: 'Koinos One no pudo detener todos los servicios antes de cerrar.',
       stopFailedDetailPrefix: 'Salida del stop',
       keepOpenAction: 'Mantener abierta',
       forceCloseAction: 'Forzar cierre'
@@ -58,13 +58,13 @@ function localizedShutdownCopy(language: string | null | undefined): {
 
   return {
     confirmTitle: 'Stop node before closing',
-    confirmMessage: 'Teleno needs to stop running node services before it closes.',
+    confirmMessage: 'Koinos One needs to stop running node services before it closes.',
     confirmDetailPrefix: 'Running services',
     confirmAction: 'Stop and close',
     cancelAction: 'Cancel',
-    stoppingWindowTitle: 'Teleno - Stopping node...',
+    stoppingWindowTitle: 'Koinos One - Stopping node...',
     stopFailedTitle: 'Could not stop the node',
-    stopFailedMessage: 'Teleno could not stop all managed services before closing.',
+    stopFailedMessage: 'Koinos One could not stop all managed services before closing.',
     stopFailedDetailPrefix: 'Stop output',
     keepOpenAction: 'Keep open',
     forceCloseAction: 'Force close'
@@ -240,7 +240,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
       const message = error instanceof Error ? error.message : 'Could not prepare the app shutdown.'
       void showMessageBoxForWindow(win, {
         type: 'error',
-        title: 'Teleno',
+        title: 'Koinos One',
         message,
         buttons: ['OK'],
         defaultId: 0,
@@ -253,7 +253,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
 
   function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
-      title: 'Teleno',
+      title: 'Koinos One',
       width: 1280,
       height: 800,
       icon: path.join(__dirname, '../../assets/branding/icon.png'),

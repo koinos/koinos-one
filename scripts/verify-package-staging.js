@@ -142,7 +142,7 @@ function requireTelenoNodeBackupCli(relativePath) {
 }
 
 console.log('============================================================================');
-console.log('Verifying Teleno package staging');
+console.log('Verifying Koinos One package staging');
 console.log(`  Staging: ${STAGING}`);
 console.log(`  Target:  ${targetPlatform}`);
 console.log('============================================================================');

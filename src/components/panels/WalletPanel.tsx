@@ -377,6 +377,7 @@ export function WalletPanel(props: WalletPanelProps) {
               isBusy={walletActionLoading !== null}
               onOpenSend={() => openSendModal('send')}
               onOpenBurn={() => openSendModal('burn')}
+              onOpenImportWif={() => setImportModalOpen(true)}
             />
           )}
 

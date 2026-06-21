@@ -10,8 +10,8 @@ const translations: Record<string, string> = {
   'dashboard.subtab.peers': 'Peers',
   'dashboard.subtab.forecast': 'Forecast',
   'dashboard.subtab.performance': 'Performance',
-  'dashboard.performance.telenoCpu': 'Teleno UX CPU',
-  'dashboard.performance.telenoRam': 'Teleno UX RAM',
+  'dashboard.performance.telenoCpu': 'Koinos One CPU',
+  'dashboard.performance.telenoRam': 'Koinos One RAM',
   'dashboard.performance.servicesCpu': 'Node CPU',
   'dashboard.performance.servicesRam': 'Node RAM',
   'dashboard.performance.freeSystemRam': 'Free system RAM',
@@ -22,7 +22,7 @@ const translations: Record<string, string> = {
   'dashboard.performance.hostUptime': 'Host uptime',
   'dashboard.performance.hostCpus': 'Host CPUs',
   'dashboard.performanceTitle': 'Performance',
-  'dashboard.performanceDescription': 'Real-time CPU and memory snapshots for Teleno UX and the managed node process.',
+  'dashboard.performanceDescription': 'Real-time CPU and memory snapshots for Koinos One and the managed node process.',
   'dashboard.performanceHostSummary': 'Host summary',
   'dashboard.noPerformance': 'No performance snapshot is available yet.',
   'dashboard.col.name': 'Name',
@@ -33,7 +33,7 @@ const translations: Record<string, string> = {
   'dashboard.col.virtual': 'Virtual',
   'dashboard.col.uptime': 'Uptime',
   'dashboard.col.state': 'State',
-  'dashboard.kind.teleno': 'Teleno UX',
+  'dashboard.kind.teleno': 'Koinos One',
   'dashboard.kind.service': 'Component',
   'common.na': 'N/A',
   'common.loading': 'Loading...'
@@ -86,7 +86,7 @@ describe('DashboardPanel', () => {
           rows: [
             {
               id: 'teleno:1',
-              label: 'Teleno UX Main',
+              label: 'Koinos One Main',
               kind: 'teleno',
               serviceId: null,
               pid: 111,
@@ -95,7 +95,7 @@ describe('DashboardPanel', () => {
               virtualBytes: null,
               uptimeSeconds: 600,
               state: 'Browser',
-              command: '/Applications/Teleno UX.app',
+              command: '/Applications/Koinos One.app',
               managedByTeleno: true
             },
             {
@@ -122,7 +122,7 @@ describe('DashboardPanel', () => {
       />
     )
 
-    expect(html).toContain('Teleno UX CPU')
+    expect(html).toContain('Koinos One CPU')
     expect(html).toContain('Performance')
     expect(html).toContain('Indexer')
     expect(html).toContain('Component')

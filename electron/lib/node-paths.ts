@@ -186,7 +186,7 @@ const DEFAULT_BACKUP_SETTINGS: TelenoNodeBackupSettings = {
   scheduleMinimumHeadProgress: 1,
   scheduleSkipIfSyncingFromGenesis: true,
   scheduleMaxConcurrentBackups: 1,
-  adminEnabled: false,
+  adminEnabled: true,
   adminListen: '127.0.0.1:18088',
   adminTokenFile: '',
   adminJobs: 1
@@ -219,7 +219,7 @@ function normalizeBackupRemoteDirectory(value: unknown): string {
 export function normalizeBackupSettings(input?: TelenoNodeBackupSettingsInput): TelenoNodeBackupSettings {
   const value = input && typeof input === 'object' ? input : {}
   return {
-    localEnabled: value.localEnabled !== false,
+    localEnabled: value.remoteEnabled === true || value.localEnabled !== false,
     localDirectory: stringValue(value.localDirectory, DEFAULT_BACKUP_SETTINGS.localDirectory),
     workspace: stringValue(value.workspace, DEFAULT_BACKUP_SETTINGS.workspace),
     localRetentionCount: numberValue(value.localRetentionCount, DEFAULT_BACKUP_SETTINGS.localRetentionCount, 1, 365),
@@ -245,7 +245,7 @@ export function normalizeBackupSettings(input?: TelenoNodeBackupSettingsInput): 
     scheduleMinimumHeadProgress: numberValue(value.scheduleMinimumHeadProgress, DEFAULT_BACKUP_SETTINGS.scheduleMinimumHeadProgress, 0, 1000000),
     scheduleSkipIfSyncingFromGenesis: value.scheduleSkipIfSyncingFromGenesis !== false,
     scheduleMaxConcurrentBackups: 1,
-    adminEnabled: value.adminEnabled === true,
+    adminEnabled: value.remoteEnabled === true || value.adminEnabled !== false,
     adminListen: stringValue(value.adminListen, DEFAULT_BACKUP_SETTINGS.adminListen) || '127.0.0.1:18088',
     adminTokenFile: stringValue(value.adminTokenFile, DEFAULT_BACKUP_SETTINGS.adminTokenFile),
     adminJobs: numberValue(value.adminJobs, DEFAULT_BACKUP_SETTINGS.adminJobs, 1, 16)

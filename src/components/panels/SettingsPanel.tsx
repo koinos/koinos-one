@@ -32,6 +32,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setDraftNodeNetwork,
     draftNodeBackup,
     setDraftNodeBackup,
+    draftNodeBackupPassword = '',
+    setDraftNodeBackupPassword = () => {},
     runNativeBackupDryRun,
     nodeBusy,
     nodeSettings,
@@ -56,6 +58,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const updateBackup = (patch: Record<string, unknown>) => {
     setFormError(null)
     setDraftNodeBackup((current: any) => ({ ...current, ...patch }))
+  }
+  const updateBackupPassword = (value: string) => {
+    setFormError(null)
+    setDraftNodeBackupPassword(value)
   }
   const renderFormError = () => (
     formError ? <p className="form-error" role="alert">{formError}</p> : null
@@ -297,7 +303,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <span className="settings-inline-help">{t('settings.koinscanUrlHelp')}</span>
             </label>
 
-            <div className="settings-row">
+            <div className="settings-row settings-row-3">
               <label>
                 {t('settings.refreshMs')}
                 <input
@@ -481,7 +487,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   type="text"
                   value={draftNodeBackup.sshHost}
                   onChange={(event) => updateBackup({ sshHost: event.target.value })}
-                  placeholder="testnet.koinosfoundation.org"
+                  placeholder={remoteBackupDefaults(draftNodeNetwork).sshHost}
                   spellCheck={false}
                   autoComplete="off"
                   disabled={nodeBusy || !draftNodeBackup.remoteEnabled}
@@ -512,7 +518,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </label>
             </div>
 
-            <div className="settings-row">
+            <div className="settings-row settings-row-3">
               <label>
                 Auth
                 <select
@@ -521,7 +527,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   disabled={nodeBusy || !draftNodeBackup.remoteEnabled}
                 >
                   <option value="private-key">Private key</option>
-                  <option value="password-file">Password file</option>
+                  <option value="password-file">Password</option>
                   <option value="env-password">Environment password</option>
                 </select>
               </label>
@@ -538,20 +544,31 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 />
               </label>
               <label>
-                Password file
+                SSH password
                 <input
-                  type="text"
-                  value={draftNodeBackup.sshPasswordFile}
-                  onChange={(event) => updateBackup({ sshPasswordFile: event.target.value })}
-                  placeholder="0600 password file"
-                  spellCheck={false}
-                  autoComplete="off"
+                  type="password"
+                  value={draftNodeBackupPassword}
+                  onChange={(event) => updateBackupPassword(event.target.value)}
+                  placeholder={draftNodeBackup.sshPasswordFile ? 'Leave blank to keep saved password' : 'Password'}
+                  autoComplete="new-password"
                   disabled={nodeBusy || !draftNodeBackup.remoteEnabled || draftNodeBackup.sshAuth !== 'password-file'}
                 />
               </label>
             </div>
 
-            <div className="settings-row">
+            <div className="settings-row settings-row-3">
+              <label>
+                Password file
+                <input
+                  type="text"
+                  value={draftNodeBackup.sshPasswordFile}
+                  onChange={(event) => updateBackup({ sshPasswordFile: event.target.value })}
+                  placeholder="Auto-created when password is saved"
+                  spellCheck={false}
+                  autoComplete="off"
+                  disabled={nodeBusy || !draftNodeBackup.remoteEnabled || draftNodeBackup.sshAuth !== 'password-file'}
+                />
+              </label>
               <label>
                 Key passphrase file
                 <input

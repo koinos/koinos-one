@@ -96,7 +96,7 @@ async function installMockBridge(page: Page) {
     const services = [
       {
         id: 'teleno-node',
-        name: 'Teleno Node',
+        name: 'Koinos One Node',
         service: 'teleno-node',
         runtimeName: 'teleno_node',
         version: null,
