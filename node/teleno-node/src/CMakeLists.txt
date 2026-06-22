@@ -725,6 +725,27 @@ target_compile_definitions(teleno_node PRIVATE KOINOS_HAS_CHAIN)
 # Compatibility target for old automation that still invokes --target koinos_node.
 add_custom_target(koinos_node DEPENDS teleno_node)
 
+add_executable(koinos_state_delta_audit
+  ../tools/state_delta_audit.cpp)
+
+target_link_libraries(
+  koinos_state_delta_audit
+    PRIVATE
+      koinos_node_core
+      koinos_storage_lib
+      koinos_block_store_lib
+      chain
+      koinos_state_db_local
+      Koinos::log
+      Koinos::proto
+      Koinos::util
+      Koinos::exception
+      Koinos::crypto
+      RocksDB::rocksdb
+      OpenSSL::Crypto
+      nlohmann_json::nlohmann_json
+      protobuf::libprotobuf)
+
 add_executable(koinos_private_testnet_keygen
   ../tools/private_testnet_keygen.cpp)
 
