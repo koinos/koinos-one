@@ -50,9 +50,14 @@ starting a new feature or claiming full legacy parity.
 - `storage/UNIFIED_ROCKSDB_IMPLEMENTATION_PLAN.md` - remaining migration,
   validation, and prodnet rollout work for the unified storage model.
 
+## Networking Backlog
+
+- `networking/P2P_PUBLIC_PEER_IDENTITY_PLAN.md` - deterministic P2P identity
+  persistence, legacy `p2p.seed` compatibility, public multiaddr reporting, and
+  public-peer validation.
+
 ## Additional Deferred Work
 
-- Deterministic P2P identity persistence/runtime support.
 - gRPC ACL enforcement matching the intended JSON-RPC access-control model.
 - Mainnet producer activation signoff.
 - Runtime component restart/supervision hardening.
