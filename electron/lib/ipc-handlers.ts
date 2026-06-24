@@ -47,6 +47,7 @@ import type {
   WalletTransferVhpInput,
   WalletUnlockInput
 } from './main-types'
+import { loadKoinosOneBuildInfo } from './build-info'
 
 type Awaitable<T> = T | Promise<T>
 
@@ -225,12 +226,37 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
 
   for (const channel of handlers) ipcMain.removeHandler(channel)
 
-  // Sync handler for app version (used by preload before contextBridge)
+  // Sync handlers used by preload before contextBridge is exposed.
   ipcMain.on('teleno:app-version', (event) => {
     try {
-      event.returnValue = require('../../package.json').version
+      event.returnValue = loadKoinosOneBuildInfo().productVersion
     } catch {
       event.returnValue = '0.10.0'
+    }
+  })
+
+  ipcMain.on('teleno:app-build-info', (event) => {
+    try {
+      event.returnValue = loadKoinosOneBuildInfo()
+    } catch {
+      event.returnValue = {
+        schemaVersion: 1,
+        productVersion: '0.10.0',
+        releaseChannel: 'dev',
+        buildTimestamp: null,
+        gitCommit: null,
+        gitShortCommit: null,
+        gitBranch: null,
+        gitDirty: null,
+        nativeNode: {
+          binaryName: 'teleno_node',
+          sha256: null,
+          shortSha256: null,
+          sizeBytes: null,
+          mtime: null
+        },
+        source: 'runtime'
+      }
     }
   })
 

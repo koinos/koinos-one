@@ -30,6 +30,7 @@ const APP_EXECUTABLE = isMacTarget
 
 const requiredFiles = [
   path.join(RESOURCES_DIR, 'app.asar'),
+  path.join(RESOURCES_DIR, 'build-info.json'),
   path.join(RESOURCES_DIR, 'teleno', 'bin', `teleno_node${ext}`),
   path.join(RESOURCES_DIR, 'teleno', 'config', 'config.yml'),
   path.join(RESOURCES_DIR, 'teleno', 'config', 'genesis_data.json'),

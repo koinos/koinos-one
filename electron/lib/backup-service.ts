@@ -478,8 +478,22 @@ type NativeBackupProgressPayload = {
   totalBatches: number
   attempt: number
   fileCount: number
+  completedBytes: number
   totalBytes: number
 }
+
+type BackupProgressTelemetry = Partial<Pick<
+  TelenoNodeBackupProgressEvent,
+  | 'completedBytes'
+  | 'totalBytes'
+  | 'bytesPerSecond'
+  | 'etaSeconds'
+  | 'completedBatches'
+  | 'totalBatches'
+  | 'phaseProgress'
+  | 'progressRangeStart'
+  | 'progressRangeEnd'
+>>
 
 type TrackedBackupCommandResult = {
   ok: boolean
@@ -503,6 +517,7 @@ function parseNativeBackupProgressLine(line: string): NativeBackupProgressPayloa
       totalBatches: numberField(payload.total_batches),
       attempt: numberField(payload.attempt),
       fileCount: numberField(payload.file_count),
+      completedBytes: numberField(payload.completed_bytes),
       totalBytes: numberField(payload.total_bytes)
     }
   } catch {
@@ -513,6 +528,25 @@ function parseNativeBackupProgressLine(line: string): NativeBackupProgressPayloa
 function nativeProgressFraction(progress: NativeBackupProgressPayload): number {
   if (!progress.totalBatches) return 0
   return Math.max(0, Math.min(1, progress.completedBatches / progress.totalBatches))
+}
+
+function nativeProgressTelemetry(
+  progress: NativeBackupProgressPayload,
+  progressRangeStart: number,
+  progressRangeEnd: number
+): BackupProgressTelemetry {
+  const phaseProgress = nativeProgressFraction(progress)
+  const totalBytes = progress.totalBytes > 0 ? progress.totalBytes : null
+  const completedBytes = progress.completedBytes > 0 ? progress.completedBytes : null
+  return {
+    completedBytes,
+    totalBytes,
+    completedBatches: progress.completedBatches || null,
+    totalBatches: progress.totalBatches || null,
+    phaseProgress,
+    progressRangeStart,
+    progressRangeEnd
+  }
 }
 
 function nativeProgressSuffix(progress: NativeBackupProgressPayload): string {
@@ -612,6 +646,81 @@ function nativeBackupRemoteSpaceFromPayload(value: unknown): TelenoNodeNativeBac
   }
 }
 
+function parseJsonRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Native backup command did not return a JSON object')
+  }
+  return value as Record<string, unknown>
+}
+
+function parseNativeBackupJsonOutput(output: string): Record<string, unknown> {
+  const trimmed = output.trim()
+  if (!trimmed) throw new Error('Native backup command returned empty output')
+
+  try {
+    return parseJsonRecord(JSON.parse(trimmed))
+  } catch {
+    // Native backup commands may emit JSON progress records before the final
+    // JSON result. Fall through and select the last non-progress JSON object.
+  }
+
+  const results: Record<string, unknown>[] = []
+  for (let start = 0; start < output.length; start += 1) {
+    const first = output[start]
+    if (first !== '{' && first !== '[') continue
+
+    const stack: string[] = [first === '{' ? '}' : ']']
+    let inString = false
+    let escaped = false
+
+    for (let index = start + 1; index < output.length; index += 1) {
+      const char = output[index]
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (char === '\\') {
+          escaped = true
+        } else if (char === '"') {
+          inString = false
+        }
+        continue
+      }
+
+      if (char === '"') {
+        inString = true
+        continue
+      }
+      if (char === '{') {
+        stack.push('}')
+        continue
+      }
+      if (char === '[') {
+        stack.push(']')
+        continue
+      }
+      if (char !== '}' && char !== ']') continue
+
+      const expected = stack.pop()
+      if (char !== expected) break
+      if (stack.length > 0) continue
+
+      const fragment = output.slice(start, index + 1)
+      try {
+        const payload = parseJsonRecord(JSON.parse(fragment))
+        if (payload.event !== 'backup-progress') results.push(payload)
+      } catch {
+        // Keep scanning; logs can contain braces that are not JSON payloads.
+      }
+      start = index
+      break
+    }
+  }
+
+  const result = results.at(-1)
+  if (!result) throw new Error('Native backup command did not return a final JSON result')
+  return result
+}
+
 function parseNativeBackupListPayload(payload: Record<string, unknown>): Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'remoteSpace' | 'snapshots'> {
   const snapshotPayload = payload.snapshots && typeof payload.snapshots === 'object' && !Array.isArray(payload.snapshots)
     ? payload.snapshots as Record<string, unknown>
@@ -629,7 +738,7 @@ function parseNativeBackupListPayload(payload: Record<string, unknown>): Pick<Te
 }
 
 function parseNativeBackupListOutput(output: string): Pick<TelenoNodeNativeBackupListResult, 'latestBackupId' | 'remoteSpace' | 'snapshots'> {
-  return parseNativeBackupListPayload(JSON.parse(output) as Record<string, unknown>)
+  return parseNativeBackupListPayload(parseNativeBackupJsonOutput(output))
 }
 
 function parseNativeBackupPreflightPayload(payload: Record<string, unknown>): Pick<
@@ -687,7 +796,47 @@ function parseNativeBackupPreflightOutput(output: string): Pick<
   | 'restoreSpace'
   | 'spaceCheck'
 > {
-  return parseNativeBackupPreflightPayload(JSON.parse(output) as Record<string, unknown>)
+  return parseNativeBackupPreflightPayload(parseNativeBackupJsonOutput(output))
+}
+
+function nestedRecord(value: Record<string, unknown>, key: string): Record<string, unknown> {
+  const item = value[key]
+  return item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
+}
+
+function restoreBlockedMessage(payload: Record<string, unknown>, fallback: string): string {
+  const directMessage = stringField(payload.download_skipped_reason)
+  if (directMessage) return directMessage
+
+  const preflight = nestedRecord(payload, 'preflight')
+  const preflightMessage = stringField(preflight.message)
+  if (preflightMessage) return preflightMessage
+
+  const publicFetch = nestedRecord(payload, 'public_fetch')
+  const publicFetchMessage = stringField(publicFetch.download_skipped_reason)
+  if (publicFetchMessage) return publicFetchMessage
+
+  const publicFetchPreflight = nestedRecord(publicFetch, 'preflight')
+  const publicPreflightMessage = stringField(publicFetchPreflight.message)
+  if (publicPreflightMessage) return publicPreflightMessage
+
+  const remoteFetch = nestedRecord(payload, 'remote_fetch')
+  const remoteFetchMessage = stringField(remoteFetch.download_skipped_reason)
+  if (remoteFetchMessage) return remoteFetchMessage
+
+  const spaceCheck = nestedRecord(preflight, 'space_check')
+  const spaceMessage = stringField(spaceCheck.message)
+  if (spaceMessage) return spaceMessage
+
+  return fallback
+}
+
+function restoreBlockedMessageFromOutput(output: string, fallback: string): string {
+  try {
+    return restoreBlockedMessage(parseNativeBackupJsonOutput(output), fallback)
+  } catch {
+    return fallback
+  }
 }
 
 function uniqueStringList(values: string[]): string[] {
@@ -1402,16 +1551,22 @@ function sendBackupProgressEvent(sender: WebContents | null | undefined, payload
   sender.send('teleno:node:backup-progress:event', payload)
 }
 
+function normalizeBackupProgressValue(progress: number): number {
+  if (!Number.isFinite(progress)) return 0
+  return Math.round(Math.max(0, Math.min(100, progress)) * 10) / 10
+}
+
 function createBackupProgressReporter(
   sender: WebContents | null | undefined,
   action: TelenoNodeBackupProgressAction
-): (phase: TelenoNodeBackupProgressPhase, progress: number, message: string) => void {
-  return (phase, progress, message) => {
+): (phase: TelenoNodeBackupProgressPhase, progress: number, message: string, telemetry?: BackupProgressTelemetry) => void {
+  return (phase, progress, message, telemetry = {}) => {
     sendBackupProgressEvent(sender, {
       action,
       phase,
-      progress: Math.max(0, Math.min(100, Math.trunc(progress))),
-      message
+      progress: normalizeBackupProgressValue(progress),
+      message,
+      ...telemetry
     })
   }
 }
@@ -1465,6 +1620,30 @@ export function extractHeadInfoSummary(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function directorySizeBytes(dirPath: string): number {
+  let total = 0
+  let entries: fs.Dirent[] = []
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true })
+  } catch {
+    return 0
+  }
+
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry.name)
+    try {
+      if (entry.isDirectory()) {
+        total += directorySizeBytes(entryPath)
+      } else if (entry.isFile() || entry.isSymbolicLink()) {
+        total += fs.lstatSync(entryPath).size
+      }
+    } catch {
+      // Staging is being written concurrently; disappearing files are expected.
+    }
+  }
+  return total
 }
 
 export function createBackupService(deps: BackupServiceDeps) {
@@ -1668,12 +1847,21 @@ export function createBackupService(deps: BackupServiceDeps) {
         workspace.archiveStatePath,
         checksumResult.checksum,
         (downloadedBytes, totalBytes) => {
-          const progress = totalBytes && totalBytes > 0 ? 20 + Math.round((downloadedBytes / totalBytes) * 40) : 35
+          const phaseProgress = totalBytes && totalBytes > 0
+            ? Math.max(0, Math.min(1, downloadedBytes / totalBytes))
+            : null
+          const progress = phaseProgress !== null ? 20 + (phaseProgress * 40) : 35
           const message =
             totalBytes && totalBytes > 0
               ? `Downloading backup archive (${formatByteCount(downloadedBytes)} of ${formatByteCount(totalBytes)})`
               : `Downloading backup archive (${formatByteCount(downloadedBytes)})`
-          reportProgress('download', progress, message)
+          reportProgress('download', progress, message, {
+            completedBytes: downloadedBytes,
+            totalBytes,
+            phaseProgress,
+            progressRangeStart: 20,
+            progressRangeEnd: 60
+          })
         }
       )
       if (!archiveResult.ok) {
@@ -2285,6 +2473,85 @@ export function createBackupService(deps: BackupServiceDeps) {
     return {}
   }
 
+  function backupAdminHeaderTimeout(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error)
+    return /Headers Timeout Error|UND_ERR_HEADERS_TIMEOUT|header[^.]*timeout/i.test(message)
+  }
+
+  function nativeRestoreStagePayloadFromDisk(stagingDir: string): Record<string, unknown> {
+    const metadataPath = path.join(stagingDir, '.teleno-restore-stage.json')
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as Record<string, unknown>
+    const skipped = Array.isArray(metadata.skipped_optional_runtime_files)
+      ? metadata.skipped_optional_runtime_files.map((item) => stringField(item)).filter(Boolean)
+      : []
+    return {
+      ok: true,
+      stage: {
+        backup_id: stringField(metadata.backup_id),
+        repository_dir: stringField(metadata.repository_dir),
+        target_basedir: stringField(metadata.target_basedir),
+        staging_dir: stringField(metadata.staging_dir) || stagingDir,
+        metadata: metadataPath,
+        restored_file_count: numberField(metadata.restored_file_count),
+        restored_bytes: numberField(metadata.restored_bytes),
+        start_as_observer_first: metadata.start_as_observer_first !== false,
+        skipped_optional_runtime_files: skipped
+      }
+    }
+  }
+
+  async function waitForNativeRestoreStageCompletion(
+    stagingDir: string,
+    timeoutMs: number,
+    emitProgress: (phase: TelenoNodeBackupProgressPhase, progress: number, message: string) => void
+  ): Promise<Record<string, unknown>> {
+    const partialDir = `${stagingDir}.partial`
+    const completeMarker = path.join(stagingDir, 'RESTORE_STAGE_COMPLETE')
+    const metadataPath = path.join(stagingDir, '.teleno-restore-stage.json')
+    const startedAt = Date.now()
+    let nextProgressAt = 0
+
+    while (Date.now() - startedAt < timeoutMs) {
+      if (fs.existsSync(completeMarker) && fs.existsSync(metadataPath)) {
+        return nativeRestoreStagePayloadFromDisk(stagingDir)
+      }
+
+      const activeStageDir = fs.existsSync(partialDir)
+        ? partialDir
+        : fs.existsSync(stagingDir)
+          ? stagingDir
+          : ''
+      if (!activeStageDir) {
+        throw new Error(`Native restore staging stopped before completion: ${stagingDir}`)
+      }
+
+      const now = Date.now()
+      if (
+        activeStageDir === stagingDir &&
+        !fs.existsSync(partialDir) &&
+        !fs.existsSync(completeMarker) &&
+        now - startedAt > 10_000 &&
+        directorySizeBytes(stagingDir) === 0
+      ) {
+        throw new Error(`Native restore staging did not leave an active partial directory: ${partialDir}`)
+      }
+
+      if (now >= nextProgressAt) {
+        const copiedBytes = directorySizeBytes(activeStageDir)
+        emitProgress(
+          'restore',
+          80,
+          `Staging native backup restore (${formatByteCount(copiedBytes)} copied so far)`
+        )
+        nextProgressAt = now + 5000
+      }
+
+      await delay(2000)
+    }
+
+    throw new Error(`Timed out waiting for native restore staging to complete: ${stagingDir}`)
+  }
+
   function nodeStatusLooksRunning(status: unknown): boolean {
     if (!status || typeof status !== 'object') return false
     const services = (status as { services?: unknown }).services
@@ -2390,8 +2657,19 @@ export function createBackupService(deps: BackupServiceDeps) {
     const action: TelenoNodeBackupProgressAction = 'create-backup'
     activeBackupCancelled = false
 
-    function emitProgress(phase: TelenoNodeBackupProgressPhase, progress: number, message: string) {
-      sender.send('teleno:node:backup-progress:event', { action, phase, progress, message } satisfies TelenoNodeBackupProgressEvent)
+    function emitProgress(
+      phase: TelenoNodeBackupProgressPhase,
+      progress: number,
+      message: string,
+      telemetry: BackupProgressTelemetry = {}
+    ) {
+      sender.send('teleno:node:backup-progress:event', {
+        action,
+        phase,
+        progress: normalizeBackupProgressValue(progress),
+        message,
+        ...telemetry
+      } satisfies TelenoNodeBackupProgressEvent)
     }
 
     function checkCancelled(): boolean {
@@ -2480,9 +2758,20 @@ export function createBackupService(deps: BackupServiceDeps) {
                     totalBatches,
                     attempt: numberField(progress.attempt),
                     fileCount: numberField(progress.file_count),
+                    completedBytes: numberField(progress.completed_bytes),
                     totalBytes
                   })
-                  emitProgress('upload', Math.min(95, 45 + Math.round(fraction * 50)), suffix ? `${message} (${suffix})` : message)
+                  const telemetry = nativeProgressTelemetry({
+                    phase: currentPhase,
+                    backupId: '',
+                    completedBatches,
+                    totalBatches,
+                    attempt: numberField(progress.attempt),
+                    fileCount: numberField(progress.file_count),
+                    completedBytes: numberField(progress.completed_bytes),
+                    totalBytes
+                  }, 45, 95)
+                  emitProgress('upload', Math.min(95, 45 + (fraction * 50)), suffix ? `${message} (${suffix})` : message, telemetry)
                 } else {
                   emitProgress('save', currentPhase === 'checkpoint' ? 20 : 35, message)
                 }
@@ -2534,14 +2823,16 @@ export function createBackupService(deps: BackupServiceDeps) {
         settings.repoPath,
         (nativeProgress) => {
           if (nativeProgress.phase !== 'upload-latest') return
-          const progress = Math.min(95, 45 + Math.round(nativeProgressFraction(nativeProgress) * 50))
+          const fraction = nativeProgressFraction(nativeProgress)
+          const progress = Math.min(95, 45 + (fraction * 50))
           const suffix = nativeProgressSuffix(nativeProgress)
           emitProgress(
             'upload',
             progress,
             suffix
               ? `Uploading native backup to remote SFTP (${suffix})`
-              : 'Uploading native backup to remote SFTP'
+              : 'Uploading native backup to remote SFTP',
+            nativeProgressTelemetry(nativeProgress, 45, 95)
           )
         }
       )
@@ -2557,7 +2848,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       let totalBytes = 0
       let remoteSummary = ''
       try {
-        const payload = JSON.parse(result.output) as {
+        const payload = parseNativeBackupJsonOutput(result.output) as {
           backup_id?: string
           total_bytes?: number
           local_snapshot?: { backup_id?: string; total_bytes?: number }
@@ -2915,7 +3206,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           { cwd: settings.repoPath, timeoutMs: 6 * 60 * 60 * 1000 }
         )
         const parsed = result.output
-          ? publicRestorePreflightFromFetchPayload(JSON.parse(result.output) as Record<string, unknown>)
+          ? publicRestorePreflightFromFetchPayload(parseNativeBackupJsonOutput(result.output))
           : empty
         return {
           ok: result.ok,
@@ -2958,8 +3249,19 @@ export function createBackupService(deps: BackupServiceDeps) {
   ): Promise<TelenoNodeBackupRestoreResult> {
     const action: TelenoNodeBackupProgressAction = 'restore-backup'
 
-    function emitProgress(phase: TelenoNodeBackupProgressPhase, progress: number, message: string) {
-      sender.send('teleno:node:backup-progress:event', { action, phase, progress, message } satisfies TelenoNodeBackupProgressEvent)
+    function emitProgress(
+      phase: TelenoNodeBackupProgressPhase,
+      progress: number,
+      message: string,
+      telemetry: BackupProgressTelemetry = {}
+    ) {
+      sender.send('teleno:node:backup-progress:event', {
+        action,
+        phase,
+        progress: normalizeBackupProgressValue(progress),
+        message,
+        ...telemetry
+      } satisfies TelenoNodeBackupProgressEvent)
     }
 
     try {
@@ -3014,8 +3316,9 @@ export function createBackupService(deps: BackupServiceDeps) {
                   ? currentStatus[fetchResultKey] as Record<string, unknown>
                   : {}
                 if (restoreFetch.ready_to_stage === false) {
-                  emitProgress('error', 45, message)
-                  return { ok: false, action, output: JSON.stringify(currentStatus, null, 2), status: 'error' }
+                  const blockedMessage = restoreBlockedMessage(restoreFetch, message || 'Native restore fetch did not pass preflight')
+                  emitProgress('error', 45, blockedMessage)
+                  return { ok: false, action, output: blockedMessage, status: 'error' }
                 }
                 break
               }
@@ -3029,8 +3332,25 @@ export function createBackupService(deps: BackupServiceDeps) {
                 : {}
               const completedBatches = numberField(progress.completed_batches)
               const totalBatches = numberField(progress.total_batches)
+              const totalBytes = numberField(progress.total_bytes)
               const fraction = totalBatches ? Math.max(0, Math.min(1, completedBatches / totalBatches)) : 0
-              emitProgress('download', Math.min(60, 25 + Math.round(fraction * 35)), message)
+              const nativeLikeProgress = {
+                phase: 'download',
+                backupId,
+                completedBatches,
+                totalBatches,
+                attempt: numberField(progress.attempt),
+                fileCount: numberField(progress.file_count),
+                completedBytes: numberField(progress.completed_bytes),
+                totalBytes
+              }
+              const suffix = nativeProgressSuffix(nativeLikeProgress)
+              emitProgress(
+                'download',
+                Math.min(60, 25 + (fraction * 35)),
+                suffix ? `${message} (${suffix})` : message,
+                nativeProgressTelemetry(nativeLikeProgress, 25, 60)
+              )
               await delay(1000)
               currentStatus = backupStatusPayload(
                 await backupAdminRequest(runningAdmin.baseUrl, runningAdmin.token, 'GET', `/admin/backup/status/${encodeURIComponent(operationId)}`)
@@ -3061,14 +3381,29 @@ export function createBackupService(deps: BackupServiceDeps) {
         fs.mkdirSync(stagingDir, { recursive: true })
 
         emitProgress('restore', 72, 'Staging native backup restore')
-        const stagePayload = await backupAdminRequest(
-          runningAdmin.baseUrl,
-          runningAdmin.token,
-          'POST',
-          shouldFetchPublic ? '/admin/backup/public/restore/stage' : '/admin/backup/restore/stage',
-          { backup_id: backupId, staging_dir: stagingDir },
-          6 * 60 * 60 * 1000
-        )
+        let stagePayload: Record<string, unknown>
+        try {
+          stagePayload = await backupAdminRequest(
+            runningAdmin.baseUrl,
+            runningAdmin.token,
+            'POST',
+            shouldFetchPublic ? '/admin/backup/public/restore/stage' : '/admin/backup/restore/stage',
+            { backup_id: backupId, staging_dir: stagingDir },
+            6 * 60 * 60 * 1000
+          )
+        } catch (error) {
+          if (!backupAdminHeaderTimeout(error)) throw error
+          emitProgress(
+            'restore',
+            78,
+            'Native restore staging is still running; waiting for local staging files to finish'
+          )
+          stagePayload = await waitForNativeRestoreStageCompletion(
+            stagingDir,
+            6 * 60 * 60 * 1000,
+            emitProgress
+          )
+        }
         emitProgress('restore', 88, 'Writing restore activation request')
         const activationPayload = await backupAdminRequest(
           runningAdmin.baseUrl,
@@ -3200,44 +3535,50 @@ export function createBackupService(deps: BackupServiceDeps) {
           if (nativeProgress.phase.startsWith('restore-metadata')) {
             emitProgress(
               'download',
-              Math.min(35, 25 + Math.round(fraction * 10)),
-              suffix ? `Fetching remote backup metadata (${suffix})` : 'Fetching remote backup metadata'
+              Math.min(35, 25 + (fraction * 10)),
+              suffix ? `Fetching remote backup metadata (${suffix})` : 'Fetching remote backup metadata',
+              nativeProgressTelemetry(nativeProgress, 25, 35)
             )
             return
           }
           if (nativeProgress.phase.startsWith('public-restore-metadata')) {
             emitProgress(
               'download',
-              Math.min(35, 25 + Math.round(fraction * 10)),
-              suffix ? `Fetching public backup metadata (${suffix})` : 'Fetching public backup metadata'
+              Math.min(35, 25 + (fraction * 10)),
+              suffix ? `Fetching public backup metadata (${suffix})` : 'Fetching public backup metadata',
+              nativeProgressTelemetry(nativeProgress, 25, 35)
             )
             return
           }
           if (nativeProgress.phase === 'restore-objects') {
             emitProgress(
               'download',
-              Math.min(60, 35 + Math.round(fraction * 25)),
-              suffix ? `Fetching remote backup objects (${suffix})` : 'Fetching remote backup objects'
+              Math.min(60, 35 + (fraction * 25)),
+              suffix ? `Fetching remote backup objects (${suffix})` : 'Fetching remote backup objects',
+              nativeProgressTelemetry(nativeProgress, 35, 60)
             )
           }
           if (nativeProgress.phase === 'public-restore-objects') {
             emitProgress(
               'download',
-              Math.min(60, 35 + Math.round(fraction * 25)),
-              suffix ? `Fetching public backup objects (${suffix})` : 'Fetching public backup objects'
+              Math.min(60, 35 + (fraction * 25)),
+              suffix ? `Fetching public backup objects (${suffix})` : 'Fetching public backup objects',
+              nativeProgressTelemetry(nativeProgress, 35, 60)
             )
           }
         }
       )
 
       if (!result.ok) {
-        emitProgress('error', 60, result.output || 'Native restore command failed')
-        return { ok: false, action, output: result.output || 'Native restore command failed', status: 'error' }
+        const fallback = result.output || 'Native restore command failed'
+        const blockedMessage = restoreBlockedMessageFromOutput(result.output, fallback)
+        emitProgress('error', 60, blockedMessage)
+        return { ok: false, action, output: blockedMessage, status: 'error' }
       }
 
       let restoredBackupId = ''
       try {
-        const payload = JSON.parse(result.output) as { activation?: { backup_id?: string } }
+        const payload = parseNativeBackupJsonOutput(result.output) as { activation?: { backup_id?: string } }
         restoredBackupId = payload.activation?.backup_id || ''
       } catch {
         // Preserve raw output below when JSON parsing fails.

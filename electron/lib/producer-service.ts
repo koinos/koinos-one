@@ -124,6 +124,7 @@ type NodeVolumeSnapshot = {
   warning: string | null
 }
 
+const NATIVE_BACKUP_DIR = '.teleno-native-backups'
 const KOIN_DEXSCREENER_PAIR_URL =
   'https://dexscreener.com/ethereum/0xd833a3afa936ca389966a9ed3a3d9abf7ec45c11b0d575aaaf6ca4d354687da6'
 const KOIN_DEXSCREENER_PAIR_API_URL =
@@ -251,6 +252,97 @@ export function parseLatestP2pPeersSnapshot(logOutput: string): {
     selfAddress,
     omittedPeerCount,
     rows
+  }
+}
+
+function expandAdminFilePath(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (trimmed === '~') return os.homedir()
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) return path.join(os.homedir(), trimmed.slice(2))
+  return trimmed
+}
+
+function nativeBackupAdminTokenPath(baseDir: string): string {
+  return path.join(baseDir, NATIVE_BACKUP_DIR, 'admin.token')
+}
+
+function backupAdminConnection(settings: TelenoNodeSettings): { baseUrl: string; token: string } | null {
+  if (!settings.backup.adminEnabled) return null
+  const listen = settings.backup.adminListen.trim() || '127.0.0.1:18088'
+  const splitAt = listen.lastIndexOf(':')
+  if (splitAt <= 0 || splitAt === listen.length - 1) return null
+  const host = listen.slice(0, splitAt)
+  const port = Number.parseInt(listen.slice(splitAt + 1), 10)
+  if (!Number.isFinite(port) || port <= 0 || port > 65535) return null
+  const tokenPath = expandAdminFilePath(settings.backup.adminTokenFile) || nativeBackupAdminTokenPath(settings.baseDir)
+  if (!fs.existsSync(tokenPath)) return null
+  const token = fs.readFileSync(tokenPath, 'utf8').trim()
+  if (!token) return null
+  return { baseUrl: `http://${host}:${port}`, token }
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function snapshotAtFromLivePayload(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function normalizeLivePeerRow(value: unknown): TelenoNodeDashboardPeerRow | null {
+  if (!value || typeof value !== 'object') return null
+  const row = value as Record<string, unknown>
+  const address = stringOrNull(row.address)
+  if (!address) return null
+  const fallback = parsePeerAddressDetails(address)
+  return {
+    address,
+    peerId: stringOrNull(row.peer_id) ?? stringOrNull(row.peerId) ?? fallback.peerId,
+    host: stringOrNull(row.host) ?? fallback.host,
+    port: numberOrNull(row.port) ?? fallback.port
+  }
+}
+
+async function fetchLiveDashboardPeers(settings: TelenoNodeSettings): Promise<TelenoNodeDashboardPeersResult | null> {
+  const connection = backupAdminConnection(settings)
+  if (!connection) return null
+
+  try {
+    const response = await fetch(`${connection.baseUrl}/admin/p2p/peers`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${connection.token}` },
+      signal: AbortSignal.timeout(5_000)
+    })
+    if (!response.ok) return null
+    const payload = await response.json() as Record<string, unknown>
+    if (payload.ok !== true || payload.p2p_running !== true) return null
+    const connected = Array.isArray(payload.connected) ? payload.connected : []
+    const rows = connected
+      .map((row) => normalizeLivePeerRow(row))
+      .filter((row): row is TelenoNodeDashboardPeerRow => Boolean(row))
+
+    return {
+      ok: true,
+      output: `Loaded ${rows.length} live peer(s) from the local admin API.`,
+      service: 'p2p',
+      source: 'p2p-live',
+      snapshotAt: snapshotAtFromLivePayload(payload.snapshot_at),
+      selfAddress: stringOrNull(payload.self_address),
+      omittedPeerCount: 0,
+      rows
+    }
+  } catch {
+    return null
   }
 }
 
@@ -1257,6 +1349,9 @@ export function createProducerService(deps: ProducerServiceDeps) {
 
     try {
       const settings = deps.normalizeNodeSettings(input)
+      const livePeers = await fetchLiveDashboardPeers(settings)
+      if (livePeers) return livePeers
+
       const status = await deps.nativeComposeStatus(settings)
       const p2pService = status.services.find((service) => service.id === 'p2p') ?? null
       const logs = await deps.nativeComposeLogs({

@@ -480,7 +480,7 @@ export type TelenoNodeDashboardPeersResult = {
   ok: boolean
   output: string
   service: string
-  source: 'p2p-log'
+  source: 'p2p-live' | 'p2p-log'
   snapshotAt: number | null
   selfAddress: string | null
   omittedPeerCount: number
@@ -723,6 +723,15 @@ export type TelenoNodeBackupProgressEvent = {
   phase: TelenoNodeBackupProgressPhase
   progress: number
   message: string
+  completedBytes?: number | null
+  totalBytes?: number | null
+  bytesPerSecond?: number | null
+  etaSeconds?: number | null
+  completedBatches?: number | null
+  totalBatches?: number | null
+  phaseProgress?: number | null
+  progressRangeStart?: number | null
+  progressRangeEnd?: number | null
 }
 
 export type LogsFollowSession = {

@@ -31,3 +31,5 @@ extraResources:
     to: teleno
     filter:
       - "**/*"
+  - from: build/generated/build-info.json
+    to: build-info.json

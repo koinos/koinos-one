@@ -50,7 +50,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     formError,
     resetDefaults,
     settingsDirty,
-    onBlockedSettingsNavigation
+    onBlockedSettingsNavigation,
+    appBuildInfo
   } = props
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
@@ -135,6 +136,24 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setActiveTab(tab)
   }
 
+  const buildInfoValue = (value: unknown) => {
+    if (value === null || value === undefined || value === '') return t('common.na')
+    return String(value)
+  }
+  const buildGitRevision = appBuildInfo?.gitShortCommit || t('common.na')
+  const buildGitRevisionTitle = appBuildInfo?.gitCommit || buildGitRevision
+  const buildSourceState = appBuildInfo?.gitDirty === true
+    ? t('settings.buildInfoSourceDirty')
+    : appBuildInfo?.gitDirty === false
+      ? t('settings.buildInfoSourceClean')
+      : t('common.na')
+  const nativeNodeHash = appBuildInfo?.nativeNode?.shortSha256 || appBuildInfo?.nativeNode?.sha256 || ''
+  const nativeNodeHashTitle = appBuildInfo?.nativeNode?.sha256 || nativeNodeHash || t('common.na')
+  const nativeNodeLabel = [
+    buildInfoValue(appBuildInfo?.nativeNode?.binaryName),
+    nativeNodeHash ? `sha256:${nativeNodeHash}` : ''
+  ].filter(Boolean).join(' · ')
+
   return (
     <section
       id="panel-settings"
@@ -186,7 +205,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             </label>
 
             <label>
-              Network
+              {t('settings.network')}
               <select
                 style={{ maxWidth: '260px' }}
                 value={draftNodeNetwork}
@@ -203,6 +222,41 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 {KOINOS_NETWORK_OPTIONS.find((option) => option.id === draftNodeNetwork)?.description || ''}
               </span>
             </label>
+
+            <div className="settings-subheader">
+              <h3>{t('settings.buildInfoTitle')}</h3>
+              <p>{t('settings.buildInfoDescription')}</p>
+            </div>
+            <div className="settings-build-info-grid">
+              <div className="settings-build-info-item">
+                <span className="settings-build-info-label">{t('settings.buildInfoProductVersion')}</span>
+                <strong className="settings-build-info-value mono">{buildInfoValue(appBuildInfo?.productVersion)}</strong>
+              </div>
+              <div className="settings-build-info-item">
+                <span className="settings-build-info-label">{t('settings.buildInfoReleaseChannel')}</span>
+                <strong className="settings-build-info-value mono">{buildInfoValue(appBuildInfo?.releaseChannel)}</strong>
+              </div>
+              <div className="settings-build-info-item">
+                <span className="settings-build-info-label">{t('settings.buildInfoBuiltAt')}</span>
+                <strong className="settings-build-info-value mono">{buildInfoValue(appBuildInfo?.buildTimestamp)}</strong>
+              </div>
+              <div className="settings-build-info-item">
+                <span className="settings-build-info-label">{t('settings.buildInfoGitRevision')}</span>
+                <strong className="settings-build-info-value mono" title={buildGitRevisionTitle}>{buildGitRevision}</strong>
+              </div>
+              <div className="settings-build-info-item">
+                <span className="settings-build-info-label">{t('settings.buildInfoGitBranch')}</span>
+                <strong className="settings-build-info-value mono">{buildInfoValue(appBuildInfo?.gitBranch)}</strong>
+              </div>
+              <div className="settings-build-info-item">
+                <span className="settings-build-info-label">{t('settings.buildInfoSourceState')}</span>
+                <strong className="settings-build-info-value">{buildSourceState}</strong>
+              </div>
+              <div className="settings-build-info-item settings-build-info-item-wide">
+                <span className="settings-build-info-label">{t('settings.buildInfoNativeNode')}</span>
+                <strong className="settings-build-info-value mono" title={nativeNodeHashTitle}>{nativeNodeLabel}</strong>
+              </div>
+            </div>
 
             <label>
               {t('settings.baseDataDir')}

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { formatBytes, formatTime } from '../../app/utils'
+import type { NodeBackupProgressState } from '../../app/types'
 
 type FirstRunSetupStep = 'data' | 'restore' | 'wallet' | 'producer' | 'start'
 type PublicBootstrapCheckState = 'idle' | 'checking' | 'available' | 'unavailable'
@@ -18,6 +20,8 @@ type StartObserverResult = boolean | {
 }
 
 type FirstRunSetupModalProps = {
+  t?: (key: string, values?: Record<string, string | number>) => string
+  locale?: string
   initialStep?: FirstRunSetupStep
   network: string
   baseDir: string
@@ -32,6 +36,7 @@ type FirstRunSetupModalProps = {
   publicBootstrapList: any
   publicBootstrapListLoading: boolean
   publicBootstrapRestoreLoading: boolean
+  nodeBackupProgress?: NodeBackupProgressState | null
   nodeActionLoading: string | null
   nodeProducerActionLoading: string | null
   walletActionLoading: string | null
@@ -61,6 +66,32 @@ type FirstRunSetupModalProps = {
   startObserverNode: () => Promise<StartObserverResult>
   onQuitSetup: () => void
   onComplete: () => void
+}
+
+function fallbackTranslate(key: string, values: Record<string, string | number> = {}) {
+  const templates: Record<string, string> = {
+    'common.na': 'N/A',
+    'node.backupPhaseMeta': 'phase: {phase} · updated {time}',
+    'node.backupTransferMeta': 'speed: {speed}/s · ETA {eta}',
+    'node.backupSampleMeta': 'sample interval: {latency}',
+    'node.backupLiveDownload': 'Live download',
+    'node.backupLiveTransferMeta': '{speed}/s · ETA {eta} · {completed} / {total}',
+    'node.backupLiveSpeedMeta': '{speed}/s · ETA {eta}',
+    'node.backupWaitingTransferSample': 'Waiting for transfer sample...'
+  }
+  const template = templates[key] || key
+  return template.replace(/\{(\w+)\}/g, (_match, name) => `${values[name] ?? ''}`)
+}
+
+function formatDurationCompact(seconds: number | null | undefined, emptyLabel: string): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return emptyLabel
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))}s`
+  const minutes = seconds / 60
+  if (minutes < 60) return `${Math.round(minutes)}m`
+  const hours = minutes / 60
+  if (hours < 24) return `${hours >= 10 ? hours.toFixed(0) : hours.toFixed(1)}h`
+  const days = hours / 24
+  return `${days >= 10 ? days.toFixed(0) : days.toFixed(1)}d`
 }
 
 const SETUP_STEPS: Array<{ id: FirstRunSetupStep; label: string; title: string; help: string }> = [
@@ -142,6 +173,8 @@ function startObserverFailureMessage(output?: string | null) {
 
 export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const {
+    t = fallbackTranslate,
+    locale = 'en-US',
     network,
     baseDir,
     draftBaseDir,
@@ -155,6 +188,7 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     publicBootstrapList,
     publicBootstrapListLoading,
     publicBootstrapRestoreLoading,
+    nodeBackupProgress,
     nodeActionLoading,
     nodeProducerActionLoading,
     walletActionLoading,
@@ -203,6 +237,52 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const activeStep = SETUP_STEPS[activeStepIndex] ?? SETUP_STEPS[0]
   const stepNumber = activeStepIndex + 1
   const progressPercent = Math.round((stepNumber / SETUP_STEPS.length) * 100)
+  const restoreProgressActive = Boolean(
+    step === 'restore' &&
+    (publicBootstrapRestoreLoading || nodeBackupProgress?.action === 'restore-backup')
+  )
+  const restoreProgressPercent = nodeBackupProgress
+    ? Math.max(0, Math.min(100, nodeBackupProgress.displayProgress ?? nodeBackupProgress.progress))
+    : 0
+  const visibleProgressPercent = restoreProgressActive ? restoreProgressPercent : progressPercent
+  const visibleProgressLabel = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: restoreProgressActive && visibleProgressPercent > 0 && visibleProgressPercent < 99 ? 1 : 0
+  }).format(visibleProgressPercent)
+  const restoreTransferSampleFresh = !nodeBackupProgress?.sampleIntervalMs || nodeBackupProgress.sampleIntervalMs <= 10_000
+  const restoreTransferSpeed = nodeBackupProgress?.bytesPerSecond && nodeBackupProgress.bytesPerSecond > 0 && restoreTransferSampleFresh
+    ? formatBytes(nodeBackupProgress.bytesPerSecond, locale)
+    : ''
+  const restoreEta = nodeBackupProgress?.etaSeconds !== null && nodeBackupProgress?.etaSeconds !== undefined
+    ? formatDurationCompact(nodeBackupProgress.etaSeconds, t('common.na'))
+    : ''
+  const restoreSampleInterval = nodeBackupProgress?.sampleIntervalMs && nodeBackupProgress.sampleIntervalMs > 0
+    ? formatDurationCompact(nodeBackupProgress.sampleIntervalMs / 1000, t('common.na'))
+    : ''
+  const restoreCompletedSize = nodeBackupProgress?.completedBytes && nodeBackupProgress.completedBytes > 0
+    ? formatBytes(nodeBackupProgress.completedBytes, locale)
+    : ''
+  const restoreTotalSize = nodeBackupProgress?.totalBytes && nodeBackupProgress.totalBytes > 0
+    ? formatBytes(nodeBackupProgress.totalBytes, locale)
+    : ''
+  const restoreLiveTransferDetail = restoreTransferSpeed
+    ? restoreCompletedSize && restoreTotalSize
+      ? t('node.backupLiveTransferMeta', {
+          speed: restoreTransferSpeed,
+          eta: restoreEta || t('common.na'),
+          completed: restoreCompletedSize,
+          total: restoreTotalSize
+        })
+      : t('node.backupLiveSpeedMeta', {
+          speed: restoreTransferSpeed,
+          eta: restoreEta || t('common.na')
+        })
+    : t('node.backupWaitingTransferSample')
+  const restoreLiveTransferVisible = Boolean(
+    restoreProgressActive &&
+    nodeBackupProgress &&
+    nodeBackupProgress.phase !== 'error' &&
+    nodeBackupProgress.phase !== 'complete'
+  )
   const latestPublicBackupId = publicBootstrapList?.latestBackupId || ''
   const dataFolderReady = Boolean(baseDir?.trim()) && !settingsDirty
   const publicRestoreBusy = publicBootstrapListLoading || publicBootstrapRestoreLoading
@@ -422,10 +502,10 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
         <div className="first-run-setup-progress" aria-label="Setup progress">
           <div className="first-run-setup-progress-row">
             <strong>{activeStep.label}</strong>
-            <span>{progressPercent}%</span>
+            <span>{visibleProgressLabel}%</span>
           </div>
           <div className="first-run-setup-progress-bar" aria-hidden="true">
-            <span style={{ width: `${progressPercent}%` }} />
+            <span style={{ width: `${Math.max(2, visibleProgressPercent)}%` }} />
           </div>
           <ol className="first-run-setup-steps" role="list">
             {SETUP_STEPS.map((entry, index) => (
@@ -530,6 +610,31 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
                     <span>Latest snapshot</span>
                     <strong>{shortStatus(latestPublicBackupId)}</strong>
                   </div>
+                  {restoreProgressActive && nodeBackupProgress && (
+                    <div className="first-run-restore-progress" role="status" aria-live="polite">
+                      {nodeBackupProgress.message && (
+                        <p className="settings-inline-help">{nodeBackupProgress.message}</p>
+                      )}
+                      {restoreLiveTransferVisible && (
+                        <p className="first-run-restore-live">
+                          <span className="first-run-restore-live-dot" aria-hidden="true" />
+                          <span>{t('node.backupLiveDownload')}</span>
+                          <strong>{restoreLiveTransferDetail}</strong>
+                        </p>
+                      )}
+                      <p className="first-run-restore-progress-meta mono">
+                        {[
+                          t('node.backupPhaseMeta', {
+                            phase: nodeBackupProgress.phase,
+                            time: formatTime(nodeBackupProgress.updatedAt, locale)
+                          }),
+                          restoreSampleInterval
+                            ? t('node.backupSampleMeta', { latency: restoreSampleInterval })
+                            : ''
+                        ].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                  )}
                   <div className="first-run-setup-actions">
                     <button type="button" className="ghost-button" onClick={() => setSetupStep('wallet')} disabled={publicRestoreBusy}>
                       Sync without bootstrap

@@ -686,11 +686,29 @@ foo
     const runCommand = vi.fn(async () => ({
       ok: true,
       code: 0,
-      output: JSON.stringify({
-        latest_backup_id: 'prodnet-public-1',
-        snapshot_count: 1,
-        snapshots: [{ backup_id: 'prodnet-public-1', latest: true, complete: true }]
-      })
+      output: [
+        JSON.stringify({
+          event: 'backup-progress',
+          phase: 'public-restore-metadata-latest',
+          backup_id: '',
+          completed_batches: 0,
+          total_batches: 1,
+          attempt: 1
+        }),
+        JSON.stringify({
+          event: 'backup-progress',
+          phase: 'public-restore-metadata-snapshot',
+          backup_id: 'prodnet-public-1',
+          completed_batches: 1,
+          total_batches: 3,
+          attempt: 1
+        }),
+        JSON.stringify({
+          latest_backup_id: 'prodnet-public-1',
+          snapshot_count: 1,
+          snapshots: [{ backup_id: 'prodnet-public-1', latest: true, complete: true }]
+        }, null, 2)
+      ].join('\n')
     }))
     const service = createBackupService({
       normalizeNodeSettings: () => settings,
@@ -702,6 +720,8 @@ foo
 
     expect(result.ok).toBe(true)
     expect(result.source).toBe('public')
+    expect(result.latestBackupId).toBe('prodnet-public-1')
+    expect(result.snapshots).toHaveLength(1)
     expect(runCommand).toHaveBeenCalledWith(
       binaryPath,
       expect.arrayContaining([
@@ -993,6 +1013,120 @@ foo
     )
 
     expect(result.ok).toBe(true)
+    expect(routes).toEqual([
+      '/admin/backup/public/fetch',
+      '/admin/backup/public/preflight',
+      '/admin/backup/public/restore/stage',
+      '/admin/backup/public/restore/activate'
+    ])
+  })
+
+  it('continues running-node restore when long staging hits a headers timeout', async () => {
+    const root = makeTempDir()
+    const tokenFile = path.join(root, 'admin.token')
+    fs.writeFileSync(tokenFile, 'secret-token\n')
+    const settings = nodeSettings({
+      backup: backupSettings({
+        adminEnabled: true,
+        adminListen: '127.0.0.1:18088',
+        adminTokenFile: tokenFile
+      })
+    })
+    const routes: string[] = []
+    const fetchMock = vi.fn(async (url: string) => {
+      const route = new URL(url).pathname
+      routes.push(route)
+      if (route === '/admin/backup/public/fetch') {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            ok: true,
+            status: {
+              operation_id: 'public-op-1',
+              state: 'succeeded',
+              message: 'public fetch complete',
+              has_public_restore_fetch: true,
+              public_restore_fetch: {
+                backup_id: 'public-backup-1',
+                ready_to_stage: true
+              }
+            }
+          })
+        }
+      }
+      if (route === '/admin/backup/public/preflight') {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            ok: true,
+            preflight: {
+              backup_id: 'public-backup-1',
+              ready_to_restore: true,
+              snapshot_complete: true,
+              file_count: 12,
+              missing_object_count: 0,
+              missing_object_bytes: 0,
+              restore_space: {
+                restored_database_bytes: 1024,
+                runtime_files_bytes: 10,
+                object_download_bytes: 0,
+                minimum_target_free_bytes: 2048,
+                recommended_target_free_bytes: 4096
+              },
+              space_check: {
+                passes_minimum: true,
+                below_recommended: false,
+                available_bytes: 8192,
+                target_path: settings.baseDir,
+                message: 'ok'
+              }
+            }
+          })
+        }
+      }
+      if (route === '/admin/backup/public/restore/stage') {
+        const stagingDir = path.join(settings.baseDir, '.teleno-native-backups', 'restore-staging')
+        fs.mkdirSync(stagingDir, { recursive: true })
+        fs.writeFileSync(
+          path.join(stagingDir, '.teleno-restore-stage.json'),
+          JSON.stringify({
+            format: 'teleno-native-restore-stage',
+            version: 1,
+            backup_id: 'public-backup-1',
+            repository_dir: path.join(settings.baseDir, '.teleno-native-backups', 'repository'),
+            target_basedir: settings.baseDir,
+            staging_dir: stagingDir,
+            restored_file_count: 12,
+            restored_bytes: 1024,
+            start_as_observer_first: true,
+            skipped_optional_runtime_files: []
+          })
+        )
+        fs.writeFileSync(path.join(stagingDir, 'RESTORE_STAGE_COMPLETE'), 'complete\n')
+        const error = new TypeError('fetch failed') as Error & { cause?: Error }
+        error.cause = new Error('Headers Timeout Error')
+        throw error
+      }
+      return { ok: true, text: async () => JSON.stringify({ ok: true }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      telenoNodeStatus: async () => ({
+        services: [{ managedByTeleno: true, state: 'running', status: 'running' }]
+      }),
+      runCommand: vi.fn()
+    } as any)
+
+    const result = await service.restoreNativeBackup(
+      { ...settings, backupId: 'public-backup-1', backupSource: 'public' } as any,
+      { send: vi.fn() } as any
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.output).toContain('Native backup staged through running-node admin API')
     expect(routes).toEqual([
       '/admin/backup/public/fetch',
       '/admin/backup/public/preflight',

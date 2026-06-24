@@ -211,6 +211,144 @@ describe('producer-service helpers', () => {
   })
 })
 
+describe('dashboard peers', () => {
+  it('loads live peers from the local admin API when available', async () => {
+    const tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-live-peers-'))
+    const tokenFile = path.join(tempBaseDir, 'admin.token')
+    fs.writeFileSync(tokenFile, 'secret-token\n', 'utf8')
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        source: 'p2p-live',
+        snapshot_at: 1782320000123,
+        p2p_running: true,
+        connected_count: 2,
+        known_count: 3,
+        self_address: '/ip4/127.0.0.1/tcp/8888/p2p/SELF',
+        connected: [
+          {
+            peer_id: 'PEER1',
+            address: '/ip4/10.0.0.2/tcp/8899/p2p/PEER1',
+            host: '10.0.0.2',
+            port: 8899
+          },
+          {
+            address: '/dns4/example.com/tcp/9999/p2p/PEER2'
+          }
+        ],
+        known: []
+      })
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { deps, service } = createPerformanceService({
+      normalizeNodeSettings: vi.fn(() => ({
+        network: 'mainnet',
+        repoPath: '/tmp/koinos',
+        baseDir: tempBaseDir,
+        profiles: [],
+        blockchainBackupUrl: '',
+        backup: normalizeBackupSettings({
+          adminEnabled: true,
+          adminListen: '127.0.0.1:18088',
+          adminTokenFile: tokenFile
+        })
+      }))
+    })
+
+    try {
+      const result = await service.telenoNodeDashboardPeers()
+
+      expect(result.ok).toBe(true)
+      expect(result.source).toBe('p2p-live')
+      expect(result.snapshotAt).toBe(1782320000123)
+      expect(result.selfAddress).toBe('/ip4/127.0.0.1/tcp/8888/p2p/SELF')
+      expect(result.rows).toEqual([
+        {
+          address: '/ip4/10.0.0.2/tcp/8899/p2p/PEER1',
+          peerId: 'PEER1',
+          host: '10.0.0.2',
+          port: 8899
+        },
+        {
+          address: '/dns4/example.com/tcp/9999/p2p/PEER2',
+          peerId: 'PEER2',
+          host: 'example.com',
+          port: 9999
+        }
+      ])
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:18088/admin/p2p/peers',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { authorization: 'Bearer secret-token' }
+        })
+      )
+      expect(deps.nativeComposeLogs).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+      fs.rmSync(tempBaseDir, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to the p2p log snapshot when the live admin endpoint is unavailable', async () => {
+    const tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teleno-live-peers-fallback-'))
+    const tokenFile = path.join(tempBaseDir, 'admin.token')
+    fs.writeFileSync(tokenFile, 'secret-token\n', 'utf8')
+    const fetchMock = vi.fn(async () => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:18088')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { deps, service } = createPerformanceService({
+      normalizeNodeSettings: vi.fn(() => ({
+        network: 'mainnet',
+        repoPath: '/tmp/koinos',
+        baseDir: tempBaseDir,
+        profiles: [],
+        blockchainBackupUrl: '',
+        backup: normalizeBackupSettings({
+          adminEnabled: true,
+          adminListen: '127.0.0.1:18088',
+          adminTokenFile: tokenFile
+        })
+      })),
+      nativeComposeLogs: vi.fn(async () => ({
+        ok: true,
+        service: 'p2p',
+        tail: 2000,
+        output: `
+2026-05-23 10:10:00.123456 [p2p] My address:
+2026-05-23 10:10:00.123457 [p2p]   - /ip4/127.0.0.1/tcp/8888/p2p/SELF
+2026-05-23 10:10:10.123456 [p2p] Connected peers:
+2026-05-23 10:10:10.123457 [p2p]   - /ip4/10.0.0.5/tcp/8888/p2p/PEER5
+`
+      }))
+    })
+
+    try {
+      const result = await service.telenoNodeDashboardPeers()
+
+      expect(result.ok).toBe(true)
+      expect(result.source).toBe('p2p-log')
+      expect(result.rows).toEqual([
+        {
+          address: '/ip4/10.0.0.5/tcp/8888/p2p/PEER5',
+          peerId: 'PEER5',
+          host: '10.0.0.5',
+          port: 8888
+        }
+      ])
+      expect(fetchMock).toHaveBeenCalled()
+      expect(deps.nativeComposeLogs).toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+      fs.rmSync(tempBaseDir, { recursive: true, force: true })
+    }
+  })
+})
+
 function createPerformanceService(overrides: Record<string, unknown> = {}) {
   const baseStatus: TelenoNodeStatus = {
     ok: true,

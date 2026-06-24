@@ -58,6 +58,17 @@ function spaceStatusClass(passes: boolean | null, loading = false): string {
   return ''
 }
 
+function formatDurationCompact(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return 'N/A'
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))}s`
+  const minutes = seconds / 60
+  if (minutes < 60) return `${Math.round(minutes)}m`
+  const hours = minutes / 60
+  if (hours < 24) return `${hours >= 10 ? hours.toFixed(0) : hours.toFixed(1)}h`
+  const days = hours / 24
+  return `${days >= 10 ? days.toFixed(0) : days.toFixed(1)}d`
+}
+
 export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
   const {
     t,
@@ -177,6 +188,46 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
             ? 'checking backup size'
             : 'backup size estimate unavailable'
           : 'space check unavailable'
+  const backupProgressPercent = nodeBackupProgress
+    ? Math.max(0, Math.min(100, nodeBackupProgress.displayProgress ?? nodeBackupProgress.progress))
+    : 0
+  const backupProgressPercentLabel = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: backupProgressPercent >= 99 || backupProgressPercent <= 0 ? 0 : 1
+  }).format(backupProgressPercent)
+  const backupTransferSampleFresh = !nodeBackupProgress?.sampleIntervalMs || nodeBackupProgress.sampleIntervalMs <= 10_000
+  const backupTransferSpeed = nodeBackupProgress?.bytesPerSecond && nodeBackupProgress.bytesPerSecond > 0 && backupTransferSampleFresh
+    ? formatBytes(nodeBackupProgress.bytesPerSecond, locale)
+    : ''
+  const backupEta = nodeBackupProgress?.etaSeconds !== null && nodeBackupProgress?.etaSeconds !== undefined
+    ? formatDurationCompact(nodeBackupProgress.etaSeconds)
+    : ''
+  const backupSampleInterval = nodeBackupProgress?.sampleIntervalMs && nodeBackupProgress.sampleIntervalMs > 0
+    ? formatDurationCompact(nodeBackupProgress.sampleIntervalMs / 1000)
+    : ''
+  const backupCompletedSize = nodeBackupProgress?.completedBytes && nodeBackupProgress.completedBytes > 0
+    ? formatBytes(nodeBackupProgress.completedBytes, locale)
+    : ''
+  const backupTotalSize = nodeBackupProgress?.totalBytes && nodeBackupProgress.totalBytes > 0
+    ? formatBytes(nodeBackupProgress.totalBytes, locale)
+    : ''
+  const backupLiveTransferDetail = backupTransferSpeed
+    ? backupCompletedSize && backupTotalSize
+      ? t('node.backupLiveTransferMeta', {
+          speed: backupTransferSpeed,
+          eta: backupEta || 'N/A',
+          completed: backupCompletedSize,
+          total: backupTotalSize
+        })
+      : t('node.backupLiveSpeedMeta', {
+          speed: backupTransferSpeed,
+          eta: backupEta || 'N/A'
+        })
+    : t('node.backupWaitingTransferSample')
+  const backupLiveTransferVisible = Boolean(
+    nodeBackupProgress &&
+    nodeBackupProgress.phase !== 'error' &&
+    nodeBackupProgress.phase !== 'complete'
+  )
   const renderNativeBackupSnapshots = (
     snapshots: TelenoNodeNativeBackupSnapshot[],
     sourceLabel: BackupSourceLabel,
@@ -294,20 +345,32 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
                 ? t('node.backupProgress.restore')
                 : t('node.backupProgress.verify')}
           </h3>
-          <span>{nodeBackupProgress.progress}%</span>
+          <span>{backupProgressPercentLabel}%</span>
         </div>
         <p className="node-backup-progress-text">{nodeBackupProgress.message}</p>
         <div className="node-backup-progress-bar" aria-hidden="true">
           <span
             className="node-backup-progress-fill"
-            style={{ width: `${Math.max(2, nodeBackupProgress.progress)}%` }}
+            style={{ width: `${Math.max(2, backupProgressPercent)}%` }}
           />
         </div>
+        {backupLiveTransferVisible && (
+          <p className="node-backup-progress-live">
+            <span className="first-run-restore-live-dot" aria-hidden="true" />
+            <span>{t('node.backupLiveDownload')}</span>
+            <strong>{backupLiveTransferDetail}</strong>
+          </p>
+        )}
         <p className="node-backup-progress-meta mono">
-          {t('node.backupPhaseMeta', {
-            phase: nodeBackupProgress.phase,
-            time: formatTime(nodeBackupProgress.updatedAt, locale)
-          })}
+          {[
+            t('node.backupPhaseMeta', {
+              phase: nodeBackupProgress.phase,
+              time: formatTime(nodeBackupProgress.updatedAt, locale)
+            }),
+            backupSampleInterval
+              ? t('node.backupSampleMeta', { latency: backupSampleInterval })
+              : ''
+          ].filter(Boolean).join(' · ')}
         </p>
       </div>
     ) : null

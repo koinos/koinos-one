@@ -6,8 +6,8 @@
       .word { fill: #121212; }
       .mark { fill: none; stroke: #5d00b3; stroke-linecap: round; stroke-linejoin: round; stroke-width: 48px; }
       .divider { stroke: #d9c7f2; stroke-linecap: round; stroke-width: 24px; }
-      .one { fill: #5d00b3; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; font-size: 342px; font-weight: 800; letter-spacing: 44px; }
-      .tagline { fill: #6b567f; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 156px; font-weight: 700; letter-spacing: 0; }
+      .one { fill: #5d00b3; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; font-size: 342px; font-weight: 400; letter-spacing: 44px; }
+      .tagline { fill: #6b567f; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 144px; font-weight: 400; letter-spacing: 0; text-anchor: middle; }
     </style>
   </defs>
 
@@ -25,6 +25,5 @@
     <path class="divider" d="M3970 312v570"/>
     <text class="one" x="4150" y="630">ONE</text>
   </g>
-  <text class="tagline" x="1180" y="1036">A high-performance monolithic</text>
-  <text class="tagline" x="1180" y="1160">Koinos node implementation.</text>
+  <text class="tagline" x="3075" y="1108">A high-performance monolithic Koinos node implementation.</text>
 </svg>

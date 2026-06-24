@@ -5,6 +5,24 @@ const BACKUP_PROGRESS_EVENT_CHANNEL = 'teleno:node:backup-progress:event'
 
 // Read version via IPC from main process (preload can't require package.json reliably)
 const appVersion = ipcRenderer.sendSync('teleno:app-version') || '0.10.1'
+const appBuildInfo = ipcRenderer.sendSync('teleno:app-build-info') || {
+  schemaVersion: 1,
+  productVersion: appVersion,
+  releaseChannel: 'dev',
+  buildTimestamp: null,
+  gitCommit: null,
+  gitShortCommit: null,
+  gitBranch: null,
+  gitDirty: null,
+  nativeNode: {
+    binaryName: 'teleno_node',
+    sha256: null,
+    shortSha256: null,
+    sizeBytes: null,
+    mtime: null
+  },
+  source: 'runtime'
+}
 
 type LaunchDefaults = {
   nodeSettings?: Record<string, unknown>
@@ -24,6 +42,7 @@ function parseLaunchDefaults(): LaunchDefaults {
 
 contextBridge.exposeInMainWorld('teleno', {
   version: appVersion,
+  buildInfo: appBuildInfo,
   launchDefaults: parseLaunchDefaults(),
   app: {
     quit: () => ipcRenderer.invoke('teleno:app:quit'),

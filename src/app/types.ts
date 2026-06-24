@@ -101,8 +101,19 @@ export type NodeBackupProgressState = {
   action: 'restore-backup' | 'restore-backup-verify' | 'create-backup'
   phase: TelenoNodeBackupProgressEvent['phase']
   progress: number
+  displayProgress: number
   message: string
   updatedAt: number
+  completedBytes: number | null
+  totalBytes: number | null
+  bytesPerSecond: number | null
+  etaSeconds: number | null
+  completedBatches: number | null
+  totalBatches: number | null
+  phaseProgress: number | null
+  progressRangeStart: number | null
+  progressRangeEnd: number | null
+  sampleIntervalMs: number | null
 }
 
 export type NodeBaseDirValidationState = {
