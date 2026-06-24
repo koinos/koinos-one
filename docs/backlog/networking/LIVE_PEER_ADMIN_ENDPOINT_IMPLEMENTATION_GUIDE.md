@@ -110,8 +110,8 @@ Optional query parameters:
   "connected": [
     {
       "peer_id": "12D3KooWM3nYEPprGvueaRuWV5tWnFJW1phPSdbTJy3R6vQT6C2j",
-      "address": "/ip4/46.225.170.6/tcp/18889/p2p/12D3KooWM3nYEPprGvueaRuWV5tWnFJW1phPSdbTJy3R6vQT6C2j",
-      "host": "46.225.170.6",
+      "address": "/ip4/<VPS1_PUBLIC_IP>/tcp/18889/p2p/12D3KooWM3nYEPprGvueaRuWV5tWnFJW1phPSdbTJy3R6vQT6C2j",
+      "host": "<VPS1_PUBLIC_IP>",
       "port": 18889
     }
   ],

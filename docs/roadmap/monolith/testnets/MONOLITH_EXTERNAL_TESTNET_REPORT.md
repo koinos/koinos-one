@@ -336,17 +336,17 @@ Next external-testnet action: keep the running producer in a longer soak and tra
 
 - Status: caught up and usable as an independent legacy observer witness.
 - Updated: 2026-06-02T16:47:21Z
-- Host: `46.225.170.6`
+- Host: `<VPS1_PUBLIC_IP>`
 - Install path: `/opt/koinos-testnet-legacy-observer`
 - Runtime shape: legacy Docker microservice observer stack with `block_producer` disabled.
-- Public P2P multiaddr: `/ip4/46.225.170.6/tcp/28888/p2p/QmeJnbWzRZ91zgTDTxs1UdsbRFFM6B26PntLdk69N63ePY`
+- Public P2P multiaddr: `/ip4/<VPS1_PUBLIC_IP>/tcp/28888/p2p/QmeJnbWzRZ91zgTDTxs1UdsbRFFM6B26PntLdk69N63ePY`
 - JSON-RPC: bound to remote localhost only at `http://127.0.0.1:18080/`.
 - Firewall: UFW is active and allows `28888/tcp`.
 - Safety scope: existing non-Koinos Docker services on the VPS were not modified.
 
 Validation performed from the Mac:
 
-- `nc -vz -w 5 46.225.170.6 28888` succeeded.
+- `nc -vz -w 5 <VPS1_PUBLIC_IP> 28888` succeeded.
 - Raw libp2p probe succeeded with protocol `koinos/p2p/1.0.0`.
 - Full Peer RPC probe succeeded with the expected live-testnet chain ID `0x122008295be6ebe576aa6b2652f3c9cb4f6f0822dbb67f651c5a70ac96dc4c811645`.
 - Latest checked VPS observer head: matched public testnet head at height `5468696` during Level 5 Phase 7.
@@ -354,16 +354,16 @@ Validation performed from the Mac:
 - P2P logs show block ranges being requested from `/dns4/testnet.koinosfoundation.org/tcp/8888/p2p/QmYV414G6xRzkSUytntEsBsCSjXrVGubfYJn4vpeER2s2W`.
 - Disk at setup time: `109G` free on `/`; observer data was still only `115M`.
 
-Operational note: this node is now valid for external topology, Peer RPC compatibility checks, and independent near-head witness checks for monolith-produced blocks. Its JSON-RPC remains bound to remote localhost, so local validation from the Mac should use a temporary SSH tunnel such as `ssh -M -S /tmp/knodel-vps1-observer.sock -f -N -L 127.0.0.1:18091:127.0.0.1:18080 root@46.225.170.6`.
+Operational note: this node is now valid for external topology, Peer RPC compatibility checks, and independent near-head witness checks for monolith-produced blocks. Its JSON-RPC remains bound to remote localhost, so local validation from the Mac should use a temporary SSH tunnel such as `ssh -M -S /tmp/knodel-vps1-observer.sock -f -N -L 127.0.0.1:18091:127.0.0.1:18080 root@<VPS1_PUBLIC_IP>`.
 
 ## External Legacy Observer VM2
 
 - Status: running and syncing from genesis; full external Peer RPC validation pending.
 - Updated: 2026-05-30T14:06:06Z
-- Host: `46.62.155.105`
+- Host: `<VM2_PUBLIC_IP>`
 - Install path: `/opt/koinos-testnet-legacy-observer`
 - Runtime shape: legacy Docker microservice observer stack with `block_producer` disabled.
-- Public P2P multiaddr: `/ip4/46.62.155.105/tcp/28888/p2p/QmXfSaJjSPSivJURC9RrCGKGmKtB3EA3AWEUksY2e189R3`
+- Public P2P multiaddr: `/ip4/<VM2_PUBLIC_IP>/tcp/28888/p2p/QmXfSaJjSPSivJURC9RrCGKGmKtB3EA3AWEUksY2e189R3`
 - JSON-RPC: bound to remote localhost only at `http://127.0.0.1:18080/`.
 - Firewall: UFW is inactive; host TCP `28888` is reachable externally.
 - Host size at setup: `2` vCPU, `4 GiB` RAM, about `29 GiB` free on `/`.
@@ -377,7 +377,7 @@ Validation performed from the Mac:
 - Chain logs show the expected live-testnet chain ID `0x122008295be6ebe576aa6b2652f3c9cb4f6f0822dbb67f651c5a70ac96dc4c811645`.
 - P2P logs show connection to `/dns4/testnet.koinosfoundation.org/tcp/8888/p2p/QmYV414G6xRzkSUytntEsBsCSjXrVGubfYJn4vpeER2s2W` and block-range requests from that seed.
 - VM2 JSON-RPC advanced from height `23` to `6194` during setup.
-- `nc -vz -w 5 46.62.155.105 28888` succeeded.
+- `nc -vz -w 5 <VM2_PUBLIC_IP> 28888` succeeded.
 - A full Peer RPC probe reached `GetChainID`, but `GetHeadBlock` reset while the node was under heavy initial catch-up load. Later probes from this Mac hit security resets, consistent with temporary source-IP scoring. Treat full Peer RPC validation as pending until a later probe succeeds.
 
 Operational note: VM2 should not be added as a required monolith sync peer or used as an independent block-acceptance witness until it catches up further and passes the full Peer RPC probe. It is currently useful as a second external legacy observer that proves the public seed can feed another node from genesis.

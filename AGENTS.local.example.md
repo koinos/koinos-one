@@ -19,3 +19,16 @@ into public issues, or quote its sensitive values in generated documentation.
 - To make the desktop runtime protect local addresses from producer-config
   writes, launch it with:
   `KOINOS_ONE_PROTECTED_MAINNET_PRODUCER_ADDRESSES=<YOUR_MAINNET_PRODUCER_ADDRESS>`
+
+## Local Server Inventory
+
+Keep private server inventory in:
+
+```text
+docs/current/operations/SERVER_INVENTORY.md
+docs/operations/CONFIRMED_SSH_HOSTS.md
+```
+
+Those files are ignored by Git. Use them for local host context only, and do
+not copy real hostnames, IPs, SSH users, workloads, or resource snapshots into
+public docs.

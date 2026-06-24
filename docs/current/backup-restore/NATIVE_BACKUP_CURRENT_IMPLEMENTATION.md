@@ -317,7 +317,7 @@ Public HTTPS validation completed:
 - The currently published public testnet snapshot is signed with key ID `teleno-testnet-bootstrap-20260620`.
 - `--backup-public-list` over HTTPS passed with `signature-required: true` and the pinned `config/public-bootstrap/testnet-ed25519.pub` verification key.
 - Teleno UX-generated testnet native backup configs now require that public bootstrap signature when the bundled key exists; mainnet/custom public restore remains disabled.
-- Linux Ubuntu validation on node `192.168.178.188` passed for signed HTTPS list, full signed restore, and DB-open smoke. This required adding `/etc/ssl/certs/ca-certificates.crt` to the public restore HTTPS CA bundle search path.
+- Linux Ubuntu validation on node `<LOCAL_LINUX_HOST>` passed for signed HTTPS list, full signed restore, and DB-open smoke. This required adding `/etc/ssl/certs/ca-certificates.crt` to the public restore HTTPS CA bundle search path.
 
 The public bootstrap trust model is intentionally layered: HTTPS authenticates the bootstrap server and protects transport integrity, Ed25519 signatures authorize the published bootstrap metadata, and SHA-256 verifies every content-addressed object. The detailed rationale for keeping HTTPS required is documented in `PUBLIC_BOOTSTRAP_RESTORE.md`.
 

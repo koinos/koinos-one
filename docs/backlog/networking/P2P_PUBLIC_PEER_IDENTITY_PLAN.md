@@ -90,7 +90,7 @@ p2p:
   listen: /ip4/0.0.0.0/tcp/18889
   identity-key-file: p2p/identity.key
   advertised-address:
-    - /ip4/46.225.170.6/tcp/18889
+    - /ip4/<VPS1_PUBLIC_IP>/tcp/18889
 ```
 
 Rules:

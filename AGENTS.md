@@ -103,6 +103,11 @@ version and commit included in the build.
   `AGENTS.local.md` exists, read it before any producer, wallet, or chain-
   mutating mainnet work. `AGENTS.local.md` is intentionally ignored by Git and
   must never be committed or quoted in public documentation.
+- Live server inventory is private local project memory. If
+  `docs/current/operations/SERVER_INVENTORY.md` exists, treat it as local-only,
+  read it for host context when needed, and never commit, quote, or summarize
+  its confidential hostnames, IPs, users, workloads, or resource details into
+  public files.
 - Public docs, tests, GUI placeholders, and committed code must use generic
   placeholders such as `<YOUR_MAINNET_PRODUCER_ADDRESS>` instead of real local
   producer addresses.
@@ -130,11 +135,12 @@ persistent state merkle mismatch:
 
 ## Current Operational Cautions
 
-- LAN Linux host `192.168.178.188` runs a legacy prod Koinos node. Be careful
-  not to disturb it.
-- Teleno has also been deployed on that host as an observer-only service using
-  separate data paths and ports. Check current service paths/status before
-  touching anything on the server.
+- Live hostnames, IPs, SSH users, workloads, and reachability notes are
+  private local project memory. Read local-only inventory files when needed,
+  but do not commit or quote those details into public files.
+- Some local hosts may run legacy prod Koinos services and separate
+  observer-only deployments. Check local inventory and current service paths
+  before touching any server.
 - Public bootstrap and native backup behavior changes must stay local-admin
   only unless explicitly scoped otherwise. Public bootstrap means public
   read-only backup source, not public admin API exposure.

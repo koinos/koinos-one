@@ -26,8 +26,9 @@ belongs under `docs/archive/implementation-plans/`.
 
 ## Operations And Protocol References
 
-- `operations/SERVER_INVENTORY.md` - known server inventory, SSH reachability,
-  and latest resource snapshot.
+- `operations/SERVER_INVENTORY.md` - private local-only server inventory. This
+  file is intentionally ignored by Git because it can contain hostnames, IPs,
+  SSH users, workloads, and resource snapshots.
 - `operations/PRODNET_OBSERVER_DOCKER_DEPLOYMENT.md` - Docker-based prodnet
   observer deployment, public-bootstrap restore, verification, and sizing notes.
 - `../operations/START_TELENO_NODE.md` - command-line startup guide.

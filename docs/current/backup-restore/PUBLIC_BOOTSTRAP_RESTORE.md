@@ -86,7 +86,7 @@ Validated prodnet metadata:
 - `latest.json` is reachable over HTTPS.
 - The validated snapshot metadata reports `network: mainnet`.
 - The snapshot contains 455 content-addressed objects and about 26.96 GB of backup payload.
-- The prodnet snapshot has been restored on VPS1 `46.225.170.6` into a Dockerized observer basedir at `/home/deployer/teleno-prodnet-observer/basedir`.
+- The prodnet snapshot has been restored on VPS1 `<VPS1_PUBLIC_IP>` into a Dockerized observer basedir at `/home/deployer/teleno-prodnet-observer/basedir`.
 - The restored VPS1 observer starts with block production disabled and publishes P2P on port `18889`; JSON-RPC is bound to localhost on port `18080`.
 - Current prodnet snapshot publication is unsigned from the client perspective: `signature_required=false` and `signature_verified=false`. Prodnet signing is still tracked as follow-up hardening.
 
@@ -444,7 +444,7 @@ Real public testnet validation:
 - A restored-node smoke opened RocksDB from the restored basedir, reached `[node] teleno_node ready`, and shut down cleanly.
 - Signed testnet publication completed with key ID `teleno-testnet-bootstrap-20260620`.
 - `--backup-public-list` over HTTPS passed with `signature-required: true` and the pinned `config/public-bootstrap/testnet-ed25519.pub` verification key.
-- Linux validation on Ubuntu node `192.168.178.188` passed after adding the Ubuntu CA bundle path `/etc/ssl/certs/ca-certificates.crt` to the HTTPS loader:
+- Linux validation on Ubuntu node `<LOCAL_LINUX_HOST>` passed after adding the Ubuntu CA bundle path `/etc/ssl/certs/ca-certificates.crt` to the HTTPS loader:
   - `--backup-public-list` over HTTPS passed with `signature-required: true`;
   - `--backup-public-restore` downloaded 75 objects, `3,113,463,513` bytes, with `retry_count: 0`, `signature_required: true`, and `signature_verified: true`;
   - restore activation wrote `.backup-just-restored`;
@@ -462,7 +462,7 @@ Real public testnet validation:
   - SIGINT shutdown completed cleanly.
 - Admin API public restore routes are covered by `koinos_backup_admin_server_test`.
 - Teleno UX exposes public bootstrap snapshots separately from local and private SFTP backups in Node > Backups.
-- Prodnet Docker restore on VPS1 `46.225.170.6` passed on 2026-06-21:
+- Prodnet Docker restore on VPS1 `<VPS1_PUBLIC_IP>` passed on 2026-06-21:
   - listed `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap` and selected snapshot `20260620T201059Z-ms-1781986259826-files-452`;
   - preflight passed with enough disk space on the 150 GB root filesystem;
   - restored 455 objects into `/home/deployer/teleno-prodnet-observer/basedir`;

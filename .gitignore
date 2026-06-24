@@ -16,6 +16,8 @@ __pycache__/
 *.pyc
 AGENTS.local.md
 index-*.js
+docs/current/operations/SERVER_INVENTORY.md
+docs/operations/CONFIRMED_SSH_HOSTS.md
 
 # Native build artifacts
 node/teleno-node/build

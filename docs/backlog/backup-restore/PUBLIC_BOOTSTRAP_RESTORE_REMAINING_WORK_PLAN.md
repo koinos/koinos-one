@@ -50,7 +50,7 @@ Publication and restore validation completed on 2026-06-20:
 - Public fetch downloaded 75 objects and `3,113,463,513` bytes with zero retries.
 - Public restore activated into `/Volumes/external/teleno-public-bootstrap-https-validate/basedir`.
 - Restored-node smoke opened RocksDB and reached `[node] teleno_node ready`.
-- Linux Ubuntu validation on `192.168.178.188` passed:
+- Linux Ubuntu validation on `<LOCAL_LINUX_HOST>` passed:
   - HTTPS signed public list with `signature-required: true`;
   - full signed public restore of 75 objects and `3,113,463,513` bytes with zero retries;
   - `signature_required: true` and `signature_verified: true` in restore JSON;
