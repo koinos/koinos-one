@@ -109,9 +109,18 @@ type WalletServiceDeps = {
   updateConfigProducerAddress?: (address: string, input?: WalletRpcInput) => string | null
 }
 
-const PROTECTED_MAINNET_PRODUCER_ADDRESS = '14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb'
+const PROTECTED_MAINNET_PRODUCER_ADDRESSES_ENV = 'KOINOS_ONE_PROTECTED_MAINNET_PRODUCER_ADDRESSES'
 
 export { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-accounts'
+
+function protectedMainnetProducerAddresses(): Set<string> {
+  const raw = process.env[PROTECTED_MAINNET_PRODUCER_ADDRESSES_ENV] || ''
+  return new Set(raw.split(/[\s,]+/).map((entry) => entry.trim()).filter(Boolean))
+}
+
+function isProtectedMainnetProducerAddress(address: string): boolean {
+  return protectedMainnetProducerAddresses().has(address)
+}
 
 function setWalletTransactionSponsor(
   transaction: Transaction,
@@ -390,9 +399,9 @@ export function createWalletService(deps: WalletServiceDeps) {
 
       const address = account.address.trim()
       if (!deps.safeIsChecksumAddress(address)) throw new Error('Invalid producer address format.')
-      if (network === 'mainnet' && address === PROTECTED_MAINNET_PRODUCER_ADDRESS) {
+      if (network === 'mainnet' && isProtectedMainnetProducerAddress(address)) {
         throw new Error(
-          'This funded mainnet producer address is protected by the project safety guardrail and was not written to runtime config.'
+          'This mainnet producer address is protected by local safety configuration and was not written to runtime config.'
         )
       }
       if (!deps.updateConfigProducerAddress) throw new Error('Producer config update is not available.')

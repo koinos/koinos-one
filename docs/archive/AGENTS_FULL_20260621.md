@@ -33,7 +33,7 @@ All project documentation must be written in English, even when discussion with 
 
 ## Mainnet Safety Guardrail
 
-- Address `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb` is a real funded mainnet producer address. Do not perform any operations that will result in fund transfers to other adresses. I allow you to perform producer key registration and burn operation allways when the destination adress of the VHP is also 14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb.
+- The real protected mainnet producer address was moved to local-only project memory. Do not commit real protected producer addresses. Treat any protected mainnet producer address as read-only unless the user gives a fresh, explicit, verified mainnet-safe instruction.
 
 ## Merkle Mismatch Recovery Guardrail
 

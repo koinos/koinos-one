@@ -232,70 +232,80 @@ describe('wallet-service helpers', () => {
     ])
   })
 
-  it('does not write the protected funded mainnet producer address to runtime config', async () => {
-    const protectedAddress = '14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb'
+  it('does not write a locally protected mainnet producer address to runtime config', async () => {
+    const protectedAddress = '1Kjfrv3qxWvb3afwUdFevZHS1WdT4ginPi'
+    const previousProtectedAddresses = process.env.KOINOS_ONE_PROTECTED_MAINNET_PRODUCER_ADDRESSES
+    process.env.KOINOS_ONE_PROTECTED_MAINNET_PRODUCER_ADDRESSES = protectedAddress
     const updateConfigProducerAddress = vi.fn(() => '/tmp/mainnet-basedir/config.yml')
-    const service = createWalletService({
-      loadTelenoWalletFile: () => ({
-        address: protectedAddress,
-        activeAccountId: 'acc_1'
-      }),
-      telenoProducerWalletFilePath: () => '/tmp/wallet.json',
-      currentUnlockedProducerWallet: () => null,
-      saveTelenoWallet: () => '/tmp/wallet.json',
-      deleteTelenoWallet: () => false,
-      closeTelenoWalletSession: () => null,
-      unlockTelenoWalletSession: () => null,
-      listWalletAccounts: () => [
-        {
-          id: 'acc_1',
-          name: 'Account 1',
-          kind: 'imported-wif',
+    try {
+      const service = createWalletService({
+        loadTelenoWalletFile: () => ({
           address: protectedAddress,
+          activeAccountId: 'acc_1'
+        }),
+        telenoProducerWalletFilePath: () => '/tmp/wallet.json',
+        currentUnlockedProducerWallet: () => null,
+        saveTelenoWallet: () => '/tmp/wallet.json',
+        deleteTelenoWallet: () => false,
+        closeTelenoWalletSession: () => null,
+        unlockTelenoWalletSession: () => null,
+        listWalletAccounts: () => [
+          {
+            id: 'acc_1',
+            name: 'Account 1',
+            kind: 'imported-wif',
+            address: protectedAddress,
+            derivationPath: null,
+            createdAt: '2026-06-17T00:00:00.000Z',
+            updatedAt: null,
+            hasPrivateKey: true,
+            isActive: true
+          }
+        ],
+        setActiveWalletAccount: () => null,
+        createDerivedWalletAccount: () => null,
+        importAdditionalWalletAccount: () => null,
+        importWatchWalletAccount: () => null,
+        renameWalletAccount: () => null,
+        removeWalletAccount: () => null,
+        loadWalletAccountSecrets: () => ({
+          walletAddress: null,
+          accountId: null,
+          accountName: null,
+          accountKind: null,
+          accountAddress: null,
+          privateKeyWif: null,
           derivationPath: null,
-          createdAt: '2026-06-17T00:00:00.000Z',
-          updatedAt: null,
-          hasPrivateKey: true,
-          isActive: true
-        }
-      ],
-      setActiveWalletAccount: () => null,
-      createDerivedWalletAccount: () => null,
-      importAdditionalWalletAccount: () => null,
-      importWatchWalletAccount: () => null,
-      renameWalletAccount: () => null,
-      removeWalletAccount: () => null,
-      loadWalletAccountSecrets: () => ({
-        walletAddress: null,
-        accountId: null,
-        accountName: null,
-        accountKind: null,
-        accountAddress: null,
-        privateKeyWif: null,
-        derivationPath: null,
-        seedPhrase: null
-      }),
-      resolveWalletRpcUrl: () => 'http://127.0.0.1:8080/',
-      resolveWalletQueryAddress: () => null,
-      parseWalletArgs: () => ({}),
-      loadContractWithFetchedAbi: async () => {
-        throw new Error('Not used in this test.')
-      },
-      formatWholeUnits: () => null,
-      safeIsChecksumAddress: () => true,
-      loadProducerProfile: () => null,
-      updateConfigProducerAddress
-    })
+          seedPhrase: null
+        }),
+        resolveWalletRpcUrl: () => 'http://127.0.0.1:8080/',
+        resolveWalletQueryAddress: () => null,
+        parseWalletArgs: () => ({}),
+        loadContractWithFetchedAbi: async () => {
+          throw new Error('Not used in this test.')
+        },
+        formatWholeUnits: () => null,
+        safeIsChecksumAddress: () => true,
+        loadProducerProfile: () => null,
+        updateConfigProducerAddress
+      })
 
-    const result = await service.walletSetProducerAccount({
-      accountId: 'acc_1',
-      network: 'mainnet',
-      baseDir: '/tmp/mainnet-basedir'
-    })
+      const result = await service.walletSetProducerAccount({
+        accountId: 'acc_1',
+        network: 'mainnet',
+        baseDir: '/tmp/mainnet-basedir'
+      })
 
-    expect(result.ok).toBe(false)
-    expect(result.output).toContain('protected by the project safety guardrail')
-    expect(result.configPath).toBeNull()
-    expect(updateConfigProducerAddress).not.toHaveBeenCalled()
+      expect(result.ok).toBe(false)
+      expect(result.output).toContain('protected by local safety configuration')
+      expect(result.configPath).toBeNull()
+      expect(updateConfigProducerAddress).not.toHaveBeenCalled()
+    } finally {
+      if (previousProtectedAddresses === undefined) {
+        delete process.env.KOINOS_ONE_PROTECTED_MAINNET_PRODUCER_ADDRESSES
+      } else {
+        process.env.KOINOS_ONE_PROTECTED_MAINNET_PRODUCER_ADDRESSES = previousProtectedAddresses
+      }
+    }
   })
 })

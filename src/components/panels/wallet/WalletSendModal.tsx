@@ -150,7 +150,7 @@ export function WalletSendModal(props: WalletSendModalProps) {
                   type="text"
                   value={walletTransferAddressDraft}
                   onChange={(event) => setWalletTransferAddressDraft(event.target.value)}
-                  placeholder="14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb"
+                  placeholder={t('wallet.addressPlaceholder')}
                   spellCheck={false}
                   autoComplete="off"
                 />
@@ -185,7 +185,7 @@ export function WalletSendModal(props: WalletSendModalProps) {
                   type="text"
                   value={walletBurnTargetAddressDraft}
                   onChange={(event) => setWalletBurnTargetAddressDraft(event.target.value)}
-                  placeholder={activeWalletAddress || '14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb'}
+                  placeholder={activeWalletAddress || t('wallet.addressPlaceholder')}
                   spellCheck={false}
                   autoComplete="off"
                 />

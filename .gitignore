@@ -14,6 +14,8 @@ backend/data/*.db
 Untitled.png
 __pycache__/
 *.pyc
+AGENTS.local.md
+index-*.js
 
 # Native build artifacts
 node/teleno-node/build

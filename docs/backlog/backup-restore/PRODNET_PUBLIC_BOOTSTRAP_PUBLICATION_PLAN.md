@@ -15,7 +15,7 @@ Prodnet bootstrap publication must be treated as a release operation, not as an 
 - Do not publish prodnet snapshots from a producer basedir that contains wallet files, producer private keys, admin tokens, SSH credentials, or private backup configuration.
 - Do not mutate prodnet chain state during publication, restore validation, or observer acceptance.
 - Do not use or inspect prodnet wallet material during this workflow.
-- Do not use the funded mainnet producer address `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb` for any mutating operation.
+- Do not use the funded mainnet producer address `<PROTECTED_MAINNET_PRODUCER_ADDRESS>` for any mutating operation.
 - Restored prodnet nodes must start with `features.block_producer: false` and `chain.verify-blocks: true`.
 - `latest.json` must be published last and must only move after validation passes.
 - The prodnet signing key must be separate from testnet and separate from any producer/wallet key.

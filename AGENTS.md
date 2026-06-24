@@ -99,10 +99,15 @@ version and commit included in the build.
 
 ## Mainnet Safety Guardrails
 
-- Address `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb` is a real funded mainnet
-  producer address.
+- Protected mainnet producer addresses are private local project memory. If
+  `AGENTS.local.md` exists, read it before any producer, wallet, or chain-
+  mutating mainnet work. `AGENTS.local.md` is intentionally ignored by Git and
+  must never be committed or quoted in public documentation.
+- Public docs, tests, GUI placeholders, and committed code must use generic
+  placeholders such as `<YOUR_MAINNET_PRODUCER_ADDRESS>` instead of real local
+  producer addresses.
 - Do not perform hidden or background mainnet mutations.
-- Do not transfer funds away from this address.
+- Do not transfer funds away from a protected local mainnet producer address.
 - Treat mainnet producer registration, VHP burns, producer setup changes,
   default-account changes, config writes targeting a producer, or any
   transaction signing/submission as high-risk work requiring a fresh explicit

@@ -56,7 +56,7 @@ fingerprint through a trusted channel and then update `known_hosts`.
 - Uptime/load at measurement: 42 days uptime; load average 2.32, 1.77, 1.44
 - Known workloads:
   - Legacy prod Koinos Docker/microservice stack.
-  - `koinos-block_producer-1` for producer `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb`.
+  - `koinos-block_producer-1` for producer `<PROTECTED_MAINNET_PRODUCER_ADDRESS>`.
   - `koinos-block_producer_2-1` for producer `1KfD7n93LnnihyygopWUVTkbtWVe5aXXGW`.
   - `teleno-prodnet-public-backup.service`, running `/opt/teleno/bin/teleno_node`
     as a prodnet observer/public-backup node.

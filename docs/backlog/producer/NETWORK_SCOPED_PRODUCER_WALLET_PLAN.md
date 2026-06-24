@@ -65,7 +65,7 @@ The legacy global files remain readable only for compatibility and migration sup
 - No automatic reuse of testnet wallets on mainnet.
 - No automatic reuse of mainnet wallets on testnet.
 - No mutating mainnet producer operation unless the selected network is explicitly mainnet and the signer/profile belong to the mainnet storage namespace.
-- The known funded mainnet producer address `14MHW6TF8gw8EuMRLCJc2PQHLzZLKuwGqb` remains protected by the project memory guardrail.
+- The known funded mainnet producer address `<PROTECTED_MAINNET_PRODUCER_ADDRESS>` remains protected by the project memory guardrail.
 
 ## Acceptance Criteria
 
