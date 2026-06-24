@@ -18,6 +18,7 @@ __pycache__/
 # Native build artifacts
 node/teleno-node/build
 node/teleno-node/build/
+node/teleno-node/build*/
 node/teleno-node/build-zstd
 node/teleno-node/build-zstd/
 node/teleno-node/build-win
