@@ -2,6 +2,32 @@
 
 Date: 2026-06-26
 
+## Scope And Evidence Sources
+
+This report analyzes the state-delta replay failure discussed around Koinos
+Fund System (KFS) activity and the reported `block previous state merkle
+mismatch` failures near heights `30488260`, `32770790`, `32789378`, and
+`32900351`.
+
+Evidence used here:
+
+- local code inspection of the fast receipt-delta replay path in
+  `node/teleno-node/src/koinos/chain/controller.cpp`;
+- local code inspection of state-delta tombstone serialization in
+  `node/teleno-node/src/koinos/state_db/state_delta.cpp`;
+- local code inspection of the state-node mutation API in
+  `node/teleno-node/src/koinos/state_db/state_db.cpp` and
+  `node/teleno-node/src/koinos/state_db/state_db.hpp`;
+- focused native tests in
+  `node/teleno-node/tests/chain/controller_delta_test.cpp`;
+- decoded block-store receipt data from a local restored block store, queried
+  in block-store-only mode with chain, mempool, P2P, gRPC, producer,
+  transaction-store, contract-meta-store, and account-history services disabled.
+
+The block-store query was read-only. It did not execute contracts, connect to
+peers, produce blocks, submit transactions, mutate mainnet state, or modify the
+restored chain database.
+
 ## Deterministic Conclusion
 
 The merkle mismatch was a replay bug in the fast receipt-delta path, not evidence that historical block receipt state deltas need to be rewritten.
@@ -43,6 +69,156 @@ The proof below is therefore deliberately contract-agnostic. It does not require
 If contract execution produces a compacted block receipt containing a remove entry for a key that is absent from the parent but existed transiently during the block, receipt replay must preserve that remove entry as a tombstone.
 
 So two historical blocks can both look like "a vote happened" at the application level, but produce different state-delta shapes depending on the exact KFS state at that height, token/VHP accounting, vote expiration/renewal, project ranking, payment timing, and any other contract state touched in the same block.
+
+## Block Where The Replay Shape Appears
+
+The strongest production candidate from the decoded block-store data is:
+
+```text
+reported failing block: 32789378
+causal receipt-delta block: 32789377
+causal block id: 0x1220a97d7b0567ad55e3b04446a2bef447335cfd676668b069544b04a4719146d586
+KFS contract: 1A5BmMqV5jN5zBrdkhQumAfDZBzXLPBeN9
+KFS object-space zone, raw base64: AGODyCuhi5XqbJWB30tP4BYEWmCH6mq2zg==
+KFS object-space id carrying the remove-only entries: 2
+receipt state-delta shape: 12 entries, 9 puts, 3 removes
+KFS remove-only keys:
+  02076430234253060999996
+  02076434190761140999996
+  02076434345629600999996
+next block id: 0x122086d9090d82fceb9900293bd3f870c4d2ac769682a85f997fd847f4f716a96344
+next block receipt state-delta shape: 8 entries, 8 puts, 0 removes
+```
+
+That does not mean block `32789378` contains the bad KFS remove pattern. It
+means old replay semantics can compute the wrong parent state after replaying
+block `32789377`, and the next call to `apply_block_delta()` then rejects block
+`32789378` because its `previous_state_merkle_root` no longer matches the local
+parent node.
+
+The same causal/reported-height separation explains the other candidate
+windows:
+
+| Reported failure height | Likely causal block | Causal block id | Relevant KFS remove-only keys |
+|-------------------------|---------------------|-----------------|-------------------------------|
+| `30488260` | `30488259` | `0x1220b3b40956db24054353baceb370f2511325aa980fcfb95fb38bdec54593df5672` | `00797079599230148999998`, `00797081952840770999998`, `00797082044967476999998` |
+| `32770790` | `32770789` | `0x1220e71404cefd0058f9d24fbad2b99c0606903029cfe819ce3b1bd2f103e4d510d1` | `02075891930478830999996`, `02075895886712530999996`, `02075896041570250999996` |
+| `32789378` | `32789377` | `0x1220a97d7b0567ad55e3b04446a2bef447335cfd676668b069544b04a4719146d586` | `02076430234253060999996`, `02076434190761140999996`, `02076434345629600999996` |
+| `32900351` | `32900350` | `0x1220a85e1705c62c836a9fee421b0e8a88b5b1bd0c80efb1a0a44fabca5badd5e47d` | `02128925575276130999996`, `02128929533422740999996`, `02128929688355340999996` |
+
+The exact parent key among those three removes cannot be proven from a compacted
+receipt alone without the pre-block state snapshot for that object space. The
+important invariant is that the receipt contains remove entries which must be
+preserved as committed delta entries during replay, even when one of those keys
+is absent from the replay parent and therefore looks like a no-op to normal
+mutation code.
+
+## Raw Stored Receipt Excerpts
+
+The following excerpts are the decoded KFS-relevant subset of the stored block
+receipt state deltas. They are intentionally limited to the object-space and key
+data needed for this replay analysis; unrelated receipt entries and large value
+payloads are omitted.
+
+For the main candidate causal block:
+
+```text
+height: 32789377
+block_id: 0x1220a97d7b0567ad55e3b04446a2bef447335cfd676668b069544b04a4719146d586
+receipt_state_merkle_root: <not present in decoded receipt JSON>
+state_delta_entries: 12
+puts: 9
+removes: 3
+
+entry[remove]:
+  object_space.system: false
+  object_space.zone_raw_base64: AGODyCuhi5XqbJWB30tP4BYEWmCH6mq2zg==
+  object_space.zone_decoded: 1A5BmMqV5jN5zBrdkhQumAfDZBzXLPBeN9
+  object_space.id: 2
+  key_ascii: 02076430234253060999996
+  has_value: false
+
+entry[remove]:
+  object_space.system: false
+  object_space.zone_raw_base64: AGODyCuhi5XqbJWB30tP4BYEWmCH6mq2zg==
+  object_space.zone_decoded: 1A5BmMqV5jN5zBrdkhQumAfDZBzXLPBeN9
+  object_space.id: 2
+  key_ascii: 02076434190761140999996
+  has_value: false
+
+entry[remove]:
+  object_space.system: false
+  object_space.zone_raw_base64: AGODyCuhi5XqbJWB30tP4BYEWmCH6mq2zg==
+  object_space.zone_decoded: 1A5BmMqV5jN5zBrdkhQumAfDZBzXLPBeN9
+  object_space.id: 2
+  key_ascii: 02076434345629600999996
+  has_value: false
+```
+
+For the next block, where the failure is expected to be reported if the parent
+root was already replayed incorrectly:
+
+```text
+height: 32789378
+block_id: 0x122086d9090d82fceb9900293bd3f870c4d2ac769682a85f997fd847f4f716a96344
+receipt_state_merkle_root: <not present in decoded receipt JSON>
+state_delta_entries: 8
+puts: 8
+removes: 0
+```
+
+For the later candidate window:
+
+```text
+height: 32900350
+block_id: 0x1220a85e1705c62c836a9fee421b0e8a88b5b1bd0c80efb1a0a44fabca5badd5e47d
+receipt_state_merkle_root: <not present in decoded receipt JSON>
+state_delta_entries: 12
+puts: 9
+removes: 3
+
+KFS remove-only entries:
+  object_space.zone_decoded: 1A5BmMqV5jN5zBrdkhQumAfDZBzXLPBeN9
+  object_space.id: 2
+  key_ascii: 02128925575276130999996
+  key_ascii: 02128929533422740999996
+  key_ascii: 02128929688355340999996
+
+height: 32900351
+block_id: 0x1220db86231a22a6a28d084476a9592037ef3c80beaeaeb2dd06c4addc6cba97a26f
+state_delta_entries: 8
+puts: 8
+removes: 0
+```
+
+For the older candidate window:
+
+```text
+height: 30488259
+block_id: 0x1220b3b40956db24054353baceb370f2511325aa980fcfb95fb38bdec54593df5672
+receipt_state_merkle_root: <not present in decoded receipt JSON>
+state_delta_entries: 12
+puts: 9
+removes: 3
+
+KFS remove-only entries:
+  object_space.zone_decoded: 1A5BmMqV5jN5zBrdkhQumAfDZBzXLPBeN9
+  object_space.id: 4
+  key_ascii: 00797079599230148999998
+  key_ascii: 00797081952840770999998
+  key_ascii: 00797082044967476999998
+
+height: 30488260
+block_id: 0x122014d3be588fb8791d56f6dbc2b96bb9fe9bfc6bc722b92414a4c367208bf9ba69
+state_delta_entries: 8
+puts: 8
+removes: 0
+```
+
+These block-store observations line up with the deterministic unit test shape:
+an execution-time sequence can create a transient key and remove it in the same
+block, while the persisted receipt contains only the compacted final delta.
+The compacted receipt is correct; replay must preserve its remove entries.
 
 ## KFS-Specific Simulation
 
@@ -132,6 +308,108 @@ put C
 ```
 
 That compacted representation is correct because it commits the final delta from parent state to child state. It is not meant to show every intermediate operation.
+
+## Code-Path Deep Dive
+
+The fast path under analysis is `controller_impl::apply_block_delta()` in
+`node/teleno-node/src/koinos/chain/controller.cpp`.
+
+Before applying a receipt delta, the controller checks that the local parent
+node root equals the block header's declared parent root:
+
+```cpp
+KOINOS_ASSERT( block.header().previous_state_merkle_root()
+                 == util::converter::as< std::string >( parent_node->merkle_root() ),
+               state_merkle_mismatch_exception,
+               "block previous state merkle mismatch" );
+```
+
+That is why the visible error can be one block after the causal receipt. If
+block `N` is replayed with an incorrect tombstone set, local state at block `N`
+is wrong. The next block, `N + 1`, still carries the canonical
+`previous_state_merkle_root` for block `N`, so `apply_block_delta()` fails before
+it even applies block `N + 1`.
+
+The replay loop now distinguishes value entries from remove entries:
+
+```cpp
+for( const auto& delta_entry: receipt.state_delta_entries() )
+{
+  chain::object_space object_space;
+  object_space.set_system( delta_entry.object_space().system() );
+  object_space.set_zone( delta_entry.object_space().zone() );
+  object_space.set_id( delta_entry.object_space().id() );
+
+  if( delta_entry.has_value() )
+    block_node->put_object( object_space, delta_entry.key(), &delta_entry.value() );
+  else
+    block_node->remove_object_preserve_tombstone( object_space, delta_entry.key() );
+}
+```
+
+The critical distinction is in the state-delta erase primitive:
+
+```cpp
+void state_delta::erase( const key_type& k, bool preserve_tombstone )
+{
+  if( find( k ) || preserve_tombstone )
+  {
+    _backend->erase( k );
+    _removed_objects.insert( k );
+  }
+}
+```
+
+With normal mutation semantics, `preserve_tombstone=false`, so an absent key is
+not inserted into `_removed_objects`. That is correct while executing contracts,
+because a contract may try to remove a missing key and that should not invent a
+state change.
+
+With receipt replay semantics, `preserve_tombstone=true`, because the remove
+entry is not an attempted contract operation. It is already part of a committed
+historical delta. Dropping it changes the delta merkle root.
+
+Serialization confirms why this matters. `state_delta::get_delta_entries()`
+collects both backend keys and `_removed_objects`, sorts them, and emits entries
+without a value for removed keys:
+
+```cpp
+for( const auto& removed: _removed_objects )
+{
+  object_keys.push_back( removed );
+}
+
+std::sort( object_keys.begin(), object_keys.end() );
+
+for( const auto& key: object_keys )
+{
+  protocol::state_delta_entry entry;
+  ...
+  auto value = _backend->get( key );
+
+  if( value != nullptr )
+    entry.set_value( *value );
+
+  deltas.push_back( entry );
+}
+```
+
+So the merkle material is not just the final live key/value map. The block delta
+also includes explicit removals. When a replay path drops a remove-only
+tombstone, it is replaying a different receipt delta than the one that was
+committed.
+
+The public state-node API therefore has two delete operations:
+
+```cpp
+int64_t remove_object( const object_space& space, const object_key& key );
+int64_t remove_object_preserve_tombstone( const object_space& space, const object_key& key );
+```
+
+`remove_object_preserve_tombstone()` is documented as only for replaying
+serialized historical state deltas. It delegates to the same internal
+`remove_object(..., true)` implementation, preserving the tombstone without
+changing normal contract execution behavior.
 
 ## What The Fix Changes
 
