@@ -11,6 +11,7 @@ backend/data/extracted/
 backend/data/*.db
 .deps/
 .run/
+outputs/
 Untitled.png
 __pycache__/
 *.pyc

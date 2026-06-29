@@ -15,11 +15,11 @@ VPS1 was installed with this shape:
 
 ```text
 host: VPS1 / <VPS1_PUBLIC_IP>
-ssh user: deployer
+ssh user: <SSH_USER>
 container: teleno-prodnet-observer
 image: ghcr.io/pgarciagon/teleno-node:beta
-basedir: /home/deployer/teleno-prodnet-observer/basedir
-config: /home/deployer/teleno-prodnet-observer/basedir/config.yml
+basedir: <REMOTE_PRODNET_OBSERVER_BASEDIR>
+config: <REMOTE_PRODNET_OBSERVER_BASEDIR>/config.yml
 public backup: https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap
 restored snapshot: 20260620T201059Z-ms-1781986259826-files-452
 jsonrpc: 127.0.0.1:18080 on the host
