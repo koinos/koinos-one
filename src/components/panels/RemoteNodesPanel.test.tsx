@@ -37,6 +37,11 @@ const translations: Record<string, string> = {
   'remote.fieldP2pPort': 'P2P port',
   'remote.fieldBackupAdminBind': 'Backup admin bind',
   'remote.fieldBootstrapUrl': 'Public bootstrap URL',
+  'remote.fieldArtifactDigest': 'Artifact digest',
+  'remote.fieldArtifactSignatureRef': 'Artifact signature ref',
+  'remote.fieldBootstrapPolicyId': 'Bootstrap policy ID',
+  'remote.fieldBootstrapPolicyDigest': 'Bootstrap policy digest',
+  'remote.fieldProdnetProofRef': 'Prodnet proof receipt',
   'remote.network.testnet': 'Testnet',
   'remote.network.mainnet': 'Prodnet',
   'remote.network.custom': 'Custom',
@@ -57,6 +62,7 @@ const translations: Record<string, string> = {
   'remote.stepReadOnly': 'read-only',
   'remote.stepHostMutation': 'host mutation',
   'remote.stepDestructive': 'destructive',
+  'remote.action.prodnet-observer-proof': 'Prodnet Proof Plan',
   'remote.action.install-observer': 'Install Observer Plan',
   'remote.action.restore-public-bootstrap': 'Restore Bootstrap Plan',
   'remote.action.start-observer': 'Start Observer Plan',
@@ -86,6 +92,8 @@ const translations: Record<string, string> = {
   'remote.health.failed': 'Failed',
   'remote.phase.preflight': 'Host preflight',
   'remote.phase.artifact': 'Artifact check',
+  'remote.phase.trust': 'Trust proof',
+  'remote.phase.proof': 'Dry-run proof',
   'remote.phase.prepare': 'Prepare BASEDIR',
   'remote.phase.config': 'Observer config',
   'remote.phase.bootstrap': 'Public bootstrap',
@@ -98,6 +106,8 @@ const translations: Record<string, string> = {
   'remote.phase.cleanup': 'Cleanup',
   'remote.phaseHelp.preflight': 'Checks server, disk, ports, runtime, and safety blockers before changing anything.',
   'remote.phaseHelp.artifact': 'Fetches or verifies the reviewed artifact and records image identity evidence.',
+  'remote.phaseHelp.trust': 'Verifies pinned artifact identity and reviewed bootstrap policy before prodnet mutation.',
+  'remote.phaseHelp.proof': 'Records the dry-run proof receipt and observer-only review required before prodnet mutation.',
   'remote.phaseHelp.prepare': 'Creates only the selected observer BASEDIR and support folders.',
   'remote.phaseHelp.config': 'Writes observer-only config with loopback RPC, P2P peers, and producer disabled.',
   'remote.phaseHelp.bootstrap': 'Lists and restores the public bootstrap while preserving state on failure.',
@@ -111,6 +121,10 @@ const translations: Record<string, string> = {
   'remote.notice.dryRunOnly': 'Dry-run preview: commands are generated for review before any confirmed testnet execution.',
   'remote.notice.dryRunOnlySimple': 'Koinos One will ask for review before any confirmed testnet action.',
   'remote.notice.prodnetConfirmationRequired': 'Prodnet observer actions require explicit per-node confirmation before any future execution.',
+  'remote.notice.prodnetArtifactTrustRequired': 'Prodnet observer execution requires an artifact image pinned to the matching sha256 digest for {field}.',
+  'remote.notice.prodnetBootstrapPolicyRequired': 'Prodnet observer execution requires the reviewed prodnet public bootstrap trust policy for {field}.',
+  'remote.notice.prodnetDryRunProofRequired': 'Prodnet observer execution requires a successful dry-run proof receipt reference for {field}.',
+  'remote.notice.prodnetBatchMutationBlocked': 'Prodnet observer mutation is one-node only and cannot run as a fleet rollout yet.',
   'remote.notice.rawHostRefBlocked': 'Use a sanitized host reference, not a raw SSH target, for {field}.',
   'remote.notice.jsonrpcPublicBlocked': 'JSON-RPC must bind to loopback for {field} {value}.',
   'remote.executionTitle': 'Confirmed execution',
@@ -119,6 +133,9 @@ const translations: Record<string, string> = {
   'remote.destructiveTitle': 'Strong confirmation required',
   'remote.destructiveRollbackDescription': 'Rollback requires prior rollback evidence, preserves the existing DB, replaces only the observer runtime/config, and writes a sanitized receipt.',
   'remote.destructiveCleanupDescription': 'Cleanup requires prior receipt evidence, preserves chain/state DB paths, removes only non-state temporary files, and writes a sanitized receipt.',
+  'remote.prodnetTrustTitle': 'Prodnet observer trust gates',
+  'remote.prodnetTrustDescription': 'Prodnet mutation requires a pinned artifact digest, reviewed bootstrap policy, matching dry-run proof receipt, loopback RPC/admin, and observer-only confirmation.',
+  'remote.prodnetTrustMissing': 'missing',
   'remote.confirmationPhrase': 'Required phrase',
   'remote.confirmationInput': 'Type the phrase',
   'remote.executeConfirmedPlan': 'Execute confirmed plan',
@@ -127,9 +144,64 @@ const translations: Record<string, string> = {
   'remote.executionGate.plan-blocked': 'The plan is blocked by inventory safety gates.',
   'remote.executionGate.node-not-found': 'The selected node could not be found.',
   'remote.executionGate.prodnet-execution-blocked': 'Prodnet execution is blocked except for read-only health and logs plans.',
+  'remote.executionGate.prodnet-artifact-trust-required': 'Prodnet observer execution requires a pinned artifact digest matching the reviewed image.',
+  'remote.executionGate.prodnet-bootstrap-policy-required': 'Prodnet observer execution requires the reviewed prodnet bootstrap trust policy.',
+  'remote.executionGate.prodnet-dry-run-proof-required': 'Prodnet observer execution requires a successful dry-run proof receipt reference.',
   'remote.executionGate.producer-unavailable': 'Producer mode is unavailable and must remain disabled.',
   'remote.executionGate.unsafe-command': 'The command plan contains an unsafe command or exposure pattern.',
   'remote.executionGate.unresolved-placeholder': 'Fill in the remaining placeholder values before execution.',
+  'remote.fleetTitle': 'Fleet rollout review',
+  'remote.fleetDescription': 'Review one action across selected nodes. Koinos One executes exactly one node at a time and stops on the first unsafe result.',
+  'remote.fleetNodeSelection': 'Select nodes for this rollout',
+  'remote.fleetSelectedNodes': 'Selected nodes',
+  'remote.fleetSelectedNodesValue': '{count} nodes',
+  'remote.fleetExecutionMode': 'Execution mode',
+  'remote.fleetSequentialOnly': 'Sequential only',
+  'remote.fleetNodePlanSummary': '{steps} steps · {phases}',
+  'remote.fleetNodeBlocked': 'This node is blocked by safety gates and cannot be part of a confirmed rollout.',
+  'remote.fleetMoveUp': 'Up',
+  'remote.fleetMoveDown': 'Down',
+  'remote.fleetConfirmationPhrase': 'Fleet phrase',
+  'remote.fleetPerNodeConfirmations': 'Per-node phrases',
+  'remote.fleetConfirmationInput': 'Type the fleet phrase and every per-node phrase',
+  'remote.fleetExecute': 'Execute sequential rollout',
+  'remote.fleetExecuting': 'Executing rollout...',
+  'remote.fleetCancel': 'Stop after current node',
+  'remote.fleetCancelRequested': 'Stop requested',
+  'remote.fleetCancelAfterCurrent': 'Koinos One will stop this rollout after the current node finishes.',
+  'remote.fleetExecutionRunning': 'Running fleet rollout one node at a time.',
+  'remote.fleetExecutionSucceeded': 'Fleet rollout completed.',
+  'remote.fleetExecutionStopped': 'Fleet rollout stopped before all nodes completed.',
+  'remote.fleetStoppedByUser': 'Rollout stopped by the operator after the current node.',
+  'remote.fleetNodeMissing': 'Node {node} is no longer present in the local inventory.',
+  'remote.fleetStoppedOnFailure': 'Rollout stopped because a node did not complete safely.',
+  'remote.fleetGate.fleet-confirmation-required': 'Type the fleet phrase and every per-node phrase before execution.',
+  'remote.fleetGate.fleet-empty': 'Select at least two nodes for a fleet rollout.',
+  'remote.fleetGate.fleet-single-node': 'Fleet rollout requires at least two selected nodes. Use single-node execution for one node.',
+  'remote.fleetGate.confirmation-required': 'Exact per-node confirmation is required before execution.',
+  'remote.fleetGate.plan-blocked': 'At least one selected node plan is blocked by safety gates.',
+  'remote.fleetGate.node-not-found': 'One selected node could not be found.',
+  'remote.fleetGate.prodnet-execution-blocked': 'Prodnet execution is blocked except for read-only health and logs plans.',
+  'remote.fleetGate.prodnet-artifact-trust-required': 'Prodnet observer execution requires a pinned artifact digest matching the reviewed image.',
+  'remote.fleetGate.prodnet-bootstrap-policy-required': 'Prodnet observer execution requires the reviewed prodnet bootstrap trust policy.',
+  'remote.fleetGate.prodnet-dry-run-proof-required': 'Prodnet observer execution requires a successful dry-run proof receipt reference.',
+  'remote.fleetGate.prodnet-batch-mutation-blocked': 'Prodnet observer mutation is one-node only and cannot run as a fleet rollout yet.',
+  'remote.fleetGate.producer-unavailable': 'Producer mode is unavailable and must remain disabled.',
+  'remote.fleetGate.unsafe-command': 'At least one command plan contains an unsafe command or exposure pattern.',
+  'remote.fleetGate.unresolved-placeholder': 'Fill in placeholder values before a fleet rollout.',
+  'remote.fleetStatus.pending': 'pending',
+  'remote.fleetStatus.reviewing': 'reviewing',
+  'remote.fleetStatus.confirmed': 'confirmed',
+  'remote.fleetStatus.running': 'running',
+  'remote.fleetStatus.skipped': 'skipped',
+  'remote.fleetStatus.failed': 'failed',
+  'remote.fleetStatus.complete': 'complete',
+  'remote.fleetReceiptTitle': 'Fleet {action} · {count} nodes',
+  'remote.fleetReceipt.succeeded': 'succeeded',
+  'remote.fleetReceipt.failed': 'failed',
+  'remote.fleetReceipt.blocked': 'blocked',
+  'remote.fleetReceipt.paused': 'paused',
+  'remote.fleetReceiptNoStop': 'No rollout stop criteria were recorded.',
   'remote.simpleSummaryTitle': 'Safe observer setup',
   'remote.progressTitle': 'Operation phases',
   'remote.progressDescription': 'Koinos One streams each phase while the selected remote plan runs.',
@@ -148,6 +220,27 @@ const translations: Record<string, string> = {
   'remote.providerChecklist.firewall': 'Keep JSON-RPC and admin APIs private; expose P2P only when intended.',
   'remote.providerChecklist.baseDir': 'Use the suggested BASEDIR unless you have a separate disk layout.',
   'remote.providerChecklist.noToken': 'Do not paste provider tokens, passwords, private keys, or raw server addresses.',
+  'remote.providerImportTitle': 'Import server metadata',
+  'remote.providerImportDescription': 'Paste sanitized read-only metadata from a VPS provider or CLI. Koinos One does not contact providers, create servers, or store provider credentials.',
+  'remote.providerImportNetwork': 'Target network',
+  'remote.providerImportInput': 'Sanitized provider metadata',
+  'remote.providerImportPlaceholder': 'provider: example-vps\ninstance: server-a\nlabel: Testnet Observer A\nregion: eu-central\nos: Ubuntu 24 LTS\ncpu: 4 vCPU\nram: 16 GB\ndisk: 300 GB\nstate: running\npublicAddress: redacted\nprivateAddress: absent\nsshAlias: ssh-testnet-observer-a',
+  'remote.providerImportReady': '{count} reviewed server records ready.',
+  'remote.providerImportBlocked': 'Provider import is blocked until private values are removed.',
+  'remote.providerImportAddReviewed': 'Add reviewed server',
+  'remote.providerImportSaveReminder': 'Review imported records, then use Save inventory. Provider tokens and raw server addresses are never saved.',
+  'remote.providerImportAdded': 'Added {count} reviewed server records to the local inventory. Save inventory when ready.',
+  'remote.providerImportNodeSummary': '{network} · SSH alias {alias} · BASEDIR {basedir}',
+  'remote.providerImportPreviewTitle': 'Redacted preview',
+  'remote.providerImportPreviewEmpty': 'No preview available.',
+  'remote.providerImportIssue.empty-input': 'Paste sanitized provider metadata before importing.',
+  'remote.providerImportIssue.unsupported-format': 'Use sanitized JSON or key/value provider CLI output.',
+  'remote.providerImportIssue.secret-blocked': 'Token-like or secret-looking values were found and redacted.',
+  'remote.providerImportIssue.raw-address-blocked': 'Raw IP address values were found and redacted.',
+  'remote.providerImportIssue.raw-host-blocked': 'Raw hostname values were found and redacted.',
+  'remote.providerImportIssue.user-reference-blocked': 'Raw SSH user or login values were found and redacted.',
+  'remote.providerImportIssue.private-path-blocked': 'Private local or remote paths were found and redacted.',
+  'remote.providerImportIssue.duplicate-instance': 'This provider instance is already present or duplicated: {value}.',
   'remote.receiptsTitle': 'Execution receipts',
   'remote.receiptsDescription': 'Receipts are local-only and sanitized before display.',
   'remote.receiptsEmpty': 'No remote execution receipts yet.',
@@ -178,15 +271,23 @@ describe('RemoteNodesPanel', () => {
     expect(html).not.toContain('Restart observer')
     expect(html).toContain('Suggested BASEDIR')
     expect(html).toContain('Server checklist')
+    expect(html).toContain('Import server metadata')
+    expect(html).toContain('Koinos One does not contact providers')
+    expect(html).toContain('Add reviewed server')
     expect(html).not.toContain('--backup-public-restore')
     expect(html).not.toContain('block_producer: false')
     expect(html).not.toContain('commands are generated')
+    expect(html).not.toContain('Redacted preview')
     expect(html).not.toContain('Node ID')
     expect(html).not.toContain('Host ref')
     expect(html).not.toContain('Restore Bootstrap Plan')
     expect(html).not.toContain('Start Observer Plan')
     expect(html).not.toContain('Upgrade Plan')
     expect(html).not.toContain('Cleanup Plan')
+    expect(html).not.toContain('Prodnet Proof Plan')
+    expect(html).not.toContain('Prodnet observer trust gates')
+    expect(html).not.toContain('Fleet rollout review')
+    expect(html).not.toContain('Execute sequential rollout')
   })
 
   it('renders testnet simple mode as a human observer workflow', () => {
@@ -220,13 +321,43 @@ describe('RemoteNodesPanel', () => {
     const html = renderToStaticMarkup(<RemoteNodesPanel t={t} advancedMode />)
 
     expect(html).toContain('Collect Logs Plan')
+    expect(html).toContain('Prodnet Proof Plan')
     expect(html).toContain('Stop Node Plan')
     expect(html).toContain('Rollback Plan')
     expect(html).toContain('Cleanup Plan')
     expect(html).toContain('Multi-node operations expand into per-node reviewed plans.')
+    expect(html).toContain('Fleet rollout review')
+    expect(html).toContain('Sequential only')
+    expect(html).toContain('Per-node phrases')
+    expect(html).toContain('Execute sequential rollout')
+    expect(html).toContain('Prodnet observer trust gates')
+    expect(html).toContain('Artifact digest')
+    expect(html).toContain('missing')
     expect(html).toContain('--backup-public-restore')
     expect(html).toContain('block_producer: false')
     expect(html).toContain('Dry-run preview: commands are generated for review')
+  })
+
+  it('renders an expert fleet review for multiple selected nodes without exposing it in simple mode', () => {
+    const inventory = {
+      version: 1 as const,
+      nodes: [
+        { id: 'testnet-a', label: 'Testnet A', network: 'testnet' as const, connectionRef: 'ssh-testnet-a' },
+        { id: 'testnet-b', label: 'Testnet B', network: 'testnet' as const, connectionRef: 'ssh-testnet-b' }
+      ]
+    }
+    const expertHtml = renderToStaticMarkup(<RemoteNodesPanel t={t} advancedMode inventory={inventory} />)
+    const simpleHtml = renderToStaticMarkup(<RemoteNodesPanel t={t} advancedMode={false} inventory={inventory} />)
+
+    expect(expertHtml).toContain('Fleet rollout review')
+    expect(expertHtml).toContain('2 nodes')
+    expect(expertHtml).toContain('Up')
+    expect(expertHtml).toContain('Down')
+    expect(expertHtml).toContain('EXECUTE FLEET install-observer 2 NODES SEQUENTIAL')
+    expect(expertHtml).toContain('EXECUTE testnet-a testnet install-observer')
+    expect(expertHtml).toContain('EXECUTE testnet-b testnet install-observer')
+    expect(simpleHtml).not.toContain('Fleet rollout review')
+    expect(simpleHtml).not.toContain('EXECUTE FLEET')
   })
 
   it('renders expert destructive actions without exposing them in simple mode', () => {

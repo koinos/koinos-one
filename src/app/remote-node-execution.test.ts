@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  createRemoteFleetRolloutReceipt,
   createRemoteExecutionReceipt,
   parseRemoteHealthOutput,
+  remoteFleetRolloutConfirmationPhrase,
   redactRemoteOutput,
   remoteExecutionConfirmationPhrase,
+  validateRemoteFleetRolloutGate,
   validateRemoteExecutionGate
 } from './remote-node-execution'
 import {
   defaultRemoteFleetInventory,
-  generateRemoteCommandPlan
+  generateRemoteCommandPlan,
+  generateRemoteFleetRolloutPlan,
+  normalizeRemoteFleetInventory
 } from './remote-nodes'
 
 describe('remote node execution gates', () => {
+  const trustedDigest = `sha256:${'a'.repeat(64)}`
+
   it('requires exact confirmation and allows only read-only prodnet diagnostics', () => {
     const inventory = defaultRemoteFleetInventory()
     const testnetNode = inventory.nodes.find((node) => node.id === 'testnet-observer-a')!
@@ -187,6 +194,158 @@ describe('remote node execution gates', () => {
     expect(receipt.nodeId).toBe(node.id)
     expect(receipt.output).not.toContain('password=abc')
     expect(receipt.health.state).toBe('healthy')
+  })
+
+  it('requires fleet and per-node confirmation before sequential rollout execution', () => {
+    const inventory = normalizeRemoteFleetInventory({
+      version: 1,
+      nodes: [
+        { id: 'testnet-a', label: 'Testnet A', network: 'testnet', connectionRef: 'ssh-testnet-a' },
+        { id: 'testnet-b', label: 'Testnet B', network: 'testnet', connectionRef: 'ssh-testnet-b' }
+      ]
+    })
+    const rollout = generateRemoteFleetRolloutPlan(inventory, ['testnet-a', 'testnet-b'], 'status')
+    const fullConfirmation = [
+      remoteFleetRolloutConfirmationPhrase(rollout),
+      ...rollout.entries.map((entry) => entry.confirmationPhrase)
+    ].join('\n')
+
+    expect(validateRemoteFleetRolloutGate(inventory, rollout, '').codes).toContain('fleet-confirmation-required')
+    expect(validateRemoteFleetRolloutGate(inventory, rollout, fullConfirmation).ok).toBe(true)
+  })
+
+  it('keeps prodnet fleet mutation blocked while allowing read-only rollout review', () => {
+    const inventory = defaultRemoteFleetInventory()
+    const statusRollout = generateRemoteFleetRolloutPlan(inventory, ['prodnet-observer-a', 'testnet-observer-a'], 'status')
+    const installRollout = generateRemoteFleetRolloutPlan(inventory, ['prodnet-observer-a', 'testnet-observer-a'], 'install-observer')
+    const statusConfirmation = [
+      remoteFleetRolloutConfirmationPhrase(statusRollout),
+      ...statusRollout.entries.map((entry) => entry.confirmationPhrase)
+    ].join('\n')
+    const installConfirmation = [
+      remoteFleetRolloutConfirmationPhrase(installRollout),
+      ...installRollout.entries.map((entry) => entry.confirmationPhrase)
+    ].join('\n')
+
+    expect(validateRemoteFleetRolloutGate(inventory, statusRollout, statusConfirmation).ok).toBe(true)
+    expect(validateRemoteFleetRolloutGate(inventory, installRollout, installConfirmation).codes)
+      .toContain('prodnet-execution-blocked')
+  })
+
+  it('allows trusted prodnet observer mutation only with proof, digest, policy, and observer-only confirmation', () => {
+    const inventory = normalizeRemoteFleetInventory({
+      version: 1,
+      nodes: [{
+        id: 'prodnet-trusted-a',
+        label: 'Prodnet Trusted A',
+        network: 'mainnet',
+        role: 'observer',
+        connectionRef: 'ssh-prodnet-trusted-a',
+        runtime: {
+          kind: 'docker',
+          image: `ghcr.io/pgarciagon/teleno-node@${trustedDigest}`,
+          expectedVersion: 'prodnet-reviewed-build',
+          serviceName: ''
+        },
+        trust: {
+          artifactDigest: trustedDigest,
+          artifactSignatureRef: '',
+          bootstrapPolicyId: 'prodnet-public-bootstrap-v1',
+          bootstrapPolicyDigest: 'sha256:70726f646e65742d7075626c69632d626f6f7473747261702d76310000000000',
+          prodnetObserverProofRef: 'remote-proof-prodnet-trusted-a'
+        }
+      }]
+    })
+    const node = inventory.nodes[0]
+    const plan = generateRemoteCommandPlan(inventory, node.id, 'install-observer')
+    const confirmation = remoteExecutionConfirmationPhrase(node, 'install-observer')
+
+    expect(plan.blocked).toBe(false)
+    expect(confirmation).toContain('PROOF remote-proof-prodnet-trusted-a')
+    expect(confirmation).toContain(`ARTIFACT ${trustedDigest}`)
+    expect(confirmation).toContain('POLICY prodnet-public-bootstrap-v1')
+    expect(confirmation).toContain('OBSERVER_ONLY')
+    expect(validateRemoteExecutionGate(inventory, plan, confirmation).ok).toBe(true)
+    expect(validateRemoteExecutionGate(inventory, plan, 'EXECUTE prodnet-trusted-a mainnet install-observer').codes)
+      .toContain('confirmation-required')
+  })
+
+  it('blocks trusted prodnet observer mutation in fleet rollout gates', () => {
+    const inventory = normalizeRemoteFleetInventory({
+      version: 1,
+      nodes: [
+        {
+          id: 'prodnet-trusted-a',
+          network: 'mainnet',
+          connectionRef: 'ssh-prodnet-trusted-a',
+          runtime: {
+            kind: 'docker',
+            image: `ghcr.io/pgarciagon/teleno-node@${trustedDigest}`,
+            expectedVersion: 'prodnet-reviewed-build',
+            serviceName: ''
+          },
+          trust: {
+            artifactDigest: trustedDigest,
+            artifactSignatureRef: '',
+            bootstrapPolicyId: 'prodnet-public-bootstrap-v1',
+            bootstrapPolicyDigest: 'sha256:70726f646e65742d7075626c69632d626f6f7473747261702d76310000000000',
+            prodnetObserverProofRef: 'remote-proof-prodnet-trusted-a'
+          }
+        },
+        { id: 'testnet-a', network: 'testnet', connectionRef: 'ssh-testnet-a' }
+      ]
+    })
+    const rollout = generateRemoteFleetRolloutPlan(inventory, ['prodnet-trusted-a', 'testnet-a'], 'install-observer')
+    const confirmation = [
+      remoteFleetRolloutConfirmationPhrase(rollout),
+      ...rollout.entries.map((entry) => entry.confirmationPhrase)
+    ].join('\n')
+
+    expect(validateRemoteFleetRolloutGate(inventory, rollout, confirmation).codes)
+      .toContain('prodnet-batch-mutation-blocked')
+  })
+
+  it('classifies prodnet dry-run proof receipts as healthy when no stop criteria are present', () => {
+    const health = parseRemoteHealthOutput([
+      'TELENO_PRODNET_PROOF_READY dry-run reviewed commands only',
+      'observer-only'
+    ].join('\n'))
+
+    expect(health.state).toBe('healthy')
+  })
+
+  it('creates sanitized fleet rollout receipts with skipped nodes after failure', () => {
+    const inventory = normalizeRemoteFleetInventory({
+      version: 1,
+      nodes: [
+        { id: 'testnet-a', label: 'Testnet A', network: 'testnet', connectionRef: 'ssh-testnet-a' },
+        { id: 'testnet-b', label: 'Testnet B', network: 'testnet', connectionRef: 'ssh-testnet-b' }
+      ]
+    })
+    const rollout = generateRemoteFleetRolloutPlan(inventory, ['testnet-a', 'testnet-b'], 'status')
+    const nodeReceipt = createRemoteExecutionReceipt({
+      node: inventory.nodes[0],
+      action: 'status',
+      status: 'failed',
+      planStepCount: 2,
+      output: 'root@192.0.2.10 token=abc state merkle mismatch'
+    })
+
+    const fleetReceipt = createRemoteFleetRolloutReceipt({
+      rollout,
+      nodeReceipts: [nodeReceipt],
+      skippedNodeIds: ['testnet-b'],
+      stopReason: 'root@192.0.2.10 token=abc',
+      output: 'operator@192.0.2.20 password=hunter2'
+    })
+
+    expect(fleetReceipt.kind).toBe('fleet-rollout')
+    expect(fleetReceipt.status).toBe('failed')
+    expect(fleetReceipt.nodeResults.map((result) => result.status)).toEqual(['failed', 'skipped'])
+    expect(fleetReceipt.stopReason).toContain('<ssh-target-redacted>')
+    expect(fleetReceipt.stopReason).toContain('token=<redacted>')
+    expect(fleetReceipt.output).not.toContain('192.0.2')
+    expect(fleetReceipt.output).not.toContain('hunter2')
   })
 
   it('does not classify ordinary P2P peer connection warnings as node failure', () => {

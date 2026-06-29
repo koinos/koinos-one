@@ -1590,6 +1590,10 @@ function loadRemoteReceipts() {
   return telenoStorage.loadRemoteReceipts()
 }
 
+function appendRemoteReceipt(input?: unknown) {
+  return telenoStorage.appendRemoteReceipt(input)
+}
+
 async function executeRemoteCommandPlan(input?: unknown) {
   const result = await remoteNodeExecutionService.executeRemoteCommandPlan(input as RemoteExecutionRequest | undefined)
   try {
@@ -4632,6 +4636,7 @@ function registerIpcHandlers() {
     loadRemoteInventory,
     saveRemoteInventory,
     loadRemoteReceipts,
+    appendRemoteReceipt,
     executeRemoteCommandPlan,
     saveBackupPasswordFile,
     getNodeDefaults: () => {

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
 type RemoteExecutionAction =
+  | 'prodnet-observer-proof'
   | 'install-observer'
   | 'restore-public-bootstrap'
   | 'start-observer'
@@ -28,6 +29,19 @@ type RemoteExecutionNode = {
   connectionRef?: string
   producer?: {
     enabled?: boolean
+  }
+  trust?: {
+    artifactDigest?: string
+    artifactSignatureRef?: string
+    bootstrapPolicyId?: string
+    bootstrapPolicyDigest?: string
+    prodnetObserverProofRef?: string
+  }
+  backup?: {
+    publicBootstrapUrl?: string
+  }
+  runtime?: {
+    image?: string
   }
 }
 
@@ -119,6 +133,10 @@ const COMMAND_TIMEOUT_MS = 45 * 60 * 1000
 
 export function remoteExecutionConfirmationPhrase(node: RemoteExecutionNode, action: string): string {
   const base = `EXECUTE ${node.id || ''} ${node.network || ''} ${action}`
+  if (isProdnetObserverMutation(node, action)) {
+    return `${base} PROOF ${node.trust?.prodnetObserverProofRef || ''} ARTIFACT ${node.trust?.artifactDigest || ''} POLICY ${node.trust?.bootstrapPolicyId || ''} OBSERVER_ONLY`
+  }
+  if (node.network === 'mainnet' && action === 'prodnet-observer-proof') return `${base} OBSERVER_ONLY`
   return action === 'rollback' || action === 'cleanup' ? `${base} PRESERVE_DB` : base
 }
 
@@ -148,11 +166,36 @@ function looksLikeRawSshTarget(value: string): boolean {
 }
 
 function isReadOnlyRemoteAction(action: string): boolean {
-  return action === 'status' || action === 'logs'
+  return action === 'status' || action === 'logs' || action === 'prodnet-observer-proof'
 }
 
 function isDbPreservingDestructiveAction(action: string): boolean {
   return action === 'rollback' || action === 'cleanup'
+}
+
+function isProdnetObserverMutation(node: RemoteExecutionNode | undefined, action: string): boolean {
+  return node?.network === 'mainnet' && (
+    action === 'install-observer' ||
+    action === 'restore-public-bootstrap' ||
+    action === 'start-observer'
+  )
+}
+
+function hasPinnedArtifactDigest(node: RemoteExecutionNode | undefined): boolean {
+  const digest = `${node?.trust?.artifactDigest || ''}`
+  const image = `${node?.runtime?.image || ''}`
+  return /^sha256:[a-f0-9]{64}$/i.test(digest) && image.includes(`@${digest}`)
+}
+
+function hasProdnetBootstrapPolicy(node: RemoteExecutionNode | undefined): boolean {
+  return (
+    node?.trust?.bootstrapPolicyId === 'prodnet-public-bootstrap-v1' &&
+    `${node?.backup?.publicBootstrapUrl || ''}`.includes('/backups/prodnet/teleno-bootstrap')
+  )
+}
+
+function hasProdnetDryRunProof(node: RemoteExecutionNode | undefined): boolean {
+  return /^(remote|proof)-[A-Za-z0-9_-]+$/.test(`${node?.trust?.prodnetObserverProofRef || ''}`)
 }
 
 function stepsAreReadOnly(steps: RemoteExecutionStep[]): boolean {
@@ -169,6 +212,22 @@ function destructivePlanHasDbPreservationEvidence(action: string, steps: RemoteE
     commandText.split('\n').some((line) => /\brm\s+-rf\b/i.test(line) && /(chain|blockchain|state|wallet|producer|config\.yml)/i.test(line))
   ) return false
   return true
+}
+
+function prodnetObserverPlanHasTrustEvidence(node: RemoteExecutionNode | undefined, steps: RemoteExecutionStep[]): boolean {
+  const digest = `${node?.trust?.artifactDigest || ''}`
+  const proof = `${node?.trust?.prodnetObserverProofRef || ''}`
+  const policy = `${node?.trust?.bootstrapPolicyId || ''}`
+  const commandText = steps.map((step) => `${step.command || ''}`).join('\n')
+  return (
+    hasPinnedArtifactDigest(node) &&
+    hasProdnetBootstrapPolicy(node) &&
+    hasProdnetDryRunProof(node) &&
+    commandText.includes(`TELENO_PRODNET_PROOF_RECEIPT ${proof}`) &&
+    commandText.includes(`TELENO_ARTIFACT_DIGEST_PINNED ${digest}`) &&
+    commandText.includes(`TELENO_BOOTSTRAP_POLICY ${policy}`) &&
+    commandText.includes('TELENO_PRODNET_OBSERVER_ONLY')
+  )
 }
 
 function commandLooksUnsafe(command: string): boolean {
@@ -201,7 +260,12 @@ function validateRemoteExecutionRequest(input?: RemoteExecutionRequest): string[
   if (!node?.id || !plan?.nodeId || node.id !== plan.nodeId) errors.push('Selected node and plan node do not match.')
   if (!action || plan?.action !== action) errors.push('Remote action is missing.')
   if (plan?.blocked) errors.push('The reviewed command plan is blocked by safety gates.')
-  if (node?.network !== 'testnet' && (!isReadOnlyRemoteAction(action) || !stepsAreReadOnly(steps))) {
+  if (isProdnetObserverMutation(node, action)) {
+    if (!hasPinnedArtifactDigest(node)) errors.push('Prodnet observer execution requires a reviewed artifact image pinned to the matching sha256 digest.')
+    if (!hasProdnetBootstrapPolicy(node)) errors.push('Prodnet observer execution requires the reviewed prodnet public bootstrap trust policy.')
+    if (!hasProdnetDryRunProof(node)) errors.push('Prodnet observer execution requires a successful dry-run proof receipt reference.')
+    if (!prodnetObserverPlanHasTrustEvidence(node, steps)) errors.push('Prodnet observer execution requires matching proof, artifact digest, bootstrap policy, and observer-only evidence in the reviewed plan.')
+  } else if (node?.network !== 'testnet' && (!isReadOnlyRemoteAction(action) || !stepsAreReadOnly(steps))) {
     errors.push('Confirmed prodnet/mainnet execution is available only for read-only status and logs plans.')
   }
   if (node?.role !== 'observer' || node?.producer?.enabled === true) errors.push('Remote execution requires an observer node with producer disabled.')
@@ -212,7 +276,7 @@ function validateRemoteExecutionRequest(input?: RemoteExecutionRequest): string[
     errors.push('Connection reference must be a sanitized local SSH alias, not a raw target.')
   }
   if (!expectedConfirmation || confirmation !== expectedConfirmation) {
-    errors.push(`Type "${expectedConfirmation}" to execute this one-node testnet plan.`)
+    errors.push(`Type "${expectedConfirmation}" to execute this one-node reviewed plan.`)
   }
   if (steps.length === 0) errors.push('The command plan has no steps.')
 
@@ -287,7 +351,7 @@ function parseRemoteExecutionHealth(output: string, checkedAt = new Date().toISO
     state = 'degraded'
   } else if (/failed|error|panic|segmentation fault/.test(failureProbe)) {
     state = 'failed'
-  } else if (/teleno_node ready|healthy|running|up /.test(lower)) {
+  } else if (/teleno_prodnet_proof_ready|teleno_node ready|healthy|running|up /.test(lower)) {
     state = /block_producer\s*:\s*false|observer/.test(lower) ? 'healthy' : 'degraded'
   } else if (sanitized.trim()) {
     state = 'degraded'

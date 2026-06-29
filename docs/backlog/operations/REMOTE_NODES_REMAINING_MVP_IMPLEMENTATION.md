@@ -8,9 +8,13 @@
 
 ## Safety Boundaries
 
-- Prodnet/mainnet mutation remains blocked.
+- Prodnet/mainnet mutation is blocked by default and is only executable for a
+  one-node observer install/restore/start plan when artifact trust, bootstrap
+  policy, dry-run proof, observer-only, loopback binding, and strong
+  confirmation gates all pass.
 - Producer activation remains unavailable.
-- Real remote mutation is testnet-only unless the operation is read-only.
+- Real remote mutation is testnet-only unless the operation is read-only or the
+  explicit one-node prodnet observer trust gates pass.
 - Remote execution is one selected node at a time.
 - Inventory, receipts, logs, screenshots, and public docs must not contain raw
   hostnames, IPs, SSH users, ports, producer addresses, tokens, wallet data,
@@ -111,13 +115,26 @@ Remaining risk:
 Implemented:
 
 - Multi-node actions expand into per-node command plans.
-- Expert UI states that multi-node operations are reviewed per node and still
-  execute one node at a time.
+- Expert UI includes a fleet rollout review surface for one selected action
+  across selected nodes.
+- The batch review shows selected nodes, action, sequential execution mode,
+  estimated per-node phases, per-node notices, and blocked nodes.
+- Operators can adjust the reviewed execution order before confirming.
+- Confirmed fleet execution requires a fleet phrase plus every per-node phrase.
+- The renderer executes rollout nodes sequentially through the existing
+  single-node Electron IPC executor; it does not run remote nodes in parallel.
+- Rollout stops before the next node after the first failed, blocked, or unsafe
+  result, or after an operator requests stop-after-current.
+- The existing per-node receipts are preserved, and a sanitized fleet rollout
+  receipt is appended locally with rollout action, selected aliases, per-node
+  statuses, receipt references, skipped nodes, stop reason, and summary output.
+- Simple mode does not expose the batch review surface.
 
-Future gate:
+Remaining risk:
 
-- Add a batch review screen only after single-node execution receipts are
-  stable enough to compose into a fleet rollout receipt.
+- The current batch executor lives in the renderer and composes the existing
+  one-node IPC executor. Moving the orchestration loop into Electron main would
+  make interruption/resume stronger if the window is closed mid-rollout.
 
 ### 5. Provider-Neutral Server Integration
 
@@ -126,25 +143,64 @@ Implemented:
 - The Remote panel keeps the bring-your-own-server checklist provider-neutral.
 - It tells operators to use a local SSH alias, keep JSON-RPC/admin private, and
   avoid provider tokens or raw server addresses.
+- `src/app/remote-nodes.ts` now includes provider-neutral metadata import
+  types for read-only existing VPS metadata: provider name, instance reference,
+  label, region, OS, CPU/RAM/disk summary, lifecycle state, redacted address
+  presence, and suggested SSH alias.
+- The import path accepts sanitized JSON or key/value provider CLI output,
+  redacts the preview, and blocks token-like values, raw addresses, raw
+  hostnames, user/login fields, private paths, duplicate provider instances,
+  and unsupported formats.
+- Approved metadata is converted into sanitized `RemoteFleetNode` observer
+  records with producer disabled, loopback JSON-RPC/admin defaults, the standard
+  `~/koinos-one/nodes/<network>/<node-alias>/basedir` path, and provider-derived
+  sanitized host references.
+- The Remote panel shows an import surface in the server setup area. Operators
+  review generated records before adding them to the local inventory, then save
+  inventory explicitly through the existing local-only Electron storage path.
+- Expert mode shows redacted preview and validation diagnostics. Simple mode
+  keeps provider setup phrased as bring-your-own-server/import flow without
+  exposing provider tokens or infrastructure APIs.
 
-Future gate:
+Remaining hard limits:
 
-- Provider adapters may import existing instance metadata later, but must store
-  provider tokens only in OS keychain/session storage or an external secret
-  manager reference.
+- No provider API client, token persistence, infrastructure creation, resizing,
+  reboot, deletion, firewall mutation, or billing action exists.
+- Future provider API adapters must remain opt-in and store credentials only as
+  session-only, OS-keychain, or external secret-manager references.
 
 ### 6. Prodnet Observer Path
 
 Implemented:
 
-- Prodnet/mainnet mutation remains blocked in renderer and Electron gates.
+- Prodnet/mainnet mutation is no longer blanket-blocked for the narrow
+  observer-only install/restore/start path when all prodnet trust gates pass.
 - Prodnet health/log plans are still read-only and require exact confirmation.
+- Expert mode exposes a `Prodnet Proof Plan` action that performs read-only
+  host, disk, port, artifact, bootstrap policy, and observer-only checks.
+- Prodnet install/restore/start plans require:
+  - an artifact image pinned to the matching `sha256:` digest;
+  - the reviewed `prodnet-public-bootstrap-v1` trust policy and prodnet public
+    bootstrap URL;
+  - a prior dry-run proof receipt reference;
+  - observer role with producer disabled;
+  - loopback JSON-RPC/admin bindings;
+  - strong confirmation naming node, network, action, proof receipt, artifact
+    digest, bootstrap policy, and `OBSERVER_ONLY`.
+- The generated prodnet plan records proof, pinned artifact digest, bootstrap
+  policy, disk preflight, observer-only config, public bootstrap restore, final
+  verification, and sanitized receipt evidence.
+- Electron main process validation repeats the same gates and rejects plans
+  that do not contain matching proof/digest/policy/observer-only evidence.
+- Prodnet fleet/batch mutation remains unavailable; prodnet observer mutation
+  is one-node only.
 
-Future gate:
+Remaining risk:
 
-- Prodnet observer install requires signed artifact identity, disk preflight,
-  explicit public bootstrap trust policy, read-only dry-run proof, and a fresh
-  operator confirmation.
+- This implementation supports digest-pinned artifacts and reviewed bootstrap
+  policy. Full artifact signing and prodnet bootstrap signature enforcement
+  remain release-hardening work when signed prodnet artifacts/bootstrap
+  manifests are published.
 
 ### 7. Artifact Hardening
 
@@ -185,7 +241,8 @@ Future gate:
 
 Simple mode:
 
-1. Add one server using a friendly label and a local SSH alias.
+1. Add one server using a friendly label and local SSH alias, or import
+   sanitized existing-VPS metadata and review the generated observer record.
 2. Keep the suggested BASEDIR unless there is a deliberate disk layout.
 3. Use "Restore backup and start observer" for a fresh testnet observer.
 4. Review the phase list.
@@ -265,6 +322,13 @@ Implemented coverage:
 - stop-criteria parsing for chain ID mismatch, digest mismatch, state merkle
   mismatch, public exposure, and producer-enabled unsafe states;
 - Remote UI simple/expert visibility and simple operation phases;
+- expert fleet batch review visibility, confirmation, sequential gate, and
+  fleet receipt rendering;
+- prodnet observer artifact trust, bootstrap policy, dry-run proof, strong
+  confirmation, and one-node-only mutation gates;
+- provider metadata import normalization, redaction, secret/raw host rejection,
+  duplicate provider instance handling, observer-only node conversion, and
+  simple/expert UI visibility;
 - streamed per-step remote execution events, output redaction, failure stop,
   skipped-step summaries, and blocked-step receipts;
 - real Electron preload/IPC exposure for remote execution progress through a
@@ -274,7 +338,8 @@ Implemented coverage:
 
 Future coverage:
 
-- provider adapter skeleton tests if an adapter is introduced;
+- provider API adapter tests only if a future adapter adds session/keychain
+  provider authorization or infrastructure actions;
 - fresh clean VPS1 disposable install receipt after explicit approval.
 
 ## Current Local Validation
@@ -282,12 +347,16 @@ Future coverage:
 Last run: 2026-06-29.
 
 - `npm test -- src/app/remote-nodes.test.ts src/app/remote-node-execution.test.ts electron/lib/remote-node-service.test.ts src/components/panels/RemoteNodesPanel.test.tsx electron/lib/ipc-handlers.test.ts electron/lib/teleno-storage.test.ts`
-  passed with 64 focused tests.
+  passed with 78 focused tests for remote planning, execution gates, storage,
+  provider metadata import, batch receipts, prodnet trust gates, and Remote UI
+  visibility.
 - `npm run build` passed for renderer and Electron TypeScript.
 - `TELENO_PLAYWRIGHT_ELECTRON=1 npx playwright test --config=playwright.electron.config.ts tests/ui/electron-remote-nodes.spec.ts`
-  passed through the real Electron preload/IPC path, including live progress
-  subscription exposure, a read-only fake-alias progress validation, and
-  expert rollback `PRESERVE_DB` gating.
+  passed through the real Electron preload/IPC path, including read-only
+  fake-alias progress validation, expert fleet batch review, a safe failed
+  read-only rollout receipt, prodnet trust UI visibility, sanitized provider
+  metadata import validation/persistence, and expert rollback `PRESERVE_DB`
+  gating.
 - `TELENO_PLAYWRIGHT_ELECTRON=1 TELENO_REMOTE_VPS1_TESTNET_INSTALL_E2E=1 npx playwright test --config=playwright.electron.config.ts tests/ui/electron-remote-nodes-vps1-testnet-install.spec.ts`
   performed the fresh testnet observer install/restore/start path on the
   selected disposable VPS1 target. A follow-up run against the same target

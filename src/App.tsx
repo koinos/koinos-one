@@ -450,7 +450,7 @@ export function App() {
   const [nodeSubtab, setNodeSubtab] = useState<NodeSubtab>('overview')
   const [dashboardSubtab, setDashboardSubtab] = useState<DashboardSubtab>('producers')
   const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
-  const [firstRunSetupOpen, setFirstRunSetupOpen] = useState(true)
+  const [firstRunSetupOpen, setFirstRunSetupOpen] = useState(false)
   const [firstRunPublicBootstrapUsed, setFirstRunPublicBootstrapUsed] = useState(false)
   const [walletOverview, setWalletOverview] = useState<TelenoWalletOverviewResult | null>(null)
   const [producerSigningWalletBalance, setProducerSigningWalletBalance] = useState<TelenoWalletBalanceResult | null>(null)
@@ -625,19 +625,15 @@ export function App() {
       try {
         const state = await window.teleno?.app?.firstRunSetupState?.()
         if (!disposed && state?.ok) {
-          setFirstRunSetupOpen(!state.completed)
+          setFirstRunSetupOpen(Boolean(state.install?.packaged) && !state.completed)
           return
         }
       } catch {
-        // Fall through to the browser/localStorage fallback below.
+        // Fall through to the closed default below.
       }
 
       if (disposed) return
-      try {
-        setFirstRunSetupOpen(window.localStorage.getItem(FIRST_RUN_SETUP_STORAGE_KEY) !== 'complete')
-      } catch {
-        setFirstRunSetupOpen(true)
-      }
+      setFirstRunSetupOpen(false)
     }
 
     void loadFirstRunSetupState()

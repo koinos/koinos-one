@@ -1155,6 +1155,7 @@ declare global {
       loadInventory: () => Promise<TelenoRemoteInventoryResult>
       saveInventory: (params?: unknown) => Promise<TelenoRemoteInventoryResult>
       loadReceipts: () => Promise<TelenoRemoteReceiptsResult>
+      appendReceipt: (params?: unknown) => Promise<TelenoRemoteReceiptsResult>
       executePlan: (params?: unknown) => Promise<TelenoRemoteExecutionResult>
       onExecutionProgressEvent: (listener: (event: TelenoRemoteExecutionProgressEvent) => void) => () => void
     }

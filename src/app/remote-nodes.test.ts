@@ -3,12 +3,17 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultRemoteFleetInventory,
   generateRemoteFleetCommandPlans,
+  generateRemoteFleetRolloutPlan,
   generateRemoteCommandPlan,
+  importRemoteProviderMetadata,
   normalizeRemoteFleetInventory,
+  redactRemoteProviderMetadataInput,
   validateRemoteFleetInventory
 } from './remote-nodes'
 
 describe('remote node fleet planning', () => {
+  const trustedDigest = `sha256:${'a'.repeat(64)}`
+
   it('normalizes a sanitized observer inventory with public bootstrap defaults', () => {
     const inventory = normalizeRemoteFleetInventory({
       version: 1,
@@ -43,13 +48,15 @@ describe('remote node fleet planning', () => {
       .toBe('~/koinos-one/nodes/mainnet/prodnet-observer-a/basedir')
   })
 
-  it('generates observer-first install plans without remote execution hooks', () => {
+  it('generates observer-first install plans with prodnet trust gates', () => {
     const inventory = defaultRemoteFleetInventory()
     const plan = generateRemoteCommandPlan(inventory, 'prodnet-observer-a', 'install-observer')
 
-    expect(plan.blocked).toBe(false)
+    expect(plan.blocked).toBe(true)
     expect(plan.notices.map((notice) => notice.code)).toContain('dryRunOnly')
     expect(plan.notices.map((notice) => notice.code)).toContain('prodnetConfirmationRequired')
+    expect(plan.notices.map((notice) => notice.code)).toContain('prodnetArtifactTrustRequired')
+    expect(plan.notices.map((notice) => notice.code)).toContain('prodnetDryRunProofRequired')
     expect(plan.steps.some((step) => step.command.includes('--backup-public-restore'))).toBe(true)
     expect(plan.steps.some((step) => step.command.includes('docker run --rm'))).toBe(true)
     expect(plan.steps.some((step) => step.command.includes('TELENO_ARTIFACT_IMAGE'))).toBe(true)
@@ -214,6 +221,26 @@ describe('remote node fleet planning', () => {
     expect(plans.every((plan) => plan.steps.length > 0)).toBe(true)
   })
 
+  it('builds an ordered fleet rollout review model from selected nodes', () => {
+    const inventory = normalizeRemoteFleetInventory({
+      version: 1,
+      nodes: [
+        { id: 'testnet-a', label: 'Testnet A', network: 'testnet', connectionRef: 'ssh-testnet-a' },
+        { id: 'testnet-b', label: 'Testnet B', network: 'testnet', connectionRef: 'ssh-testnet-b' }
+      ]
+    })
+
+    const rollout = generateRemoteFleetRolloutPlan(inventory, ['testnet-b', 'testnet-a'], 'status')
+
+    expect(rollout.nodeIds).toEqual(['testnet-b', 'testnet-a'])
+    expect(rollout.entries.map((entry) => entry.status)).toEqual(['reviewing', 'reviewing'])
+    expect(rollout.entries.every((entry) => entry.plan.action === 'status')).toBe(true)
+    expect(rollout.entries.every((entry) => entry.stepCount > 0)).toBe(true)
+    expect(rollout.entries[0].confirmationPhrase).toBe('EXECUTE testnet-b testnet status')
+    expect(rollout.blocked).toBe(false)
+    expect(rollout.stepCount).toBe(4)
+  })
+
   it('generates read-only health checks with unsafe exposure and stop-criteria probes', () => {
     const inventory = defaultRemoteFleetInventory()
     const plan = generateRemoteCommandPlan(inventory, 'testnet-observer-a', 'status')
@@ -245,6 +272,60 @@ describe('remote node fleet planning', () => {
     expect(cleanupCommands).not.toMatch(/rm -rf -- .*config\.yml/)
   })
 
+  it('blocks prodnet observer mutation until artifact, bootstrap policy, and proof gates are present', () => {
+    const inventory = defaultRemoteFleetInventory()
+    const plan = generateRemoteCommandPlan(inventory, 'prodnet-observer-a', 'install-observer')
+
+    expect(plan.blocked).toBe(true)
+    expect(plan.notices.map((notice) => notice.code)).toEqual(expect.arrayContaining([
+      'prodnetArtifactTrustRequired',
+      'prodnetDryRunProofRequired'
+    ]))
+    expect(plan.steps.map((step) => step.phase)).toEqual(expect.arrayContaining(['proof', 'trust', 'bootstrap', 'preflight']))
+    expect(plan.steps.map((step) => step.command).join('\n')).toContain('TELENO_PRODNET_PROOF_RECEIPT')
+  })
+
+  it('generates a prodnet dry-run proof and trusted observer install plan without blanket mutation blocking', () => {
+    const inventory = normalizeRemoteFleetInventory({
+      version: 1,
+      nodes: [{
+        id: 'prodnet-trusted-a',
+        label: 'Prodnet Trusted A',
+        network: 'mainnet',
+        role: 'observer',
+        connectionRef: 'ssh-prodnet-trusted-a',
+        runtime: {
+          kind: 'docker',
+          image: `ghcr.io/pgarciagon/teleno-node@${trustedDigest}`,
+          expectedVersion: 'prodnet-reviewed-build',
+          serviceName: ''
+        },
+        trust: {
+          artifactDigest: trustedDigest,
+          artifactSignatureRef: '',
+          bootstrapPolicyId: 'prodnet-public-bootstrap-v1',
+          bootstrapPolicyDigest: 'sha256:70726f646e65742d7075626c69632d626f6f7473747261702d76310000000000',
+          prodnetObserverProofRef: 'remote-proof-prodnet-trusted-a'
+        }
+      }]
+    })
+
+    const proof = generateRemoteCommandPlan(inventory, 'prodnet-trusted-a', 'prodnet-observer-proof')
+    const install = generateRemoteCommandPlan(inventory, 'prodnet-trusted-a', 'install-observer')
+    const installCommands = install.steps.map((step) => step.command).join('\n')
+
+    expect(proof.blocked).toBe(false)
+    expect(proof.steps.every((step) => !step.hostMutation && !step.chainMutation && !step.destructive)).toBe(true)
+    expect(proof.steps.map((step) => step.phase)).toEqual(['preflight', 'trust', 'bootstrap', 'proof', 'verify'])
+    expect(install.blocked).toBe(false)
+    expect(install.notices.map((notice) => notice.code)).toContain('prodnetConfirmationRequired')
+    expect(installCommands).toContain(`TELENO_ARTIFACT_DIGEST_PINNED ${trustedDigest}`)
+    expect(installCommands).toContain('TELENO_BOOTSTRAP_POLICY prodnet-public-bootstrap-v1')
+    expect(installCommands).toContain('TELENO_PRODNET_OBSERVER_ONLY block_production_disabled')
+    expect(installCommands).toContain('TELENO_STOP_CRITERIA: disk floor violation')
+    expect(installCommands).toContain('block_producer: false')
+  })
+
   it('keeps health and logs plans read-only with no runtime mutation commands', () => {
     const inventory = defaultRemoteFleetInventory()
 
@@ -263,5 +344,106 @@ describe('remote node fleet planning', () => {
         expect(commands).not.toMatch(/<[^>\n]+>/)
       }
     }
+  })
+
+  it('imports sanitized provider metadata as observer-only local inventory records', () => {
+    const result = importRemoteProviderMetadata(JSON.stringify({
+      provider: 'example-vps',
+      instance: 'server-a',
+      label: 'Imported Testnet Observer',
+      region: 'eu-central',
+      os: 'Ubuntu 24 LTS',
+      cpu: '4 vCPU',
+      ram: '16 GB',
+      disk: '300 GB',
+      state: 'running',
+      publicAddress: 'redacted',
+      privateAddress: 'absent',
+      sshAlias: 'ssh-imported-testnet-observer'
+    }), {
+      network: 'testnet'
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.issues).toEqual([])
+    expect(result.instances[0]).toMatchObject({
+      providerName: 'example-vps',
+      instanceRef: 'server-a',
+      publicAddress: 'present-redacted',
+      privateAddress: 'absent',
+      suggestedSshAlias: 'ssh-imported-testnet-observer'
+    })
+    expect(result.nodes[0]).toMatchObject({
+      id: 'imported-testnet-observer',
+      label: 'Imported Testnet Observer',
+      network: 'testnet',
+      role: 'observer',
+      hostRef: 'provider-example-vps-server-a',
+      connectionRef: 'ssh-imported-testnet-observer',
+      producer: { enabled: false },
+      safety: {
+        observerFirstRequired: true,
+        mainnetMutationAllowed: false,
+        remoteAdminPublicExposureAllowed: false
+      },
+      paths: {
+        baseDir: '~/koinos-one/nodes/testnet/imported-testnet-observer/basedir'
+      }
+    })
+    expect(validateRemoteFleetInventory({ version: 1, nodes: result.nodes })).toEqual([])
+  })
+
+  it('redacts and blocks provider metadata containing raw infrastructure or secrets', () => {
+    const unsafe = [
+      'provider: example-vps',
+      'instance: unsafe-a',
+      'label: Unsafe Import',
+      'publicIp: 192.0.2.10',
+      'hostname: node.example.invalid',
+      'sshUser: root',
+      'apiToken=abc123',
+      'path: /home/operator/.ssh/id_ed25519'
+    ].join('\n')
+    const result = importRemoteProviderMetadata(unsafe, { network: 'testnet' })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+      'secret-blocked',
+      'raw-address-blocked',
+      'raw-host-blocked',
+      'user-reference-blocked',
+      'private-path-blocked'
+    ]))
+    expect(result.redactedPreview).not.toContain('192.0.2.10')
+    expect(result.redactedPreview).not.toContain('node.example.invalid')
+    expect(result.redactedPreview).not.toContain('abc123')
+    expect(result.redactedPreview).not.toContain('/home/operator')
+    expect(redactRemoteProviderMetadataInput(unsafe)).toContain('[redacted-secret]')
+  })
+
+  it('blocks duplicate provider instances while generating unique safe node ids', () => {
+    const existing = normalizeRemoteFleetInventory({
+      version: 1,
+      nodes: [{
+        id: 'existing-import',
+        network: 'testnet',
+        hostRef: 'provider-example-vps-server-a',
+        connectionRef: 'ssh-existing-import'
+      }]
+    })
+    const result = importRemoteProviderMetadata([
+      'provider: example-vps',
+      'instance: server-a',
+      'label: Existing Import',
+      'sshAlias: ssh-import-a'
+    ].join('\n'), {
+      network: 'testnet',
+      existingInventory: existing
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues.map((issue) => issue.code)).toContain('duplicate-instance')
+    expect(result.nodes[0].id).toBe('existing-import-2')
+    expect(result.nodes[0].hostRef).toBe('provider-example-vps-server-a')
   })
 })

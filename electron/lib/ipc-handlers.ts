@@ -61,6 +61,7 @@ type IpcHandlerDeps = {
   loadRemoteInventory: () => Awaitable<unknown>
   saveRemoteInventory: (input?: unknown) => Awaitable<unknown>
   loadRemoteReceipts: () => Awaitable<unknown>
+  appendRemoteReceipt: (input?: unknown) => Awaitable<unknown>
   executeRemoteCommandPlan: (input?: unknown) => Awaitable<unknown>
   saveBackupPasswordFile: (input?: TelenoNodeBackupPasswordFileInput) => Awaitable<unknown>
   getNodeDefaults: () => Awaitable<unknown>
@@ -152,6 +153,7 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'teleno:remote-nodes:inventory:load',
     'teleno:remote-nodes:inventory:save',
     'teleno:remote-nodes:receipts:load',
+    'teleno:remote-nodes:receipts:append',
     'teleno:remote-nodes:execute-plan',
     'teleno:node:backup-password-file',
     'teleno:node:defaults',
@@ -282,6 +284,7 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('teleno:remote-nodes:inventory:load', async () => deps.loadRemoteInventory())
   ipcMain.handle('teleno:remote-nodes:inventory:save', async (_event, input?: unknown) => deps.saveRemoteInventory(input))
   ipcMain.handle('teleno:remote-nodes:receipts:load', async () => deps.loadRemoteReceipts())
+  ipcMain.handle('teleno:remote-nodes:receipts:append', async (_event, input?: unknown) => deps.appendRemoteReceipt(input))
   ipcMain.handle('teleno:remote-nodes:execute-plan', async (_event, input?: unknown) => deps.executeRemoteCommandPlan(input))
   ipcMain.handle('teleno:node:backup-password-file', async (_event, input?: TelenoNodeBackupPasswordFileInput) =>
     deps.saveBackupPasswordFile(input)

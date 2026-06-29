@@ -100,6 +100,56 @@ describe('remote node execution service', () => {
     expect(runner).not.toHaveBeenCalled()
   })
 
+  it('allows trusted prodnet observer install only with proof, digest, policy, and observer-only evidence', async () => {
+    const digest = `sha256:${'a'.repeat(64)}`
+    const runner = vi.fn(async () => ({ code: 0, output: 'TELENO_PRODNET_OBSERVER_ONLY block_production_disabled\nblock_producer: false\nrunning' }))
+    const service = createRemoteNodeExecutionService({ runner })
+    const node = {
+      id: 'prodnet-trusted-a',
+      network: 'mainnet',
+      role: 'observer',
+      connectionRef: 'ssh-prodnet-trusted-a',
+      producer: { enabled: false },
+      runtime: { image: `ghcr.io/pgarciagon/teleno-node@${digest}` },
+      backup: { publicBootstrapUrl: 'https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap' },
+      trust: {
+        artifactDigest: digest,
+        bootstrapPolicyId: 'prodnet-public-bootstrap-v1',
+        prodnetObserverProofRef: 'remote-proof-prodnet-trusted-a'
+      }
+    }
+    const plan = {
+      nodeId: 'prodnet-trusted-a',
+      action: 'install-observer' as const,
+      blocked: false,
+      steps: [{
+        phase: 'trust',
+        command: [
+          "ssh ssh-prodnet-trusted-a <<'TELENO_REMOTE'",
+          `echo "TELENO_PRODNET_PROOF_RECEIPT remote-proof-prodnet-trusted-a"`,
+          `echo "TELENO_ARTIFACT_DIGEST_PINNED ${digest}"`,
+          'echo "TELENO_BOOTSTRAP_POLICY prodnet-public-bootstrap-v1"',
+          'echo "TELENO_PRODNET_OBSERVER_ONLY block_production_disabled"',
+          'docker run -d --name teleno-prodnet-trusted-a -p 127.0.0.1:18080:18080 ghcr.io/pgarciagon/teleno-node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --basedir /data --config /data/config.yml',
+          'TELENO_REMOTE'
+        ].join('\n'),
+        hostMutation: true,
+        chainMutation: false,
+        destructive: false
+      }]
+    }
+
+    const result = await service.executeRemoteCommandPlan({
+      node,
+      plan,
+      confirmation: remoteExecutionConfirmationPhrase(node, plan.action)
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.receipt.status).toBe('succeeded')
+    expect(runner).toHaveBeenCalledTimes(1)
+  })
+
   it('blocks rollback execution when DB preservation evidence is missing', async () => {
     const runner = vi.fn(async () => ({ code: 0, output: 'should not run' }))
     const service = createRemoteNodeExecutionService({ runner })

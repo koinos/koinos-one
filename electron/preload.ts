@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('teleno', {
     loadInventory: () => ipcRenderer.invoke('teleno:remote-nodes:inventory:load'),
     saveInventory: (params?: unknown) => ipcRenderer.invoke('teleno:remote-nodes:inventory:save', params),
     loadReceipts: () => ipcRenderer.invoke('teleno:remote-nodes:receipts:load'),
+    appendReceipt: (params?: unknown) => ipcRenderer.invoke('teleno:remote-nodes:receipts:append', params),
     executePlan: (params?: unknown) => ipcRenderer.invoke('teleno:remote-nodes:execute-plan', params),
     onExecutionProgressEvent: (listener: (event: unknown) => void) => {
       const wrapped = (_event: unknown, payload: unknown) => listener(payload)

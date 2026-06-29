@@ -2587,6 +2587,7 @@ body {
 }
 
 .remote-provider-checklist,
+.remote-provider-import,
 .remote-human-summary {
   min-width: 0;
   border: 1px solid var(--line);
@@ -2595,7 +2596,8 @@ body {
   padding: 12px;
 }
 
-.remote-provider-checklist {
+.remote-provider-checklist,
+.remote-provider-import {
   display: grid;
   gap: 10px;
 }
@@ -2610,6 +2612,49 @@ body {
 
 .remote-provider-checklist li + li {
   margin-top: 6px;
+}
+
+.remote-provider-import textarea {
+  min-height: 132px;
+  resize: vertical;
+}
+
+.remote-provider-import-review {
+  display: grid;
+  gap: 8px;
+}
+
+.remote-provider-import-nodes {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.remote-provider-import-nodes li {
+  min-width: 0;
+}
+
+.remote-provider-import-nodes strong,
+.remote-provider-import-nodes span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.remote-provider-import-nodes span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.remote-provider-import-preview {
+  display: grid;
+  gap: 6px;
+}
+
+.remote-provider-import-preview pre {
+  max-height: 160px;
+  overflow: auto;
 }
 
 .remote-action-grid {
@@ -2824,6 +2869,117 @@ body {
   line-height: 1.35;
 }
 
+.remote-fleet-rollout {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.remote-fleet-node-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.remote-fleet-node-picker label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+  padding: 8px 10px;
+}
+
+.remote-fleet-node-picker span,
+.remote-fleet-node-picker em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.remote-fleet-node-picker em {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.remote-fleet-review-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remote-fleet-review-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid rgba(128, 148, 172, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+  padding: 9px 10px;
+}
+
+.remote-fleet-review-list > li > span {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(31, 71, 85, 0.08);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.remote-fleet-review-list p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.remote-fleet-order-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.remote-fleet-order-controls .ghost-button {
+  min-height: 0;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+}
+
+.remote-fleet-required-phrases {
+  display: grid;
+  gap: 6px;
+}
+
+.remote-fleet-required-phrases strong {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.remote-fleet-required-phrases code {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 0.76rem;
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+}
+
 .remote-progress-output {
   margin: 8px 0 0;
   max-height: 132px;
@@ -2877,6 +3033,46 @@ body {
   line-height: 1.4;
 }
 
+.remote-prodnet-trust-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(128, 148, 172, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+  padding: 10px 12px;
+}
+
+.remote-prodnet-trust-panel strong {
+  font-size: 0.86rem;
+}
+
+.remote-prodnet-trust-panel dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.remote-prodnet-trust-panel dl div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.5fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.remote-prodnet-trust-panel dt,
+.remote-prodnet-trust-panel dd,
+.remote-prodnet-trust-panel p {
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.remote-prodnet-trust-panel dd {
+  color: var(--text);
+}
+
 .remote-confirmation-box span,
 .remote-confirmation-input span {
   color: var(--muted);
@@ -2895,7 +3091,8 @@ body {
   gap: 6px;
 }
 
-.remote-confirmation-input input {
+.remote-confirmation-input input,
+.remote-confirmation-input textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2905,7 +3102,13 @@ body {
   padding: 9px 10px;
 }
 
-.remote-confirmation-input input:focus-visible {
+.remote-confirmation-input textarea {
+  resize: vertical;
+  min-height: 92px;
+}
+
+.remote-confirmation-input input:focus-visible,
+.remote-confirmation-input textarea:focus-visible {
   outline: 2px solid rgba(128, 148, 172, 0.38);
   outline-offset: 1px;
   background: var(--field-bg-focus);
@@ -2925,9 +3128,14 @@ body {
   overflow-wrap: anywhere;
 }
 
-.remote-receipt-list {
+.remote-receipt-list,
+.remote-fleet-receipt-list {
   display: grid;
   gap: 10px;
+}
+
+.remote-fleet-receipt-list {
+  margin-bottom: 10px;
 }
 
 .remote-receipt {

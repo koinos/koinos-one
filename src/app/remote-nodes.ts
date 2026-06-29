@@ -46,6 +46,13 @@ export type RemoteFleetNode = {
     publicBootstrapUrl: string
     privateBackupPolicyRef: string
   }
+  trust: {
+    artifactDigest: string
+    artifactSignatureRef: string
+    bootstrapPolicyId: string
+    bootstrapPolicyDigest: string
+    prodnetObserverProofRef: string
+  }
   producer: {
     enabled: boolean
     profileRef: string
@@ -75,6 +82,7 @@ export type RemoteFleetInventoryInput = {
 }
 
 export type RemoteNodeAction =
+  | 'prodnet-observer-proof'
   | 'install-observer'
   | 'restore-public-bootstrap'
   | 'start-observer'
@@ -101,6 +109,10 @@ export type RemotePlanNoticeCode =
   | 'publicBootstrapMissing'
   | 'destructiveConfirmationRequired'
   | 'prodnetConfirmationRequired'
+  | 'prodnetArtifactTrustRequired'
+  | 'prodnetBootstrapPolicyRequired'
+  | 'prodnetDryRunProofRequired'
+  | 'prodnetBatchMutationBlocked'
   | 'dryRunOnly'
 
 export type RemotePlanNotice = {
@@ -112,6 +124,8 @@ export type RemotePlanNotice = {
 export type RemotePlanPhase =
   | 'preflight'
   | 'artifact'
+  | 'trust'
+  | 'proof'
   | 'prepare'
   | 'config'
   | 'bootstrap'
@@ -139,8 +153,86 @@ export type RemoteCommandPlan = {
   steps: RemoteCommandStep[]
 }
 
+export type RemoteFleetRolloutNodeStatus =
+  | 'pending'
+  | 'reviewing'
+  | 'confirmed'
+  | 'running'
+  | 'skipped'
+  | 'failed'
+  | 'complete'
+
+export type RemoteFleetRolloutPlanEntry = {
+  nodeId: string
+  label: string
+  network: KoinosNetworkId
+  status: RemoteFleetRolloutNodeStatus
+  plan: RemoteCommandPlan
+  blocked: boolean
+  stepCount: number
+  notices: RemotePlanNotice[]
+  confirmationPhrase: string
+}
+
+export type RemoteFleetRolloutPlan = {
+  action: RemoteNodeAction
+  nodeIds: string[]
+  entries: RemoteFleetRolloutPlanEntry[]
+  blocked: boolean
+  stepCount: number
+  networks: KoinosNetworkId[]
+}
+
+export type RemoteProviderAddressPresence = 'unknown' | 'absent' | 'present-redacted'
+
+export type RemoteProviderInstanceMetadata = {
+  providerName: string
+  instanceRef: string
+  label: string
+  region: string
+  os: string
+  cpuSummary: string
+  ramSummary: string
+  diskSummary: string
+  lifecycleState: string
+  publicAddress: RemoteProviderAddressPresence
+  privateAddress: RemoteProviderAddressPresence
+  suggestedSshAlias: string
+}
+
+export type RemoteProviderImportIssueCode =
+  | 'empty-input'
+  | 'unsupported-format'
+  | 'secret-blocked'
+  | 'raw-address-blocked'
+  | 'raw-host-blocked'
+  | 'user-reference-blocked'
+  | 'private-path-blocked'
+  | 'duplicate-instance'
+
+export type RemoteProviderImportIssue = {
+  code: RemoteProviderImportIssueCode
+  field?: string
+  value?: string
+}
+
+export type RemoteProviderImportResult = {
+  ok: boolean
+  redactedPreview: string
+  instances: RemoteProviderInstanceMetadata[]
+  nodes: RemoteFleetNode[]
+  issues: RemoteProviderImportIssue[]
+}
+
+export type RemoteProviderImportOptions = {
+  network?: KoinosNetworkId
+  existingInventory?: RemoteFleetInventory
+}
+
 const DEFAULT_IMAGE = 'ghcr.io/pgarciagon/teleno-node:beta'
 const DEFAULT_VERSION = '<teleno_node-version-or-commit>'
+const PRODNET_BOOTSTRAP_POLICY_ID = 'prodnet-public-bootstrap-v1'
+const PRODNET_BOOTSTRAP_POLICY_DIGEST = 'sha256:70726f646e65742d7075626c69632d626f6f7473747261702d76310000000000'
 const DEFAULT_TESTNET_JSONRPC_BIND = '127.0.0.1:18122'
 const DEFAULT_MAINNET_JSONRPC_BIND = '127.0.0.1:18080'
 const DEFAULT_TESTNET_P2P_PUBLIC = '28890'
@@ -157,6 +249,13 @@ const MAINNET_P2P_PEERS = [
   '/ip4/46.62.245.240/tcp/8888/p2p/QmWmxqE6WhcMWZEKwqUAbu87Qgm6JroZLdM4Xmxouu1Mmi',
   '/ip4/94.130.148.114/tcp/8888/p2p/QmQ841mUuYeCtbZXdEMeKcYCx4CZydgz84zSDqWVCeJ4H8'
 ]
+const PROVIDER_IPV4_RE = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g
+const PROVIDER_HOSTNAME_RE = /\b(?=[a-z0-9.-]*[a-z])[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+\b/gi
+const PROVIDER_PRIVATE_PATH_RE = /(^|[\s"'=:])(?:~\/|\/Users\/|\/home\/|\/root\/|[A-Za-z]:\\)[^\s"',}]*/g
+const PROVIDER_TOKEN_KEY_RE = /\b(?:api[_-]?key|api[_-]?token|access[_-]?key|access[_-]?token|auth(?:orization)?|bearer|credential|password|passwd|private[_-]?key|secret|token)\b/i
+const PROVIDER_USER_FIELD_RE = /\b(?:ssh[_-]?user|username|user|login)\b\s*[:=]/i
+const PROVIDER_SSH_TARGET_RE = /\b(?:root|ubuntu|admin|debian|ec2-user|opc)@[^\s"',}]+/i
+const PROVIDER_PRIVATE_KEY_RE = /-----BEGIN [^-]+PRIVATE KEY-----[\s\S]*?-----END [^-]+PRIVATE KEY-----/i
 
 function safeText(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -180,6 +279,72 @@ function safeRole(value: unknown): RemoteNodeRole {
 
 function safeRuntimeKind(value: unknown): RemoteNodeRuntimeKind {
   return value === 'systemd' ? 'systemd' : 'docker'
+}
+
+function safeProviderText(value: unknown, fallback = 'unknown'): string {
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value !== 'string') return fallback
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  return normalized ? normalized.slice(0, 96) : fallback
+}
+
+function providerFieldKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function providerRecordValue(record: Record<string, unknown>, aliases: string[]): unknown {
+  const normalized = new Map<string, unknown>()
+  for (const [key, value] of Object.entries(record)) normalized.set(providerFieldKey(key), value)
+  for (const alias of aliases) {
+    const value = normalized.get(providerFieldKey(alias))
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return undefined
+}
+
+function slugifyProviderValue(value: string, fallback: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+  return slug || fallback
+}
+
+function safeSshAlias(value: unknown, fallback: string): string {
+  const alias = safeProviderText(value, '')
+  if (
+    /^[A-Za-z][A-Za-z0-9_.-]{1,63}$/.test(alias) &&
+    !looksLikeRawHostReference(alias) &&
+    !looksLikeSecretReference(alias) &&
+    !PROVIDER_USER_FIELD_RE.test(alias)
+  ) {
+    return alias
+  }
+  return fallback
+}
+
+function providerAddressPresence(value: unknown): RemoteProviderAddressPresence {
+  if (value === true) return 'present-redacted'
+  if (value === false) return 'absent'
+  const text = safeProviderText(value, '').toLowerCase()
+  if (!text) return 'unknown'
+  if (/^(false|no|none|absent|0)$/.test(text)) return 'absent'
+  if (/^(true|yes|present|redacted|hidden|masked|1)$/.test(text)) return 'present-redacted'
+  return 'present-redacted'
+}
+
+function providerLifecycleState(value: unknown): string {
+  const state = safeProviderText(value, 'unknown').toLowerCase()
+  if (/^(running|active|started|on)$/.test(state)) return 'running'
+  if (/^(stopped|off|shutoff|halted)$/.test(state)) return 'stopped'
+  if (/^(pending|provisioning|starting)$/.test(state)) return 'pending'
+  if (/^(terminated|deleted|destroyed)$/.test(state)) return 'terminated'
+  return state.replace(/[^a-z0-9_.-]+/g, '-') || 'unknown'
+}
+
+function providerInstanceKey(instance: RemoteProviderInstanceMetadata): string {
+  return `${slugifyProviderValue(instance.providerName, 'provider')}:${slugifyProviderValue(instance.instanceRef, 'instance')}`
 }
 
 export function recommendedRemoteBaseDir(network: KoinosNetworkId, id: string): string {
@@ -226,6 +391,13 @@ function defaultNode(id: string, network: KoinosNetworkId): RemoteFleetNode {
     backup: {
       publicBootstrapUrl: publicBootstrapUrlForNetwork(network) || '<public-bootstrap-url>',
       privateBackupPolicyRef: ''
+    },
+    trust: {
+      artifactDigest: '',
+      artifactSignatureRef: '',
+      bootstrapPolicyId: network === 'mainnet' ? PRODNET_BOOTSTRAP_POLICY_ID : '',
+      bootstrapPolicyDigest: network === 'mainnet' ? PRODNET_BOOTSTRAP_POLICY_DIGEST : '',
+      prodnetObserverProofRef: ''
     },
     producer: {
       enabled: false,
@@ -298,6 +470,13 @@ export function normalizeRemoteFleetNode(input: Partial<RemoteFleetNode> = {}): 
       publicBootstrapUrl: safeText(input.backup?.publicBootstrapUrl, base.backup.publicBootstrapUrl),
       privateBackupPolicyRef: safeText(input.backup?.privateBackupPolicyRef)
     },
+    trust: {
+      artifactDigest: safeText(input.trust?.artifactDigest, base.trust.artifactDigest),
+      artifactSignatureRef: safeText(input.trust?.artifactSignatureRef, base.trust.artifactSignatureRef),
+      bootstrapPolicyId: safeText(input.trust?.bootstrapPolicyId, base.trust.bootstrapPolicyId),
+      bootstrapPolicyDigest: safeText(input.trust?.bootstrapPolicyDigest, base.trust.bootstrapPolicyDigest),
+      prodnetObserverProofRef: safeText(input.trust?.prodnetObserverProofRef, base.trust.prodnetObserverProofRef)
+    },
     producer: {
       enabled: input.producer?.enabled === true,
       profileRef: safeText(input.producer?.profileRef)
@@ -325,6 +504,228 @@ export function normalizeRemoteFleetInventory(input?: RemoteFleetInventoryInput)
   }
 }
 
+export function redactRemoteProviderMetadataInput(input: string): string {
+  return input
+    .replace(PROVIDER_PRIVATE_KEY_RE, '[redacted-secret]')
+    .replace(/\b(api[_-]?key|api[_-]?token|access[_-]?key|access[_-]?token|auth(?:orization)?|bearer|credential|password|passwd|private[_-]?key|secret|token)\b\s*[:=]\s*("[^"]*"|'[^']*'|[^\s,}\]]+)/gi, '$1=[redacted-secret]')
+    .replace(PROVIDER_SSH_TARGET_RE, '[redacted-ssh-target]')
+    .replace(PROVIDER_IPV4_RE, '[redacted-address]')
+    .replace(PROVIDER_PRIVATE_PATH_RE, '$1[redacted-path]')
+    .replace(PROVIDER_HOSTNAME_RE, '[redacted-host]')
+    .trim()
+    .slice(0, 4000)
+}
+
+function providerInputIssues(input: string): RemoteProviderImportIssue[] {
+  const issues: RemoteProviderImportIssue[] = []
+  if (!input.trim()) return [{ code: 'empty-input' }]
+  if (PROVIDER_PRIVATE_KEY_RE.test(input) || PROVIDER_TOKEN_KEY_RE.test(input)) {
+    issues.push({ code: 'secret-blocked', value: '[redacted-secret]' })
+  }
+  PROVIDER_IPV4_RE.lastIndex = 0
+  if (PROVIDER_IPV4_RE.test(input)) {
+    issues.push({ code: 'raw-address-blocked', value: '[redacted-address]' })
+  }
+  PROVIDER_IPV4_RE.lastIndex = 0
+  PROVIDER_HOSTNAME_RE.lastIndex = 0
+  if (PROVIDER_HOSTNAME_RE.test(input)) {
+    issues.push({ code: 'raw-host-blocked', value: '[redacted-host]' })
+  }
+  PROVIDER_HOSTNAME_RE.lastIndex = 0
+  if (PROVIDER_SSH_TARGET_RE.test(input) || PROVIDER_USER_FIELD_RE.test(input)) {
+    issues.push({ code: 'user-reference-blocked', value: '[redacted-user]' })
+  }
+  PROVIDER_PRIVATE_PATH_RE.lastIndex = 0
+  if (PROVIDER_PRIVATE_PATH_RE.test(input)) {
+    issues.push({ code: 'private-path-blocked', value: '[redacted-path]' })
+  }
+  PROVIDER_PRIVATE_PATH_RE.lastIndex = 0
+  return issues
+}
+
+function jsonProviderRecords(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+
+  const record = value as Record<string, unknown>
+  for (const key of ['instances', 'servers', 'nodes', 'vms', 'droplets']) {
+    const nested = record[key]
+    if (Array.isArray(nested)) return jsonProviderRecords(nested)
+  }
+  return [record]
+}
+
+function keyValueProviderRecords(input: string): Record<string, unknown>[] {
+  const blocks = input
+    .split(/\n\s*(?:---+|\n)\s*\n/g)
+    .map((block) => block.trim())
+    .filter(Boolean)
+  const records: Record<string, unknown>[] = []
+
+  for (const block of blocks.length ? blocks : [input]) {
+    const record: Record<string, unknown> = {}
+    for (const line of block.split(/\n/)) {
+      const match = line.match(/^\s*([A-Za-z][A-Za-z0-9_. -]{1,40})\s*[:=]\s*(.*?)\s*$/)
+      if (!match) continue
+      record[match[1]] = match[2]
+    }
+    if (Object.keys(record).length > 0) records.push(record)
+  }
+
+  return records
+}
+
+function parseProviderRecords(input: string): { records: Record<string, unknown>[]; parsed: boolean } {
+  try {
+    const parsed = JSON.parse(input)
+    const records = jsonProviderRecords(parsed)
+    return { records, parsed: records.length > 0 }
+  } catch {
+    const records = keyValueProviderRecords(input)
+    return { records, parsed: records.length > 0 }
+  }
+}
+
+function normalizeProviderInstanceMetadata(record: Record<string, unknown>, index: number): RemoteProviderInstanceMetadata {
+  const providerName = safeProviderText(providerRecordValue(record, ['providerName', 'provider', 'cloud', 'vendor']), 'provider')
+  const fallbackRef = `${slugifyProviderValue(providerName, 'provider')}-${index + 1}`
+  const instanceRef = safeProviderText(providerRecordValue(record, [
+    'instance',
+    'instanceRef',
+    'instanceId',
+    'server',
+    'serverRef',
+    'serverId',
+    'dropletId',
+    'vmId',
+    'id',
+    'ref'
+  ]), fallbackRef)
+  const label = safeProviderText(providerRecordValue(record, ['label', 'name', 'serverName', 'instanceName']), instanceRef)
+  const aliasFallback = `ssh-${slugifyProviderValue(label || instanceRef, fallbackRef)}`
+
+  return {
+    providerName,
+    instanceRef,
+    label,
+    region: safeProviderText(providerRecordValue(record, ['region', 'location', 'datacenter', 'zone']), 'unknown'),
+    os: safeProviderText(providerRecordValue(record, ['os', 'image', 'distro', 'distribution']), 'unknown'),
+    cpuSummary: safeProviderText(providerRecordValue(record, ['cpuSummary', 'cpu', 'cpus', 'vcpu', 'vcpus']), 'unknown'),
+    ramSummary: safeProviderText(providerRecordValue(record, ['ramSummary', 'ram', 'memory', 'memoryMb', 'memoryGb']), 'unknown'),
+    diskSummary: safeProviderText(providerRecordValue(record, ['diskSummary', 'disk', 'diskGb', 'storage', 'storageGb']), 'unknown'),
+    lifecycleState: providerLifecycleState(providerRecordValue(record, ['lifecycleState', 'state', 'status', 'powerState'])),
+    publicAddress: providerAddressPresence(providerRecordValue(record, [
+      'publicAddress',
+      'publicIp',
+      'publicIpPresent',
+      'publicAddressPresent',
+      'hasPublicAddress'
+    ])),
+    privateAddress: providerAddressPresence(providerRecordValue(record, [
+      'privateAddress',
+      'privateIp',
+      'privateIpPresent',
+      'privateAddressPresent',
+      'hasPrivateAddress'
+    ])),
+    suggestedSshAlias: safeSshAlias(providerRecordValue(record, [
+      'suggestedSshAlias',
+      'sshAlias',
+      'connectionRef',
+      'sshRef'
+    ]), aliasFallback)
+  }
+}
+
+function uniqueProviderNodeId(baseId: string, usedIds: Set<string>): string {
+  let candidate = baseId
+  let suffix = 2
+  while (usedIds.has(candidate)) {
+    candidate = `${baseId}-${suffix}`
+    suffix += 1
+  }
+  usedIds.add(candidate)
+  return candidate
+}
+
+export function remoteProviderMetadataToFleetNode(
+  metadata: RemoteProviderInstanceMetadata,
+  options: RemoteProviderImportOptions = {},
+  usedIds = new Set(options.existingInventory?.nodes.map((node) => node.id) || [])
+): RemoteFleetNode {
+  const network = safeNetwork(options.network ?? 'testnet')
+  const baseId = slugifyProviderValue(metadata.label || metadata.instanceRef, 'provider-node')
+  const id = uniqueProviderNodeId(baseId, usedIds)
+  const baseDir = recommendedRemoteBaseDir(network, id)
+  const node = normalizeRemoteFleetNode({
+    id,
+    label: metadata.label,
+    network,
+    role: 'observer',
+    environment: network === 'mainnet' ? 'prodnet' : network,
+    hostRef: `provider-${slugifyProviderValue(metadata.providerName, 'provider')}-${slugifyProviderValue(metadata.instanceRef, 'instance')}`,
+    connectionRef: metadata.suggestedSshAlias,
+    paths: {
+      baseDir,
+      config: `${baseDir}/config.yml`
+    },
+    producer: {
+      enabled: false,
+      profileRef: ''
+    },
+    safety: {
+      observerFirstRequired: true,
+      mainnetMutationAllowed: false,
+      remoteAdminPublicExposureAllowed: false
+    },
+    status: {
+      installStatus: 'planned',
+      restoreStatus: 'not-restored',
+      version: DEFAULT_VERSION,
+      health: metadata.lifecycleState === 'running' ? 'unknown' : 'needs-server',
+      lastCheck: ''
+    }
+  })
+  return node
+}
+
+export function importRemoteProviderMetadata(
+  input: string,
+  options: RemoteProviderImportOptions = {}
+): RemoteProviderImportResult {
+  const redactedPreview = redactRemoteProviderMetadataInput(input)
+  const issues = providerInputIssues(input)
+  const parsed = parseProviderRecords(input)
+  const instances = parsed.records.map((record, index) => normalizeProviderInstanceMetadata(record, index))
+  const seenInstances = new Set<string>()
+  const existingHostRefs = new Set(options.existingInventory?.nodes.map((node) => node.hostRef) || [])
+
+  if (!parsed.parsed && input.trim()) {
+    issues.push({ code: 'unsupported-format' })
+  }
+
+  for (const instance of instances) {
+    const key = providerInstanceKey(instance)
+    const hostRef = `provider-${slugifyProviderValue(instance.providerName, 'provider')}-${slugifyProviderValue(instance.instanceRef, 'instance')}`
+    if (seenInstances.has(key) || existingHostRefs.has(hostRef)) {
+      issues.push({ code: 'duplicate-instance', field: instance.label, value: key })
+    }
+    seenInstances.add(key)
+  }
+
+  const usedIds = new Set(options.existingInventory?.nodes.map((node) => node.id) || [])
+  const nodes = instances.map((instance) => remoteProviderMetadataToFleetNode(instance, options, usedIds))
+  return {
+    ok: issues.length === 0 && nodes.length > 0,
+    redactedPreview,
+    instances,
+    nodes,
+    issues
+  }
+}
+
 function looksLikeRawHostReference(value: string): boolean {
   return /@/.test(value) || /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(value) || /\.[a-z]{2,}\b/i.test(value)
 }
@@ -335,6 +736,31 @@ function looksLikeSecretReference(value: string): boolean {
 
 function isLoopbackBind(value: string): boolean {
   return value.startsWith('127.0.0.1:') || value.startsWith('localhost:')
+}
+
+function isProdnetObserverMutation(action: RemoteNodeAction, node: RemoteFleetNode): boolean {
+  return node.network === 'mainnet' && (
+    action === 'install-observer' ||
+    action === 'restore-public-bootstrap' ||
+    action === 'start-observer'
+  )
+}
+
+function hasPinnedArtifactDigest(node: RemoteFleetNode): boolean {
+  const digest = node.trust.artifactDigest
+  return /^sha256:[a-f0-9]{64}$/i.test(digest) && node.runtime.image.includes(`@${digest}`)
+}
+
+function hasProdnetBootstrapPolicy(node: RemoteFleetNode): boolean {
+  return (
+    node.trust.bootstrapPolicyId === PRODNET_BOOTSTRAP_POLICY_ID &&
+    node.trust.bootstrapPolicyDigest === PRODNET_BOOTSTRAP_POLICY_DIGEST &&
+    node.backup.publicBootstrapUrl === publicBootstrapUrlForNetwork('mainnet')
+  )
+}
+
+function hasProdnetDryRunProof(node: RemoteFleetNode): boolean {
+  return /^(remote|proof)-[A-Za-z0-9_-]+$/.test(node.trust.prodnetObserverProofRef)
 }
 
 function addDuplicateNotices(
@@ -389,6 +815,8 @@ export function validateRemoteFleetInventory(inventory: RemoteFleetInventory): R
       node.paths.baseDir,
       node.paths.config,
       node.backup.privateBackupPolicyRef,
+      node.trust.artifactSignatureRef,
+      node.trust.prodnetObserverProofRef,
       node.producer.profileRef
     ]
     for (const value of valuesToScan) {
@@ -510,14 +938,52 @@ function reviewedArtifactVersion(node: RemoteFleetNode): string {
 function artifactEvidenceCommand(node: RemoteFleetNode): string {
   const expectedVersion = reviewedArtifactVersion(node)
   if (node.runtime.kind === 'docker') {
+    const digest = node.trust.artifactDigest
     return [
       `docker pull ${q(node.runtime.image)}`,
       `artifact_id=$(docker image inspect ${q(node.runtime.image)} --format '{{.Id}}')`,
       `artifact_digests=$(docker image inspect ${q(node.runtime.image)} --format '{{range .RepoDigests}}{{.}} {{end}}')`,
+      digest ? `case " $artifact_digests " in *${digest}*) echo "TELENO_ARTIFACT_DIGEST_PINNED ${digest}" ;; *) echo "TELENO_STOP_CRITERIA: digest mismatch"; exit 65;; esac` : 'true',
       `printf 'TELENO_ARTIFACT_IMAGE id=%s digests=%s expected=%s\\n' "$artifact_id" "$artifact_digests" ${q(expectedVersion)}`
     ].join('\n')
   }
   return `teleno_node --version || true; echo "TELENO_ARTIFACT_BINARY expected=${expectedVersion}"`
+}
+
+function prodnetArtifactTrustCommand(node: RemoteFleetNode): string {
+  return [
+    'set -eu',
+    `case ${q(node.runtime.image)} in *@${node.trust.artifactDigest}) echo "TELENO_ARTIFACT_DIGEST_PINNED ${node.trust.artifactDigest}" ;; *) echo "TELENO_STOP_CRITERIA: digest mismatch"; exit 65;; esac`,
+    node.trust.artifactSignatureRef
+      ? `echo "TELENO_ARTIFACT_SIGNATURE_REF reviewed ${q(node.trust.artifactSignatureRef)}"`
+      : 'echo "TELENO_ARTIFACT_SIGNATURE_REF none digest-pin-required"',
+    `echo "TELENO_ARTIFACT_TRUST_READY expected=${q(reviewedArtifactVersion(node))}"`
+  ].join('\n')
+}
+
+function prodnetBootstrapTrustCommand(node: RemoteFleetNode): string {
+  return [
+    'set -eu',
+    `test ${q(node.backup.publicBootstrapUrl)} = ${q(publicBootstrapUrlForNetwork('mainnet') || '')}`,
+    `echo "TELENO_BOOTSTRAP_POLICY ${node.trust.bootstrapPolicyId}"`,
+    `echo "TELENO_BOOTSTRAP_POLICY_DIGEST ${node.trust.bootstrapPolicyDigest}"`,
+    'echo "TELENO_BOOTSTRAP_TRUST https-origin object-sha256 network-mainnet signature-when-published"',
+    `curl --fail --silent --max-time 8 ${q(`${node.backup.publicBootstrapUrl}/latest.json`)} | grep -E '"network"\\s*:\\s*"mainnet"|"network":"mainnet"' >/dev/null`,
+    'echo "TELENO_BOOTSTRAP_TRUST_READY prodnet-public-bootstrap-v1"'
+  ].join('\n')
+}
+
+function prodnetObserverProofCommand(node: RemoteFleetNode): string {
+  return [
+    'set -eu',
+    `test ${q(node.network)} = mainnet`,
+    `test ${q(node.role)} = observer`,
+    'echo "TELENO_PRODNET_PROOF observer-only"',
+    'echo "TELENO_PRODNET_PROOF loopback-rpc-admin"',
+    `echo "TELENO_PRODNET_PROOF artifact=${node.trust.artifactDigest}"`,
+    `echo "TELENO_PRODNET_PROOF bootstrap_policy=${node.trust.bootstrapPolicyId}"`,
+    'echo "TELENO_PRODNET_PROOF_READY dry-run reviewed commands only"'
+  ].join('\n')
 }
 
 function commandStep(phase: RemotePlanPhase, command: string, options: Partial<RemoteCommandStep> = {}): RemoteCommandStep {
@@ -746,7 +1212,7 @@ function healthCheckCommand(node: RemoteFleetNode): string {
 }
 
 function installPreflightCommand(node: RemoteFleetNode): string {
-  const diskFloorKb = node.network === 'testnet' ? 20 * 1024 * 1024 : 80 * 1024 * 1024
+  const diskFloorKb = node.network === 'testnet' ? 20 * 1024 * 1024 : 120 * 1024 * 1024
   const ports = [
     bindPort(node.ports.jsonrpcHostBind),
     node.ports.p2pPublic,
@@ -756,12 +1222,22 @@ function installPreflightCommand(node: RemoteFleetNode): string {
     'set -eu',
     'uname -a',
     `df -Pk ${remotePath(node.paths.baseDir)} 2>/dev/null || df -Pk "$HOME" / || true`,
-    'docker --version || true',
+    'docker --version || { echo "TELENO_STOP_CRITERIA: docker/systemd prerequisite missing"; exit 65; }',
     `available_kb=$(df -Pk "$HOME" | awk 'NR==2 {print $4}')`,
     `if [ "$available_kb" -lt ${diskFloorKb} ]; then echo "TELENO_STOP_CRITERIA: disk floor violation"; exit 65; fi`,
     `if [ -e ${remotePath(node.paths.baseDir)} ]; then echo "TELENO_STOP_CRITERIA: disposable BASEDIR already exists"; exit 65; fi`,
     `if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fx ${q(serviceName(node))} >/dev/null; then echo "TELENO_STOP_CRITERIA: container already exists"; exit 65; fi`,
     ...ports.map(portInUseGuard)
+  ].join('\n')
+}
+
+function prodnetProofReferenceCommand(node: RemoteFleetNode): string {
+  return [
+    'set -eu',
+    `echo "TELENO_PRODNET_PROOF_RECEIPT ${node.trust.prodnetObserverProofRef}"`,
+    `echo "TELENO_ARTIFACT_DIGEST_PINNED ${node.trust.artifactDigest}"`,
+    `echo "TELENO_BOOTSTRAP_POLICY ${node.trust.bootstrapPolicyId}"`,
+    'echo "TELENO_PRODNET_OBSERVER_ONLY block_production_disabled"'
   ].join('\n')
 }
 
@@ -786,11 +1262,35 @@ export function generateRemoteCommandPlan(
 
   notices.push({ code: 'dryRunOnly', field: node.id })
   if (action === 'rollback' || action === 'cleanup') notices.push({ code: 'destructiveConfirmationRequired', field: node.id })
-  if (node.network === 'mainnet' && ['install-observer', 'restore-public-bootstrap', 'upgrade', 'rollback', 'cleanup'].includes(action)) {
+  if (node.network === 'mainnet' && ['install-observer', 'restore-public-bootstrap', 'start-observer', 'upgrade', 'rollback', 'cleanup'].includes(action)) {
     notices.push({ code: 'prodnetConfirmationRequired', field: node.id })
   }
+  if (isProdnetObserverMutation(action, node) || action === 'prodnet-observer-proof') {
+    if (!hasPinnedArtifactDigest(node)) notices.push({ code: 'prodnetArtifactTrustRequired', field: node.id, value: node.trust.artifactDigest || node.runtime.image })
+    if (!hasProdnetBootstrapPolicy(node)) notices.push({ code: 'prodnetBootstrapPolicyRequired', field: node.id, value: node.trust.bootstrapPolicyId })
+    if (isProdnetObserverMutation(action, node) && !hasProdnetDryRunProof(node)) {
+      notices.push({ code: 'prodnetDryRunProofRequired', field: node.id, value: node.trust.prodnetObserverProofRef })
+    }
+  }
 
-  if (action === 'install-observer') {
+  const prodnetMutation = isProdnetObserverMutation(action, node)
+  if (prodnetMutation) {
+    steps.push(
+      commandStep('proof', ssh(node, prodnetProofReferenceCommand(node))),
+      commandStep('trust', ssh(node, prodnetArtifactTrustCommand(node))),
+      commandStep('bootstrap', ssh(node, prodnetBootstrapTrustCommand(node)))
+    )
+  }
+
+  if (action === 'prodnet-observer-proof') {
+    steps.push(
+      commandStep('preflight', ssh(node, installPreflightCommand(node))),
+      commandStep('trust', ssh(node, prodnetArtifactTrustCommand(node))),
+      commandStep('bootstrap', ssh(node, prodnetBootstrapTrustCommand(node))),
+      commandStep('proof', ssh(node, prodnetObserverProofCommand(node))),
+      commandStep('verify', ssh(node, `echo "TELENO_PRODNET_PROOF_READY ${node.id} observer-only"`))
+    )
+  } else if (action === 'install-observer') {
     steps.push(
       commandStep('preflight', ssh(node, installPreflightCommand(node))),
       commandStep('artifact', ssh(node, artifactEvidenceCommand(node)), { hostMutation: true }),
@@ -868,7 +1368,10 @@ export function generateRemoteCommandPlan(
     'duplicateBaseDir',
     'duplicatePort',
     'duplicateProducerProfile',
-    'publicBootstrapMissing'
+    'publicBootstrapMissing',
+    'prodnetArtifactTrustRequired',
+    'prodnetBootstrapPolicyRequired',
+    'prodnetDryRunProofRequired'
   ]
   return {
     action,
@@ -886,4 +1389,37 @@ export function generateRemoteFleetCommandPlans(
 ): RemoteCommandPlan[] {
   const selectedIds = nodeIds.length > 0 ? nodeIds : inventory.nodes.map((node) => node.id)
   return selectedIds.map((nodeId) => generateRemoteCommandPlan(inventory, nodeId, action))
+}
+
+export function generateRemoteFleetRolloutPlan(
+  inventory: RemoteFleetInventory,
+  nodeIds: string[],
+  action: RemoteNodeAction
+): RemoteFleetRolloutPlan {
+  const selectedIds = nodeIds.length > 0 ? nodeIds : inventory.nodes.map((node) => node.id)
+  const entries = selectedIds.flatMap((nodeId) => {
+    const node = inventory.nodes.find((candidate) => candidate.id === nodeId)
+    if (!node) return []
+    const plan = generateRemoteCommandPlan(inventory, node.id, action)
+    return [{
+      nodeId: node.id,
+      label: node.label,
+      network: node.network,
+      status: 'reviewing' as const,
+      plan,
+      blocked: plan.blocked,
+      stepCount: plan.steps.length,
+      notices: plan.notices,
+      confirmationPhrase: `EXECUTE ${node.id} ${node.network} ${action}${action === 'rollback' || action === 'cleanup' ? ' PRESERVE_DB' : ''}`
+    }]
+  })
+
+  return {
+    action,
+    nodeIds: entries.map((entry) => entry.nodeId),
+    entries,
+    blocked: entries.length === 0 || entries.some((entry) => entry.blocked),
+    stepCount: entries.reduce((total, entry) => total + entry.stepCount, 0),
+    networks: [...new Set(entries.map((entry) => entry.network))]
+  }
 }

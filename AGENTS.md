@@ -87,6 +87,20 @@ running app or with a screenshot and verify that text remains readable, labels
 and values do not clash, the layout works at the expected window size, and the
 new UI does not draw more attention than the feature warrants.
 
+## First-Run Setup Guardrail
+
+The first-run installation assistant must not open during normal development
+runs, Vite browser runs, or Electron dev runs. It should open only when the app
+is running as a packaged installation, such as the macOS DMG-installed app, and
+Electron reports an incomplete first-run setup state for that packaged install.
+
+Do not use browser `localStorage` alone as a fallback trigger to launch the
+assistant. If the Electron first-run bridge is unavailable, fails, or reports a
+non-packaged/dev runtime, keep the assistant closed and show the normal app.
+
+The assistant is observer-only. It launches an observer node and must not
+configure, register, fund, or activate a producer.
+
 ## Versioning And Build Identity Guardrail
 
 Every packaged Koinos One app build must have a traceable build identity:

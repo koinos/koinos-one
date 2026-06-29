@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   defaultRemoteFleetInventory,
   generateRemoteCommandPlan,
+  generateRemoteFleetRolloutPlan,
+  importRemoteProviderMetadata,
   normalizeRemoteFleetInventory,
   recommendedRemoteBaseDir,
   validateRemoteFleetInventory,
@@ -9,15 +11,22 @@ import {
   type RemoteFleetInventory,
   type RemoteFleetInventoryInput,
   type RemoteFleetNode,
+  type RemoteFleetRolloutNodeStatus,
+  type RemoteFleetRolloutPlan,
   type RemoteNodeAction,
   type RemoteNodeHealthState,
+  type RemoteProviderImportIssue,
   type RemotePlanNotice,
   type RemotePlanPhase
 } from '../../app/remote-nodes'
 import {
+  createRemoteFleetRolloutReceipt,
   createRemoteExecutionReceipt,
+  remoteFleetRolloutConfirmationPhrase,
   remoteExecutionConfirmationPhrase,
+  validateRemoteFleetRolloutGate,
   validateRemoteExecutionGate,
+  type RemoteFleetRolloutReceipt,
   type RemoteExecutionProgressEvent,
   type RemoteExecutionReceipt,
   type RemoteExecutionStepStatus
@@ -43,6 +52,7 @@ const SIMPLE_READ_ONLY_ACTIONS: RemoteNodeAction[] = [
 ]
 
 const EXPERT_ACTIONS: RemoteNodeAction[] = [
+  'prodnet-observer-proof',
   'install-observer',
   'restore-public-bootstrap',
   'start-observer',
@@ -83,6 +93,16 @@ function phaseHelpText(t: RemoteNodesPanelProps['t'], phase: RemotePlanPhase): s
   return t(`remote.phaseHelp.${phase}`)
 }
 
+function providerImportIssueText(
+  t: RemoteNodesPanelProps['t'],
+  issue: RemoteProviderImportIssue
+): string {
+  return t(`remote.providerImportIssue.${issue.code}`, {
+    field: issue.field || '',
+    value: issue.value || ''
+  })
+}
+
 function stepStatusClass(status: RemoteExecutionStepStatus): string {
   if (status === 'succeeded') return 'is-ok'
   if (status === 'running') return 'is-waiting'
@@ -113,6 +133,13 @@ function normalizeReceipt(value: unknown): RemoteExecutionReceipt | null {
   const receipt = value as Partial<RemoteExecutionReceipt>
   if (!receipt.id || !receipt.nodeId || !receipt.action || !receipt.health) return null
   return receipt as RemoteExecutionReceipt
+}
+
+function normalizeFleetReceipt(value: unknown): RemoteFleetRolloutReceipt | null {
+  if (!value || typeof value !== 'object') return null
+  const receipt = value as Partial<RemoteFleetRolloutReceipt>
+  if (receipt.kind !== 'fleet-rollout' || !receipt.id || !receipt.rolloutId || !receipt.action || !Array.isArray(receipt.nodeResults)) return null
+  return receipt as RemoteFleetRolloutReceipt
 }
 
 function normalizeProgressEvent(value: unknown): RemoteExecutionProgressEvent | null {
@@ -211,6 +238,11 @@ function nodeWithField(node: RemoteFleetNode, field: string, value: string): Rem
   if (field === 'ports.p2pPublic') return { ...node, ports: { ...node.ports, p2pPublic: value } }
   if (field === 'ports.backupAdminListen') return { ...node, ports: { ...node.ports, backupAdminListen: value } }
   if (field === 'backup.publicBootstrapUrl') return { ...node, backup: { ...node.backup, publicBootstrapUrl: value } }
+  if (field === 'trust.artifactDigest') return { ...node, trust: { ...node.trust, artifactDigest: value } }
+  if (field === 'trust.artifactSignatureRef') return { ...node, trust: { ...node.trust, artifactSignatureRef: value } }
+  if (field === 'trust.bootstrapPolicyId') return { ...node, trust: { ...node.trust, bootstrapPolicyId: value } }
+  if (field === 'trust.bootstrapPolicyDigest') return { ...node, trust: { ...node.trust, bootstrapPolicyDigest: value } }
+  if (field === 'trust.prodnetObserverProofRef') return { ...node, trust: { ...node.trust, prodnetObserverProofRef: value } }
   return node
 }
 
@@ -225,7 +257,18 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
   const [confirmation, setConfirmation] = useState('')
   const [executionState, setExecutionState] = useState('')
   const [executing, setExecuting] = useState(false)
+  const [batchConfirmation, setBatchConfirmation] = useState('')
+  const [batchExecutionState, setBatchExecutionState] = useState('')
+  const [batchExecuting, setBatchExecuting] = useState(false)
+  const [batchCancelRequested, setBatchCancelRequested] = useState(false)
+  const batchCancelRequestedRef = useRef(false)
+  const [batchSelectedNodeIds, setBatchSelectedNodeIds] = useState<string[]>([])
+  const [batchNodeStatuses, setBatchNodeStatuses] = useState<Record<string, RemoteFleetRolloutNodeStatus>>({})
   const [receipts, setReceipts] = useState<RemoteExecutionReceipt[]>([])
+  const [fleetReceipts, setFleetReceipts] = useState<RemoteFleetRolloutReceipt[]>([])
+  const [providerImportInput, setProviderImportInput] = useState('')
+  const [providerImportNetwork, setProviderImportNetwork] = useState<RemoteFleetNode['network']>('testnet')
+  const [providerImportState, setProviderImportState] = useState('')
   const [progressEvents, setProgressEvents] = useState<RemoteExecutionProgressEvent[]>([])
   const [activeProgressPlanId, setActiveProgressPlanId] = useState('')
   const receiptAutoSelectionDone = useRef(false)
@@ -242,9 +285,26 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
     () => selectedNode ? generateRemoteCommandPlan(inventory, selectedNode.id, activeAction) : null,
     [activeAction, inventory, selectedNode]
   )
+  const providerImportResult = useMemo(
+    () => providerImportInput.trim()
+      ? importRemoteProviderMetadata(providerImportInput, {
+        network: providerImportNetwork,
+        existingInventory: inventory
+      })
+      : null,
+    [inventory, providerImportInput, providerImportNetwork]
+  )
+  const rolloutPlan = useMemo<RemoteFleetRolloutPlan | null>(
+    () => advancedMode ? generateRemoteFleetRolloutPlan(inventory, batchSelectedNodeIds, activeAction) : null,
+    [activeAction, advancedMode, batchSelectedNodeIds, inventory]
+  )
   const executionGate = useMemo(
     () => plan ? validateRemoteExecutionGate(inventory, plan, confirmation) : null,
     [confirmation, inventory, plan]
+  )
+  const rolloutGate = useMemo(
+    () => rolloutPlan ? validateRemoteFleetRolloutGate(inventory, rolloutPlan, batchConfirmation) : null,
+    [batchConfirmation, inventory, rolloutPlan]
   )
   const visibleProgressEvents = useMemo(() => {
     const matchingEvents = progressEvents.filter((event) =>
@@ -284,6 +344,7 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
       .then((result) => {
         if (cancelled || !result?.ok) return
         setReceipts((result.receipts || []).map(normalizeReceipt).filter(Boolean) as RemoteExecutionReceipt[])
+        setFleetReceipts((result.receipts || []).map(normalizeFleetReceipt).filter(Boolean) as RemoteFleetRolloutReceipt[])
       })
       .catch(() => undefined)
     return () => {
@@ -328,9 +389,25 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
   }, [remoteBridge])
 
   useEffect(() => {
+    if (!advancedMode) return
+    setBatchSelectedNodeIds((current) => {
+      const existing = current.filter((nodeId) => inventory.nodes.some((node) => node.id === nodeId))
+      const preferred = inventory.nodes.filter((node) => node.network === 'testnet').map((node) => node.id)
+      if (existing.length >= 2 || (existing.length > 0 && preferred.length < 2)) return existing
+      return preferred.length > 0 ? preferred : inventory.nodes.map((node) => node.id)
+    })
+  }, [advancedMode, inventory.nodes])
+
+  useEffect(() => {
     setConfirmation('')
     setExecutionState('')
   }, [activeAction, selectedNodeId])
+
+  useEffect(() => {
+    setBatchConfirmation('')
+    setBatchExecutionState('')
+    setBatchNodeStatuses({})
+  }, [activeAction, batchSelectedNodeIds.join('|')])
 
   function setSelectedField(field: string, value: string) {
     if (!selectedNode) return
@@ -385,6 +462,24 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
     setSelectedNodeId(nextNodes[0]?.id || '')
   }
 
+  function addProviderImportedNodes() {
+    if (!providerImportResult?.ok || providerImportResult.nodes.length === 0) {
+      setProviderImportState(t('remote.providerImportBlocked'))
+      return
+    }
+    const nextInventory = normalizeRemoteFleetInventory({
+      version: 1,
+      nodes: [
+        ...inventory.nodes,
+        ...providerImportResult.nodes
+      ]
+    })
+    setInventory(nextInventory)
+    setSelectedNodeId(providerImportResult.nodes[0].id)
+    setProviderImportState(t('remote.providerImportAdded', { count: providerImportResult.nodes.length }))
+    setProviderImportInput('')
+  }
+
   async function executePlan() {
     if (!selectedNode || !plan || !executionGate) return
     if (!executionGate.ok) {
@@ -435,6 +530,128 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
       setExecutionState(advancedMode && error instanceof Error ? error.message : t('remote.executionFailed'))
     } finally {
       setExecuting(false)
+    }
+  }
+
+  function toggleBatchNode(nodeId: string) {
+    setBatchSelectedNodeIds((current) =>
+      current.includes(nodeId)
+        ? current.filter((candidate) => candidate !== nodeId)
+        : [...current, nodeId]
+    )
+  }
+
+  function setBatchStatus(nodeId: string, status: RemoteFleetRolloutNodeStatus) {
+    setBatchNodeStatuses((current) => ({ ...current, [nodeId]: status }))
+  }
+
+  function moveBatchNode(nodeId: string, direction: -1 | 1) {
+    setBatchSelectedNodeIds((current) => {
+      const index = current.indexOf(nodeId)
+      const nextIndex = index + direction
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current
+      const next = [...current]
+      const [item] = next.splice(index, 1)
+      next.splice(nextIndex, 0, item)
+      return next
+    })
+  }
+
+  async function executeBatchRollout() {
+    if (!rolloutPlan || !rolloutGate) return
+    if (!rolloutGate.ok) {
+      const output = rolloutGate.codes.map((code) => t(`remote.fleetGate.${code}`)).join('\n')
+      const fleetReceipt = createRemoteFleetRolloutReceipt({
+        rollout: rolloutPlan,
+        status: 'blocked',
+        nodeReceipts: [],
+        skippedNodeIds: rolloutPlan.entries.map((entry) => entry.nodeId),
+        stopReason: output,
+        output
+      })
+      setFleetReceipts((current) => [...current, fleetReceipt].slice(-20))
+      setBatchExecutionState(output)
+      if (remoteBridge?.appendReceipt) await remoteBridge.appendReceipt(fleetReceipt).catch(() => undefined)
+      return
+    }
+    if (!remoteBridge?.executePlan) {
+      setBatchExecutionState(t('remote.executorUnavailable'))
+      return
+    }
+
+    const startedAt = new Date().toISOString()
+    const nodeReceipts: RemoteExecutionReceipt[] = []
+    const skippedNodeIds: string[] = []
+    let stopReason = ''
+    batchCancelRequestedRef.current = false
+    setBatchCancelRequested(false)
+    setBatchExecuting(true)
+    setBatchExecutionState(t('remote.fleetExecutionRunning'))
+    setBatchNodeStatuses(Object.fromEntries(
+      rolloutPlan.entries.map((entry) => [entry.nodeId, 'confirmed' as RemoteFleetRolloutNodeStatus])
+    ) as Record<string, RemoteFleetRolloutNodeStatus>)
+
+    try {
+      for (const [index, entry] of rolloutPlan.entries.entries()) {
+        if (batchCancelRequestedRef.current) {
+          stopReason = t('remote.fleetStoppedByUser')
+          skippedNodeIds.push(...rolloutPlan.entries.slice(index).map((candidate) => candidate.nodeId))
+          for (const skipped of skippedNodeIds) setBatchStatus(skipped, 'skipped')
+          break
+        }
+        const node = inventory.nodes.find((candidate) => candidate.id === entry.nodeId)
+        if (!node) {
+          stopReason = t('remote.fleetNodeMissing', { node: entry.nodeId })
+          skippedNodeIds.push(entry.nodeId, ...rolloutPlan.entries.slice(index + 1).map((candidate) => candidate.nodeId))
+          setBatchStatus(entry.nodeId, 'failed')
+          break
+        }
+        setSelectedNodeId(node.id)
+        setBatchStatus(node.id, 'running')
+        const result = await remoteBridge.executePlan({
+          node,
+          plan: entry.plan,
+          confirmation: entry.confirmationPhrase
+        })
+        const receipt = normalizeReceipt(result.receipt)
+        if (receipt) {
+          nodeReceipts.push(receipt)
+          setReceipts((current) => [...current, receipt].slice(-50))
+          setInventory((current) => updateNode(current, receipt.nodeId, (candidate) => ({
+            ...candidate,
+            status: {
+              ...candidate.status,
+              health: receipt.health.state,
+              lastCheck: receipt.completedAt
+            }
+          })))
+        }
+        const failed = !result.ok || !receipt || receipt.status !== 'succeeded'
+        setBatchStatus(node.id, failed ? 'failed' : 'complete')
+        if (failed) {
+          stopReason = receipt?.health.summary || result.output || t('remote.fleetStoppedOnFailure')
+          skippedNodeIds.push(...rolloutPlan.entries.slice(index + 1).map((candidate) => candidate.nodeId))
+          for (const skipped of skippedNodeIds) setBatchStatus(skipped, 'skipped')
+          break
+        }
+      }
+    } catch (error) {
+      stopReason = advancedMode && error instanceof Error ? error.message : t('remote.fleetStoppedOnFailure')
+    } finally {
+      const fleetReceipt = createRemoteFleetRolloutReceipt({
+        rollout: rolloutPlan,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        nodeReceipts,
+        skippedNodeIds,
+        stopReason
+      })
+      setFleetReceipts((current) => [...current, fleetReceipt].slice(-20))
+      if (remoteBridge?.appendReceipt) await remoteBridge.appendReceipt(fleetReceipt).catch(() => undefined)
+      setBatchExecutionState(stopReason ? t('remote.fleetExecutionStopped') : t('remote.fleetExecutionSucceeded'))
+      setBatchExecuting(false)
+      setBatchCancelRequested(false)
+      batchCancelRequestedRef.current = false
     }
   }
 
@@ -573,6 +790,30 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
                     <span>{t('remote.fieldBootstrapUrl')}</span>
                     <input value={selectedNode.backup.publicBootstrapUrl} onChange={(event) => setSelectedField('backup.publicBootstrapUrl', event.target.value)} />
                   </label>
+                  {selectedNode.network === 'mainnet' && (
+                    <>
+                      <label>
+                        <span>{t('remote.fieldArtifactDigest')}</span>
+                        <input value={selectedNode.trust.artifactDigest} onChange={(event) => setSelectedField('trust.artifactDigest', event.target.value)} />
+                      </label>
+                      <label>
+                        <span>{t('remote.fieldArtifactSignatureRef')}</span>
+                        <input value={selectedNode.trust.artifactSignatureRef} onChange={(event) => setSelectedField('trust.artifactSignatureRef', event.target.value)} />
+                      </label>
+                      <label>
+                        <span>{t('remote.fieldBootstrapPolicyId')}</span>
+                        <input value={selectedNode.trust.bootstrapPolicyId} onChange={(event) => setSelectedField('trust.bootstrapPolicyId', event.target.value)} />
+                      </label>
+                      <label>
+                        <span>{t('remote.fieldBootstrapPolicyDigest')}</span>
+                        <input value={selectedNode.trust.bootstrapPolicyDigest} onChange={(event) => setSelectedField('trust.bootstrapPolicyDigest', event.target.value)} />
+                      </label>
+                      <label>
+                        <span>{t('remote.fieldProdnetProofRef')}</span>
+                        <input value={selectedNode.trust.prodnetObserverProofRef} onChange={(event) => setSelectedField('trust.prodnetObserverProofRef', event.target.value)} />
+                      </label>
+                    </>
+                  )}
                 </>
               )}
               <div className="remote-editor-actions">
@@ -601,6 +842,90 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
               <li>{t('remote.providerChecklist.noToken')}</li>
             </ul>
           </section>
+
+          <section className="remote-provider-import" aria-label={t('remote.providerImportTitle')}>
+            <div className="node-services-header">
+              <div>
+                <h3>{t('remote.providerImportTitle')}</h3>
+                <p className="settings-inline-help">{t('remote.providerImportDescription')}</p>
+              </div>
+            </div>
+            <div className="settings-form">
+              <label>
+                <span>{t('remote.providerImportNetwork')}</span>
+                <select
+                  value={providerImportNetwork}
+                  onChange={(event) => setProviderImportNetwork(event.target.value as RemoteFleetNode['network'])}
+                >
+                  <option value="testnet">{t('remote.network.testnet')}</option>
+                  <option value="mainnet">{t('remote.network.mainnet')}</option>
+                  <option value="custom">{t('remote.network.custom')}</option>
+                </select>
+              </label>
+              <label>
+                <span>{t('remote.providerImportInput')}</span>
+                <textarea
+                  value={providerImportInput}
+                  onChange={(event) => {
+                    setProviderImportInput(event.target.value)
+                    setProviderImportState('')
+                  }}
+                  placeholder={t('remote.providerImportPlaceholder')}
+                  rows={8}
+                />
+              </label>
+            </div>
+            {providerImportResult && (
+              <div className="remote-provider-import-review">
+                <p className={`settings-inline-help ${providerImportResult.ok ? 'is-ok' : 'is-error'}`.trim()}>
+                  {providerImportResult.ok
+                    ? t('remote.providerImportReady', { count: providerImportResult.nodes.length })
+                    : t('remote.providerImportBlocked')}
+                </p>
+                {providerImportResult.issues.length > 0 && (
+                  <div className="remote-notice-list">
+                    {providerImportResult.issues.map((issue, index) => (
+                      <p key={`${issue.code}-${index}`} className="settings-inline-help is-error">
+                        {providerImportIssueText(t, issue)}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {providerImportResult.nodes.length > 0 && (
+                  <ol className="remote-provider-import-nodes">
+                    {providerImportResult.nodes.map((node) => (
+                      <li key={node.id}>
+                        <strong>{node.label}</strong>
+                        <span>{t('remote.providerImportNodeSummary', {
+                          network: t(`remote.network.${node.network}`),
+                          alias: node.connectionRef,
+                          basedir: node.paths.baseDir
+                        })}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {advancedMode && (
+                  <div className="remote-provider-import-preview">
+                    <strong>{t('remote.providerImportPreviewTitle')}</strong>
+                    <pre>{providerImportResult.redactedPreview || t('remote.providerImportPreviewEmpty')}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="remote-editor-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={addProviderImportedNodes}
+                disabled={!providerImportResult?.ok}
+              >
+                {t('remote.providerImportAddReviewed')}
+              </button>
+            </div>
+            <p className="settings-inline-help">{t('remote.providerImportSaveReminder')}</p>
+            {providerImportState && <p className="settings-inline-help is-ok">{providerImportState}</p>}
+          </section>
         </section>
 
         <section className="remote-plan-panel">
@@ -626,6 +951,142 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
               </button>
             ))}
           </div>
+
+          {advancedMode && rolloutPlan && (
+            <section className="remote-fleet-rollout" aria-label={t('remote.fleetTitle')}>
+              <div className="node-services-header">
+                <div>
+                  <h3>{t('remote.fleetTitle')}</h3>
+                  <p className="settings-inline-help">{t('remote.fleetDescription')}</p>
+                </div>
+              </div>
+              <div className="remote-fleet-node-picker" role="group" aria-label={t('remote.fleetNodeSelection')}>
+                {inventory.nodes.map((node) => (
+                  <label key={node.id}>
+                    <input
+                      type="checkbox"
+                      checked={batchSelectedNodeIds.includes(node.id)}
+                      onChange={() => toggleBatchNode(node.id)}
+                      disabled={batchExecuting}
+                    />
+                    <span>{node.label}</span>
+                    <em>{node.network}</em>
+                  </label>
+                ))}
+              </div>
+              <div className="remote-plan-summary">
+                <div>
+                  <span>{t('remote.selectedAction')}</span>
+                  <strong>{actionLabel(t, rolloutPlan.action, true)}</strong>
+                </div>
+                <div>
+                  <span>{t('remote.fleetSelectedNodes')}</span>
+                  <strong>{t('remote.fleetSelectedNodesValue', { count: rolloutPlan.entries.length })}</strong>
+                </div>
+                <div>
+                  <span>{t('remote.fleetExecutionMode')}</span>
+                  <strong>{t('remote.fleetSequentialOnly')}</strong>
+                </div>
+              </div>
+              <ol className="remote-fleet-review-list">
+                {rolloutPlan.entries.map((entry, index) => {
+                  const status = batchNodeStatuses[entry.nodeId] || entry.status
+                  const phases = entry.plan.steps.map((step) => phaseText(t, step.phase)).join(' / ')
+                  const visibleNotices = entry.notices.filter((notice) => notice.code !== 'dryRunOnly').slice(0, 3)
+                  return (
+                    <li key={entry.nodeId} className={stepStatusClass(status === 'complete' ? 'succeeded' : status === 'failed' ? 'failed' : status === 'skipped' ? 'skipped' : status === 'running' ? 'running' : 'queued')}>
+                      <span>{index + 1}</span>
+                      <div>
+                        <div className="remote-progress-step-title">
+                          <strong>{entry.label}</strong>
+                          <em>{t(`remote.fleetStatus.${status}`)}</em>
+                        </div>
+                        <div className="remote-fleet-order-controls">
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => moveBatchNode(entry.nodeId, -1)}
+                            disabled={batchExecuting || index === 0}
+                          >
+                            {t('remote.fleetMoveUp')}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => moveBatchNode(entry.nodeId, 1)}
+                            disabled={batchExecuting || index === rolloutPlan.entries.length - 1}
+                          >
+                            {t('remote.fleetMoveDown')}
+                          </button>
+                        </div>
+                        <p>{t('remote.fleetNodePlanSummary', { steps: entry.stepCount, phases })}</p>
+                        {entry.blocked && <p className="settings-inline-help is-error">{t('remote.fleetNodeBlocked')}</p>}
+                        {visibleNotices.map((notice, noticeIndex) => (
+                          <p key={`${entry.nodeId}-${notice.code}-${noticeIndex}`} className="settings-inline-help">
+                            {noticeText(t, notice, true)}
+                          </p>
+                        ))}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ol>
+              <div className="remote-confirmation-box">
+                <span>{t('remote.fleetConfirmationPhrase')}</span>
+                <code>{remoteFleetRolloutConfirmationPhrase(rolloutPlan)}</code>
+              </div>
+              <div className="remote-fleet-required-phrases">
+                <strong>{t('remote.fleetPerNodeConfirmations')}</strong>
+                {rolloutGate?.requiredPhrases.slice(1).map((phrase) => <code key={phrase}>{phrase}</code>)}
+              </div>
+              <label className="remote-confirmation-input">
+                <span>{t('remote.fleetConfirmationInput')}</span>
+                <textarea
+                  value={batchConfirmation}
+                  onChange={(event) => setBatchConfirmation(event.target.value)}
+                  disabled={batchExecuting}
+                  rows={Math.min(6, Math.max(3, (rolloutGate?.requiredPhrases.length || 1) + 1))}
+                />
+              </label>
+              {rolloutGate && !rolloutGate.ok && (
+                <div className="remote-notice-list">
+                  {rolloutGate.codes.map((code) => (
+                    <p key={code} className="settings-inline-help is-error">
+                      {t(`remote.fleetGate.${code}`)}
+                    </p>
+                  ))}
+                </div>
+              )}
+              <div className="remote-editor-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void executeBatchRollout()}
+                  disabled={batchExecuting || !rolloutGate?.ok}
+                >
+                  {batchExecuting ? t('remote.fleetExecuting') : t('remote.fleetExecute')}
+                </button>
+                {batchExecuting && (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      batchCancelRequestedRef.current = true
+                      setBatchCancelRequested(true)
+                      setBatchExecutionState(t('remote.fleetCancelAfterCurrent'))
+                    }}
+                  >
+                    {batchCancelRequested ? t('remote.fleetCancelRequested') : t('remote.fleetCancel')}
+                  </button>
+                )}
+              </div>
+              {batchExecutionState && (
+                advancedMode
+                  ? <pre className="remote-output">{batchExecutionState}</pre>
+                  : <p className="settings-inline-help">{batchExecutionState}</p>
+              )}
+            </section>
+          )}
 
           {selectedNode && plan && (
             <div className="remote-plan">
@@ -738,6 +1199,26 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
                     <p>{plan.action === 'rollback' ? t('remote.destructiveRollbackDescription') : t('remote.destructiveCleanupDescription')}</p>
                   </div>
                 )}
+                {advancedMode && selectedNode.network === 'mainnet' && (
+                  <div className="remote-prodnet-trust-panel">
+                    <strong>{t('remote.prodnetTrustTitle')}</strong>
+                    <dl>
+                      <div>
+                        <dt>{t('remote.fieldArtifactDigest')}</dt>
+                        <dd className="mono">{selectedNode.trust.artifactDigest || t('remote.prodnetTrustMissing')}</dd>
+                      </div>
+                      <div>
+                        <dt>{t('remote.fieldBootstrapPolicyId')}</dt>
+                        <dd className="mono">{selectedNode.trust.bootstrapPolicyId || t('remote.prodnetTrustMissing')}</dd>
+                      </div>
+                      <div>
+                        <dt>{t('remote.fieldProdnetProofRef')}</dt>
+                        <dd className="mono">{selectedNode.trust.prodnetObserverProofRef || t('remote.prodnetTrustMissing')}</dd>
+                      </div>
+                    </dl>
+                    <p>{t('remote.prodnetTrustDescription')}</p>
+                  </div>
+                )}
                 <div className="remote-confirmation-box">
                   <span>{t('remote.confirmationPhrase')}</span>
                   <code>{remoteExecutionConfirmationPhrase(selectedNode, plan.action)}</code>
@@ -799,6 +1280,31 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
                 <p className="settings-inline-help">{t('remote.receiptsDescription')}</p>
               </div>
             </div>
+            {advancedMode && fleetReceipts.length > 0 && (
+              <div className="remote-fleet-receipt-list">
+                {fleetReceipts.slice(-3).reverse().map((receipt) => (
+                  <article className="remote-receipt" key={receipt.id}>
+                    <div className="remote-command-step-header">
+                      <strong>{t('remote.fleetReceiptTitle', { action: actionLabel(t, receipt.action, true), count: receipt.selectedNodeIds.length })}</strong>
+                      <span className={receipt.status === 'succeeded' ? 'is-ok' : receipt.status === 'blocked' ? 'is-warn' : 'is-error'}>
+                        {t(`remote.fleetReceipt.${receipt.status}`)}
+                      </span>
+                    </div>
+                    <p className="settings-inline-help">{receipt.completedAt} · {receipt.stopReason || t('remote.fleetReceiptNoStop')}</p>
+                    <ol className="remote-receipt-steps">
+                      {receipt.nodeResults.map((nodeResult, index) => (
+                        <li key={`${receipt.id}-${nodeResult.nodeId}`} className={stepStatusClass(nodeResult.status === 'complete' ? 'succeeded' : nodeResult.status === 'failed' ? 'failed' : nodeResult.status === 'skipped' ? 'skipped' : 'queued')}>
+                          <span>{index + 1}</span>
+                          <strong>{nodeResult.label}</strong>
+                          <em>{t(`remote.fleetStatus.${nodeResult.status}`)}</em>
+                        </li>
+                      ))}
+                    </ol>
+                    {receipt.output && <pre className="remote-output">{receipt.output}</pre>}
+                  </article>
+                ))}
+              </div>
+            )}
             {receipts.length === 0 ? (
               <p className="settings-inline-help">{t('remote.receiptsEmpty')}</p>
             ) : (

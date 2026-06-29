@@ -1,6 +1,8 @@
 import type {
   RemoteCommandPlan,
   RemoteFleetInventory,
+  RemoteFleetRolloutPlan,
+  RemoteFleetRolloutNodeStatus,
   RemoteFleetNode,
   RemoteNodeAction,
   RemoteNodeHealthState,
@@ -12,6 +14,9 @@ export type RemoteExecutionGateCode =
   | 'plan-blocked'
   | 'node-not-found'
   | 'prodnet-execution-blocked'
+  | 'prodnet-artifact-trust-required'
+  | 'prodnet-bootstrap-policy-required'
+  | 'prodnet-dry-run-proof-required'
   | 'producer-unavailable'
   | 'unsafe-command'
   | 'unresolved-placeholder'
@@ -80,14 +85,76 @@ export type RemoteExecutionReceipt = {
   output: string
 }
 
+export type RemoteFleetRolloutGateCode =
+  | RemoteExecutionGateCode
+  | 'fleet-confirmation-required'
+  | 'fleet-empty'
+  | 'fleet-single-node'
+  | 'prodnet-batch-mutation-blocked'
+
+export type RemoteFleetRolloutGateResult = {
+  ok: boolean
+  expectedConfirmation: string
+  requiredPhrases: string[]
+  codes: RemoteFleetRolloutGateCode[]
+}
+
+export type RemoteFleetRolloutNodeReceiptSummary = {
+  nodeId: string
+  label: string
+  network: string
+  status: RemoteFleetRolloutNodeStatus
+  receiptId: string | null
+  healthState: RemoteNodeHealthState | string
+  summary: string
+}
+
+export type RemoteFleetRolloutReceipt = {
+  id: string
+  kind: 'fleet-rollout'
+  rolloutId: string
+  action: RemoteNodeAction
+  status: 'succeeded' | 'failed' | 'blocked' | 'paused'
+  startedAt: string
+  completedAt: string
+  selectedNodeIds: string[]
+  nodeAliases: string[]
+  nodeResults: RemoteFleetRolloutNodeReceiptSummary[]
+  stopReason: string
+  output: string
+}
+
 const EXECUTION_CONFIRMATION_PREFIX = 'EXECUTE'
 
 function isReadOnlyRemoteAction(action: RemoteNodeAction): boolean {
-  return action === 'status' || action === 'logs'
+  return action === 'status' || action === 'logs' || action === 'prodnet-observer-proof'
 }
 
 function isDbPreservingDestructiveAction(action: RemoteNodeAction): boolean {
   return action === 'rollback' || action === 'cleanup'
+}
+
+function isProdnetObserverMutation(node: RemoteFleetNode, action: RemoteNodeAction): boolean {
+  return node.network === 'mainnet' && (
+    action === 'install-observer' ||
+    action === 'restore-public-bootstrap' ||
+    action === 'start-observer'
+  )
+}
+
+function hasPinnedArtifactDigest(node: RemoteFleetNode): boolean {
+  return /^sha256:[a-f0-9]{64}$/i.test(node.trust.artifactDigest) && node.runtime.image.includes(`@${node.trust.artifactDigest}`)
+}
+
+function hasProdnetBootstrapPolicy(node: RemoteFleetNode): boolean {
+  return (
+    node.trust.bootstrapPolicyId === 'prodnet-public-bootstrap-v1' &&
+    node.backup.publicBootstrapUrl.includes('/backups/prodnet/teleno-bootstrap')
+  )
+}
+
+function hasProdnetDryRunProof(node: RemoteFleetNode): boolean {
+  return /^(remote|proof)-[A-Za-z0-9_-]+$/.test(node.trust.prodnetObserverProofRef)
 }
 
 function planStepsAreReadOnly(plan: RemoteCommandPlan): boolean {
@@ -96,7 +163,16 @@ function planStepsAreReadOnly(plan: RemoteCommandPlan): boolean {
 
 export function remoteExecutionConfirmationPhrase(node: RemoteFleetNode, action: RemoteNodeAction): string {
   const base = `${EXECUTION_CONFIRMATION_PREFIX} ${node.id} ${node.network} ${action}`
+  if (isProdnetObserverMutation(node, action)) {
+    return `${base} PROOF ${node.trust.prodnetObserverProofRef} ARTIFACT ${node.trust.artifactDigest} POLICY ${node.trust.bootstrapPolicyId} OBSERVER_ONLY`
+  }
+  if (node.network === 'mainnet' && action === 'prodnet-observer-proof') return `${base} OBSERVER_ONLY`
   return isDbPreservingDestructiveAction(action) ? `${base} PRESERVE_DB` : base
+}
+
+export function remoteFleetRolloutConfirmationPhrase(rollout: RemoteFleetRolloutPlan): string {
+  const base = `${EXECUTION_CONFIRMATION_PREFIX} FLEET ${rollout.action} ${rollout.entries.length} NODES SEQUENTIAL`
+  return isDbPreservingDestructiveAction(rollout.action) ? `${base} PRESERVE_DB` : base
 }
 
 function destructivePlanHasDbPreservationEvidence(plan: RemoteCommandPlan): boolean {
@@ -109,6 +185,19 @@ function destructivePlanHasDbPreservationEvidence(plan: RemoteCommandPlan): bool
     commandText.split('\n').some((line) => /\brm\s+-rf\b/i.test(line) && /(chain|blockchain|state|wallet|producer|config\.yml)/i.test(line))
   ) return false
   return true
+}
+
+function prodnetObserverPlanHasTrustEvidence(node: RemoteFleetNode, plan: RemoteCommandPlan): boolean {
+  const commandText = plan.steps.map((step) => step.command).join('\n')
+  return (
+    hasPinnedArtifactDigest(node) &&
+    hasProdnetBootstrapPolicy(node) &&
+    hasProdnetDryRunProof(node) &&
+    commandText.includes(`TELENO_PRODNET_PROOF_RECEIPT ${node.trust.prodnetObserverProofRef}`) &&
+    commandText.includes(`TELENO_ARTIFACT_DIGEST_PINNED ${node.trust.artifactDigest}`) &&
+    commandText.includes(`TELENO_BOOTSTRAP_POLICY ${node.trust.bootstrapPolicyId}`) &&
+    commandText.includes('TELENO_PRODNET_OBSERVER_ONLY')
+  )
 }
 
 function commandLooksUnsafe(command: string): boolean {
@@ -140,7 +229,12 @@ export function validateRemoteExecutionGate(
     codes.push('node-not-found')
   } else {
     if (plan.blocked) codes.push('plan-blocked')
-    if (node.network !== 'testnet' && (!isReadOnlyRemoteAction(plan.action) || !planStepsAreReadOnly(plan))) {
+    if (isProdnetObserverMutation(node, plan.action)) {
+      if (!hasPinnedArtifactDigest(node)) codes.push('prodnet-artifact-trust-required')
+      if (!hasProdnetBootstrapPolicy(node)) codes.push('prodnet-bootstrap-policy-required')
+      if (!hasProdnetDryRunProof(node)) codes.push('prodnet-dry-run-proof-required')
+      if (!prodnetObserverPlanHasTrustEvidence(node, plan)) codes.push('prodnet-execution-blocked')
+    } else if (node.network !== 'testnet' && (!isReadOnlyRemoteAction(plan.action) || !planStepsAreReadOnly(plan))) {
       codes.push('prodnet-execution-blocked')
     }
     if (node.producer.enabled || node.role === 'producer') codes.push('producer-unavailable')
@@ -160,6 +254,50 @@ export function validateRemoteExecutionGate(
     ok: codes.length === 0,
     expectedConfirmation,
     codes
+  }
+}
+
+export function validateRemoteFleetRolloutGate(
+  inventory: RemoteFleetInventory,
+  rollout: RemoteFleetRolloutPlan | null,
+  confirmation: string
+): RemoteFleetRolloutGateResult {
+  const expectedConfirmation = rollout ? remoteFleetRolloutConfirmationPhrase(rollout) : ''
+  const requiredPhrases = rollout
+    ? [
+        expectedConfirmation,
+        ...rollout.entries.map((entry) => entry.confirmationPhrase)
+      ]
+    : []
+  const codes: RemoteFleetRolloutGateCode[] = []
+  const confirmationText = confirmation.trim()
+
+  if (!rollout || rollout.entries.length === 0) {
+    codes.push('fleet-empty')
+  } else {
+    if (rollout.entries.length < 2) codes.push('fleet-single-node')
+    if (rollout.entries.some((entry) => {
+      const node = inventory.nodes.find((candidate) => candidate.id === entry.nodeId)
+      return node ? isProdnetObserverMutation(node, rollout.action) : false
+    })) codes.push('prodnet-batch-mutation-blocked')
+    if (rollout.blocked) codes.push('plan-blocked')
+    if (requiredPhrases.some((phrase) => !confirmationText.includes(phrase))) {
+      codes.push('fleet-confirmation-required')
+    }
+
+    for (const entry of rollout.entries) {
+      const node = inventory.nodes.find((candidate) => candidate.id === entry.nodeId)
+      const gate = validateRemoteExecutionGate(inventory, entry.plan, entry.confirmationPhrase)
+      if (!node) codes.push('node-not-found')
+      codes.push(...gate.codes.filter((code) => code !== 'confirmation-required'))
+    }
+  }
+
+  return {
+    ok: codes.length === 0,
+    expectedConfirmation,
+    requiredPhrases,
+    codes: [...new Set(codes)]
   }
 }
 
@@ -242,7 +380,7 @@ export function parseRemoteHealthOutput(output: string, checkedAt = new Date().t
     state = 'degraded'
   } else if (/failed|error|panic|segmentation fault/.test(failureProbe)) {
     state = 'failed'
-  } else if (/teleno_node ready|healthy|running|up /.test(lower)) {
+  } else if (/teleno_prodnet_proof_ready|teleno_node ready|healthy|running|up /.test(lower)) {
     state = /block_producer\s*:\s*false|observer/.test(lower) ? 'healthy' : 'degraded'
   } else if (redacted.trim()) {
     state = 'degraded'
@@ -302,5 +440,64 @@ export function createRemoteExecutionReceipt(input: {
       outputExcerpt: redactRemoteOutput(step.outputExcerpt)
     })),
     output: safeOutput
+  }
+}
+
+function rolloutNodeStatusFromReceipt(receipt: RemoteExecutionReceipt | null): RemoteFleetRolloutNodeStatus {
+  if (!receipt) return 'skipped'
+  return receipt.status === 'succeeded' ? 'complete' : 'failed'
+}
+
+export function createRemoteFleetRolloutReceipt(input: {
+  rollout: RemoteFleetRolloutPlan
+  status?: RemoteFleetRolloutReceipt['status']
+  startedAt?: string
+  completedAt?: string
+  nodeReceipts: RemoteExecutionReceipt[]
+  skippedNodeIds?: string[]
+  stopReason?: string
+  output?: string
+}): RemoteFleetRolloutReceipt {
+  const completedAt = input.completedAt || new Date().toISOString()
+  const startedAt = input.startedAt || completedAt
+  const skipped = new Set(input.skippedNodeIds || [])
+  const receiptByNode = new Map(input.nodeReceipts.map((receipt) => [receipt.nodeId, receipt]))
+  const nodeResults = input.rollout.entries.map((entry) => {
+    const receipt = receiptByNode.get(entry.nodeId) || null
+    const status = skipped.has(entry.nodeId) ? 'skipped' : rolloutNodeStatusFromReceipt(receipt)
+    return {
+      nodeId: entry.nodeId,
+      label: entry.label,
+      network: entry.network,
+      status,
+      receiptId: receipt?.id || null,
+      healthState: receipt?.health.state || 'unknown',
+      summary: redactRemoteOutput(receipt?.health.summary || (status === 'skipped' ? 'Skipped because rollout stopped before this node.' : 'No node receipt was produced.'))
+    }
+  })
+  const stopReason = redactRemoteOutput(input.stopReason || '')
+  const status = input.status || (
+    stopReason || nodeResults.some((result) => result.status === 'failed') ? 'failed' : 'succeeded'
+  )
+  const output = redactRemoteOutput(input.output || [
+    `Fleet rollout ${status}.`,
+    `Action: ${input.rollout.action}.`,
+    `Nodes: ${input.rollout.entries.length}.`,
+    stopReason ? `Stop reason: ${stopReason}.` : ''
+  ].filter(Boolean).join('\n'))
+
+  return {
+    id: `fleet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    kind: 'fleet-rollout',
+    rolloutId: `rollout-${startedAt.replace(/[^0-9]/g, '').slice(0, 14)}-${input.rollout.action}`,
+    action: input.rollout.action,
+    status,
+    startedAt,
+    completedAt,
+    selectedNodeIds: input.rollout.entries.map((entry) => entry.nodeId),
+    nodeAliases: input.rollout.entries.map((entry) => entry.label),
+    nodeResults,
+    stopReason,
+    output
   }
 }

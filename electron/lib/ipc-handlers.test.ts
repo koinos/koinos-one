@@ -33,6 +33,7 @@ function createDeps() {
     loadRemoteInventory: vi.fn(async () => ({ ok: true, inventory: { version: 1, nodes: [] } })),
     saveRemoteInventory: vi.fn(async (input?: unknown) => ({ ok: true, inventory: input })),
     loadRemoteReceipts: vi.fn(async () => ({ ok: true, receipts: [] })),
+    appendRemoteReceipt: vi.fn(async (input?: unknown) => ({ ok: true, receipts: [input] })),
     executeRemoteCommandPlan: vi.fn(async (input?: unknown) => ({ ok: true, receipt: { input } })),
     saveBackupPasswordFile: vi.fn(async (input?: unknown) => ({
       ok: true,
@@ -232,11 +233,13 @@ describe('ipc-handlers', () => {
     await ipcMain.handlers.get('teleno:remote-nodes:inventory:load')?.({ sender: {} })
     await ipcMain.handlers.get('teleno:remote-nodes:inventory:save')?.({ sender: {} }, inventory)
     await ipcMain.handlers.get('teleno:remote-nodes:receipts:load')?.({ sender: {} })
+    await ipcMain.handlers.get('teleno:remote-nodes:receipts:append')?.({ sender: {} }, { id: 'fleet-1' })
     await ipcMain.handlers.get('teleno:remote-nodes:execute-plan')?.({ sender: {} }, { plan: { nodeId: 'testnet-observer-a' } })
 
     expect(deps.loadRemoteInventory).toHaveBeenCalledTimes(1)
     expect(deps.saveRemoteInventory).toHaveBeenCalledWith(inventory)
     expect(deps.loadRemoteReceipts).toHaveBeenCalledTimes(1)
+    expect(deps.appendRemoteReceipt).toHaveBeenCalledWith({ id: 'fleet-1' })
     expect(deps.executeRemoteCommandPlan).toHaveBeenCalledWith({ plan: { nodeId: 'testnet-observer-a' } })
   })
 

@@ -6,9 +6,10 @@
 - Status: safe MVP implemented for dry-run planning, local-only inventory
   persistence, confirmed one-node testnet observer execution adapter, remote
   health parsing, sanitized receipts, GUI review flow, simple human UX,
-  provider-neutral server checklist, real Electron/IPC validation, sanitized
-  LAN read-only validation, and one VPS1 testnet observer install/restore/start
-  live validation; prodnet execution remains blocked
+  provider-neutral server checklist and sanitized metadata import, real
+  Electron/IPC validation, sanitized LAN read-only validation, and one VPS1
+  testnet observer install/restore/start live validation; prodnet mutation is
+  limited to the gated one-node observer path
 
 ## Goal
 
@@ -72,7 +73,8 @@ remote management layer:
   expected testnet P2P container mapping, no invalid shell `pipefail` dependency,
   and observer-only config with block production disabled.
 - `RemoteNodesPanel` includes a provider-neutral "bring your own server"
-  checklist. Provider API provisioning remains out of scope for this MVP.
+  checklist and a sanitized metadata import flow for existing VPS records.
+  Provider API provisioning remains out of scope for this MVP.
 - Playwright screenshots cover simple mode, expert mode, confirmation,
   execution result/receipts, and Spanish simple mode under
   `test-results/remote-mvp/`.
@@ -114,9 +116,15 @@ remote management layer:
 Current hard limits:
 
 - No remote action runs automatically or in the background.
-- Prodnet/mainnet remote mutation is blocked. Read-only health and log
-  diagnostics can execute after exact per-node confirmation.
+- Prodnet/mainnet remote mutation remains blocked except for the narrow
+  one-node observer install/restore/start path after artifact trust, bootstrap
+  policy, dry-run proof, loopback, observer-only, and strong confirmation gates
+  pass. Read-only health and log diagnostics can execute after exact per-node
+  confirmation.
 - Producer activation remains unavailable.
+- Provider integration is local metadata import only. No provider API token,
+  infrastructure creation, resize, reboot, deletion, firewall mutation, or
+  billing action exists in this MVP.
 - Rollback and cleanup execution are available only for selected testnet
   observers when prior evidence and DB-preservation gates pass. They do not
   delete chain/state DB.
@@ -128,7 +136,8 @@ Current hard limits:
 
 ## Non-Goals
 
-- Do not execute prodnet remote mutations from this flow.
+- Do not execute prodnet producer, wallet, VHP, registration, or ungated
+  prodnet remote mutations from this flow.
 - Do not mutate producer profiles, wallets, VHP, or chain state.
 - Do not publish or commit private hostnames, IP addresses, SSH users, producer
   addresses, wallet data, tokens, private keys, or live server inventory.
@@ -183,8 +192,14 @@ Remaining MVP implementation tracking lives in
    backup or producer controls.
 5. Every action is scoped to one node instance. A multi-node operation expands
    into per-node plans with per-node preflight, execution, verification, and
-   rollback.
-6. Mainnet mutation is never implicit. Producer registration, VHP changes,
+   rollback. The first implementation includes an expert batch review surface,
+   but execution remains strictly sequential and stops before the next node
+   after any unsafe result.
+6. Mainnet mutation is never implicit. The first prodnet mutation path is
+   observer-only install/restore/start, one node at a time, and requires
+   artifact digest pinning, reviewed bootstrap policy, prior dry-run proof,
+   loopback RPC/admin, producer disabled, matching plan evidence, and strong
+   `OBSERVER_ONLY` confirmation. Producer registration, VHP changes,
    producer-key changes, wallet sends, and enabling mainnet production require a
    fresh explicit user request and a reviewable dry-run.
 7. Inventory is split into public metadata and private secrets. Committed docs
@@ -276,20 +291,26 @@ No provider token is required in this phase.
 
 ### Phase C - Provider Adapter For Existing Instances
 
-Add a provider adapter that can read existing instances after explicit user
-authorization. It may import:
+Implemented for the current MVP as a local metadata import, not as a live
+provider API client. The operator may paste sanitized JSON or key/value provider
+CLI output for existing instances. Koinos One redacts the preview, validates the
+input, and converts approved records into observer-only inventory entries.
+
+The importer supports:
 
 - instance label;
-- provider instance ID;
+- provider name and provider instance ID/reference;
 - region;
 - OS image;
-- public network address as private local inventory only;
-- attached SSH key name;
-- firewall group summary;
-- disk size and basic power state.
+- CPU/RAM/disk summary;
+- basic lifecycle state;
+- public/private address presence only as booleans or redacted placeholders;
+- suggested local SSH alias.
 
 The committed fleet record must still store only sanitized provider references,
-not raw IPs, usernames, provider tokens, or private inventory.
+not raw IPs, hostnames, usernames, provider tokens, paths, or private
+inventory. No provider token is accepted or stored by this MVP path, and the app
+does not create, resize, delete, reboot, or firewall provider resources.
 
 ### Phase D - One-Click Testnet Observer Provisioning
 
@@ -1081,24 +1102,29 @@ Exit criteria:
 - screenshots or Playwright evidence prove the UI fits and text does not
   collide at expected desktop window sizes.
 
-### Phase 4.6 - Provider-Neutral Server Checklist
+### Phase 4.6 - Provider-Neutral Server Checklist And Metadata Import
 
 Add a guided "bring your own server" path before any provider API integration.
 
-Implementation status: implemented as a checklist in the Remote panel. No
-provider API token handling or infrastructure creation has been added.
+Implementation status: implemented as a checklist plus a sanitized existing-VPS
+metadata import flow in the Remote panel. No provider API token handling or
+infrastructure creation has been added.
 
 Exit criteria:
 
 - the app recommends minimum server resources and the safe default basedir;
 - the app explains required SSH and firewall setup without exposing secrets;
 - the user can import the server through a local-only connection reference;
+- sanitized JSON or key/value provider metadata can be reviewed and converted
+  into observer-only inventory records;
+- raw addresses, hostnames, users, provider tokens, and private paths are
+  redacted and blocked before saving;
 - no provider token is required.
 
 ### Phase 4.7 - Testnet Provider Adapter Prototype
 
-Prototype one provider adapter for testnet observers only after Phase 4.6 is
-validated.
+Prototype one live provider API adapter for testnet observers only after Phase
+4.6 is validated. This is separate from the implemented local metadata import.
 
 Exit criteria:
 
@@ -1207,8 +1233,8 @@ Rollback must be planned before rollout.
 | UX | Safe default basedir is proposed from network and node alias | unit test and UI test |
 | UX | Failure state gives human reason and next safe action | UI test with mocked failure |
 | Provider | Bring-your-own-server checklist requires no provider token | UI test |
-| Provider | Provider adapter stores only token references and sanitized instance refs | unit test |
-| Provider | Provider firewall plan blocks public JSON-RPC/admin exposure | unit test or mocked provider test |
+| Provider | Sanitized provider metadata import stores only observer inventory refs | unit test and UI test |
+| Provider | Provider import blocks raw addresses, hostnames, users, private paths, and token-like values | unit test and UI test |
 | Artifact | Image/binary digest mismatch blocks rollout | unit test or dry-run output |
 | Install | Testnet observer install dry-run is deterministic | golden dry-run plan |
 | Install | Non-empty basedir requires confirmation | unit test or dry-run output |
@@ -1232,10 +1258,18 @@ normalization/persistence, command-plan generation, execution gating, output
 redaction, health parsing, stop criteria, sanitized receipts, IPC registration,
 mocked SSH execution, simple/expert Remote UI visibility, provider-neutral
 checklist rendering, default basedir generation, Docker port mapping, and
-placeholder execution blocking. Real Electron/IPC coverage verifies the Remote
-surface through the actual preload bridge with temporary local inventory and
-receipts. Live evidence includes sanitized LAN Server read-only validation and
-VPS1 testnet observer validation through real Electron/IPC. The VPS1 run used a
+placeholder execution blocking. The Remote UI also has an expert fleet rollout
+review path that composes per-node plans, requires a fleet phrase plus per-node
+phrases, executes one node at a time through the existing IPC executor, and
+stores sanitized fleet rollout receipts. The first prodnet observer
+install/restore/start path is implemented behind artifact digest, bootstrap
+policy, prior proof receipt, observer-only, and one-node-only execution gates;
+prodnet batch mutation and producer activation remain unavailable. Real
+Electron/IPC coverage verifies
+the Remote surface through the actual preload bridge with temporary local
+inventory and receipts. Live evidence includes sanitized LAN Server read-only
+validation and VPS1 testnet observer validation through real Electron/IPC. The
+VPS1 run used a
 sanitized local SSH alias, public bootstrap restore, observer-only config,
 confirmed `start-observer`, confirmed config-reconciling `restart`, confirmed
 `status`, masked screenshots, sanitized receipts, and read-only post-checks.
