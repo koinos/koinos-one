@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 const SETTINGS_STORAGE_KEY = 'teleno.explorer.settings.v1'
 const NODE_SETTINGS_STORAGE_KEY = 'teleno.node.settings.v1'
 const LANGUAGE_STORAGE_KEY = 'teleno.ui.language.v1'
+const FIRST_RUN_SETUP_STORAGE_KEY = 'teleno.first-run-setup.completed.v1'
 
 const CONFIG_YAML = `global:
   log-level: info
@@ -49,16 +50,18 @@ account-history:
 `
 
 async function installMockBridge(page: Page) {
-  await page.addInitScript(({ configYaml, settingsKey, nodeSettingsKey, languageKey }) => {
+  await page.addInitScript(({ configYaml, firstRunKey, settingsKey, nodeSettingsKey, languageKey }) => {
     window.localStorage.setItem(languageKey, 'en')
+    window.localStorage.setItem(firstRunKey, 'complete')
     window.localStorage.setItem(
       settingsKey,
       JSON.stringify({
         rpcSource: 'local',
         publicRpcUrls: ['https://api.koinos.io/'],
+        koinscanUrl: 'https://koinscan.com/',
         pollMs: 3000,
         rowLimit: 20,
-        producerAdvancedMode: false,
+        producerAdvancedMode: true,
         nodeAdvancedMode: true,
         dashboardProducerWindowBlocks: 200,
         dashboardRefreshSeconds: 5
@@ -150,6 +153,12 @@ async function installMockBridge(page: Page) {
 
     window.teleno = {
       version: '0.10.1',
+      app: {
+        firstRunSetupState: async () => ({ ok: true, completed: true }),
+        completeFirstRunSetup: async () => ({ ok: true, completed: true }),
+        resetFirstRunSetup: async () => ({ ok: true, completed: false }),
+        quit: async () => undefined
+      },
       appConfig: {
         loadPublicRpcUrls: async () => ({ ok: true, publicRpcUrls: ['https://api.koinos.io/'] }),
         savePublicRpcUrls: async () => ({ ok: true, publicRpcUrls: ['https://api.koinos.io/'] })
@@ -202,7 +211,13 @@ async function installMockBridge(page: Page) {
         listAccounts: async () => ({ ok: true, accounts: [] })
       }
     }
-  }, { configYaml: CONFIG_YAML, settingsKey: SETTINGS_STORAGE_KEY, nodeSettingsKey: NODE_SETTINGS_STORAGE_KEY, languageKey: LANGUAGE_STORAGE_KEY })
+  }, {
+    configYaml: CONFIG_YAML,
+    firstRunKey: FIRST_RUN_SETUP_STORAGE_KEY,
+    settingsKey: SETTINGS_STORAGE_KEY,
+    nodeSettingsKey: NODE_SETTINGS_STORAGE_KEY,
+    languageKey: LANGUAGE_STORAGE_KEY
+  })
 }
 
 async function openAdvancedNodeSettings(page: Page) {

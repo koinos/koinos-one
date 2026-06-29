@@ -244,8 +244,74 @@ function walletBalanceCacheKeys(network: KoinosNetworkId, address?: string | nul
   return keys
 }
 
+type BackupProgressSample = {
+  action: NodeBackupProgressState['action']
+  phase: NodeBackupProgressState['phase']
+  completedBytes: number | null
+  bytesPerSecond: number | null
+  sampledAt: number
+}
+
+const TERMINAL_BACKUP_PHASES = new Set<TelenoNodeBackupProgressEvent['phase']>(['complete', 'error'])
+
+function numericOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function clampBackupProgress(progress: number): number {
+  if (!Number.isFinite(progress)) return 0
+  return Math.max(0, Math.min(100, progress))
+}
+
+function createBackupProgressState(
+  action: NodeBackupProgressState['action'],
+  phase: NodeBackupProgressState['phase'],
+  progress: number,
+  message: string,
+  updatedAt = Date.now(),
+  patch: Partial<NodeBackupProgressState> = {}
+): NodeBackupProgressState {
+  const normalizedProgress = clampBackupProgress(progress)
+  return {
+    action,
+    phase,
+    progress: normalizedProgress,
+    displayProgress: clampBackupProgress(patch.displayProgress ?? normalizedProgress),
+    message,
+    updatedAt,
+    completedBytes: patch.completedBytes ?? null,
+    totalBytes: patch.totalBytes ?? null,
+    bytesPerSecond: patch.bytesPerSecond ?? null,
+    etaSeconds: patch.etaSeconds ?? null,
+    completedBatches: patch.completedBatches ?? null,
+    totalBatches: patch.totalBatches ?? null,
+    phaseProgress: patch.phaseProgress ?? null,
+    progressRangeStart: patch.progressRangeStart ?? null,
+    progressRangeEnd: patch.progressRangeEnd ?? null,
+    sampleIntervalMs: patch.sampleIntervalMs ?? null
+  }
+}
+
 export function App() {
-  const appVersion = window.teleno?.version?.trim() || pkg.version
+  const appBuildInfo = window.teleno?.buildInfo || {
+    schemaVersion: 1,
+    productVersion: window.teleno?.version?.trim() || pkg.version,
+    releaseChannel: 'dev',
+    buildTimestamp: null,
+    gitCommit: null,
+    gitShortCommit: null,
+    gitBranch: null,
+    gitDirty: null,
+    nativeNode: {
+      binaryName: 'teleno_node',
+      sha256: null,
+      shortSha256: null,
+      sizeBytes: null,
+      mtime: null
+    },
+    source: 'runtime'
+  }
+  const appVersion = appBuildInfo.productVersion?.trim() || window.teleno?.version?.trim() || pkg.version
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
   const [savedLanguage, setSavedLanguage] = useState<AppLanguage>(() => language)
@@ -271,6 +337,7 @@ export function App() {
   const verifyBlocksCheckDoneRef = useRef(false)
   const nativeBackupConfigLoadKeyRef = useRef('')
   const nativeBackupUserEditedRef = useRef(false)
+  const backupProgressSampleRef = useRef<BackupProgressSample | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -1037,25 +1104,159 @@ export function App() {
       const payload = event as TelenoNodeBackupProgressEvent
       if (!payload.action || typeof payload.progress !== 'number') return
 
-      setNodeBackupProgress({
+      const now = Date.now()
+      const totalBytes = numericOrNull(payload.totalBytes)
+      const completedBytes = numericOrNull(payload.completedBytes)
+      const previousSample = backupProgressSampleRef.current
+      const sameSampleSeries = Boolean(
+        previousSample &&
+        previousSample.action === payload.action &&
+        previousSample.phase === payload.phase &&
+        completedBytes !== null &&
+        previousSample.completedBytes !== null
+      )
+      const sampleIntervalMs = sameSampleSeries ? Math.max(1, now - previousSample!.sampledAt) : null
+      const measuredBytesPerSecond = sameSampleSeries && completedBytes! >= previousSample!.completedBytes!
+        ? ((completedBytes! - previousSample!.completedBytes!) / sampleIntervalMs!) * 1000
+        : null
+      const payloadBytesPerSecond = numericOrNull(payload.bytesPerSecond)
+      const previousBytesPerSecond = sameSampleSeries ? previousSample?.bytesPerSecond ?? null : null
+      const bytesPerSecond = payloadBytesPerSecond !== null
+        ? payloadBytesPerSecond
+        : measuredBytesPerSecond !== null
+          ? previousBytesPerSecond !== null && previousBytesPerSecond > 0
+            ? (previousBytesPerSecond * 0.65) + (measuredBytesPerSecond * 0.35)
+            : measuredBytesPerSecond > 0
+              ? measuredBytesPerSecond
+              : null
+          : null
+      const etaSeconds = numericOrNull(payload.etaSeconds) ??
+        (totalBytes !== null && completedBytes !== null && bytesPerSecond !== null && bytesPerSecond > 0
+          ? Math.max(0, (totalBytes - completedBytes) / bytesPerSecond)
+          : null)
+
+      setNodeBackupProgress((current) => {
+        const rawProgress = clampBackupProgress(payload.progress)
+        const previousDisplay = current?.action === payload.action && !TERMINAL_BACKUP_PHASES.has(payload.phase)
+          ? current.displayProgress
+          : rawProgress
+        return createBackupProgressState(
+          payload.action,
+          payload.phase,
+          rawProgress,
+          payload.message || '',
+          now,
+          {
+            displayProgress: Math.max(rawProgress, previousDisplay),
+            completedBytes,
+            totalBytes,
+            bytesPerSecond,
+            etaSeconds,
+            completedBatches: numericOrNull(payload.completedBatches),
+            totalBatches: numericOrNull(payload.totalBatches),
+            phaseProgress: numericOrNull(payload.phaseProgress),
+            progressRangeStart: numericOrNull(payload.progressRangeStart),
+            progressRangeEnd: numericOrNull(payload.progressRangeEnd),
+            sampleIntervalMs
+          }
+        )
+      })
+
+      backupProgressSampleRef.current = {
         action: payload.action,
         phase: payload.phase,
-        progress: payload.progress,
-        message: payload.message || '',
-        updatedAt: Date.now()
-      })
+        completedBytes,
+        bytesPerSecond,
+        sampledAt: now
+      }
+
+      if (payload.phase === 'error') {
+        backupProgressSampleRef.current = null
+      }
 
       if (payload.phase === 'complete') {
         window.setTimeout(() => {
           setNodeBackupProgress((current) =>
             current?.action === payload.action && current.phase === payload.phase ? null : current
           )
+          backupProgressSampleRef.current = null
         }, 2500)
       }
     })
 
     return unsubscribe
   }, [hasNodeControls])
+
+  useEffect(() => {
+    if (!nodeBackupProgress || TERMINAL_BACKUP_PHASES.has(nodeBackupProgress.phase)) return
+    if (
+      nodeBackupProgress.completedBytes === null ||
+      nodeBackupProgress.totalBytes === null ||
+      nodeBackupProgress.bytesPerSecond === null ||
+      nodeBackupProgress.bytesPerSecond <= 0 ||
+      nodeBackupProgress.progressRangeStart === null ||
+      nodeBackupProgress.progressRangeEnd === null ||
+      nodeBackupProgress.progressRangeEnd <= nodeBackupProgress.progressRangeStart
+    ) return
+
+    const timer = window.setInterval(() => {
+      setNodeBackupProgress((current) => {
+        if (!current || TERMINAL_BACKUP_PHASES.has(current.phase)) return current
+        if (
+          current.completedBytes === null ||
+          current.totalBytes === null ||
+          current.bytesPerSecond === null ||
+          current.bytesPerSecond <= 0 ||
+          current.progressRangeStart === null ||
+          current.progressRangeEnd === null ||
+          current.progressRangeEnd <= current.progressRangeStart
+        ) return current
+
+        const elapsedSeconds = Math.max(0, (Date.now() - current.updatedAt) / 1000)
+        const sampleIntervalSeconds = Math.max(1, (current.sampleIntervalMs ?? 1000) / 1000)
+        const predictedLeadSeconds = Math.min(elapsedSeconds, sampleIntervalSeconds * 2)
+        const predictedCompletedBytes = Math.min(
+          current.totalBytes,
+          current.completedBytes + (current.bytesPerSecond * predictedLeadSeconds)
+        )
+        const predictedFraction = current.totalBytes > 0
+          ? Math.max(0, Math.min(1, predictedCompletedBytes / current.totalBytes))
+          : 0
+        const phaseTarget = current.progressRangeStart +
+          ((current.progressRangeEnd - current.progressRangeStart) * predictedFraction)
+        const phaseCap = Math.max(current.progressRangeStart, current.progressRangeEnd - 0.5)
+        const nextDisplayProgress = Math.min(
+          phaseCap,
+          Math.max(current.displayProgress, current.progress, phaseTarget)
+        )
+        const nextEtaSeconds = current.bytesPerSecond > 0
+          ? Math.max(0, (current.totalBytes - predictedCompletedBytes) / current.bytesPerSecond)
+          : current.etaSeconds
+
+        if (
+          Math.abs(nextDisplayProgress - current.displayProgress) < 0.05 &&
+          Math.abs((nextEtaSeconds ?? 0) - (current.etaSeconds ?? 0)) < 0.5
+        ) return current
+
+        return {
+          ...current,
+          displayProgress: nextDisplayProgress,
+          etaSeconds: nextEtaSeconds
+        }
+      })
+    }, 500)
+
+    return () => window.clearInterval(timer)
+  }, [
+    nodeBackupProgress?.action,
+    nodeBackupProgress?.phase,
+    nodeBackupProgress?.updatedAt,
+    nodeBackupProgress?.completedBytes,
+    nodeBackupProgress?.totalBytes,
+    nodeBackupProgress?.bytesPerSecond,
+    nodeBackupProgress?.progressRangeStart,
+    nodeBackupProgress?.progressRangeEnd
+  ])
 
   useEffect(() => {
     if (!hasNodeControls) return
@@ -4078,13 +4279,8 @@ export function App() {
 
     setNodeRestoreBackupLoading(true)
     setNodeError(null)
-    setNodeBackupProgress({
-      action: 'restore-backup',
-      phase: 'prepare',
-      progress: 0,
-      message: t('node.preparingRestore'),
-      updatedAt: Date.now()
-    })
+    backupProgressSampleRef.current = null
+    setNodeBackupProgress(createBackupProgressState('restore-backup', 'prepare', 0, t('node.preparingRestore')))
 
     try {
       const result = await bridge.restoreBackup(toNodeApiSettings(nodeSettings))
@@ -4113,13 +4309,8 @@ export function App() {
 
     setNodeRestoreBackupVerifyLoading(true)
     setNodeError(null)
-    setNodeBackupProgress({
-      action: 'restore-backup-verify',
-      phase: 'prepare',
-      progress: 0,
-      message: t('node.preparingRestoreVerify'),
-      updatedAt: Date.now()
-    })
+    backupProgressSampleRef.current = null
+    setNodeBackupProgress(createBackupProgressState('restore-backup-verify', 'prepare', 0, t('node.preparingRestoreVerify')))
 
     try {
       const result = await bridge.restoreBackupVerify(toNodeApiSettings(nodeSettings))
@@ -4158,13 +4349,8 @@ export function App() {
     setNodeCreateBackupLoading(true)
     nodeBackupOperationActiveRef.current = true
     setNodeError(null)
-    setNodeBackupProgress({
-      action: 'create-backup',
-      phase: 'prepare',
-      progress: 0,
-      message: t('node.creatingBackup'),
-      updatedAt: Date.now()
-    })
+    backupProgressSampleRef.current = null
+    setNodeBackupProgress(createBackupProgressState('create-backup', 'prepare', 0, t('node.creatingBackup')))
 
     try {
       const result = await bridge.createBackup(toNodeApiSettings(createSettings))
@@ -4185,13 +4371,8 @@ export function App() {
 
     setNodeNativeBackupDryRunLoading(true)
     setNodeError(null)
-    setNodeBackupProgress({
-      action: 'create-backup',
-      phase: 'prepare',
-      progress: 0,
-      message: t('node.checkingNativeBackupConfig'),
-      updatedAt: Date.now()
-    })
+    backupProgressSampleRef.current = null
+    setNodeBackupProgress(createBackupProgressState('create-backup', 'prepare', 0, t('node.checkingNativeBackupConfig')))
 
     try {
       const result = await bridge.nativeBackupDryRun(toNodeApiSettings(nodeSettings))
@@ -4201,25 +4382,23 @@ export function App() {
         result.workspaceDir ? `Native backup workspace: ${result.workspaceDir}` : '',
         result.output || ''
       ].filter(Boolean).join('\n'))
-      setNodeBackupProgress({
-        action: 'create-backup',
-        phase: result.ok ? 'complete' : 'error',
-        progress: result.ok ? 100 : 0,
-        message: result.ok ? t('node.nativeBackupDryRunComplete') : (result.output || t('node.nativeBackupDryRunFailed')),
-        updatedAt: Date.now()
-      })
+      setNodeBackupProgress(createBackupProgressState(
+        'create-backup',
+        result.ok ? 'complete' : 'error',
+        result.ok ? 100 : 0,
+        result.ok ? t('node.nativeBackupDryRunComplete') : (result.output || t('node.nativeBackupDryRunFailed'))
+      ))
       if (!result.ok) {
         setNodeError(result.output || t('node.nativeBackupDryRunFailed'))
       }
     } catch (error) {
       setNodeError(error instanceof Error ? error.message : t('node.nativeBackupDryRunFailed'))
-      setNodeBackupProgress({
-        action: 'create-backup',
-        phase: 'error',
-        progress: 0,
-        message: error instanceof Error ? error.message : t('node.nativeBackupDryRunFailed'),
-        updatedAt: Date.now()
-      })
+      setNodeBackupProgress(createBackupProgressState(
+        'create-backup',
+        'error',
+        0,
+        error instanceof Error ? error.message : t('node.nativeBackupDryRunFailed')
+      ))
     } finally {
       setNodeNativeBackupDryRunLoading(false)
     }
@@ -4347,13 +4526,8 @@ export function App() {
 
     setNodeRestoreNativeBackupLoading(true)
     setNodeError(null)
-    setNodeBackupProgress({
-      action: 'restore-backup',
-      phase: 'prepare',
-      progress: 0,
-      message: t('node.preparingNativeRestore'),
-      updatedAt: Date.now()
-    })
+    backupProgressSampleRef.current = null
+    setNodeBackupProgress(createBackupProgressState('restore-backup', 'prepare', 0, t('node.preparingNativeRestore')))
 
     try {
       const result =
@@ -5227,6 +5401,7 @@ export function App() {
           resetDefaults={resetDefaults}
           settingsDirty={settingsDirty}
           onBlockedSettingsNavigation={() => setSettingsUnsavedDialogOpen(true)}
+          appBuildInfo={appBuildInfo}
         />
       )}
 

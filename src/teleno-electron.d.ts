@@ -423,7 +423,7 @@ declare global {
     ok: boolean
     output: string
     service: string
-    source: 'p2p-log'
+    source: 'p2p-live' | 'p2p-log'
     snapshotAt: number | null
     selfAddress: string | null
     omittedPeerCount: number
@@ -672,6 +672,15 @@ declare global {
     phase: 'prepare' | 'stop' | 'download' | 'checksum' | 'extract' | 'restore' | 'compress' | 'save' | 'upload' | 'start' | 'verify' | 'complete' | 'error'
     progress: number
     message: string
+    completedBytes?: number | null
+    totalBytes?: number | null
+    bytesPerSecond?: number | null
+    etaSeconds?: number | null
+    completedBatches?: number | null
+    totalBatches?: number | null
+    phaseProgress?: number | null
+    progressRangeStart?: number | null
+    progressRangeEnd?: number | null
   }
 
   type TelenoJsonRpcProxyParams = {
@@ -1081,8 +1090,30 @@ declare global {
     receipt: unknown
   }
 
+  type TelenoBuildInfoNativeNode = {
+    binaryName: string
+    sha256: string | null
+    shortSha256: string | null
+    sizeBytes: number | null
+    mtime: string | null
+  }
+
+  type TelenoBuildInfo = {
+    schemaVersion: number
+    productVersion: string
+    releaseChannel: string
+    buildTimestamp: string | null
+    gitCommit: string | null
+    gitShortCommit: string | null
+    gitBranch: string | null
+    gitDirty: boolean | null
+    nativeNode: TelenoBuildInfoNativeNode
+    source: 'generated' | 'runtime'
+  }
+
   type TelenoApi = {
     version: string
+    buildInfo?: TelenoBuildInfo
     launchDefaults?: TelenoLaunchDefaults
     app?: {
       quit: () => Promise<{ ok: boolean }>

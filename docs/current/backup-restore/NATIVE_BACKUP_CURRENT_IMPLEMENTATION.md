@@ -239,15 +239,28 @@ Settings > Backup is now configuration-only. It shows:
 - first-class native backup configuration fields for local repository, remote SFTP, scheduler, and admin API settings;
 - `Check native backup config`.
 
-Node > Backups now owns backup operation controls. It shows:
+Node > Backups now owns backup and restore operation controls. In simple mode
+it is restore-first: the primary action is `Restore Backup`, and it guides the
+operator toward the standard public bootstrap restore source for the selected
+network. Backup creation, private SFTP backup, snapshot purge, and admin API
+details are expert tools.
+
+In expert mode, Node > Backups shows:
 
 - runtime context for BASEDIR, config path, local repository, workspace, private SFTP target, public bootstrap URL, and admin API listen address;
 - local native backup inventory;
 - private remote SFTP backup inventory;
-- public read-only bootstrap inventory for testnet;
-- create local backup and create remote backup actions;
+- public read-only bootstrap inventory for networks with a configured bootstrap
+  source;
+- create local backup and create private remote backup actions;
 - verify, restore, and local/remote purge actions on selected snapshots;
 - progress and preflight status.
+
+Settings > Backup mirrors this split. Simple mode only explains that restore is
+handled from Node > Restore Backup. Expert mode exposes private local
+repositories, remote SFTP backup, automatic scheduling, and local-only admin API
+configuration. Public bootstrap publication remains a maintainer/release
+workflow, not a normal operator setting.
 
 Current UX behavior:
 
@@ -263,7 +276,12 @@ Current UX behavior:
 - Restore activation requires an explicit UX confirmation that names the backup ID and BASEDIR, explains `.pre-restore` preservation, and states observer-first / block-production-disabled behavior.
 - The UX writes a scoped generated config at `<basedir>/.teleno-native-backups/teleno-native-backup-config.yml`.
 - The generated config uses the operator-selected local repository and workspace, or defaults to `<basedir>/.teleno-native-backups/repository` and `<basedir>/.teleno-native-backups/workspace`.
-- The generated config writes `backup.public-restore` for testnet with `https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap` and keeps it disabled for mainnet/custom.
+- The generated config writes `backup.public-restore` for testnet and mainnet
+  when a standard public bootstrap source is configured. Testnet requires the
+  bundled signature key when present; current mainnet restore relies on HTTPS
+  origin validation plus per-object SHA-256 verification until prodnet
+  signature hardening is completed. Custom networks keep public restore
+  disabled.
 - Remote SFTP settings are configured from UX fields for host, port, user, auth method, credential file paths, known hosts, strict host-key checking, remote directory, retention, and upload temp suffix.
 - Scheduler settings are configured from UX fields for enabled state, interval, startup catch-up, jitter, minimum head progress, and genesis-sync skipping.
 - Backup admin settings are configured from UX fields for enabled state, loopback listen address, optional token file, and job count.
@@ -316,7 +334,11 @@ Public HTTPS validation completed:
 - Teleno UX lists public bootstrap snapshots separately from local and private SFTP remote snapshots, and can verify/restore them through admin API or CLI fallback.
 - The currently published public testnet snapshot is signed with key ID `teleno-testnet-bootstrap-20260620`.
 - `--backup-public-list` over HTTPS passed with `signature-required: true` and the pinned `config/public-bootstrap/testnet-ed25519.pub` verification key.
-- Teleno UX-generated testnet native backup configs now require that public bootstrap signature when the bundled key exists; mainnet/custom public restore remains disabled.
+- Teleno UX-generated testnet native backup configs now require that public
+  bootstrap signature when the bundled key exists. Teleno UX-generated mainnet
+  configs enable the standard prodnet public bootstrap source without signature
+  enforcement until prodnet signing is completed. Custom public restore remains
+  disabled.
 - Linux Ubuntu validation on node `<LOCAL_LINUX_HOST>` passed for signed HTTPS list, full signed restore, and DB-open smoke. This required adding `/etc/ssl/certs/ca-certificates.crt` to the public restore HTTPS CA bundle search path.
 
 The public bootstrap trust model is intentionally layered: HTTPS authenticates the bootstrap server and protects transport integrity, Ed25519 signatures authorize the published bootstrap metadata, and SHA-256 verifies every content-addressed object. The detailed rationale for keeping HTTPS required is documented in `PUBLIC_BOOTSTRAP_RESTORE.md`.
@@ -332,6 +354,13 @@ Completed validation includes:
 - Local and remote runs of `scripts/smoke-native-backup-restore.sh`.
 - Electron/UX build and IPC tests.
 - Playwright/Electron UX dry-run check using an isolated testnet basedir.
+- Backup/restore UI validation is repeatable through
+  `tests/ui/backup-restore.spec.ts`, covering simple restore-first states,
+  expert backup controls, Settings > Backup mode switching, public snapshot
+  read-only behavior, restore confirmation copy, and generated screenshots.
+- The Electron smoke test now also launches the real app with disposable
+  `user-data-dir` and BASEDIR paths and verifies the simple Settings > Backup
+  restore surface.
 - Package staging and packaged-app verification now inspect the shipped `teleno_node --help` surface and fail if the native backup CLI flags are missing.
 
 The detailed live-testnet evidence is in `NATIVE_LIBSSH_TESTNET_VALIDATION_20260614.md`.

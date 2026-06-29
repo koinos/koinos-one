@@ -111,7 +111,6 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
   } = props
 
   const backupSettings = nodeSettings.backup ?? {}
-  const simpleBackupSettings = draftNodeBackup ?? backupSettings
   const activeBaseDir = nodeStatus?.baseDir || nodeSettings.baseDir || ''
   const localBackupSnapshots = nodeNativeBackupLocalList?.snapshots ?? []
   const remoteBackupSnapshots = nodeNativeBackupRemoteList?.snapshots ?? []
@@ -129,11 +128,11 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
     backupDefaultWorkspace(activeBaseDir)
   const remoteTarget = backupSettings.remoteEnabled
     ? `${backupSettings.sshUser || '?'}@${backupSettings.sshHost || '?'}:${backupSettings.remoteDirectory || '?'}`
-    : 'Disabled'
+    : t('common.disabled')
   const publicBootstrapUrl = publicBootstrapUrlForNetwork(nodeSettings.network)
-  const publicBootstrapTarget = publicBootstrapUrl || 'Disabled'
+  const publicBootstrapTarget = publicBootstrapUrl || t('common.disabled')
   const publicBootstrapDescription = publicBootstrapDescriptionForNetwork(nodeSettings.network)
-  const adminListen = backupSettings.adminEnabled ? backupSettings.adminListen || '127.0.0.1:18088' : 'Disabled'
+  const adminListen = backupSettings.adminEnabled ? backupSettings.adminListen || '127.0.0.1:18088' : t('common.disabled')
   const formatBackupCreatedAt = (snapshot: TelenoNodeNativeBackupSnapshot) =>
     formatDateTime(parseBackupTimestampMs(snapshot), locale, 'N/A')
   const formatBackupTimestamp = (value?: string, fallback?: string) =>
@@ -156,7 +155,7 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
     nodeNativeBackupPreflightLoading ||
     nodeRestoreNativeBackupLoading ||
     nodeNativeBackupPurgeLoading !== null
-  const remoteBackupAllowed = simpleBackupSettings.remoteEnabled === true
+  const remoteBackupAllowed = backupSettings.remoteEnabled === true
   const publicBootstrapAllowed = Boolean(publicBootstrapUrl)
   const localCreateNeededBytes = latestLocalBackup?.totalBytes || dashboardPerformance?.host.blockchainDataBytes || null
   const localCreateAvailableBytes = dashboardPerformance?.host.freeDiskBytes ?? null
@@ -375,31 +374,36 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
       </div>
     ) : null
   )
-  const renderRemoteBackupToggle = () => (
-    <label className="node-backup-simple-toggle">
-      <input
-        type="checkbox"
-        checked={simpleBackupSettings.remoteEnabled === true}
-        onChange={(event) => { void setSimpleRemoteBackupEnabled(event.target.checked) }}
-        disabled={nodeBusy || simpleRemoteBackupSaving}
-      />
-      <span>Allow remote backup</span>
-    </label>
-  )
+  void draftNodeBackup
+  void simpleRemoteBackupSaving
+  void setSimpleRemoteBackupEnabled
 
   if (!advancedMode) {
-    const restoreSource: BackupSourceLabel = remoteBackupAllowed
-      ? 'remote'
+    const restoreSource: BackupSourceLabel = publicBootstrapAllowed
+      ? 'public'
       : latestLocalBackup
         ? 'local'
-        : publicBootstrapAllowed
-          ? 'public'
+        : remoteBackupAllowed
+          ? 'remote'
           : 'local'
     const restoreSnapshot = restoreSource === 'remote'
       ? latestRemoteBackup
       : restoreSource === 'public'
         ? latestPublicBackup
         : latestLocalBackup
+    const restoreSourceName = restoreSource === 'public'
+      ? t('node.backupSourcePublic')
+      : restoreSource === 'remote'
+        ? t('node.backupSourceRemote')
+        : t('node.backupSourceLocal')
+    const restoreList = restoreSource === 'remote'
+      ? nodeNativeBackupRemoteList
+      : restoreSource === 'public'
+        ? nodeNativeBackupPublicList
+        : nodeNativeBackupLocalList
+    const restoreListError = restoreList && restoreList.ok === false
+      ? restoreList.output || t('node.backupSimpleListError', { source: restoreSourceName })
+      : ''
     const restorePreflightMatches = Boolean(
       restoreSnapshot &&
       nodeNativeBackupPreflight?.backupId === restoreSnapshot.backupId &&
@@ -417,21 +421,32 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
         : nodeNativeBackupLocalListLoading) ||
       nodeNativeBackupPreflightLoading
     const restoreSelection = backupSelectionValue(restoreSource, restoreSnapshot?.backupId || 'latest')
+    const restoreVerified = Boolean(restorePreflightMatches && nodeNativeBackupPreflight?.readyToRestore === true)
+    const simpleRestoreDisabled =
+      !hasNodeControls ||
+      nodeBusy ||
+      settingsDirty ||
+      nodeRestoreNativeBackupLoading ||
+      restoreLoading ||
+      !restoreSnapshot ||
+      !restoreVerified ||
+      Boolean(restoreListError) ||
+      (restoreSource === 'public' && !publicBootstrapAllowed)
 
     return (
       <div className="node-backups-panel node-backups-panel-simple">
         <section className="node-backup-bootstrap-guide">
           <div>
-            <span>Data folder</span>
-            <strong className="mono" title={activeBaseDir || 'N/A'}>{activeBaseDir || 'N/A'}</strong>
+            <span>{t('node.backupSimpleDataFolder')}</span>
+            <strong className="mono" title={activeBaseDir || t('common.na')}>{activeBaseDir || t('common.na')}</strong>
           </div>
           <div>
-            <span>Bootstrap source</span>
+            <span>{t('node.backupSimpleBootstrapSource')}</span>
             <strong className="mono" title={publicBootstrapTarget}>{publicBootstrapTarget}</strong>
           </div>
           <div>
-            <span>Restore mode</span>
-            <strong>Observer first</strong>
+            <span>{t('node.backupSimpleRestoreMode')}</span>
+            <strong>{t('node.backupSimpleObserverFirst')}</strong>
           </div>
           <div className="node-backup-bootstrap-guide-actions">
             <button
@@ -440,19 +455,30 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
               onClick={() => { if (typeof openSettings === 'function') openSettings() }}
               disabled={nodeBusy || typeof openSettings !== 'function'}
             >
-              Choose data folder
+              {t('node.backupChooseDataFolder')}
             </button>
             <button
               type="button"
               className="ghost-button"
-              onClick={() => { void runNativeBackupList('public') }}
-              disabled={!hasNodeControls || nodeBusy || settingsDirty || !publicBootstrapAllowed || nodeNativeBackupPublicListLoading}
+              onClick={() => {
+                if (restoreSource === 'remote') {
+                  void runNativeBackupList(true)
+                } else if (restoreSource === 'public') {
+                  void runNativeBackupList('public')
+                } else {
+                  void runNativeBackupList()
+                }
+              }}
+              disabled={!hasNodeControls || nodeBusy || settingsDirty || restoreLoading || (restoreSource === 'public' && !publicBootstrapAllowed)}
             >
-              {nodeNativeBackupPublicListLoading ? 'Checking bootstrap...' : 'Check bootstrap'}
+              {restoreLoading ? t('node.backupCheckingBootstrap') : t('node.backupCheckBootstrap')}
             </button>
           </div>
           <p className="settings-inline-help">
             {publicBootstrapDescription}
+          </p>
+          <p className="settings-inline-help">
+            {t('node.backupSimpleDescription')}
           </p>
         </section>
         <div className="node-backup-simple-actions">
@@ -460,54 +486,33 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
             <button
               type="button"
               className="primary-button node-backup-large-button"
-              onClick={() => { void runCreateBackup() }}
-              disabled={!hasNodeControls || nodeBusy || settingsDirty || nodeCreateBackupLoading}
-            >
-              {nodeCreateBackupLoading ? t('node.creatingBackup') : 'Create Backup'}
-            </button>
-            <div className="node-backup-simple-space">
-              <p className={`settings-inline-help ${spaceStatusClass(localCreatePasses, dashboardPerformanceLoading)}`.trim()}>
-                Local backup: {localCreateStatus}.
-              </p>
-              <p className="settings-inline-help">
-                {formatCreateSpaceLine(localCreateAvailableBytes, localCreateNeededBytes)}
-              </p>
-              {remoteBackupAllowed && (
-                <>
-                  <p className={`settings-inline-help ${spaceStatusClass(remoteCreatePasses, remoteCreateLoading)}`.trim()}>
-                    Remote backup: {remoteCreateStatus}.
-                  </p>
-                  {remoteSpace?.ok ? (
-                    <p className="settings-inline-help">
-                      {formatCreateSpaceLine(remoteCreateAvailableBytes, remoteCreateNeededBytes)}
-                    </p>
-                  ) : (
-                    <p className="settings-inline-help">
-                      {remoteSpace?.message || `Needed ${formatBytes(remoteCreateNeededBytes, locale)}`}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-          <div className="node-backup-simple-action-card">
-            <button
-              type="button"
-              className="primary-button node-backup-large-button"
               onClick={() => { void runRestoreNativeBackupSelected(restoreSelection) }}
-              disabled={!hasNodeControls || nodeBusy || settingsDirty || nodeRestoreNativeBackupLoading}
+              disabled={simpleRestoreDisabled}
               title={t('node.restoreNativeLatestHelp')}
             >
-              {nodeRestoreNativeBackupLoading ? t('node.restoringNativeLatest') : 'Restore Backup'}
+              {nodeRestoreNativeBackupLoading ? t('node.restoringNativeLatest') : t('node.restoreBackupPrimary')}
             </button>
             <div className="node-backup-simple-space">
-              {restoreSnapshot ? (
+              {restoreListError ? (
+                <p className="settings-inline-help is-error" role="alert">
+                  {restoreListError}
+                </p>
+              ) : restoreSnapshot ? (
                 <>
                   <p className="settings-inline-help">
-                    Latest {restoreSource} backup size: {formatBytes(restoreSnapshot.totalBytes, locale)}
+                    {t('node.backupSimpleLatestSize', {
+                      source: restoreSourceName,
+                      size: formatBytes(restoreSnapshot.totalBytes, locale)
+                    })}
                   </p>
                   <p className={`settings-inline-help ${spaceStatusClass(restorePasses, restoreLoading)}`.trim()}>
-                    Local restore space: {restorePasses === true ? 'enough space' : restorePasses === false ? 'not enough space' : 'checking space'}.
+                    {t('node.backupSimpleRestoreSpace', {
+                      status: restorePasses === true
+                        ? t('node.backupSpaceEnough')
+                        : restorePasses === false
+                          ? t('node.backupSpaceNotEnough')
+                          : t('node.backupSpaceChecking')
+                    })}
                   </p>
                   <p className="settings-inline-help">
                     {formatSpaceLine(restoreAvailableBytes, restoreNeededBytes)}
@@ -515,13 +520,17 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
                 </>
               ) : (
                 <p className={`settings-inline-help ${restoreLoading ? 'is-busy' : ''}`.trim()}>
-                  {restoreLoading ? `Checking latest ${restoreSource} backup...` : `No latest ${restoreSource} backup found yet.`}
+                  {restoreLoading
+                    ? t('node.backupSimpleCheckingLatest', { source: restoreSourceName })
+                    : t('node.backupSimpleNoLatest', { source: restoreSourceName })}
                 </p>
               )}
             </div>
           </div>
         </div>
-        {renderRemoteBackupToggle()}
+        <p className="settings-inline-help">
+          {t('node.backupSimpleAdvancedHint')}
+        </p>
         {formError && <p className="form-error" role="alert">{formError}</p>}
         {renderBackupProgress()}
       </div>

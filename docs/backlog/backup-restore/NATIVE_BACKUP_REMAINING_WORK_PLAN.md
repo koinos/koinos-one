@@ -48,6 +48,20 @@ The first slice of `Safer Restore UX` is implemented:
 - Preflight uses the same native `--backup-restore-preflight --backup-json --backup-id=<selected>` path that restore uses.
 - Restore activation now requires an explicit UX confirmation that names the backup ID and BASEDIR and explains `.pre-restore`, observer-first restart, and block-production-disabled behavior.
 
+The first slice of `Simple Restore-First UX` is implemented:
+
+- Simple mode presents `Restore Backup` as the primary node data action.
+- Simple mode prefers the standard public bootstrap restore source for the
+  selected network.
+- Backup creation, private SFTP backup, scheduler, purge, and local admin API
+  controls are expert-mode workflows.
+- Public bootstrap publication is framed as a maintainer/release workflow, not
+  a normal operator backup feature.
+- Repeatable Playwright backup/restore UI validation covers simple loading,
+  empty, error, English, Spanish, expert, and Settings mode-switching states
+  with generated screenshots. The Electron smoke test also verifies the simple
+  Settings > Backup surface with disposable app data and BASEDIR paths.
+
 The first slice of `Release And Operator Polish` is implemented:
 
 - Package staging verification still checks the staged native bundle, config templates, executability, and macOS third-party dylib leaks.

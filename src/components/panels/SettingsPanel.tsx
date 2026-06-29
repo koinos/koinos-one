@@ -444,11 +444,33 @@ export function SettingsPanel(props: SettingsPanelProps) {
         )}
 
         {/* ─── Backup ─── */}
-        {activeTab === 'backup' && (
+        {activeTab === 'backup' && !advancedMode && (
           <>
             <div className="settings-subheader">
-              <h3>Native backup configuration</h3>
-              <p>Configure local repositories, remote SFTP, automatic backup scheduling, and the local admin API.</p>
+              <h3>{t('settings.backupSimpleTitle')}</h3>
+              <p>{t('settings.backupSimpleDescription')}</p>
+            </div>
+            <p className="settings-inline-help">
+              {t('settings.backupSimpleRestoreHint')}
+            </p>
+            <div className="settings-actions settings-actions-inline">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setAdvancedMode(true)}
+                disabled={nodeBusy}
+              >
+                {t('settings.backupShowExpertControls')}
+              </button>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'backup' && advancedMode && (
+          <>
+            <div className="settings-subheader">
+              <h3>{t('settings.backupExpertTitle')}</h3>
+              <p>{t('settings.backupExpertDescription')}</p>
             </div>
 
             <div className="settings-actions settings-actions-inline">

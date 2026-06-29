@@ -4,14 +4,38 @@ import { describe, expect, it, vi } from 'vitest'
 import { NodeBackupsPanel } from './NodeBackupsPanel'
 
 const translations: Record<string, string> = {
+  'common.disabled': 'Disabled',
+  'common.na': 'N/A',
   'node.cancelBackup': 'Cancel backup',
   'node.createBackup': 'Create Backup',
+  'node.restoreBackupPrimary': 'Restore Backup',
+  'node.backupChooseDataFolder': 'Choose data folder',
+  'node.backupCheckBootstrap': 'Check restore source',
+  'node.backupCheckingBootstrap': 'Checking restore source...',
+  'node.backupSimpleDescription': 'This is the normal way to get a node running quickly.',
+  'node.backupSimpleDataFolder': 'Data folder',
+  'node.backupSimpleBootstrapSource': 'Standard restore source',
+  'node.backupSimpleRestoreMode': 'Restore mode',
+  'node.backupSimpleObserverFirst': 'Observer first',
+  'node.backupSourcePublic': 'standard public bootstrap',
+  'node.backupSourceRemote': 'private remote',
+  'node.backupSourceLocal': 'local',
+  'node.backupSimpleLatestSize': 'Latest {source} backup size: {size}',
+  'node.backupSimpleRestoreSpace': 'Local restore space: {status}.',
+  'node.backupSpaceEnough': 'enough space',
+  'node.backupSpaceNotEnough': 'not enough space',
+  'node.backupSpaceChecking': 'checking space',
+  'node.backupSimpleCheckingLatest': 'Checking latest {source} backup...',
+  'node.backupSimpleNoLatest': 'No latest {source} backup found yet.',
+  'node.backupSimpleListError': 'Could not load latest {source} backup metadata.',
+  'node.backupSimpleAdvancedHint': 'Additional backup management tools are available in Expert Mode.',
   'node.restoreNativeLatestHelp': 'Restore help',
   'node.restoringNativeLatest': 'Restoring native backup...'
 }
 
-function t(key: string): string {
-  return translations[key] ?? key
+function t(key: string, values: Record<string, string | number> = {}): string {
+  const template = translations[key] ?? key
+  return template.replace(/\{(\w+)\}/g, (_match, token: string) => String(values[token] ?? `{${token}}`))
 }
 
 function snapshot(backupId: string, latest = false): TelenoNodeNativeBackupSnapshot {
@@ -365,6 +389,7 @@ describe('NodeBackupsPanel', () => {
         settingsDirty={false}
         advancedMode={false}
         nodeSettings={{
+          network: 'mainnet',
           baseDir: '/tmp/teleno',
           backup: {
             remoteEnabled: false
@@ -386,6 +411,7 @@ describe('NodeBackupsPanel', () => {
         nodeNativeBackupRemoteListLoading={false}
         nodeNativeBackupLocalList={null}
         nodeNativeBackupRemoteList={null}
+        nodeNativeBackupPublicList={null}
         nodeNativeBackupPreflightLoading={false}
         nodeNativeBackupPreflight={null}
         selectedNativeBackupId="latest"
@@ -405,22 +431,25 @@ describe('NodeBackupsPanel', () => {
       />
     )
 
-    expect(html.match(/<button/g)).toHaveLength(4)
+    expect(html.match(/<button/g)).toHaveLength(3)
     expect(html).toContain('Choose data folder')
-    expect(html).toContain('Check bootstrap')
-    expect(html).toContain('Create Backup')
+    expect(html).toContain('Check restore source')
     expect(html).toContain('Restore Backup')
-    expect(html).toContain('Allow remote backup')
-    expect(html).toContain('Local backup: enough space')
-    expect(html).toContain('Free 8 MB')
-    expect(html).toContain('needed 4 MB')
+    expect(html).toContain('Standard restore source')
+    expect(html).toContain('This is the normal way to get a node running quickly.')
+    expect(html).toContain('Additional backup management tools are available in Expert Mode.')
+    expect(html).not.toContain('Create Backup')
+    expect(html).not.toContain('Allow remote backup')
+    expect(html).not.toContain('Local backup: enough space')
+    expect(html).not.toContain('private SFTP')
+    expect(html).not.toContain('admin controls')
     expect(html).not.toContain('Refresh local list')
     expect(html).not.toContain('Refresh remote list')
     expect(html).not.toContain('Local native backups')
     expect(html).not.toContain('Remote SFTP backups')
   })
 
-  it('uses the remote latest backup in simple mode when remote backup is allowed', () => {
+  it('prefers the public bootstrap latest backup in simple mode when remote backup is allowed', () => {
     const html = renderToStaticMarkup(
       <NodeBackupsPanel
         t={t}
@@ -430,6 +459,7 @@ describe('NodeBackupsPanel', () => {
         settingsDirty={false}
         advancedMode={false}
         nodeSettings={{
+          network: 'mainnet',
           baseDir: '/tmp/teleno',
           backup: {
             remoteEnabled: true
@@ -467,11 +497,17 @@ describe('NodeBackupsPanel', () => {
           },
           snapshots: [snapshot('remote-20260615T213234Z', true)]
         }}
+        nodeNativeBackupPublicList={{
+          ok: true,
+          source: 'public',
+          latestBackupId: 'public-20260615T213234Z',
+          snapshots: [snapshot('public-20260615T213234Z', true)]
+        }}
         nodeNativeBackupPreflightLoading={false}
         nodeNativeBackupPreflight={{
           ok: true,
           output: '',
-          backupId: 'remote-20260615T213234Z',
+          backupId: 'public-20260615T213234Z',
           readyToRestore: true,
           snapshotComplete: true,
           fileCount: 6,
@@ -492,7 +528,7 @@ describe('NodeBackupsPanel', () => {
             message: 'ok'
           }
         }}
-        selectedNativeBackupId="remote:remote-20260615T213234Z"
+        selectedNativeBackupId="public:public-20260615T213234Z"
         setSelectedNativeBackupId={vi.fn()}
         nodeRestoreNativeBackupLoading={false}
         simpleRemoteBackupSaving={false}
@@ -509,15 +545,14 @@ describe('NodeBackupsPanel', () => {
       />
     )
 
-    expect(html).toContain('Remote backup: enough space')
-    expect(html).toContain('Free 8 MB')
-    expect(html).toContain('Latest remote backup size: 1 MB')
+    expect(html).toContain('Latest standard public bootstrap backup size: 1 MB')
     expect(html).toContain('Local restore space: enough space')
     expect(html).toContain('Free 8 MB')
     expect(html).toContain('needed 2 MB')
+    expect(html).not.toContain('Remote backup: enough space')
   })
 
-  it('restores the remote latest backup in simple mode when remote backup is allowed', () => {
+  it('restores the public bootstrap latest backup in simple mode when remote backup is allowed', () => {
     const runRestoreNativeBackupSelected = vi.fn()
     const tree = NodeBackupsPanel({
       t,
@@ -527,6 +562,7 @@ describe('NodeBackupsPanel', () => {
       settingsDirty: false,
       advancedMode: false,
       nodeSettings: {
+        network: 'mainnet',
         baseDir: '/tmp/teleno',
         backup: {
           remoteEnabled: true
@@ -564,9 +600,38 @@ describe('NodeBackupsPanel', () => {
         },
         snapshots: [snapshot('remote-20260615T213234Z', true)]
       },
+      nodeNativeBackupPublicList: {
+        ok: true,
+        source: 'public',
+        latestBackupId: 'public-20260615T213234Z',
+        snapshots: [snapshot('public-20260615T213234Z', true)]
+      },
       nodeNativeBackupPreflightLoading: false,
-      nodeNativeBackupPreflight: null,
-      selectedNativeBackupId: 'remote:remote-20260615T213234Z',
+      nodeNativeBackupPreflight: {
+        ok: true,
+        output: '',
+        backupId: 'public-20260615T213234Z',
+        readyToRestore: true,
+        snapshotComplete: true,
+        fileCount: 6,
+        missingObjectCount: 0,
+        missingObjectBytes: 0,
+        restoreSpace: {
+          restoredDatabaseBytes: 1024 * 1024,
+          runtimeFilesBytes: 0,
+          objectDownloadBytes: 0,
+          minimumTargetFreeBytes: 2 * 1024 * 1024,
+          recommendedTargetFreeBytes: 4 * 1024 * 1024
+        },
+        spaceCheck: {
+          passesMinimum: true,
+          belowRecommended: false,
+          availableBytes: 8 * 1024 * 1024,
+          targetPath: '/tmp/teleno',
+          message: 'ok'
+        }
+      },
+      selectedNativeBackupId: 'public:public-20260615T213234Z',
       setSelectedNativeBackupId: vi.fn(),
       nodeRestoreNativeBackupLoading: false,
       simpleRemoteBackupSaving: false,
@@ -585,6 +650,6 @@ describe('NodeBackupsPanel', () => {
     const restoreButton = findButtonByText(tree, 'Restore Backup')
     expect(restoreButton).toBeTruthy()
     restoreButton.props.onClick()
-    expect(runRestoreNativeBackupSelected).toHaveBeenCalledWith('remote:remote-20260615T213234Z')
+    expect(runRestoreNativeBackupSelected).toHaveBeenCalledWith('public:public-20260615T213234Z')
   })
 })

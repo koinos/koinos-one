@@ -12,6 +12,9 @@ This is intentionally separate from authenticated remote backup creation:
 
 - `backup.remote` remains the operator-owned SFTP upload target for creating private remote backups.
 - `backup.public-restore` is the read-only bootstrap source used by new installations.
+- Publishing or maintaining the public bootstrap repository is a maintainer
+  release workflow. It should not be presented as a normal operator backup
+  feature in simple UX.
 
 The current implementation covers the Mac CLI flow, Linux/Docker CLI flow, local backup admin API orchestration, Teleno UX restore/list integration, and Ed25519 signed-manifest verification for the published testnet bootstrap snapshot. Prodnet bootstrap restore has also been validated from the public HTTPS repository into an observer-only Docker node on VPS1. Prodnet signature enforcement remains follow-up work; the current prodnet acceptance relies on HTTPS origin validation plus per-object SHA-256 verification.
 
@@ -86,7 +89,7 @@ Validated prodnet metadata:
 - `latest.json` is reachable over HTTPS.
 - The validated snapshot metadata reports `network: mainnet`.
 - The snapshot contains 455 content-addressed objects and about 26.96 GB of backup payload.
-- The prodnet snapshot has been restored on VPS1 `<VPS1_PUBLIC_IP>` into a Dockerized observer basedir at `/home/deployer/teleno-prodnet-observer/basedir`.
+- The prodnet snapshot has been restored on VPS1 `<VPS1_PUBLIC_IP>` into a Dockerized observer basedir at `<VPS1_PRODNET_OBSERVER_BASEDIR>`.
 - The restored VPS1 observer starts with block production disabled and publishes P2P on port `18889`; JSON-RPC is bound to localhost on port `18080`.
 - Current prodnet snapshot publication is unsigned from the client perspective: `signature_required=false` and `signature_verified=false`. Prodnet signing is still tracked as follow-up hardening.
 
@@ -220,7 +223,11 @@ Parsed fields:
 
 The config test suite now covers parsing of this section.
 
-Teleno UX-generated testnet native backup configs now set `signature-required: true` when the bundled testnet verification key exists. Mainnet and custom networks keep public restore disabled.
+Teleno UX-generated testnet native backup configs now set
+`signature-required: true` when the bundled testnet verification key exists.
+Teleno UX-generated mainnet configs enable the standard prodnet public
+bootstrap source without signature enforcement until prodnet signing is
+completed. Custom networks keep public restore disabled.
 
 ## Public Repository Format
 
@@ -465,7 +472,7 @@ Real public testnet validation:
 - Prodnet Docker restore on VPS1 `<VPS1_PUBLIC_IP>` passed on 2026-06-21:
   - listed `https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap` and selected snapshot `20260620T201059Z-ms-1781986259826-files-452`;
   - preflight passed with enough disk space on the 150 GB root filesystem;
-  - restored 455 objects into `/home/deployer/teleno-prodnet-observer/basedir`;
+  - restored 455 objects into `<VPS1_PRODNET_OBSERVER_BASEDIR>`;
   - restore activation completed with `ok: true` and `start_as_observer_first: true`;
   - started `ghcr.io/pgarciagon/teleno-node:beta` as container `teleno-prodnet-observer` with restart policy `unless-stopped`;
   - opened RocksDB with 9 column families, reached `[node] teleno_node ready`, connected to prodnet peers, and began catch-up from the restored head;
