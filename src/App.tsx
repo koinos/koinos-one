@@ -102,7 +102,6 @@ import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { NodeBackupsPanel } from './components/panels/NodeBackupsPanel'
 import { FirstRunSetupModal } from './components/panels/FirstRunSetupModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
-import { RemoteNodesPanel } from './components/panels/RemoteNodesPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
 import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, hasStateMerkleMismatch, parseIndexerProgress, shouldDisableVerifyBlocks } from './app/chain-sync'
@@ -112,6 +111,7 @@ import { publicBootstrapUrlForNetwork } from './app/public-bootstrap'
 import pkg from '../package.json'
 
 const appLogoUrl = new URL('../assets/newbranding/logo.svg', import.meta.url).href
+const REMOTE_NODE_MANAGEMENT_ENABLED = false
 
 type NativeBackupSelectionSource = 'local' | 'remote' | 'public' | 'auto'
 
@@ -5245,6 +5245,7 @@ export function App() {
   }
 
   const requestActiveTab = (nextTab: AppTab) => {
+    if (!REMOTE_NODE_MANAGEMENT_ENABLED && nextTab === 'remote') return
     if (nextTab === activeTab) return
     if (activeTab === 'settings' && nextTab !== 'settings' && settingsDirty) {
       setSettingsUnsavedTargetTab(nextTab)
@@ -5303,17 +5304,19 @@ export function App() {
             >
               {t('tab.node')}
             </button>
-            <button
-              id="tab-remote"
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'remote'}
-              aria-controls="panel-remote"
-              className={`tab-button ${activeTab === 'remote' ? 'is-active' : ''}`.trim()}
-              onClick={() => requestActiveTab('remote')}
-            >
-              {t('tab.remote')}
-            </button>
+            {REMOTE_NODE_MANAGEMENT_ENABLED && (
+              <button
+                id="tab-remote"
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'remote'}
+                aria-controls="panel-remote"
+                className={`tab-button ${activeTab === 'remote' ? 'is-active' : ''}`.trim()}
+                onClick={() => requestActiveTab('remote')}
+              >
+                {t('tab.remote')}
+              </button>
+            )}
             <button
               id="tab-producer"
               type="button"
@@ -5421,13 +5424,6 @@ export function App() {
           nodeProducerOverview={nodeProducerOverview}
           nodeProducerLoading={nodeProducerLoading}
           nodeProducerError={nodeProducerError}
-        />
-      )}
-
-      {activeTab === 'remote' && (
-        <RemoteNodesPanel
-          t={t}
-          advancedMode={settings.nodeAdvancedMode}
         />
       )}
 

@@ -19,6 +19,7 @@ const SETTINGS_STORAGE_KEY = 'teleno.explorer.settings.v1'
 const STABLE_SCREENSHOT_DIR = path.join(repoRoot, '.run', 'remote-node-ui-screenshots')
 
 test.skip(process.env.TELENO_PLAYWRIGHT_ELECTRON !== '1', 'Run with TELENO_PLAYWRIGHT_ELECTRON=1')
+test.skip(true, 'Remote Nodes tab is disabled on the main release track; run this E2E on remote_node_management.')
 
 async function closeAppAndRemoveTemp(app: Awaited<ReturnType<typeof electron.launch>>, tempRoot: string) {
   await app.evaluate(({ app: electronApp }) => electronApp.exit(0)).catch(() => undefined)
