@@ -43,6 +43,20 @@ type PublicRpcConfigResult = {
   publicRpcUrlsByNetwork?: Partial<Record<KoinosNetworkId, string[]>>
 }
 
+type RemoteInventoryStorageResult = {
+  ok: boolean
+  output: string
+  filePath: string
+  inventory: unknown
+}
+
+type RemoteReceiptsStorageResult = {
+  ok: boolean
+  output: string
+  filePath: string
+  receipts: unknown[]
+}
+
 type WalletAccountSecrets = {
   walletAddress: string | null
   accountId: string | null
@@ -57,6 +71,8 @@ type WalletAccountSecrets = {
 type PublicRpcUrlsByNetwork = Record<KoinosNetworkId, string[]>
 
 const PUBLIC_RPC_NETWORKS: KoinosNetworkId[] = ['mainnet', 'testnet', 'custom']
+const TELENO_REMOTE_INVENTORY_FILE = 'remote-nodes.inventory.v1.json'
+const TELENO_REMOTE_RECEIPTS_FILE = 'remote-nodes.receipts.v1.json'
 
 function defaultPublicRpcUrlsByNetwork(): PublicRpcUrlsByNetwork {
   return {
@@ -117,6 +133,74 @@ function configPath(userDataPath: string, ...parts: string[]): string {
 function ensureDir(dirPath: string, mode?: number): void {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true, mode })
+  }
+}
+
+function scanRemoteInventoryValue(value: unknown, pathParts: string[] = []): string | null {
+  if (typeof value === 'string') {
+    const field = pathParts.join('.')
+    const loopbackBindAllowed =
+      /\.(jsonrpcHostBind|backupAdminListen)$/.test(field) &&
+      /^(127\.0\.0\.1|localhost):\d+$/.test(value)
+    if ((/@/.test(value) || /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(value)) && !loopbackBindAllowed) {
+      return `Raw host or IP-like value is not allowed in ${field}.`
+    }
+    if (/-----BEGIN [^-]+PRIVATE KEY-----/i.test(value)) {
+      return `Private key material is not allowed in ${field}.`
+    }
+    if (/(password|passwd|passphrase|token|secret|seed|wif|private.?key)\s*[:=]/i.test(value)) {
+      return `Secret-looking value is not allowed in ${field}.`
+    }
+    return null
+  }
+
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const result = scanRemoteInventoryValue(value[index], [...pathParts, `${index}`])
+      if (result) return result
+    }
+    return null
+  }
+
+  if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      const result = scanRemoteInventoryValue(child, [...pathParts, key])
+      if (result) return result
+    }
+  }
+
+  return null
+}
+
+function normalizeRemoteInventoryStoragePayload(input?: unknown): { ok: boolean; output: string; inventory: unknown } {
+  if (!input || typeof input !== 'object') {
+    return {
+      ok: true,
+      output: 'Using empty remote inventory.',
+      inventory: { version: 1, nodes: [] }
+    }
+  }
+
+  const inputRecord = input as { version?: unknown; nodes?: unknown }
+  const nodes = Array.isArray(inputRecord.nodes) ? inputRecord.nodes : []
+  const inventory = {
+    ...inputRecord,
+    version: 1,
+    nodes
+  }
+  const blocked = scanRemoteInventoryValue(inventory)
+  if (blocked) {
+    return {
+      ok: false,
+      output: blocked,
+      inventory: { version: 1, nodes: [] }
+    }
+  }
+
+  return {
+    ok: true,
+    output: `Remote inventory contains ${nodes.length} node records.`,
+    inventory
   }
 }
 
@@ -374,6 +458,8 @@ export function createTelenoStorage(userDataPath: string) {
   const producerProfileFilePath = (network?: KoinosNetworkId) =>
     path.join(scopedSecureStoragePath(network), TELENO_PRODUCER_PROFILE_FILE)
   const publicRpcsFilePath = () => configPath(userDataPath, TELENO_PUBLIC_RPCS_FILE)
+  const remoteInventoryFilePath = () => configPath(userDataPath, TELENO_REMOTE_INVENTORY_FILE)
+  const remoteReceiptsFilePath = () => configPath(userDataPath, TELENO_REMOTE_RECEIPTS_FILE)
 
   const ensureSecureStorageDir = (network?: KoinosNetworkId) => ensureDir(scopedSecureStoragePath(network), 0o700)
   const ensureConfigDir = () => ensureDir(configPath(userDataPath))
@@ -489,6 +575,133 @@ export function createTelenoStorage(userDataPath: string) {
         network: defaults.network,
         publicRpcUrls: defaults.publicRpcUrls,
         publicRpcUrlsByNetwork: defaults.publicRpcUrlsByNetwork
+      }
+    }
+  }
+
+  const loadRemoteInventory = (): RemoteInventoryStorageResult => {
+    const filePath = remoteInventoryFilePath()
+    if (!fs.existsSync(filePath)) {
+      const empty = normalizeRemoteInventoryStoragePayload()
+      return {
+        ok: true,
+        output: 'No local remote inventory exists yet.',
+        filePath,
+        inventory: empty.inventory
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      const normalized = normalizeRemoteInventoryStoragePayload(parsed)
+      return {
+        ok: normalized.ok,
+        output: normalized.ok ? `Loaded local remote inventory from ${filePath}` : normalized.output,
+        filePath,
+        inventory: normalized.inventory
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not read local remote inventory.',
+        filePath,
+        inventory: { version: 1, nodes: [] }
+      }
+    }
+  }
+
+  const saveRemoteInventory = (input?: unknown): RemoteInventoryStorageResult => {
+    const normalized = normalizeRemoteInventoryStoragePayload(input)
+    const filePath = remoteInventoryFilePath()
+    if (!normalized.ok) {
+      return {
+        ok: false,
+        output: normalized.output,
+        filePath,
+        inventory: normalized.inventory
+      }
+    }
+
+    try {
+      ensureConfigDir()
+      const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`
+      fs.writeFileSync(tempPath, JSON.stringify(normalized.inventory, null, 2), { mode: 0o600 })
+      fs.renameSync(tempPath, filePath)
+      fs.chmodSync(filePath, 0o600)
+      return {
+        ok: true,
+        output: `Saved local remote inventory to ${filePath}`,
+        filePath,
+        inventory: normalized.inventory
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not save local remote inventory.',
+        filePath,
+        inventory: normalized.inventory
+      }
+    }
+  }
+
+  const loadRemoteReceipts = (): RemoteReceiptsStorageResult => {
+    const filePath = remoteReceiptsFilePath()
+    if (!fs.existsSync(filePath)) {
+      return {
+        ok: true,
+        output: 'No local remote execution receipts exist yet.',
+        filePath,
+        receipts: []
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      const receipts = Array.isArray((parsed as { receipts?: unknown }).receipts)
+        ? (parsed as { receipts: unknown[] }).receipts
+        : []
+      const sanitizedReceipts = receipts.slice(0, 50)
+      return {
+        ok: true,
+        output: `Loaded ${sanitizedReceipts.length} local remote execution receipts from ${filePath}`,
+        filePath,
+        receipts: sanitizedReceipts
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not read local remote execution receipts.',
+        filePath,
+        receipts: []
+      }
+    }
+  }
+
+  const appendRemoteReceipt = (receipt?: unknown): RemoteReceiptsStorageResult => {
+    const filePath = remoteReceiptsFilePath()
+    try {
+      ensureConfigDir()
+      const existing = loadRemoteReceipts()
+      const receipts = [
+        ...(existing.receipts || []),
+        receipt && typeof receipt === 'object' ? receipt : { status: 'failed', output: 'Invalid remote execution receipt.' }
+      ].slice(-50)
+      const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`
+      fs.writeFileSync(tempPath, JSON.stringify({ version: 1, receipts }, null, 2), { mode: 0o600 })
+      fs.renameSync(tempPath, filePath)
+      fs.chmodSync(filePath, 0o600)
+      return {
+        ok: true,
+        output: `Stored ${receipts.length} local remote execution receipts in ${filePath}`,
+        filePath,
+        receipts
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not store local remote execution receipt.',
+        filePath,
+        receipts: []
       }
     }
   }
@@ -992,8 +1205,14 @@ export function createTelenoStorage(userDataPath: string) {
     producerWalletFilePath,
     producerProfileFilePath,
     publicRpcsFilePath,
+    remoteInventoryFilePath,
+    remoteReceiptsFilePath,
     loadPublicRpcConfig,
     savePublicRpcConfig,
+    loadRemoteInventory,
+    saveRemoteInventory,
+    loadRemoteReceipts,
+    appendRemoteReceipt,
     loadWalletFile,
     loadProducerProfile,
     saveProducerProfile,

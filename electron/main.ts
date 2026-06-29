@@ -231,6 +231,7 @@ import { registerTelenoIpcHandlers } from './lib/ipc-handlers'
 import { createLogsService } from './lib/logs-service'
 import { createNativeBuildService } from './lib/native-build-service'
 import { createNativeRuntimeService } from './lib/native-runtime-service'
+import { createRemoteNodeExecutionService, type RemoteExecutionRequest } from './lib/remote-node-service'
 import { createWalletService } from './lib/wallet-service'
 import { createWorkspaceService } from './lib/workspace-service'
 
@@ -240,6 +241,7 @@ let appShutdownInProgress = false
 let appShutdownApproved = false
 let mainWindow: BrowserWindow | null = null
 const telenoStorage = createTelenoStorage(app.getPath('userData'))
+const remoteNodeExecutionService = createRemoteNodeExecutionService()
 const FIRST_RUN_SETUP_STATE_FILE = 'first-run-setup-state.v1.json'
 
 const LOGS_FOLLOW_EVENT_CHANNEL = 'teleno:node:logs-follow:event'
@@ -1569,6 +1571,28 @@ function loadPublicRpcConfig(): PublicRpcConfigResult {
 
 function savePublicRpcConfig(input?: PublicRpcConfigInput): PublicRpcConfigResult {
   return telenoStorage.savePublicRpcConfig(input) as PublicRpcConfigResult
+}
+
+function loadRemoteInventory() {
+  return telenoStorage.loadRemoteInventory()
+}
+
+function saveRemoteInventory(input?: unknown) {
+  return telenoStorage.saveRemoteInventory(input)
+}
+
+function loadRemoteReceipts() {
+  return telenoStorage.loadRemoteReceipts()
+}
+
+async function executeRemoteCommandPlan(input?: unknown) {
+  const result = await remoteNodeExecutionService.executeRemoteCommandPlan(input as RemoteExecutionRequest | undefined)
+  try {
+    telenoStorage.appendRemoteReceipt(result.receipt)
+  } catch {
+    // Receipt persistence is best-effort; execution already returns its receipt.
+  }
+  return result
 }
 
 function loadTelenoWalletFile(network?: KoinosNetworkId): TelenoEncryptedWallet | null {
@@ -4600,6 +4624,10 @@ function registerIpcHandlers() {
     resetFirstRunSetup,
     loadPublicRpcConfig,
     savePublicRpcConfig,
+    loadRemoteInventory,
+    saveRemoteInventory,
+    loadRemoteReceipts,
+    executeRemoteCommandPlan,
     saveBackupPasswordFile,
     getNodeDefaults: () => {
       return normalizeNodeSettings()

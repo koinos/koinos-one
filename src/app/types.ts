@@ -61,7 +61,7 @@ export type NodeBackupSettings = {
 
 export type NodeAction = 'start' | 'stop'
 export type NodeServiceAction = 'start' | 'stop' | 'restart'
-export type AppTab = 'explorer' | 'dashboard' | 'node' | 'producer' | 'wallet' | 'settings'
+export type AppTab = 'explorer' | 'dashboard' | 'node' | 'remote' | 'producer' | 'wallet' | 'settings'
 export type DashboardSubtab = 'producers' | 'peers' | 'forecast' | 'performance'
 export type NodeManagedFileKind = 'config'
 
@@ -101,19 +101,8 @@ export type NodeBackupProgressState = {
   action: 'restore-backup' | 'restore-backup-verify' | 'create-backup'
   phase: TelenoNodeBackupProgressEvent['phase']
   progress: number
-  displayProgress: number
   message: string
   updatedAt: number
-  completedBytes: number | null
-  totalBytes: number | null
-  bytesPerSecond: number | null
-  etaSeconds: number | null
-  completedBatches: number | null
-  totalBatches: number | null
-  phaseProgress: number | null
-  progressRangeStart: number | null
-  progressRangeEnd: number | null
-  sampleIntervalMs: number | null
 }
 
 export type NodeBaseDirValidationState = {

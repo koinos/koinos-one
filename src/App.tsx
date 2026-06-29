@@ -102,12 +102,13 @@ import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
 import { NodeBackupsPanel } from './components/panels/NodeBackupsPanel'
 import { FirstRunSetupModal } from './components/panels/FirstRunSetupModal'
 import { ProducerPanel } from './components/panels/ProducerPanel'
+import { RemoteNodesPanel } from './components/panels/RemoteNodesPanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { WalletPanel } from './components/panels/WalletPanel'
 import { createAutoRestartState, createP2pRestartState, evaluateAutoRestart, evaluateP2pRestart, hasStateMerkleMismatch, parseIndexerProgress, shouldDisableVerifyBlocks } from './app/chain-sync'
 import type { AutoRestartState, IndexerProgress, P2pRestartState } from './app/chain-sync'
 import { KOINOS_NETWORK_OPTIONS, nativeTokenSymbolForNetwork, publicRpcUrlsForNetwork, type KoinosNetworkId } from './app/network'
-import { publicBootstrapDescriptionForNetwork, publicBootstrapUrlForNetwork } from './app/public-bootstrap'
+import { publicBootstrapUrlForNetwork } from './app/public-bootstrap'
 import pkg from '../package.json'
 
 const appLogoUrl = new URL('../assets/newbranding/logo.svg', import.meta.url).href
@@ -243,74 +244,8 @@ function walletBalanceCacheKeys(network: KoinosNetworkId, address?: string | nul
   return keys
 }
 
-type BackupProgressSample = {
-  action: NodeBackupProgressState['action']
-  phase: NodeBackupProgressState['phase']
-  completedBytes: number | null
-  bytesPerSecond: number | null
-  sampledAt: number
-}
-
-const TERMINAL_BACKUP_PHASES = new Set<TelenoNodeBackupProgressEvent['phase']>(['complete', 'error'])
-
-function numericOrNull(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function clampBackupProgress(progress: number): number {
-  if (!Number.isFinite(progress)) return 0
-  return Math.max(0, Math.min(100, progress))
-}
-
-function createBackupProgressState(
-  action: NodeBackupProgressState['action'],
-  phase: NodeBackupProgressState['phase'],
-  progress: number,
-  message: string,
-  updatedAt = Date.now(),
-  patch: Partial<NodeBackupProgressState> = {}
-): NodeBackupProgressState {
-  const normalizedProgress = clampBackupProgress(progress)
-  return {
-    action,
-    phase,
-    progress: normalizedProgress,
-    displayProgress: clampBackupProgress(patch.displayProgress ?? normalizedProgress),
-    message,
-    updatedAt,
-    completedBytes: patch.completedBytes ?? null,
-    totalBytes: patch.totalBytes ?? null,
-    bytesPerSecond: patch.bytesPerSecond ?? null,
-    etaSeconds: patch.etaSeconds ?? null,
-    completedBatches: patch.completedBatches ?? null,
-    totalBatches: patch.totalBatches ?? null,
-    phaseProgress: patch.phaseProgress ?? null,
-    progressRangeStart: patch.progressRangeStart ?? null,
-    progressRangeEnd: patch.progressRangeEnd ?? null,
-    sampleIntervalMs: patch.sampleIntervalMs ?? null
-  }
-}
-
 export function App() {
-  const appBuildInfo = window.teleno?.buildInfo || {
-    schemaVersion: 1,
-    productVersion: window.teleno?.version?.trim() || pkg.version,
-    releaseChannel: 'dev',
-    buildTimestamp: null,
-    gitCommit: null,
-    gitShortCommit: null,
-    gitBranch: null,
-    gitDirty: null,
-    nativeNode: {
-      binaryName: 'teleno_node',
-      sha256: null,
-      shortSha256: null,
-      sizeBytes: null,
-      mtime: null
-    },
-    source: 'runtime'
-  }
-  const appVersion = appBuildInfo.productVersion?.trim() || window.teleno?.version?.trim() || pkg.version
+  const appVersion = window.teleno?.version?.trim() || pkg.version
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
   const [savedLanguage, setSavedLanguage] = useState<AppLanguage>(() => language)
@@ -336,7 +271,6 @@ export function App() {
   const verifyBlocksCheckDoneRef = useRef(false)
   const nativeBackupConfigLoadKeyRef = useRef('')
   const nativeBackupUserEditedRef = useRef(false)
-  const backupProgressSampleRef = useRef<BackupProgressSample | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -450,6 +384,7 @@ export function App() {
   const [dashboardSubtab, setDashboardSubtab] = useState<DashboardSubtab>('producers')
   const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
   const [firstRunSetupOpen, setFirstRunSetupOpen] = useState(true)
+  const [firstRunPublicBootstrapUsed, setFirstRunPublicBootstrapUsed] = useState(false)
   const [walletOverview, setWalletOverview] = useState<TelenoWalletOverviewResult | null>(null)
   const [producerSigningWalletBalance, setProducerSigningWalletBalance] = useState<TelenoWalletBalanceResult | null>(null)
   const [producerSigningWalletBalanceNetwork, setProducerSigningWalletBalanceNetwork] = useState<KoinosNetworkId | null>(null)
@@ -523,12 +458,8 @@ export function App() {
   const activeWalletCanSign = Boolean(walletOverview?.unlocked && activeWalletAccount?.hasPrivateKey)
   const nativeTokenSymbol = nativeTokenSymbolForNetwork(nodeSettings.network)
   const firstRunPublicBootstrapUrl = useMemo(
-    () => publicBootstrapUrlForNetwork(nodeSettings.network),
-    [nodeSettings.network]
-  )
-  const firstRunPublicBootstrapDescription = useMemo(
-    () => publicBootstrapDescriptionForNetwork(nodeSettings.network),
-    [nodeSettings.network]
+    () => publicBootstrapUrlForNetwork(draftNodeNetwork === 'testnet' ? 'testnet' : 'mainnet'),
+    [draftNodeNetwork]
   )
   const activeWalletBalanceCacheEntry = useMemo(() => {
     const keys = walletBalanceCacheKeys(nodeSettings.network, activeWalletAddress, activeWalletAccountId)
@@ -1106,159 +1037,25 @@ export function App() {
       const payload = event as TelenoNodeBackupProgressEvent
       if (!payload.action || typeof payload.progress !== 'number') return
 
-      const now = Date.now()
-      const totalBytes = numericOrNull(payload.totalBytes)
-      const completedBytes = numericOrNull(payload.completedBytes)
-      const previousSample = backupProgressSampleRef.current
-      const sameSampleSeries = Boolean(
-        previousSample &&
-        previousSample.action === payload.action &&
-        previousSample.phase === payload.phase &&
-        completedBytes !== null &&
-        previousSample.completedBytes !== null
-      )
-      const sampleIntervalMs = sameSampleSeries ? Math.max(1, now - previousSample!.sampledAt) : null
-      const measuredBytesPerSecond = sameSampleSeries && completedBytes! >= previousSample!.completedBytes!
-        ? ((completedBytes! - previousSample!.completedBytes!) / sampleIntervalMs!) * 1000
-        : null
-      const payloadBytesPerSecond = numericOrNull(payload.bytesPerSecond)
-      const previousBytesPerSecond = sameSampleSeries ? previousSample?.bytesPerSecond ?? null : null
-      const bytesPerSecond = payloadBytesPerSecond !== null
-        ? payloadBytesPerSecond
-        : measuredBytesPerSecond !== null
-          ? previousBytesPerSecond !== null && previousBytesPerSecond > 0
-            ? (previousBytesPerSecond * 0.65) + (measuredBytesPerSecond * 0.35)
-            : measuredBytesPerSecond > 0
-              ? measuredBytesPerSecond
-              : null
-          : null
-      const etaSeconds = numericOrNull(payload.etaSeconds) ??
-        (totalBytes !== null && completedBytes !== null && bytesPerSecond !== null && bytesPerSecond > 0
-          ? Math.max(0, (totalBytes - completedBytes) / bytesPerSecond)
-          : null)
-
-      setNodeBackupProgress((current) => {
-        const rawProgress = clampBackupProgress(payload.progress)
-        const previousDisplay = current?.action === payload.action && !TERMINAL_BACKUP_PHASES.has(payload.phase)
-          ? current.displayProgress
-          : rawProgress
-        return createBackupProgressState(
-          payload.action,
-          payload.phase,
-          rawProgress,
-          payload.message || '',
-          now,
-          {
-            displayProgress: Math.max(rawProgress, previousDisplay),
-            completedBytes,
-            totalBytes,
-            bytesPerSecond,
-            etaSeconds,
-            completedBatches: numericOrNull(payload.completedBatches),
-            totalBatches: numericOrNull(payload.totalBatches),
-            phaseProgress: numericOrNull(payload.phaseProgress),
-            progressRangeStart: numericOrNull(payload.progressRangeStart),
-            progressRangeEnd: numericOrNull(payload.progressRangeEnd),
-            sampleIntervalMs
-          }
-        )
-      })
-
-      backupProgressSampleRef.current = {
+      setNodeBackupProgress({
         action: payload.action,
         phase: payload.phase,
-        completedBytes,
-        bytesPerSecond,
-        sampledAt: now
-      }
-
-      if (payload.phase === 'error') {
-        backupProgressSampleRef.current = null
-      }
+        progress: payload.progress,
+        message: payload.message || '',
+        updatedAt: Date.now()
+      })
 
       if (payload.phase === 'complete') {
         window.setTimeout(() => {
           setNodeBackupProgress((current) =>
             current?.action === payload.action && current.phase === payload.phase ? null : current
           )
-          backupProgressSampleRef.current = null
         }, 2500)
       }
     })
 
     return unsubscribe
   }, [hasNodeControls])
-
-  useEffect(() => {
-    if (!nodeBackupProgress || TERMINAL_BACKUP_PHASES.has(nodeBackupProgress.phase)) return
-    if (
-      nodeBackupProgress.completedBytes === null ||
-      nodeBackupProgress.totalBytes === null ||
-      nodeBackupProgress.bytesPerSecond === null ||
-      nodeBackupProgress.bytesPerSecond <= 0 ||
-      nodeBackupProgress.progressRangeStart === null ||
-      nodeBackupProgress.progressRangeEnd === null ||
-      nodeBackupProgress.progressRangeEnd <= nodeBackupProgress.progressRangeStart
-    ) return
-
-    const timer = window.setInterval(() => {
-      setNodeBackupProgress((current) => {
-        if (!current || TERMINAL_BACKUP_PHASES.has(current.phase)) return current
-        if (
-          current.completedBytes === null ||
-          current.totalBytes === null ||
-          current.bytesPerSecond === null ||
-          current.bytesPerSecond <= 0 ||
-          current.progressRangeStart === null ||
-          current.progressRangeEnd === null ||
-          current.progressRangeEnd <= current.progressRangeStart
-        ) return current
-
-        const elapsedSeconds = Math.max(0, (Date.now() - current.updatedAt) / 1000)
-        const sampleIntervalSeconds = Math.max(1, (current.sampleIntervalMs ?? 1000) / 1000)
-        const predictedLeadSeconds = Math.min(elapsedSeconds, sampleIntervalSeconds * 2)
-        const predictedCompletedBytes = Math.min(
-          current.totalBytes,
-          current.completedBytes + (current.bytesPerSecond * predictedLeadSeconds)
-        )
-        const predictedFraction = current.totalBytes > 0
-          ? Math.max(0, Math.min(1, predictedCompletedBytes / current.totalBytes))
-          : 0
-        const phaseTarget = current.progressRangeStart +
-          ((current.progressRangeEnd - current.progressRangeStart) * predictedFraction)
-        const phaseCap = Math.max(current.progressRangeStart, current.progressRangeEnd - 0.5)
-        const nextDisplayProgress = Math.min(
-          phaseCap,
-          Math.max(current.displayProgress, current.progress, phaseTarget)
-        )
-        const nextEtaSeconds = current.bytesPerSecond > 0
-          ? Math.max(0, (current.totalBytes - predictedCompletedBytes) / current.bytesPerSecond)
-          : current.etaSeconds
-
-        if (
-          Math.abs(nextDisplayProgress - current.displayProgress) < 0.05 &&
-          Math.abs((nextEtaSeconds ?? 0) - (current.etaSeconds ?? 0)) < 0.5
-        ) return current
-
-        return {
-          ...current,
-          displayProgress: nextDisplayProgress,
-          etaSeconds: nextEtaSeconds
-        }
-      })
-    }, 500)
-
-    return () => window.clearInterval(timer)
-  }, [
-    nodeBackupProgress?.action,
-    nodeBackupProgress?.phase,
-    nodeBackupProgress?.updatedAt,
-    nodeBackupProgress?.completedBytes,
-    nodeBackupProgress?.totalBytes,
-    nodeBackupProgress?.bytesPerSecond,
-    nodeBackupProgress?.progressRangeStart,
-    nodeBackupProgress?.progressRangeEnd
-  ])
 
   useEffect(() => {
     if (!hasNodeControls) return
@@ -3241,64 +3038,6 @@ export function App() {
     }
   }
 
-  const firstRunProducerSetupMatchesTarget = () => {
-    const configuredAddress = producerConfiguredAddress.trim()
-    const targetAddress = effectiveProducerTargetAddress.trim()
-    return Boolean(
-      producerSetupComplete &&
-      producerPublicKeyAlreadyRegistered &&
-      configuredAddress &&
-      targetAddress &&
-      configuredAddress.toLowerCase() === targetAddress.toLowerCase()
-    )
-  }
-
-  const clearUnregisteredProducerSetupFromFirstRun = async (
-    options: { preserveCurrentComplete?: boolean } = {}
-  ): Promise<boolean> => {
-    if (options.preserveCurrentComplete !== false && firstRunProducerSetupMatchesTarget()) return true
-
-    const bridge = getTelenoNodeBridge()
-    if (!bridge?.producerDelete) return true
-
-    setNodeProducerActionLoading('delete')
-    setNodeProducerError(null)
-    try {
-      const result = await bridge.producerDelete(toNodeApiSettings(nodeSettings))
-      setNodeProducerOverview(result.overview)
-      setNodeProducerAddressDraft('')
-      setProducerPreviewRegisteredPublicKey(null)
-      setProducerRecentBlocks([])
-      setProducerRecentBlocksError(null)
-      await Promise.all([
-        refreshProducerProfile(),
-        refreshProducerLocalInfo()
-      ])
-
-      if (!result.ok) {
-        setNodeProducerError(result.output || t('producer.unableDelete'))
-        return false
-      }
-
-      return true
-    } catch (error) {
-      setNodeProducerError(error instanceof Error ? error.message : t('producer.unableDelete'))
-      return false
-    } finally {
-      setNodeProducerActionLoading(null)
-    }
-  }
-
-  const createWalletAccountFromSetup = async (
-    password: string,
-    confirmPassword: string,
-    generatedWalletOverride?: Parameters<typeof createWalletAccount>[2]
-  ): Promise<boolean> => {
-    const ok = await createWalletAccount(password, confirmPassword, generatedWalletOverride)
-    if (!ok) return false
-    return clearUnregisteredProducerSetupFromFirstRun({ preserveCurrentComplete: false })
-  }
-
   const showWalletSeed = async () => {
     const bridge = getWalletBridge()
     if (!bridge?.showSeed) {
@@ -3610,34 +3349,10 @@ export function App() {
     }
   }
 
-  const useExistingProducerAddressFromSetup = async (address: string): Promise<boolean> => {
-    const producerAddress = address.trim()
-    if (!producerAddress) {
-      setWalletError('Enter the producer address to continue.')
-      return false
-    }
-
-    const cleared = await clearUnregisteredProducerSetupFromFirstRun({ preserveCurrentComplete: false })
-    if (!cleared) return false
-
-    setWalletError(null)
-    setNodeProducerError(null)
-    setProducerUseWalletAddress(false)
-    setProducerAllowDelegatedSigner(false)
-    setNodeProducerAddressDraft(producerAddress)
-    setWalletResultTitle('Producer address selected')
-    setWalletResultData({
-      ok: true,
-      output: `Producer address selected for setup: ${producerAddress}`,
-      address: producerAddress
-    })
-    return true
-  }
-
   const restorePublicBootstrapFromSetup = async (backupId: string): Promise<boolean> => {
     const ok = await runRestoreNativeBackupSelected(backupId)
-    if (!ok) return false
-    return clearUnregisteredProducerSetupFromFirstRun({ preserveCurrentComplete: false })
+    setFirstRunPublicBootstrapUsed(ok)
+    return ok
   }
 
   const renameWalletVaultAccount = async (accountId: string, name: string) => {
@@ -4313,16 +4028,6 @@ export function App() {
       return { ok: false, output: t('node.electronOnlyWarning') }
     }
 
-    if (!producerSetupComplete) {
-      const cleared = await clearUnregisteredProducerSetupFromFirstRun()
-      if (!cleared) {
-        return {
-          ok: false,
-          output: nodeProducerError || t('producer.unableDelete')
-        }
-      }
-    }
-
     const observerProfiles = defaultNodeProfilesForNetwork(nodeSettings.network)
     const observerPresetId =
       nodeSettings.network === 'mainnet'
@@ -4373,8 +4078,13 @@ export function App() {
 
     setNodeRestoreBackupLoading(true)
     setNodeError(null)
-    backupProgressSampleRef.current = null
-    setNodeBackupProgress(createBackupProgressState('restore-backup', 'prepare', 0, t('node.preparingRestore')))
+    setNodeBackupProgress({
+      action: 'restore-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.preparingRestore'),
+      updatedAt: Date.now()
+    })
 
     try {
       const result = await bridge.restoreBackup(toNodeApiSettings(nodeSettings))
@@ -4403,8 +4113,13 @@ export function App() {
 
     setNodeRestoreBackupVerifyLoading(true)
     setNodeError(null)
-    backupProgressSampleRef.current = null
-    setNodeBackupProgress(createBackupProgressState('restore-backup-verify', 'prepare', 0, t('node.preparingRestoreVerify')))
+    setNodeBackupProgress({
+      action: 'restore-backup-verify',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.preparingRestoreVerify'),
+      updatedAt: Date.now()
+    })
 
     try {
       const result = await bridge.restoreBackupVerify(toNodeApiSettings(nodeSettings))
@@ -4443,8 +4158,13 @@ export function App() {
     setNodeCreateBackupLoading(true)
     nodeBackupOperationActiveRef.current = true
     setNodeError(null)
-    backupProgressSampleRef.current = null
-    setNodeBackupProgress(createBackupProgressState('create-backup', 'prepare', 0, t('node.creatingBackup')))
+    setNodeBackupProgress({
+      action: 'create-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.creatingBackup'),
+      updatedAt: Date.now()
+    })
 
     try {
       const result = await bridge.createBackup(toNodeApiSettings(createSettings))
@@ -4465,8 +4185,13 @@ export function App() {
 
     setNodeNativeBackupDryRunLoading(true)
     setNodeError(null)
-    backupProgressSampleRef.current = null
-    setNodeBackupProgress(createBackupProgressState('create-backup', 'prepare', 0, t('node.checkingNativeBackupConfig')))
+    setNodeBackupProgress({
+      action: 'create-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.checkingNativeBackupConfig'),
+      updatedAt: Date.now()
+    })
 
     try {
       const result = await bridge.nativeBackupDryRun(toNodeApiSettings(nodeSettings))
@@ -4476,23 +4201,25 @@ export function App() {
         result.workspaceDir ? `Native backup workspace: ${result.workspaceDir}` : '',
         result.output || ''
       ].filter(Boolean).join('\n'))
-      setNodeBackupProgress(createBackupProgressState(
-        'create-backup',
-        result.ok ? 'complete' : 'error',
-        result.ok ? 100 : 0,
-        result.ok ? t('node.nativeBackupDryRunComplete') : (result.output || t('node.nativeBackupDryRunFailed'))
-      ))
+      setNodeBackupProgress({
+        action: 'create-backup',
+        phase: result.ok ? 'complete' : 'error',
+        progress: result.ok ? 100 : 0,
+        message: result.ok ? t('node.nativeBackupDryRunComplete') : (result.output || t('node.nativeBackupDryRunFailed')),
+        updatedAt: Date.now()
+      })
       if (!result.ok) {
         setNodeError(result.output || t('node.nativeBackupDryRunFailed'))
       }
     } catch (error) {
       setNodeError(error instanceof Error ? error.message : t('node.nativeBackupDryRunFailed'))
-      setNodeBackupProgress(createBackupProgressState(
-        'create-backup',
-        'error',
-        0,
-        error instanceof Error ? error.message : t('node.nativeBackupDryRunFailed')
-      ))
+      setNodeBackupProgress({
+        action: 'create-backup',
+        phase: 'error',
+        progress: 0,
+        message: error instanceof Error ? error.message : t('node.nativeBackupDryRunFailed'),
+        updatedAt: Date.now()
+      })
     } finally {
       setNodeNativeBackupDryRunLoading(false)
     }
@@ -4620,8 +4347,13 @@ export function App() {
 
     setNodeRestoreNativeBackupLoading(true)
     setNodeError(null)
-    backupProgressSampleRef.current = null
-    setNodeBackupProgress(createBackupProgressState('restore-backup', 'prepare', 0, t('node.preparingNativeRestore')))
+    setNodeBackupProgress({
+      action: 'restore-backup',
+      phase: 'prepare',
+      progress: 0,
+      message: t('node.preparingNativeRestore'),
+      updatedAt: Date.now()
+    })
 
     try {
       const result =
@@ -4721,7 +4453,8 @@ export function App() {
       void runNativeBackupList(true)
     }
 
-    if (nodeSettings.network === 'testnet' && !nodeNativeBackupPublicList && !nodeNativeBackupPublicListLoading) {
+    const publicBootstrapAvailable = Boolean(publicBootstrapUrlForNetwork(nodeSettings.network))
+    if (publicBootstrapAvailable && !nodeNativeBackupPublicList && !nodeNativeBackupPublicListLoading) {
       void runNativeBackupList('public')
     }
 
@@ -4736,15 +4469,17 @@ export function App() {
     const publicLatestBackupId = nodeNativeBackupPublicList?.latestBackupId ||
       nodeNativeBackupPublicList?.snapshots.find((snapshot) => snapshot.latest)?.backupId ||
       ''
-    const selectedSource = backup.remoteEnabled && remoteLatestBackupId
-      ? 'remote'
+    const selectedSource = publicBootstrapAvailable && publicLatestBackupId
+      ? 'public'
       : localLatestBackupId
         ? 'local'
-        : nodeSettings.network === 'testnet' && publicLatestBackupId
-          ? 'public'
-          : backup.remoteEnabled
-            ? 'remote'
-            : 'local'
+        : backup.remoteEnabled && remoteLatestBackupId
+          ? 'remote'
+          : publicBootstrapAvailable
+            ? 'public'
+            : backup.remoteEnabled
+              ? 'remote'
+              : 'local'
     const selectedList = selectedSource === 'public'
       ? nodeNativeBackupPublicList
       : selectedSource === 'remote'
@@ -5291,6 +5026,8 @@ export function App() {
     setDraftNodeNetwork(network)
     setDraftNodeBaseDir(resolveNodeBaseDirForNetwork(network))
     setDraftNodeProfiles(defaultNodeProfilesForNetwork(network))
+    setNodeNativeBackupPublicList(null)
+    setFirstRunPublicBootstrapUsed(false)
     setNodeBaseDirValidation(null)
     setFormError(null)
     const nextPublicRpcUrls = publicRpcUrlsForActiveNetwork(network, publicRpcUrlsByNetwork)
@@ -5308,7 +5045,9 @@ export function App() {
         appVersion: pkg.version,
         network: nodeSettings.network,
         baseDir: nodeSettings.baseDir,
-        completedFrom: 'first-run-assistant'
+        observerProfile: defaultNodeProfilesForNetwork(nodeSettings.network),
+        publicBootstrapUsed: firstRunPublicBootstrapUsed,
+        completedFrom: 'observer-install-assistant'
       })
     }
     try {
@@ -5395,6 +5134,17 @@ export function App() {
               {t('tab.node')}
             </button>
             <button
+              id="tab-remote"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'remote'}
+              aria-controls="panel-remote"
+              className={`tab-button ${activeTab === 'remote' ? 'is-active' : ''}`.trim()}
+              onClick={() => requestActiveTab('remote')}
+            >
+              {t('tab.remote')}
+            </button>
+            <button
               id="tab-producer"
               type="button"
               role="tab"
@@ -5477,7 +5227,6 @@ export function App() {
           resetDefaults={resetDefaults}
           settingsDirty={settingsDirty}
           onBlockedSettingsNavigation={() => setSettingsUnsavedDialogOpen(true)}
-          appBuildInfo={appBuildInfo}
         />
       )}
 
@@ -5501,6 +5250,13 @@ export function App() {
           nodeProducerOverview={nodeProducerOverview}
           nodeProducerLoading={nodeProducerLoading}
           nodeProducerError={nodeProducerError}
+        />
+      )}
+
+      {activeTab === 'remote' && (
+        <RemoteNodesPanel
+          t={t}
+          advancedMode={settings.nodeAdvancedMode}
         />
       )}
 
@@ -6443,47 +6199,28 @@ export function App() {
       {firstRunSetupOpen && (
         <FirstRunSetupModal
           t={t}
-          locale={locale}
-          network={formatNetworkLabel(nodeSettings.network)}
+          network={draftNodeNetwork === 'testnet' ? 'testnet' : 'mainnet'}
           baseDir={nodeSettings.baseDir}
           draftBaseDir={draftNodeBaseDir}
           settingsDirty={settingsDirty}
           formError={formError}
           nodeError={nodeError}
-          walletError={walletError}
-          producerError={nodeProducerError}
           publicBootstrapUrl={firstRunPublicBootstrapUrl}
-          publicBootstrapDescription={firstRunPublicBootstrapDescription}
           publicBootstrapList={nodeNativeBackupPublicList}
           publicBootstrapListLoading={nodeNativeBackupPublicListLoading}
           publicBootstrapRestoreLoading={nodeRestoreNativeBackupLoading}
-          nodeBackupProgress={nodeBackupProgress}
           nodeActionLoading={nodeActionLoading}
-          nodeProducerActionLoading={nodeProducerActionLoading}
-          walletActionLoading={walletActionLoading}
-          walletAddress={activeWalletAddress}
-          walletCanSign={activeWalletCanSign}
           nodeRunning={nodeRunningCount > 0}
-          producerAddress={producerConfiguredAddress}
-          producerLocalPublicKey={producerLocalPublicKey}
-          producerRegisteredPublicKey={producerRegisteredPublicKey}
-          producerSetupComplete={producerSetupComplete}
-          producerRegisterDisabled={producerRegisterDisabled}
-          producerRegisterHintText={producerRegisterHintText}
-          producerRegisterActionText={producerRegisterActionText}
           syncStatusClass={footerStatusClass}
           syncStatusText={footerStatusText}
           syncStatusMeta={footerStatusMeta}
           syncStatusProgressVisible={showChainSyncProgress}
           syncStatusPercent={chainSyncPercent}
+          selectNetwork={updateDraftNodeNetwork}
           chooseDataFolder={pickNodeBaseDir}
           saveSettings={saveCurrentSettings}
           checkPublicBootstrap={() => runNativeBackupList('public')}
           restorePublicBootstrap={restorePublicBootstrapFromSetup}
-          generateWalletDraft={generateWalletDraft}
-          createWalletAccount={createWalletAccountFromSetup}
-          useExistingProducerAddress={useExistingProducerAddressFromSetup}
-          registerProducer={() => registerNodeProducer()}
           startObserverNode={startObserverNodeFromSetup}
           onQuitSetup={quitUnfinishedFirstRunSetup}
           onComplete={completeFirstRunSetup}

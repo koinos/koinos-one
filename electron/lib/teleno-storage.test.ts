@@ -71,6 +71,59 @@ describe('teleno storage', () => {
     expect(loaded.publicRpcUrlsByNetwork?.testnet).toEqual(['https://testnet.koinosfoundation.org/jsonrpc'])
   })
 
+  it('persists local-only remote inventory and receipts', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-remote-'))
+    const inventory = {
+      version: 1,
+      nodes: [{
+        id: 'testnet-observer-a',
+        network: 'testnet',
+        hostRef: 'host-testnet-a',
+        connectionRef: 'ssh-testnet-a',
+        ports: {
+          jsonrpcHostBind: '127.0.0.1:18122',
+          p2pPublic: '28890',
+          backupAdminListen: '127.0.0.1:18188'
+        }
+      }]
+    }
+
+    const saveResult = storage.saveRemoteInventory(inventory)
+    expect(saveResult.ok).toBe(true)
+    expect(saveResult.filePath).toContain('remote-nodes.inventory.v1.json')
+    expect(storage.loadRemoteInventory().inventory).toMatchObject(inventory)
+
+    const receiptResult = storage.appendRemoteReceipt({
+      id: 'receipt-1',
+      nodeId: 'testnet-observer-a',
+      output: 'sanitized'
+    })
+    expect(receiptResult.ok).toBe(true)
+    expect(storage.loadRemoteReceipts().receipts).toHaveLength(1)
+  })
+
+  it('rejects raw remote inventory targets and secret-looking values', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-remote-blocked-'))
+    const rawTarget = storage.saveRemoteInventory({
+      version: 1,
+      nodes: [{
+        id: 'unsafe',
+        connectionRef: 'operator@192.0.2.10'
+      }]
+    })
+    const secretValue = storage.saveRemoteInventory({
+      version: 1,
+      nodes: [{
+        id: 'unsafe',
+        connectionRef: 'ssh-safe',
+        authRef: 'token=abc123'
+      }]
+    })
+
+    expect(rawTarget.ok).toBe(false)
+    expect(secretValue.ok).toBe(false)
+  })
+
   it('persists, unlocks, closes and deletes a wallet', () => {
     const storage = createTelenoStorage(createTempDir('teleno-storage-wallet-'))
 

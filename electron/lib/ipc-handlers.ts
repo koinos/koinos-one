@@ -47,7 +47,6 @@ import type {
   WalletTransferVhpInput,
   WalletUnlockInput
 } from './main-types'
-import { loadKoinosOneBuildInfo } from './build-info'
 
 type Awaitable<T> = T | Promise<T>
 
@@ -58,6 +57,10 @@ type IpcHandlerDeps = {
   resetFirstRunSetup: () => Awaitable<unknown>
   loadPublicRpcConfig: () => Awaitable<unknown>
   savePublicRpcConfig: (input?: PublicRpcConfigInput) => Awaitable<unknown>
+  loadRemoteInventory: () => Awaitable<unknown>
+  saveRemoteInventory: (input?: unknown) => Awaitable<unknown>
+  loadRemoteReceipts: () => Awaitable<unknown>
+  executeRemoteCommandPlan: (input?: unknown) => Awaitable<unknown>
   saveBackupPasswordFile: (input?: TelenoNodeBackupPasswordFileInput) => Awaitable<unknown>
   getNodeDefaults: () => Awaitable<unknown>
   cloneKoinosRepo: (input?: TelenoNodeSettingsInput) => Awaitable<unknown>
@@ -145,6 +148,10 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'teleno:app:first-run-reset',
     'teleno:app-config:public-rpcs:load',
     'teleno:app-config:public-rpcs:save',
+    'teleno:remote-nodes:inventory:load',
+    'teleno:remote-nodes:inventory:save',
+    'teleno:remote-nodes:receipts:load',
+    'teleno:remote-nodes:execute-plan',
     'teleno:node:backup-password-file',
     'teleno:node:defaults',
     'teleno:node:clone-repo',
@@ -226,37 +233,12 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
 
   for (const channel of handlers) ipcMain.removeHandler(channel)
 
-  // Sync handlers used by preload before contextBridge is exposed.
+  // Sync handler for app version (used by preload before contextBridge)
   ipcMain.on('teleno:app-version', (event) => {
     try {
-      event.returnValue = loadKoinosOneBuildInfo().productVersion
+      event.returnValue = require('../../package.json').version
     } catch {
       event.returnValue = '0.10.0'
-    }
-  })
-
-  ipcMain.on('teleno:app-build-info', (event) => {
-    try {
-      event.returnValue = loadKoinosOneBuildInfo()
-    } catch {
-      event.returnValue = {
-        schemaVersion: 1,
-        productVersion: '0.10.0',
-        releaseChannel: 'dev',
-        buildTimestamp: null,
-        gitCommit: null,
-        gitShortCommit: null,
-        gitBranch: null,
-        gitDirty: null,
-        nativeNode: {
-          binaryName: 'teleno_node',
-          sha256: null,
-          shortSha256: null,
-          sizeBytes: null,
-          mtime: null
-        },
-        source: 'runtime'
-      }
     }
   })
 
@@ -271,6 +253,10 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
 
   ipcMain.handle('teleno:app-config:public-rpcs:load', async () => deps.loadPublicRpcConfig())
   ipcMain.handle('teleno:app-config:public-rpcs:save', async (_event, input?: PublicRpcConfigInput) => deps.savePublicRpcConfig(input))
+  ipcMain.handle('teleno:remote-nodes:inventory:load', async () => deps.loadRemoteInventory())
+  ipcMain.handle('teleno:remote-nodes:inventory:save', async (_event, input?: unknown) => deps.saveRemoteInventory(input))
+  ipcMain.handle('teleno:remote-nodes:receipts:load', async () => deps.loadRemoteReceipts())
+  ipcMain.handle('teleno:remote-nodes:execute-plan', async (_event, input?: unknown) => deps.executeRemoteCommandPlan(input))
   ipcMain.handle('teleno:node:backup-password-file', async (_event, input?: TelenoNodeBackupPasswordFileInput) =>
     deps.saveBackupPasswordFile(input)
   )
