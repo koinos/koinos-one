@@ -4,23 +4,23 @@ Last updated: 2026-06-20
 
 This file is the local project memory for Codex work in this repo. Codex Desktop does not guarantee that arbitrary repo files are always read automatically in every thread, so explicitly ask to read `AGENTS.md` when resuming if the context was compacted or lost.
 
-This repository is the independent `teleno` codebase. It is copied from Knodel, but it owns the monolithic Koinos node app. Knodel remains the microservice app in its own repository.
+This repository is the independent Koinos One / Teleno codebase. It is copied from Knodel, but it owns the monolithic Koinos node app. Knodel remains the microservice app in its own repository.
 
 ## Active Project Boundary
 
-- Active monolith repository: `/Users/pgarcgo/code/teleno`
-- Active remote: `https://github.com/pgarciagon/teleno.git`
+- Active monolith repository: `/Users/pgarcgo/code/koinos-one`
+- Active remote: `https://github.com/pgarciagon/koinos-one.git`
 - Active branch for the current release track: `main`
 - `Teleno` owns the independent monolithic Koinos node app, including monolith build scripts, monolith runtime fixes, mainnet/testnet canary reports, monolith roadmap docs, and monolith release packaging.
 - `Knodel` owns the separate microservice app and must not receive monolith-track work unless the user explicitly asks for a Knodel/microservice change.
-- If a resumed Codex session starts in `/Users/pgarcgo/code/knodel`, switch to `/Users/pgarcgo/code/teleno` before editing, committing, pushing, building, or launching monolith work.
+- If a resumed Codex session starts in `/Users/pgarcgo/code/knodel`, switch to `/Users/pgarcgo/code/koinos-one` before editing, committing, pushing, building, or launching monolith work.
 - Historical notes below may still mention Knodel paths or result directories because this project was split from Knodel. Treat those as inherited historical evidence unless the note explicitly refers to the separate microservice app.
 
 ## Latest Repository Correction
 
 - On 2026-06-11, active legacy cleanup began in `teleno`: old Knodel/microservice operator docs and native microservice build/start/package scripts were removed from the active command surface. Retain legacy-facing material only when it proves protocol parity, client compatibility, migration/restore safety, or release-gate validation. The retained evidence map is `docs/legacy/compatibility/README.md`.
 - On 2026-06-11, legacy service submodules were removed from the active tree. The only retained legacy compatibility submodule is Go `koinos-p2p`, moved to `compat/legacy-services/koinos-p2p` for seed/gossip/Peer RPC probes. `vendor/koinos/koinos` remains for active genesis/config resources, and `node/teleno-node` is now the current monolith source path. Native legacy baseline scripts now require external binary paths instead of bundled service submodules.
-- On 2026-06-11, the active local working directory was corrected to `/Users/pgarcgo/code/teleno`. If a future Codex thread starts with `/Users/pgarcgo/code/koinosgui`, treat that as stale thread context and switch to `/Users/pgarcgo/code/teleno` before reading, editing, building, packaging, launching, or committing. The README now displays the project logo from `assets/newbranding/logo.png` above the `Teleno` heading.
+- On 2026-06-11, the active local working directory was corrected to `/Users/pgarcgo/code/koinos-one`. If a future Codex thread starts with `/Users/pgarcgo/code/koinosgui`, treat that as stale thread context and switch to `/Users/pgarcgo/code/koinos-one` before reading, editing, building, packaging, launching, or committing. The README now displays the project logo from `assets/newbranding/logo.png` above the `Teleno` heading.
 - On 2026-06-04, the monolith mainnet canary build fix was first committed and pushed by mistake to `pgarciagon/knodel` as commit `2abc62c`. The same work was then ported to the correct repository, `pgarciagon/koinosgui`, committed on `main` as `5a09f85` (`Fix monolith mainnet canary build`), and pushed to `origin/main`.
 - The correct koinosGUI commit includes `config/mainnet-observer.yml`, `docs/roadmap/monolith/networking/MONOLITH_MAINNET_CANARY_REPORT.md`, Sprint 6.1 plan updates, mainnet peer updates, the remote OpenSSL/yaml-cpp build fix, and the monolith YAML config parser fix.
 - The accidental Knodel commit should be reverted with a normal `git revert 2abc62c` only if the user asks to clean up Knodel. Do not force-push or rewrite Knodel history without explicit instruction.

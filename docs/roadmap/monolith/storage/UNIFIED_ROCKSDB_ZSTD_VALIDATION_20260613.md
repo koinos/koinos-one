@@ -141,7 +141,7 @@ At this stage, the link still emitted the known Homebrew deployment-target warni
 Command:
 
 ```bash
-NODE_BIN=/Users/pgarcgo/code/teleno/node/teleno-node/build-zstd/src/teleno_node \
+NODE_BIN=/Users/pgarcgo/code/koinos-one/node/teleno-node/build-zstd/src/teleno_node \
   scripts/check-rocksdb-compression.sh
 ```
 
@@ -232,7 +232,7 @@ Command:
 
 ```bash
 scripts/benchmark-monolith-sync.py \
-  --bin /Users/pgarcgo/code/teleno/node/teleno-node/build-zstd/src/teleno_node \
+  --bin /Users/pgarcgo/code/koinos-one/node/teleno-node/build-zstd/src/teleno_node \
   --duration-seconds 45 \
   --sample-interval-seconds 5 \
   --jsonrpc-port 28636 \
@@ -279,7 +279,7 @@ Command:
 
 ```bash
 scripts/benchmark-monolith-sync.py \
-  --bin /Users/pgarcgo/code/teleno/node/teleno-node/build/teleno_node \
+  --bin /Users/pgarcgo/code/koinos-one/node/teleno-node/build/teleno_node \
   --duration-seconds 30 \
   --sample-interval-seconds 5 \
   --jsonrpc-port 28638 \
@@ -473,7 +473,7 @@ Command:
 
 ```bash
 scripts/benchmark-monolith-sync.py \
-  --bin /Users/pgarcgo/code/teleno/node/teleno-node/build/teleno_node \
+  --bin /Users/pgarcgo/code/koinos-one/node/teleno-node/build/teleno_node \
   --duration-seconds 30 \
   --sample-interval-seconds 5 \
   --jsonrpc-port 28639 \
@@ -630,14 +630,14 @@ The normal build wrapper passed end to end with local zstd, local RocksDB, and l
 cpp-libp2p fetch failed; reusing cached v0.1.37
 -- teleno_node: GMP library: /Volumes/external/teleno-build-cache/deps/gmp-static-6.3.0/lib/libgmp.a
 ==> Done
-teleno_node: /Users/pgarcgo/code/teleno/node/teleno-node/build/teleno_node
+teleno_node: /Users/pgarcgo/code/koinos-one/node/teleno-node/build/teleno_node
 ```
 
 Public-testnet smoke:
 
 ```bash
 scripts/benchmark-monolith-sync.py \
-  --bin /Users/pgarcgo/code/teleno/node/teleno-node/build/teleno_node \
+  --bin /Users/pgarcgo/code/koinos-one/node/teleno-node/build/teleno_node \
   --duration-seconds 30 \
   --sample-interval-seconds 5 \
   --jsonrpc-port 28640 \
@@ -667,7 +667,7 @@ Wrapper-built public-testnet smoke:
 
 ```bash
 scripts/benchmark-monolith-sync.py \
-  --bin /Users/pgarcgo/code/teleno/node/teleno-node/build/teleno_node \
+  --bin /Users/pgarcgo/code/koinos-one/node/teleno-node/build/teleno_node \
   --duration-seconds 30 \
   --sample-interval-seconds 5 \
   --jsonrpc-port 28641 \

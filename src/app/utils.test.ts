@@ -200,7 +200,7 @@ describe('node path and state helpers', () => {
         launchDefaults: {
           nodeSettings: {
             network: 'testnet',
-            repoPath: '/Users/pgarcgo/code/teleno',
+            repoPath: '/Users/pgarcgo/code/koinos-one',
             baseDir: '/Volumes/external/knodel-testnet-producer/basedir',
             profiles: ['testnet_observer'],
             backup: {
@@ -217,7 +217,7 @@ describe('node path and state helpers', () => {
 
       expect(loadInitialNodeSettings()).toMatchObject({
         network: 'testnet',
-        repoPath: '/Users/pgarcgo/code/teleno',
+        repoPath: '/Users/pgarcgo/code/koinos-one',
         baseDir: '/Volumes/external/knodel-testnet-producer/basedir',
         profiles: 'testnet_observer',
         backup: {

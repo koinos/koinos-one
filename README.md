@@ -37,8 +37,8 @@ vendor/                 Upstream Koinos references retained for compatibility
 ## Quick Start
 
 ```bash
-git clone --recurse-submodules git@github.com:pgarciagon/teleno.git
-cd teleno
+git clone --recurse-submodules git@github.com:pgarciagon/koinos-one.git
+cd koinos-one
 npm install
 npm run dev
 ```

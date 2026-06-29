@@ -1,6 +1,6 @@
 # Teleno Codex Project Memory
 
-Last updated: 2026-06-24
+Last updated: 2026-06-29
 
 This file is intentionally short. It is operational memory for Codex sessions,
 not the full project history. Long benchmark results, sprint logs, validation
@@ -14,8 +14,8 @@ docs/archive/AGENTS_FULL_20260621.md
 
 ## Active Project Boundary
 
-- Active repository: `/Users/pgarcgo/code/teleno`
-- Active remote: `https://github.com/pgarciagon/teleno.git`
+- Active repository: `/Users/pgarcgo/code/koinos-one`
+- Active remote: `https://github.com/pgarciagon/koinos-one.git`
 - Active branch for the current release track: `main`
 - Product name: Koinos One.
 - Native runtime: `teleno_node`.
@@ -23,8 +23,9 @@ docs/archive/AGENTS_FULL_20260621.md
   and restore, first-run setup, and monolith validation.
 - `Knodel` is the separate legacy/microservice app. Do not edit, build, launch,
   or commit Knodel/microservice work unless the user explicitly asks for it.
-- If a resumed session starts in `/Users/pgarcgo/code/knodel` or another stale
-  repo, switch to `/Users/pgarcgo/code/teleno` before monolith work.
+- If a resumed session starts in `/Users/pgarcgo/code/teleno`,
+  `/Users/pgarcgo/code/knodel`, or another stale repo, switch to
+  `/Users/pgarcgo/code/koinos-one` before monolith work.
 
 ## Documentation Map
 
