@@ -1090,6 +1090,32 @@ declare global {
     receipt: unknown
   }
 
+  type TelenoRemoteExecutionStepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped'
+
+  type TelenoRemoteExecutionHealthSnapshot = {
+    state: string
+    checkedAt: string
+    summary: string
+    stopCriteria: string[]
+  }
+
+  type TelenoRemoteExecutionProgressEvent = {
+    event: 'remote-execution-progress'
+    planId: string
+    nodeId: string
+    network: string
+    action: string
+    stepIndex: number
+    stepCount: number
+    phase: string
+    status: TelenoRemoteExecutionStepStatus
+    startedAt: string | null
+    completedAt: string | null
+    exitCode: number | null
+    health: TelenoRemoteExecutionHealthSnapshot | null
+    outputExcerpt: string
+  }
+
   type TelenoBuildInfoNativeNode = {
     binaryName: string
     sha256: string | null
@@ -1130,6 +1156,7 @@ declare global {
       saveInventory: (params?: unknown) => Promise<TelenoRemoteInventoryResult>
       loadReceipts: () => Promise<TelenoRemoteReceiptsResult>
       executePlan: (params?: unknown) => Promise<TelenoRemoteExecutionResult>
+      onExecutionProgressEvent: (listener: (event: TelenoRemoteExecutionProgressEvent) => void) => () => void
     }
     telenoNode?: {
       defaults: () => Promise<Required<TelenoNodeSettings>>

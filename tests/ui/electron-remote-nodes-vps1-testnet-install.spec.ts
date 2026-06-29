@@ -19,9 +19,33 @@ const LANGUAGE_STORAGE_KEY = 'teleno.ui.language.v1'
 const SETTINGS_STORAGE_KEY = 'teleno.explorer.settings.v1'
 const STABLE_SCREENSHOT_DIR = path.join(repoRoot, '.run', 'remote-node-ui-screenshots')
 const VPS1_CONNECTION_REF = 'vps1-testnet-gui-e2e'
-const TESTNET_NODE_ID = 'testnet-observer-gui-e2e'
-const TESTNET_BASEDIR = '~/koinos-one/nodes/testnet/testnet-observer-gui-e2e/basedir'
-const TESTNET_CONTAINER = `teleno-${TESTNET_NODE_ID}`
+const DEFAULT_TESTNET_NODE_ID = 'testnet-observer-gui-e2e'
+
+function optionalSafeEnv(name: string): string | null {
+  const value = process.env[name]?.trim()
+  return value || null
+}
+
+function testnetNodeId(): string {
+  const value = optionalSafeEnv('TELENO_VPS1_TESTNET_NODE_ID') || DEFAULT_TESTNET_NODE_ID
+  if (!/^[a-z0-9][a-z0-9-]{2,62}$/.test(value)) {
+    throw new Error('TELENO_VPS1_TESTNET_NODE_ID must be a sanitized lowercase alias.')
+  }
+  return value
+}
+
+function testnetBaseDir(): string {
+  const nodeId = testnetNodeId()
+  const value = optionalSafeEnv('TELENO_VPS1_TESTNET_BASEDIR') || `~/koinos-one/nodes/testnet/${nodeId}/basedir`
+  if (value !== `~/koinos-one/nodes/testnet/${nodeId}/basedir`) {
+    throw new Error('TELENO_VPS1_TESTNET_BASEDIR must match ~/koinos-one/nodes/testnet/<node-id>/basedir.')
+  }
+  return value
+}
+
+function testnetContainerName(): string {
+  return `teleno-${testnetNodeId()}`
+}
 
 test.skip(
   process.env.TELENO_PLAYWRIGHT_ELECTRON !== '1' || process.env.TELENO_REMOTE_VPS1_TESTNET_INSTALL_E2E !== '1',
@@ -107,10 +131,12 @@ function sshReadOnly(target: string, script: string, timeout = 30_000): string {
 }
 
 function readOnlyPreflight(target: string, rpcPort: string, p2pPort: string, adminPort: string): Record<string, string> {
+  const nodeId = testnetNodeId()
+  const container = testnetContainerName()
   const raw = sshReadOnly(target, `
 set -eu
-basedir="$HOME/koinos-one/nodes/testnet/testnet-observer-gui-e2e/basedir"
-container=${shQuote(TESTNET_CONTAINER)}
+basedir="$HOME/koinos-one/nodes/testnet/${nodeId}/basedir"
+container=${shQuote(container)}
 rpc_port=${shQuote(rpcPort)}
 p2p_port=${shQuote(p2pPort)}
 admin_port=${shQuote(adminPort)}
@@ -139,10 +165,12 @@ printf 'adminPort=%s\\n' "$(port_state "$admin_port")"
 }
 
 function verifyVps1Observer(target: string, rpcPort: string, adminPort: string): Record<string, string> {
+  const nodeId = testnetNodeId()
+  const container = testnetContainerName()
   const raw = sshReadOnly(target, `
 set -eu
-basedir="$HOME/koinos-one/nodes/testnet/testnet-observer-gui-e2e/basedir"
-container=${shQuote(TESTNET_CONTAINER)}
+basedir="$HOME/koinos-one/nodes/testnet/${nodeId}/basedir"
+container=${shQuote(container)}
 rpc_port=${shQuote(rpcPort)}
 admin_port=${shQuote(adminPort)}
 config="$basedir/config.yml"
@@ -229,6 +257,8 @@ async function capture(page: Page, testInfo: { outputPath: (path: string) => str
 }
 
 test('executes VPS1 testnet observer install restore start through real Electron IPC', async ({}, testInfo) => {
+  const testnetNodeIdValue = testnetNodeId()
+  const testnetBaseDirValue = testnetBaseDir()
   const rpcBind = requiredLoopbackBindEnv('TELENO_VPS1_TESTNET_JSONRPC_BIND')
   const p2pPort = requiredPortEnv('TELENO_VPS1_TESTNET_P2P_PORT')
   const adminBind = requiredLoopbackBindEnv('TELENO_VPS1_TESTNET_ADMIN_BIND')
@@ -297,7 +327,7 @@ test('executes VPS1 testnet observer install restore start through real Electron
     const inventoryInput: RemoteFleetInventoryInput = {
       version: 1,
       nodes: [{
-        id: TESTNET_NODE_ID,
+        id: testnetNodeIdValue,
         label: 'VPS1 Testnet GUI E2E Observer',
         network: 'testnet',
         role: 'observer',
@@ -311,8 +341,8 @@ test('executes VPS1 testnet observer install restore start through real Electron
           serviceName: ''
         },
         paths: {
-          baseDir: TESTNET_BASEDIR,
-          config: `${TESTNET_BASEDIR}/config.yml`
+          baseDir: testnetBaseDirValue,
+          config: `${testnetBaseDirValue}/config.yml`
         },
         ports: {
           jsonrpcHostBind: rpcBind,
@@ -332,9 +362,9 @@ test('executes VPS1 testnet observer install restore start through real Electron
     const saved = await page.evaluate((inventory) => window.teleno?.remoteNodes?.saveInventory(inventory), inventoryInput)
     expect(saved?.ok).toBe(true)
     const inventory: RemoteFleetInventory = normalizeRemoteFleetInventory(saved?.inventory as RemoteFleetInventoryInput)
-    const vps1Node = inventory.nodes.find((node) => node.id === TESTNET_NODE_ID)
+    const vps1Node = inventory.nodes.find((node) => node.id === testnetNodeIdValue)
     expect(vps1Node).toBeTruthy()
-    const reviewedPlan = generateRemoteCommandPlan(inventory, TESTNET_NODE_ID, liveAction)
+    const reviewedPlan = generateRemoteCommandPlan(inventory, testnetNodeIdValue, liveAction)
     const reviewedCommands = reviewedPlan.steps.map((step) => step.command).join('\n')
     expect(reviewedPlan.blocked).toBe(false)
     expect(reviewedCommands).toContain('block_producer: false')
@@ -395,20 +425,32 @@ test('executes VPS1 testnet observer install restore start through real Electron
     await capture(page, testInfo, `vps1-remote-nodes-${actionSlug}-progress-real-ipc.png`, sensitiveMasks())
 
     await expect(
-      remotePanel.locator('.remote-receipt').filter({ hasText: `${TESTNET_NODE_ID} · ${liveAction}` })
+      remotePanel.locator('.remote-receipt').filter({ hasText: `${testnetNodeIdValue} · ${liveAction}` })
     ).toBeVisible({ timeout: 55 * 60 * 1000 })
     const receipts = await page.evaluate(() => window.teleno?.remoteNodes?.loadReceipts())
     expect(receipts?.ok).toBe(true)
     const receipt = receipts?.receipts?.find((candidate) =>
       candidate &&
       typeof candidate === 'object' &&
-      (candidate as { nodeId?: unknown; action?: unknown }).nodeId === TESTNET_NODE_ID &&
+      (candidate as { nodeId?: unknown; action?: unknown }).nodeId === testnetNodeIdValue &&
       (candidate as { nodeId?: unknown; action?: unknown }).action === liveAction
     ) as { status?: string; health?: { state?: string; stopCriteria?: string[] }; output?: string } | undefined
     expect(receipt?.status).toBe('succeeded')
     expect(receipt?.health?.stopCriteria || []).toEqual([])
     expect(receipt?.output || '').not.toMatch(/(?:\d{1,3}\.){3}\d{1,3}/)
-    await remotePanel.locator('.remote-receipt').filter({ hasText: `${TESTNET_NODE_ID} · ${liveAction}` }).scrollIntoViewIfNeeded()
+    writeFileSync(
+      path.join(STABLE_SCREENSHOT_DIR, `vps1-${testnetNodeIdValue}-${actionSlug}-sanitized-receipt.json`),
+      JSON.stringify({
+        nodeId: testnetNodeIdValue,
+        network: 'testnet',
+        action: liveAction,
+        status: receipt?.status,
+        health: receipt?.health,
+        planStepCount: (receipt as { planStepCount?: unknown } | undefined)?.planStepCount ?? null,
+        output: receipt?.output || ''
+      }, null, 2) + '\n'
+    )
+    await remotePanel.locator('.remote-receipt').filter({ hasText: `${testnetNodeIdValue} · ${liveAction}` }).scrollIntoViewIfNeeded()
     await capture(page, testInfo, `vps1-remote-nodes-${actionSlug}-receipt-real-ipc.png`, sensitiveMasks())
 
     await page.evaluate((settingsKey) => {

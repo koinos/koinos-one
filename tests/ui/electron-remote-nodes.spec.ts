@@ -74,7 +74,11 @@ test('validates Remote Nodes through real Electron preload and IPC', async ({}, 
     await completeFirstRunForTest(page)
 
     await expect.poll(
-      () => page.evaluate(() => Boolean(window.teleno?.remoteNodes?.loadInventory && window.teleno?.remoteNodes?.saveInventory)),
+      () => page.evaluate(() => Boolean(
+        window.teleno?.remoteNodes?.loadInventory &&
+        window.teleno?.remoteNodes?.saveInventory &&
+        window.teleno?.remoteNodes?.onExecutionProgressEvent
+      )),
       { message: 'remoteNodes preload bridge is exposed' }
     ).toBe(true)
 
@@ -137,6 +141,15 @@ test('validates Remote Nodes through real Electron preload and IPC', async ({}, 
     await remotePanel.locator('.remote-execution-panel').scrollIntoViewIfNeeded()
     await capture(page, testInfo, 'electron-remote-nodes-confirmation-gate-real-ipc.png')
 
+    await remotePanel.getByRole('button', { name: 'Check health' }).click()
+    await remotePanel.getByLabel('Type the phrase').fill(remoteExecutionConfirmationPhrase(savedNode!, 'status'))
+    await remotePanel.getByRole('button', { name: 'Execute confirmed plan' }).click()
+    await expect(remotePanel.locator('[data-progress-status="failed"]').first()).toBeVisible({ timeout: 15000 })
+    await expect(remotePanel.locator('[data-progress-status="skipped"]').first()).toBeVisible()
+    await expect(remotePanel.getByText('Remote plan failed.')).toBeVisible()
+    await remotePanel.locator('.remote-progress-list').scrollIntoViewIfNeeded()
+    await capture(page, testInfo, 'electron-remote-nodes-progress-real-ipc.png')
+
     const statusPlan = generateRemoteCommandPlan(savedInventory, 'testnet-observer-3', 'status')
     const blockedResult = await page.evaluate(async ({ node, plan }) => {
       return window.teleno?.remoteNodes?.executePlan?.({
@@ -153,12 +166,19 @@ test('validates Remote Nodes through real Electron preload and IPC', async ({}, 
 
     const receiptsResult = await page.evaluate(() => window.teleno?.remoteNodes?.loadReceipts())
     expect(receiptsResult?.ok).toBe(true)
-    expect(receiptsResult?.receipts).toHaveLength(1)
-    expect(receiptsResult?.receipts[0]).toMatchObject({
-      nodeId: 'testnet-observer-3',
-      action: 'status',
-      status: 'blocked'
-    })
+    expect(receiptsResult?.receipts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        nodeId: 'testnet-observer-3',
+        action: 'status',
+        status: 'failed',
+        steps: expect.any(Array)
+      }),
+      expect.objectContaining({
+        nodeId: 'testnet-observer-3',
+        action: 'status',
+        status: 'blocked'
+      })
+    ]))
 
     await remotePanel.locator('.remote-node-card').filter({ hasText: 'Prodnet Observer A' }).click()
     await expect(remotePanel.getByRole('button', { name: 'Check health' })).toBeVisible()
@@ -197,12 +217,12 @@ test('validates Remote Nodes through real Electron preload and IPC', async ({}, 
 
     await page.reload()
     await page.getByRole('tab', { name: 'Remote' }).click()
-    const testnetReceipt = remotePanel.locator('.remote-receipt').filter({ hasText: 'testnet-observer-3 · status' })
+    const testnetReceipt = remotePanel.locator('.remote-receipt').filter({ hasText: 'testnet-observer-3 · status' }).filter({ hasText: 'blocked' }).first()
     await expect(testnetReceipt).toBeVisible()
-    await expect(testnetReceipt.getByText('blocked', { exact: true })).toBeVisible()
+    await expect(testnetReceipt.locator('.remote-command-step-header span').getByText('blocked', { exact: true })).toBeVisible()
     const prodnetReceipt = remotePanel.locator('.remote-receipt').filter({ hasText: 'prodnet-observer-a · stop' })
     await expect(prodnetReceipt).toBeVisible()
-    await expect(prodnetReceipt.getByText('blocked', { exact: true })).toBeVisible()
+    await expect(prodnetReceipt.locator('.remote-command-step-header span').getByText('blocked', { exact: true })).toBeVisible()
     await remotePanel.locator('.remote-node-card').filter({ hasText: 'IPC Testnet Observer' }).click()
     await expect(remotePanel.locator('.remote-plan-summary').getByText('IPC Testnet Observer')).toBeVisible()
     await expect(remotePanel.getByText('Prodnet execution is limited to read-only health and logs plans')).toHaveCount(0)
@@ -230,6 +250,18 @@ test('validates Remote Nodes through real Electron preload and IPC', async ({}, 
     await expect(remotePanel.locator('.remote-command-list')).toContainText('docker logs')
     await remotePanel.locator('.remote-command-list').scrollIntoViewIfNeeded()
     await capture(page, testInfo, 'electron-remote-nodes-expert-real-ipc.png')
+
+    await remotePanel.getByRole('button', { name: 'Rollback Plan' }).click()
+    await expect(remotePanel.getByText('Strong confirmation required')).toBeVisible()
+    await expect(remotePanel.getByText('Rollback requires prior rollback evidence')).toBeVisible()
+    await expect(remotePanel.locator('.remote-confirmation-box')).toContainText('PRESERVE_DB')
+    await expect(remotePanel.locator('.remote-progress-list')).toContainText('Preserve DB')
+    await expect(remotePanel.locator('.remote-progress-list')).toContainText('Receipt')
+    await expect(remotePanel.getByRole('button', { name: 'Execute confirmed plan' })).toBeDisabled()
+    await remotePanel.getByLabel('Type the phrase').fill(remoteExecutionConfirmationPhrase(savedNode!, 'rollback'))
+    await expect(remotePanel.getByRole('button', { name: 'Execute confirmed plan' })).toBeEnabled()
+    await remotePanel.locator('.remote-execution-panel').scrollIntoViewIfNeeded()
+    await capture(page, testInfo, 'electron-remote-nodes-rollback-gated-real-ipc.png')
 
     await page.evaluate((settingsKey) => {
       const current = JSON.parse(window.localStorage.getItem(settingsKey) || '{}') as Record<string, unknown>

@@ -170,15 +170,27 @@ describe('remote node fleet planning', () => {
     expect(sameHostCodes).toContain('duplicateBaseDir')
   })
 
-  it('marks rollback and cleanup as destructive dry-run plans', () => {
+  it('marks rollback and cleanup as destructive DB-preserving testnet plans', () => {
     const inventory = defaultRemoteFleetInventory()
     const rollback = generateRemoteCommandPlan(inventory, 'testnet-observer-a', 'rollback')
     const cleanup = generateRemoteCommandPlan(inventory, 'testnet-observer-a', 'cleanup')
+    const rollbackCommands = rollback.steps.map((step) => step.command).join('\n')
+    const cleanupCommands = cleanup.steps.map((step) => step.command).join('\n')
 
     expect(rollback.notices.map((notice) => notice.code)).toContain('destructiveConfirmationRequired')
     expect(cleanup.notices.map((notice) => notice.code)).toContain('destructiveConfirmationRequired')
     expect(rollback.steps.some((step) => step.destructive)).toBe(true)
     expect(cleanup.steps.some((step) => step.destructive)).toBe(true)
+    expect(rollback.steps.map((step) => step.phase)).toEqual(['preflight', 'preserve', 'runtime', 'config', 'artifact', 'verify', 'receipt'])
+    expect(cleanup.steps.map((step) => step.phase)).toEqual(['preflight', 'preserve', 'cleanup', 'cleanup', 'verify', 'receipt'])
+    expect(rollbackCommands).toContain('TELENO_ROLLBACK_EVIDENCE')
+    expect(rollbackCommands).toContain('TELENO_DB_PRESERVED')
+    expect(rollbackCommands).toContain('previous_image')
+    expect(rollbackCommands).toContain('docker rm teleno-testnet-observer-a')
+    expect(cleanupCommands).toContain('TELENO_CLEANUP_CANDIDATE')
+    expect(cleanupCommands).toContain('TELENO_DB_PRESERVED')
+    expect(cleanupCommands).toContain('cleanup receipt evidence missing')
+    expect(cleanupCommands).toContain('rm -rf -- "$item"')
   })
 
   it('reconciles observer-safe config before starting an existing restored node', () => {
@@ -217,19 +229,20 @@ describe('remote node fleet planning', () => {
     expect(plan.steps.every((step) => !step.hostMutation && !step.chainMutation && !step.destructive)).toBe(true)
   })
 
-  it('keeps rollback and cleanup review-only without stop, remove, or delete commands', () => {
+  it('keeps rollback and cleanup DB-preserving and blocks prodnet mutation through plan shape', () => {
     const inventory = defaultRemoteFleetInventory()
+    const prodnetRollback = generateRemoteCommandPlan(inventory, 'prodnet-observer-a', 'rollback')
+    const prodnetCleanup = generateRemoteCommandPlan(inventory, 'prodnet-observer-a', 'cleanup')
 
-    for (const action of ['rollback', 'cleanup'] as const) {
-      const plan = generateRemoteCommandPlan(inventory, 'testnet-observer-a', action)
-      const commands = plan.steps.map((step) => step.command).join('\n')
+    expect(prodnetRollback.notices.map((notice) => notice.code)).toContain('prodnetConfirmationRequired')
+    expect(prodnetCleanup.notices.map((notice) => notice.code)).toContain('prodnetConfirmationRequired')
 
-      expect(plan.steps.some((step) => step.destructive)).toBe(true)
-      expect(commands).toContain('review-only')
-      expect(commands).not.toMatch(/\bdocker\s+(stop|rm)\b/)
-      expect(commands).not.toMatch(/\bsystemctl\s+stop\b/)
-      expect(commands).not.toContain('rm -rf')
-    }
+    const cleanup = generateRemoteCommandPlan(inventory, 'testnet-observer-a', 'cleanup')
+    const cleanupCommands = cleanup.steps.map((step) => step.command).join('\n')
+    expect(cleanupCommands).toContain('cleanup attempted protected path')
+    expect(cleanupCommands).not.toMatch(/rm -rf -- .*chain/)
+    expect(cleanupCommands).not.toMatch(/rm -rf -- .*state/)
+    expect(cleanupCommands).not.toMatch(/rm -rf -- .*config\.yml/)
   })
 
   it('keeps health and logs plans read-only with no runtime mutation commands', () => {

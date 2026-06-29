@@ -18,7 +18,9 @@ import {
   createRemoteExecutionReceipt,
   remoteExecutionConfirmationPhrase,
   validateRemoteExecutionGate,
-  type RemoteExecutionReceipt
+  type RemoteExecutionProgressEvent,
+  type RemoteExecutionReceipt,
+  type RemoteExecutionStepStatus
 } from '../../app/remote-node-execution'
 
 type RemoteNodesPanelProps = {
@@ -81,6 +83,15 @@ function phaseHelpText(t: RemoteNodesPanelProps['t'], phase: RemotePlanPhase): s
   return t(`remote.phaseHelp.${phase}`)
 }
 
+function stepStatusClass(status: RemoteExecutionStepStatus): string {
+  if (status === 'succeeded') return 'is-ok'
+  if (status === 'running') return 'is-waiting'
+  if (status === 'failed') return 'is-error'
+  if (status === 'blocked') return 'is-warn'
+  if (status === 'skipped') return 'is-muted'
+  return ''
+}
+
 function planSummary(t: RemoteNodesPanelProps['t'], plan: RemoteCommandPlan): string {
   return t(plan.blocked ? 'remote.planBlocked' : 'remote.planReady', {
     steps: plan.steps.length
@@ -93,11 +104,55 @@ function actionLabel(t: RemoteNodesPanelProps['t'], action: RemoteNodeAction, ad
   return !advancedMode && translated !== simpleKey ? translated : t(`remote.action.${action}`)
 }
 
+function isDestructiveAction(action: RemoteNodeAction): boolean {
+  return action === 'rollback' || action === 'cleanup'
+}
+
 function normalizeReceipt(value: unknown): RemoteExecutionReceipt | null {
   if (!value || typeof value !== 'object') return null
   const receipt = value as Partial<RemoteExecutionReceipt>
   if (!receipt.id || !receipt.nodeId || !receipt.action || !receipt.health) return null
   return receipt as RemoteExecutionReceipt
+}
+
+function normalizeProgressEvent(value: unknown): RemoteExecutionProgressEvent | null {
+  if (!value || typeof value !== 'object') return null
+  const event = value as Partial<RemoteExecutionProgressEvent>
+  const status = event.status
+  const validStatus = (
+    status === 'queued' ||
+    status === 'running' ||
+    status === 'succeeded' ||
+    status === 'failed' ||
+    status === 'blocked' ||
+    status === 'skipped'
+  )
+  if (
+    event.event !== 'remote-execution-progress' ||
+    !event.planId ||
+    !event.nodeId ||
+    !event.action ||
+    typeof event.stepIndex !== 'number' ||
+    typeof event.stepCount !== 'number' ||
+    !event.phase ||
+    !validStatus
+  ) return null
+  return {
+    event: 'remote-execution-progress',
+    planId: event.planId,
+    nodeId: event.nodeId,
+    network: `${event.network || ''}`,
+    action: `${event.action || ''}`,
+    stepIndex: event.stepIndex,
+    stepCount: event.stepCount,
+    phase: `${event.phase}`,
+    status,
+    startedAt: event.startedAt || null,
+    completedAt: event.completedAt || null,
+    exitCode: typeof event.exitCode === 'number' ? event.exitCode : null,
+    health: event.health || null,
+    outputExcerpt: `${event.outputExcerpt || ''}`
+  }
 }
 
 function updateNode(
@@ -171,6 +226,8 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
   const [executionState, setExecutionState] = useState('')
   const [executing, setExecuting] = useState(false)
   const [receipts, setReceipts] = useState<RemoteExecutionReceipt[]>([])
+  const [progressEvents, setProgressEvents] = useState<RemoteExecutionProgressEvent[]>([])
+  const [activeProgressPlanId, setActiveProgressPlanId] = useState('')
   const receiptAutoSelectionDone = useRef(false)
   const inventoryNotices = useMemo(() => validateRemoteFleetInventory(inventory), [inventory])
   const [selectedNodeId, setSelectedNodeId] = useState(() => inventory.nodes[0]?.id || '')
@@ -189,6 +246,23 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
     () => plan ? validateRemoteExecutionGate(inventory, plan, confirmation) : null,
     [confirmation, inventory, plan]
   )
+  const visibleProgressEvents = useMemo(() => {
+    const matchingEvents = progressEvents.filter((event) =>
+      event.nodeId === selectedNode?.id &&
+      event.action === activeAction
+    )
+    const planId = activeProgressPlanId && matchingEvents.some((event) => event.planId === activeProgressPlanId)
+      ? activeProgressPlanId
+      : matchingEvents.length > 0
+        ? matchingEvents[matchingEvents.length - 1].planId
+        : ''
+    return planId ? matchingEvents.filter((event) => event.planId === planId) : []
+  }, [activeAction, activeProgressPlanId, progressEvents, selectedNode?.id])
+  const progressByStep = useMemo(() => {
+    const map = new Map<number, RemoteExecutionProgressEvent>()
+    for (const event of visibleProgressEvents) map.set(event.stepIndex, event)
+    return map
+  }, [visibleProgressEvents])
   const remoteBridge = typeof window !== 'undefined' ? window.teleno?.remoteNodes : undefined
 
   useEffect(() => {
@@ -237,6 +311,21 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
     })
     receiptAutoSelectionDone.current = true
   }, [inventory.nodes, inventoryInput, receipts])
+
+  useEffect(() => {
+    if (!remoteBridge?.onExecutionProgressEvent) return undefined
+    return remoteBridge.onExecutionProgressEvent((value) => {
+      const event = normalizeProgressEvent(value)
+      if (!event) return
+      setActiveProgressPlanId(event.planId)
+      setProgressEvents((current) => {
+        const withoutCurrentStep = current.filter((candidate) =>
+          candidate.planId !== event.planId || candidate.stepIndex !== event.stepIndex
+        )
+        return [...withoutCurrentStep, event].slice(-200)
+      })
+    })
+  }, [remoteBridge])
 
   useEffect(() => {
     setConfirmation('')
@@ -318,6 +407,8 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
 
     setExecuting(true)
     setExecutionState(t('remote.executionRunning'))
+    setProgressEvents([])
+    setActiveProgressPlanId('')
     try {
       const result = await remoteBridge.executePlan({
         node: selectedNode,
@@ -336,9 +427,12 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
           }
         })))
       }
-      setExecutionState(result.output || (result.ok ? t('remote.executionSucceeded') : t('remote.executionFailed')))
+      setExecutionState(advancedMode
+        ? result.output || (result.ok ? t('remote.executionSucceeded') : t('remote.executionFailed'))
+        : result.ok ? t('remote.executionSucceeded') : t('remote.executionFailed')
+      )
     } catch (error) {
-      setExecutionState(error instanceof Error ? error.message : t('remote.executionFailed'))
+      setExecutionState(advancedMode && error instanceof Error ? error.message : t('remote.executionFailed'))
     } finally {
       setExecuting(false)
     }
@@ -589,25 +683,45 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
                 )}
               </div>
 
-              {!advancedMode && (
-                <div className="remote-progress-list" aria-label={t('remote.progressTitle')}>
-                  <div>
-                    <strong>{t('remote.progressTitle')}</strong>
-                    <p className="settings-inline-help">{t('remote.progressDescription')}</p>
-                  </div>
-                  <ol>
-                    {plan.steps.map((step, index) => (
-                      <li key={`${step.phase}-${index}`}>
+              <div className="remote-progress-list" aria-label={t('remote.progressTitle')}>
+                <div>
+                  <strong>{t('remote.progressTitle')}</strong>
+                  <p className="settings-inline-help">{t('remote.progressDescription')}</p>
+                </div>
+                <ol>
+                  {plan.steps.map((step, index) => {
+                    const progress = progressByStep.get(index)
+                    const status = progress?.status || 'queued'
+                    const healthState = progress?.health?.state
+                    return (
+                      <li
+                        key={`${step.phase}-${index}`}
+                        className={stepStatusClass(status)}
+                        data-progress-status={status}
+                      >
                         <span>{index + 1}</span>
                         <div>
-                          <strong>{phaseText(t, step.phase)}</strong>
-                          <p>{phaseHelpText(t, step.phase)}</p>
+                          <div className="remote-progress-step-title">
+                            <strong>{phaseText(t, step.phase)}</strong>
+                            <em>{t(`remote.stepStatus.${status}`)}</em>
+                          </div>
+                          <p>
+                            {progress
+                              ? t('remote.progressLiveDescription', { status: t(`remote.stepStatus.${status}`) })
+                              : phaseHelpText(t, step.phase)}
+                          </p>
+                          {healthState && (
+                            <p>{t('remote.progressHealth', { health: t(`remote.health.${healthState}`) })}</p>
+                          )}
+                          {advancedMode && progress?.outputExcerpt && (
+                            <pre className="remote-progress-output">{progress.outputExcerpt}</pre>
+                          )}
                         </div>
                       </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
+                    )
+                  })}
+                </ol>
+              </div>
 
               <div className="remote-execution-panel">
                 <div>
@@ -618,6 +732,12 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
                       : t('remote.executionDescriptionProdnet')}
                   </p>
                 </div>
+                {advancedMode && isDestructiveAction(plan.action) && (
+                  <div className="remote-destructive-warning" role="alert">
+                    <strong>{t('remote.destructiveTitle')}</strong>
+                    <p>{plan.action === 'rollback' ? t('remote.destructiveRollbackDescription') : t('remote.destructiveCleanupDescription')}</p>
+                  </div>
+                )}
                 <div className="remote-confirmation-box">
                   <span>{t('remote.confirmationPhrase')}</span>
                   <code>{remoteExecutionConfirmationPhrase(selectedNode, plan.action)}</code>
@@ -643,7 +763,11 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
                 >
                   {executing ? t('remote.executing') : t('remote.executeConfirmedPlan')}
                 </button>
-                {executionState && <pre className="remote-output">{executionState}</pre>}
+                {executionState && (
+                  advancedMode
+                    ? <pre className="remote-output">{executionState}</pre>
+                    : <p className="settings-inline-help">{executionState}</p>
+                )}
               </div>
 
               {advancedMode && (
@@ -689,6 +813,17 @@ export function RemoteNodesPanel(props: RemoteNodesPanelProps) {
                     </div>
                     <p className="settings-inline-help">{receipt.completedAt} · {t(`remote.health.${receipt.health.state}`)}</p>
                     <p className="settings-inline-help">{receipt.health.summary}</p>
+                    {advancedMode && receipt.steps?.length ? (
+                      <ol className="remote-receipt-steps">
+                        {receipt.steps.map((step) => (
+                          <li key={`${receipt.id}-${step.stepIndex}`} className={stepStatusClass(step.status)}>
+                            <span>{step.stepIndex + 1}</span>
+                            <strong>{t(`remote.phase.${step.phase}`)}</strong>
+                            <em>{t(`remote.stepStatus.${step.status}`)}</em>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : null}
                     {advancedMode && receipt.output && <pre className="remote-output">{receipt.output}</pre>}
                   </article>
                 ))}

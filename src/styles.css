@@ -2739,6 +2739,30 @@ body {
   padding: 8px;
 }
 
+.remote-progress-list li.is-waiting {
+  border-color: rgba(81, 121, 154, 0.36);
+  background: rgba(230, 241, 250, 0.62);
+}
+
+.remote-progress-list li.is-ok {
+  border-color: rgba(70, 140, 104, 0.34);
+  background: rgba(232, 245, 236, 0.64);
+}
+
+.remote-progress-list li.is-warn {
+  border-color: rgba(177, 129, 42, 0.36);
+  background: rgba(252, 242, 223, 0.66);
+}
+
+.remote-progress-list li.is-error {
+  border-color: rgba(180, 76, 76, 0.36);
+  background: rgba(252, 232, 232, 0.66);
+}
+
+.remote-progress-list li.is-muted {
+  opacity: 0.72;
+}
+
 .remote-progress-list li > span {
   display: inline-grid;
   place-items: center;
@@ -2751,9 +2775,46 @@ body {
   font-weight: 800;
 }
 
+.remote-progress-list li.is-waiting > span {
+  background: rgba(81, 121, 154, 0.16);
+  color: #315c78;
+}
+
+.remote-progress-list li.is-ok > span {
+  background: rgba(70, 140, 104, 0.16);
+  color: #2e7451;
+}
+
+.remote-progress-list li.is-warn > span {
+  background: rgba(177, 129, 42, 0.16);
+  color: #8a641e;
+}
+
+.remote-progress-list li.is-error > span {
+  background: rgba(180, 76, 76, 0.16);
+  color: #944040;
+}
+
+.remote-progress-step-title {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .remote-progress-list li strong {
   display: block;
   font-size: 0.82rem;
+}
+
+.remote-progress-step-title em {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .remote-progress-list li p {
@@ -2761,6 +2822,20 @@ body {
   color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.35;
+}
+
+.remote-progress-output {
+  margin: 8px 0 0;
+  max-height: 132px;
+  overflow: auto;
+  border-radius: 6px;
+  background: rgba(7, 12, 16, 0.08);
+  color: var(--text);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  padding: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .remote-execution-panel,
@@ -2779,6 +2854,27 @@ body {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.78);
   padding: 10px 12px;
+}
+
+.remote-destructive-warning {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(177, 129, 42, 0.36);
+  border-radius: 8px;
+  background: rgba(252, 242, 223, 0.66);
+  padding: 10px 12px;
+}
+
+.remote-destructive-warning strong {
+  color: #6f4e16;
+  font-size: 0.86rem;
+}
+
+.remote-destructive-warning p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .remote-confirmation-box span,
@@ -2844,6 +2940,50 @@ body {
 
 .remote-receipt p {
   margin: 8px 0 0;
+}
+
+.remote-receipt-steps {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remote-receipt-steps li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(128, 148, 172, 0.18);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.remote-receipt-steps span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(31, 71, 85, 0.08);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.remote-receipt-steps strong,
+.remote-receipt-steps em {
+  min-width: 0;
+  font-size: 0.76rem;
+}
+
+.remote-receipt-steps em {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .remote-command-list {

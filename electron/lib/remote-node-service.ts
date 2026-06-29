@@ -63,8 +63,31 @@ export type RemoteExecutionHealth = {
   stopCriteria: string[]
 }
 
+export type RemoteExecutionStepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped'
+
+export type RemoteExecutionStepSummary = {
+  stepIndex: number
+  stepCount: number
+  phase: string
+  status: RemoteExecutionStepStatus
+  startedAt: string | null
+  completedAt: string | null
+  exitCode: number | null
+  health: RemoteExecutionHealth | null
+  outputExcerpt: string
+}
+
+export type RemoteExecutionProgressEvent = RemoteExecutionStepSummary & {
+  event: 'remote-execution-progress'
+  planId: string
+  nodeId: string
+  network: string
+  action: string
+}
+
 export type RemoteExecutionReceipt = {
   id: string
+  planId: string
   nodeId: string
   network: string
   action: string
@@ -73,6 +96,7 @@ export type RemoteExecutionReceipt = {
   completedAt: string
   planStepCount: number
   health: RemoteExecutionHealth
+  steps: RemoteExecutionStepSummary[]
   output: string
 }
 
@@ -82,13 +106,20 @@ export type RemoteExecutionResult = {
   receipt: RemoteExecutionReceipt
 }
 
-export type RemoteCommandRunner = (command: string) => Promise<{ code: number; output: string }>
+export type RemoteCommandOutputHandler = (chunk: string) => void
+export type RemoteCommandRunner = (
+  command: string,
+  onOutput?: RemoteCommandOutputHandler
+) => Promise<{ code: number; output: string }>
+export type RemoteExecutionProgressHandler = (event: RemoteExecutionProgressEvent) => void
 
 const MAX_OUTPUT_BYTES = 128 * 1024
+const MAX_OUTPUT_EXCERPT_CHARS = 6000
 const COMMAND_TIMEOUT_MS = 45 * 60 * 1000
 
 export function remoteExecutionConfirmationPhrase(node: RemoteExecutionNode, action: string): string {
-  return `EXECUTE ${node.id || ''} ${node.network || ''} ${action}`
+  const base = `EXECUTE ${node.id || ''} ${node.network || ''} ${action}`
+  return action === 'rollback' || action === 'cleanup' ? `${base} PRESERVE_DB` : base
 }
 
 export function redactRemoteExecutionOutput(value: string): string {
@@ -97,9 +128,19 @@ export function redactRemoteExecutionOutput(value: string): string {
     .replace(/\b(token[-_ ]?file|password[-_ ]?file|secret[-_ ]?file|private[-_ ]?key[-_ ]?file)(\s*[:=]\s*)([^\s"',;]+)/gi, '$1$2<redacted>')
     .replace(/\b(password|passwd|passphrase|token|secret|seed|wif)(\s*[:=]\s*)([^\s"',;]+)/gi, '$1$2<redacted>')
     .replace(/\b(private[-_ ]?key)(\s*[:=]\s*)([^\s"',;]+)/gi, '$1$2<redacted>')
+    .replace(/\b(hostname|host|server)(\s*[:=]\s*)([^\s"',;]+)/gi, '$1$2<redacted>')
+    .replace(/\b(could not resolve hostname)\s+[^\s:]+/gi, '$1 <host-redacted>')
+    .replace(/\b(Linux|Darwin)\s+[A-Za-z0-9_.-]+\s+/g, '$1 <host-redacted> ')
     .replace(/\b([A-Za-z0-9._%+-]+)@((?:\d{1,3}\.){3}\d{1,3}|[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g, '<ssh-target-redacted>')
+    .replace(/(^|[\s"'=(])(?:~|\$HOME)\/[^\s"',;)]+/g, '$1<remote-path-redacted>')
+    .replace(/(^|[\s"'=(])\/home\/[A-Za-z0-9_.-]+\/[^\s"',;)]+/g, '$1<remote-path-redacted>')
+    .replace(/(^|[\s"'=(])\/Users\/[A-Za-z0-9_.-]+\/[^\s"',;)]+/g, '$1<local-path-redacted>')
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<ip-redacted>')
+    .replace(/\b(?=(?:[a-f0-9]*:){3,}[a-f0-9:]*\b|[a-f0-9:]*::[a-f0-9:]*\b)(?:[a-f0-9]{1,4}:){1,7}:?(?:[a-f0-9]{1,4})?\b/gi, '<ip-redacted>')
     .replace(/(<ip-redacted>|localhost|\[::1\]|::1):\d{2,5}\b/g, '$1:<port-redacted>')
+    .replace(/\b(port|p2p|json[-_ ]?rpc|admin[-_ ]?listen|listen)(\s*[:=]\s*)\d{2,5}\b/gi, '$1$2<port-redacted>')
+    .replace(/\bport\s+\d{2,5}\b/gi, 'port <port-redacted>')
+    .replace(/\/tcp\/\d{2,5}\b/g, '/tcp/<port-redacted>')
 }
 
 function looksLikeRawSshTarget(value: string): boolean {
@@ -110,8 +151,24 @@ function isReadOnlyRemoteAction(action: string): boolean {
   return action === 'status' || action === 'logs'
 }
 
+function isDbPreservingDestructiveAction(action: string): boolean {
+  return action === 'rollback' || action === 'cleanup'
+}
+
 function stepsAreReadOnly(steps: RemoteExecutionStep[]): boolean {
   return steps.every((step) => !step.hostMutation && !step.chainMutation && !step.destructive)
+}
+
+function destructivePlanHasDbPreservationEvidence(action: string, steps: RemoteExecutionStep[]): boolean {
+  const commandText = steps.map((step) => `${step.command || ''}`).join('\n')
+  if (!commandText.includes('TELENO_DB_PRESERVED')) return false
+  if (action === 'rollback' && !commandText.includes('TELENO_ROLLBACK_EVIDENCE')) return false
+  if (action === 'cleanup' && !commandText.includes('TELENO_CLEANUP_CANDIDATE')) return false
+  if (
+    action === 'cleanup' &&
+    commandText.split('\n').some((line) => /\brm\s+-rf\b/i.test(line) && /(chain|blockchain|state|wallet|producer|config\.yml)/i.test(line))
+  ) return false
+  return true
 }
 
 function commandLooksUnsafe(command: string): boolean {
@@ -148,8 +205,9 @@ function validateRemoteExecutionRequest(input?: RemoteExecutionRequest): string[
     errors.push('Confirmed prodnet/mainnet execution is available only for read-only status and logs plans.')
   }
   if (node?.role !== 'observer' || node?.producer?.enabled === true) errors.push('Remote execution requires an observer node with producer disabled.')
-  if (action === 'cleanup') errors.push('Remote cleanup execution is unavailable.')
-  if (action === 'rollback') errors.push('Remote rollback execution is unavailable in this MVP.')
+  if (isDbPreservingDestructiveAction(action) && !destructivePlanHasDbPreservationEvidence(action, steps)) {
+    errors.push('Destructive rollback and cleanup plans must prove prior evidence and DB preservation before execution.')
+  }
   if (!connectionRef || !/^[A-Za-z0-9_.-]+$/.test(connectionRef) || looksLikeRawSshTarget(connectionRef)) {
     errors.push('Connection reference must be a sanitized local SSH alias, not a raw target.')
   }
@@ -182,6 +240,10 @@ function stopCriteriaFromOutput(output: string): string[] {
   if (/restore failed|public bootstrap restore failed/.test(lower)) criteria.push('restore-failure')
   if (/digest mismatch|sha256 mismatch|hash mismatch/.test(lower)) criteria.push('digest-mismatch')
   if (/state merkle mismatch|previous state merkle mismatch/.test(lower)) criteria.push('state-merkle-mismatch')
+  if (/rollback evidence missing|rollback evidence invalid/.test(lower)) criteria.push('rollback-evidence-missing')
+  if (/cleanup receipt evidence missing/.test(lower)) criteria.push('cleanup-evidence-missing')
+  if (/cleanup state unknown/.test(lower)) criteria.push('cleanup-state-unknown')
+  if (/cleanup attempted protected path/.test(lower)) criteria.push('cleanup-protected-path')
   return [...new Set(criteria)]
 }
 
@@ -247,19 +309,50 @@ function parseRemoteExecutionHealth(output: string, checkedAt = new Date().toISO
   }
 }
 
+function outputExcerpt(output: string): string {
+  const redacted = redactRemoteExecutionOutput(output)
+  return redacted.length > MAX_OUTPUT_EXCERPT_CHARS
+    ? redacted.slice(-MAX_OUTPUT_EXCERPT_CHARS)
+    : redacted
+}
+
+function createStepSummaries(steps: RemoteExecutionStep[]): RemoteExecutionStepSummary[] {
+  return steps.map((step, index) => ({
+    stepIndex: index,
+    stepCount: steps.length,
+    phase: step.phase || 'remote',
+    status: 'queued',
+    startedAt: null,
+    completedAt: null,
+    exitCode: null,
+    health: null,
+    outputExcerpt: ''
+  }))
+}
+
+function appendCappedOutput(current: string, chunk: string): string {
+  const next = `${current}${chunk}`
+  return next.length > MAX_OUTPUT_EXCERPT_CHARS * 2
+    ? next.slice(-(MAX_OUTPUT_EXCERPT_CHARS * 2))
+    : next
+}
+
 function createReceipt(input: {
+  planId: string
   node?: RemoteExecutionNode
   action?: string
   status: RemoteExecutionReceipt['status']
   startedAt: string
   completedAt?: string
   planStepCount: number
+  steps?: RemoteExecutionStepSummary[]
   output: string
 }): RemoteExecutionReceipt {
   const completedAt = input.completedAt || new Date().toISOString()
   const output = redactRemoteExecutionOutput(input.output)
   return {
     id: `remote-${randomUUID()}`,
+    planId: input.planId,
     nodeId: `${input.node?.id || ''}`,
     network: `${input.node?.network || ''}`,
     action: `${input.action || ''}`,
@@ -268,11 +361,15 @@ function createReceipt(input: {
     completedAt,
     planStepCount: input.planStepCount,
     health: parseRemoteExecutionHealth(output, completedAt),
+    steps: (input.steps || []).map((step) => ({
+      ...step,
+      outputExcerpt: outputExcerpt(step.outputExcerpt)
+    })),
     output
   }
 }
 
-async function defaultRunner(command: string): Promise<{ code: number; output: string }> {
+async function defaultRunner(command: string, onOutput?: RemoteCommandOutputHandler): Promise<{ code: number; output: string }> {
   return new Promise((resolve) => {
     const child = spawn('/bin/bash', ['-c', command], {
       stdio: ['ignore', 'pipe', 'pipe']
@@ -285,8 +382,10 @@ async function defaultRunner(command: string): Promise<{ code: number; output: s
     const collect = (chunk: Buffer) => {
       if (outputBytes >= MAX_OUTPUT_BYTES) return
       const remaining = MAX_OUTPUT_BYTES - outputBytes
-      chunks.push(chunk.subarray(0, remaining))
+      const clipped = chunk.subarray(0, remaining)
+      chunks.push(clipped)
       outputBytes += Math.min(chunk.length, remaining)
+      onOutput?.(clipped.toString('utf8'))
     }
     child.stdout.on('data', collect)
     child.stderr.on('data', collect)
@@ -307,24 +406,65 @@ async function defaultRunner(command: string): Promise<{ code: number; output: s
   })
 }
 
-export function createRemoteNodeExecutionService(options: { runner?: RemoteCommandRunner } = {}) {
+export function createRemoteNodeExecutionService(options: {
+  runner?: RemoteCommandRunner
+  onProgress?: RemoteExecutionProgressHandler
+} = {}) {
   const runner = options.runner || defaultRunner
+  const onProgress = options.onProgress
 
   async function executeRemoteCommandPlan(input?: RemoteExecutionRequest): Promise<RemoteExecutionResult> {
+    const planId = `remote-plan-${randomUUID()}`
     const startedAt = new Date().toISOString()
     const steps = Array.isArray(input?.plan?.steps) ? input.plan.steps : []
     const action = input?.plan?.action || ''
+    const stepSummaries = createStepSummaries(steps)
     const validationErrors = validateRemoteExecutionRequest(input)
+    const emitStep = (summary: RemoteExecutionStepSummary) => {
+      onProgress?.({
+        event: 'remote-execution-progress',
+        planId,
+        nodeId: `${input?.node?.id || input?.plan?.nodeId || ''}`,
+        network: `${input?.node?.network || ''}`,
+        action,
+        ...summary,
+        outputExcerpt: outputExcerpt(summary.outputExcerpt)
+      })
+    }
 
     if (validationErrors.length > 0) {
       const output = validationErrors.join('\n')
+      if (stepSummaries.length > 0) {
+        const completedAt = new Date().toISOString()
+        stepSummaries[0] = {
+          ...stepSummaries[0],
+          status: 'blocked',
+          startedAt,
+          completedAt,
+          exitCode: null,
+          health: parseRemoteExecutionHealth(output, completedAt),
+          outputExcerpt: output
+        }
+        emitStep(stepSummaries[0])
+        for (let index = 1; index < stepSummaries.length; index += 1) {
+          stepSummaries[index] = {
+            ...stepSummaries[index],
+            status: 'skipped',
+            completedAt,
+            outputExcerpt: 'Skipped because the reviewed command plan was blocked before execution.'
+          }
+          emitStep(stepSummaries[index])
+        }
+      }
       const receipt = createReceipt({
+        planId,
         node: input?.node,
         action,
         status: 'blocked',
         startedAt,
         completedAt: new Date().toISOString(),
         planStepCount: steps.length,
+        steps: stepSummaries,
         output
       })
       return {
@@ -336,24 +476,70 @@ export function createRemoteNodeExecutionService(options: { runner?: RemoteComma
 
     const outputs: string[] = []
     let ok = true
+    for (const summary of stepSummaries) emitStep(summary)
+
     for (const [index, step] of steps.entries()) {
-      const result = await runner(`${step.command || ''}`)
+      const stepStartedAt = new Date().toISOString()
+      let liveOutput = ''
+      stepSummaries[index] = {
+        ...stepSummaries[index],
+        status: 'running',
+        startedAt: stepStartedAt,
+        outputExcerpt: ''
+      }
+      emitStep(stepSummaries[index])
+
+      const result = await runner(`${step.command || ''}`, (chunk) => {
+        liveOutput = appendCappedOutput(liveOutput, chunk)
+        const now = new Date().toISOString()
+        stepSummaries[index] = {
+          ...stepSummaries[index],
+          status: 'running',
+          health: parseRemoteExecutionHealth(liveOutput, now),
+          outputExcerpt: liveOutput
+        }
+        emitStep(stepSummaries[index])
+      })
+      const completedAt = new Date().toISOString()
+      const stepOutput = result.output || liveOutput
+      const stopCriteria = stopCriteriaFromOutput(stepOutput)
+      const failed = result.code !== 0 || stopCriteria.length > 0
+      stepSummaries[index] = {
+        ...stepSummaries[index],
+        status: failed ? 'failed' : 'succeeded',
+        completedAt,
+        exitCode: result.code,
+        health: parseRemoteExecutionHealth(stepOutput, completedAt),
+        outputExcerpt: stepOutput
+      }
+      emitStep(stepSummaries[index])
       outputs.push(`STEP ${index + 1} ${step.phase || 'remote'} EXIT ${result.code}`)
       outputs.push(result.output)
-      if (result.code !== 0 || stopCriteriaFromOutput(result.output).length > 0) {
+      if (failed) {
         ok = false
+        for (let skippedIndex = index + 1; skippedIndex < stepSummaries.length; skippedIndex += 1) {
+          stepSummaries[skippedIndex] = {
+            ...stepSummaries[skippedIndex],
+            status: 'skipped',
+            completedAt,
+            outputExcerpt: `Skipped because ${step.phase || 'remote'} did not complete safely.`
+          }
+          emitStep(stepSummaries[skippedIndex])
+        }
         break
       }
     }
 
     const output = redactRemoteExecutionOutput(outputs.join('\n').trim())
     const receipt = createReceipt({
+      planId,
       node: input?.node,
       action,
       status: ok ? 'succeeded' : 'failed',
       startedAt,
       completedAt: new Date().toISOString(),
       planStepCount: steps.length,
+      steps: stepSummaries,
       output
     })
 

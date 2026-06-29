@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createRemoteNodeExecutionService,
   redactRemoteExecutionOutput,
-  remoteExecutionConfirmationPhrase
+  remoteExecutionConfirmationPhrase,
+  type RemoteExecutionProgressEvent
 } from './remote-node-service'
 
 function request(overrides: Record<string, unknown> = {}) {
@@ -99,7 +100,7 @@ describe('remote node execution service', () => {
     expect(runner).not.toHaveBeenCalled()
   })
 
-  it('blocks rollback execution even for confirmed testnet observers', async () => {
+  it('blocks rollback execution when DB preservation evidence is missing', async () => {
     const runner = vi.fn(async () => ({ code: 0, output: 'should not run' }))
     const service = createRemoteNodeExecutionService({ runner })
     const input = request({
@@ -115,15 +116,90 @@ describe('remote node execution service', () => {
           destructive: true
         }]
       },
-      confirmation: 'EXECUTE testnet-observer-a testnet rollback'
+      confirmation: 'EXECUTE testnet-observer-a testnet rollback PRESERVE_DB'
     })
 
     const result = await service.executeRemoteCommandPlan(input)
 
     expect(result.ok).toBe(false)
     expect(result.receipt.status).toBe('blocked')
-    expect(result.output).toContain('rollback execution is unavailable')
+    expect(result.output).toContain('must prove prior evidence and DB preservation')
     expect(runner).not.toHaveBeenCalled()
+  })
+
+  it('allows confirmed testnet rollback with prior evidence and DB preservation markers', async () => {
+    const runner = vi.fn(async () => ({
+      code: 0,
+      output: 'TELENO_ROLLBACK_EVIDENCE present\nTELENO_DB_PRESERVED existing DB untouched\nblock_producer: false\nrunning'
+    }))
+    const service = createRemoteNodeExecutionService({ runner })
+    const input = request({
+      plan: {
+        nodeId: 'testnet-observer-a',
+        action: 'rollback' as const,
+        blocked: false,
+        steps: [{
+          phase: 'rollback',
+          command: [
+            "ssh ssh-testnet-observer-a <<'TELENO_REMOTE'",
+            'echo TELENO_ROLLBACK_EVIDENCE previous artifact and config present',
+            'echo TELENO_DB_PRESERVED existing chain/state DB paths were detected and left untouched',
+            'docker stop teleno-testnet-observer-a || true',
+            'docker rm teleno-testnet-observer-a || true',
+            'echo block_producer: false',
+            'TELENO_REMOTE'
+          ].join('\n'),
+          hostMutation: true,
+          chainMutation: false,
+          destructive: true
+        }]
+      },
+      confirmation: 'EXECUTE testnet-observer-a testnet rollback PRESERVE_DB'
+    })
+
+    const result = await service.executeRemoteCommandPlan(input)
+
+    expect(result.ok).toBe(true)
+    expect(result.receipt.status).toBe('succeeded')
+    expect(result.receipt.output).toContain('TELENO_DB_PRESERVED')
+    expect(runner).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows confirmed testnet cleanup that preserves DB and removes only temporary candidates', async () => {
+    const runner = vi.fn(async () => ({
+      code: 0,
+      output: 'TELENO_CLEANUP_CANDIDATE non-state temporary item present\nTELENO_DB_PRESERVED cleanup removed only non-state temporary items\nblock_producer: false'
+    }))
+    const service = createRemoteNodeExecutionService({ runner })
+    const input = request({
+      plan: {
+        nodeId: 'testnet-observer-a',
+        action: 'cleanup' as const,
+        blocked: false,
+        steps: [{
+          phase: 'cleanup',
+          command: [
+            "ssh ssh-testnet-observer-a <<'TELENO_REMOTE'",
+            'echo TELENO_CLEANUP_CANDIDATE non-state temporary item present',
+            'echo TELENO_DB_PRESERVED cleanup candidates exclude chain, blockchain, state, config, wallet, and producer data',
+            'rm -rf -- "$item"',
+            'echo block_producer: false',
+            'TELENO_REMOTE'
+          ].join('\n'),
+          hostMutation: true,
+          chainMutation: false,
+          destructive: true
+        }]
+      },
+      confirmation: 'EXECUTE testnet-observer-a testnet cleanup PRESERVE_DB'
+    })
+
+    const result = await service.executeRemoteCommandPlan(input)
+
+    expect(result.ok).toBe(true)
+    expect(result.receipt.status).toBe('succeeded')
+    expect(result.receipt.output).toContain('TELENO_DB_PRESERVED')
+    expect(runner).toHaveBeenCalledTimes(1)
   })
 
   it('executes one confirmed testnet observer plan through the injected runner', async () => {
@@ -241,6 +317,13 @@ describe('remote node execution service', () => {
     expect(redactRemoteExecutionOutput('token-file: /secret/admin.token')).toContain('token-file: <redacted>')
     expect(redactRemoteExecutionOutput('http://192.0.2.20:18080')).toContain('<ip-redacted>:<port-redacted>')
     expect(redactRemoteExecutionOutput('http://192.0.2.20:18080')).not.toContain(':18080')
+    expect(redactRemoteExecutionOutput('IPv6 address for eth0: 2001:db8::1')).not.toContain('2001:db8')
+    expect(redactRemoteExecutionOutput('System information as of 04:46:39 PM')).toContain('04:46:39 PM')
+    expect(redactRemoteExecutionOutput('Linux private-host 6.8.0 /home/operator/koinos-one/node')).not.toContain('private-host')
+    expect(redactRemoteExecutionOutput('Linux private-host 6.8.0 /home/operator/koinos-one/node')).not.toContain('/home/operator')
+    expect(redactRemoteExecutionOutput('ssh: Could not resolve hostname private-vps')).not.toContain('private-vps')
+    expect(redactRemoteExecutionOutput('planned port 28890 is already in use')).not.toContain('28890')
+    expect(redactRemoteExecutionOutput('/ip4/203.0.113.10/tcp/18888')).not.toContain('/tcp/18888')
   })
 
   it('stores sanitized execution output in receipts', async () => {
@@ -315,5 +398,135 @@ describe('remote node execution service', () => {
     expect(result.ok).toBe(true)
     expect(result.receipt.health.state).toBe('degraded')
     expect(result.receipt.health.summary).toContain('no connected peers')
+  })
+
+  it('streams queued, running, output, and succeeded progress events with sanitized excerpts', async () => {
+    const events: RemoteExecutionProgressEvent[] = []
+    const runner = vi.fn(async (_command: string, onOutput?: (chunk: string) => void) => {
+      onOutput?.('Linux private-host 6.8.0 token=abc /home/operator/koinos-one\n')
+      onOutput?.('running\nblock_producer: false\n')
+      return {
+        code: 0,
+        output: 'Linux private-host 6.8.0 token=abc /home/operator/koinos-one\nrunning\nblock_producer: false'
+      }
+    })
+    const service = createRemoteNodeExecutionService({
+      runner,
+      onProgress: (event) => events.push(event)
+    })
+
+    const result = await service.executeRemoteCommandPlan(request())
+
+    expect(result.ok).toBe(true)
+    expect(events.map((event) => event.status)).toEqual(['queued', 'running', 'running', 'running', 'succeeded'])
+    expect(new Set(events.map((event) => event.planId)).size).toBe(1)
+    expect(events.every((event) => event.nodeId === 'testnet-observer-a')).toBe(true)
+    const lastEvent = events[events.length - 1]
+    expect(lastEvent.outputExcerpt).toContain('token=<redacted>')
+    expect(lastEvent.outputExcerpt).not.toContain('private-host')
+    expect(lastEvent.outputExcerpt).not.toContain('/home/operator')
+    expect(result.receipt.planId).toBe(events[0].planId)
+    expect(result.receipt.steps).toHaveLength(1)
+    expect(result.receipt.steps[0]).toMatchObject({
+      stepIndex: 0,
+      stepCount: 1,
+      phase: 'preflight',
+      status: 'succeeded',
+      exitCode: 0
+    })
+    expect(result.receipt.steps[0].outputExcerpt).not.toContain('token=abc')
+  })
+
+  it('stops on a failed step and marks remaining steps skipped in progress and receipt summaries', async () => {
+    const events: RemoteExecutionProgressEvent[] = []
+    const runner = vi.fn(async () => ({
+      code: 65,
+      output: 'restore failed\nTELENO_STOP_CRITERIA: preserve state DB and stop remote rollout'
+    }))
+    const input = request({
+      plan: {
+        nodeId: 'testnet-observer-a',
+        action: 'install-observer' as const,
+        blocked: false,
+        steps: [
+          {
+            phase: 'preflight',
+            command: "ssh ssh-testnet-observer-a <<'TELENO_REMOTE'\necho preflight\nTELENO_REMOTE",
+            hostMutation: false,
+            chainMutation: false,
+            destructive: false
+          },
+          {
+            phase: 'artifact',
+            command: "ssh ssh-testnet-observer-a <<'TELENO_REMOTE'\necho artifact\nTELENO_REMOTE",
+            hostMutation: true,
+            chainMutation: false,
+            destructive: false
+          },
+          {
+            phase: 'bootstrap',
+            command: "ssh ssh-testnet-observer-a <<'TELENO_REMOTE'\necho restore\nTELENO_REMOTE",
+            hostMutation: true,
+            chainMutation: false,
+            destructive: false
+          }
+        ]
+      },
+      confirmation: 'EXECUTE testnet-observer-a testnet install-observer'
+    })
+    const service = createRemoteNodeExecutionService({
+      runner,
+      onProgress: (event) => events.push(event)
+    })
+
+    const result = await service.executeRemoteCommandPlan(input)
+
+    expect(result.ok).toBe(false)
+    expect(runner).toHaveBeenCalledTimes(1)
+    expect(result.receipt.status).toBe('failed')
+    expect(result.receipt.health.stopCriteria).toContain('restore-failure')
+    expect(result.receipt.steps.map((step) => step.status)).toEqual(['failed', 'skipped', 'skipped'])
+    expect(events.filter((event) => event.status === 'skipped')).toHaveLength(2)
+    expect(events[events.length - 1].phase).toBe('bootstrap')
+  })
+
+  it('records rollback and cleanup stop criteria in receipts', async () => {
+    const runner = vi.fn(async () => ({
+      code: 65,
+      output: [
+        'TELENO_STOP_CRITERIA: rollback evidence missing',
+        'TELENO_STOP_CRITERIA: cleanup receipt evidence missing',
+        'TELENO_STOP_CRITERIA: cleanup state unknown',
+        'TELENO_STOP_CRITERIA: cleanup attempted protected path'
+      ].join('\n')
+    }))
+    const service = createRemoteNodeExecutionService({ runner })
+
+    const result = await service.executeRemoteCommandPlan(request())
+
+    expect(result.ok).toBe(false)
+    expect(result.receipt.health.stopCriteria).toEqual(expect.arrayContaining([
+      'rollback-evidence-missing',
+      'cleanup-evidence-missing',
+      'cleanup-state-unknown',
+      'cleanup-protected-path'
+    ]))
+  })
+
+  it('records blocked step summaries without invoking the runner when execution gates fail', async () => {
+    const events: RemoteExecutionProgressEvent[] = []
+    const runner = vi.fn(async () => ({ code: 0, output: 'should not run' }))
+    const service = createRemoteNodeExecutionService({
+      runner,
+      onProgress: (event) => events.push(event)
+    })
+
+    const result = await service.executeRemoteCommandPlan(request({ confirmation: 'wrong' }))
+
+    expect(result.ok).toBe(false)
+    expect(runner).not.toHaveBeenCalled()
+    expect(result.receipt.status).toBe('blocked')
+    expect(result.receipt.steps.map((step) => step.status)).toEqual(['blocked'])
+    expect(events.map((event) => event.status)).toEqual(['blocked'])
   })
 })

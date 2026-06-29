@@ -118,6 +118,8 @@ export type RemotePlanPhase =
   | 'runtime'
   | 'verify'
   | 'diagnostics'
+  | 'preserve'
+  | 'receipt'
   | 'rollback'
   | 'cleanup'
 
@@ -562,10 +564,143 @@ function observerConfigCommand(node: RemoteFleetNode): string {
 function stopCriteriaGuardCommand(node: RemoteFleetNode): string {
   const logPath = remotePath(`${node.paths.baseDir}/logs`)
   return [
-    `if grep -R -E -i "state merkle mismatch|previous state merkle mismatch|digest mismatch|restore failed|chain[_ -]?id mismatch|block_producer: true" ${logPath} 2>/dev/null; then`,
+    `if grep -R -E -i "state merkle mismatch|previous state merkle mismatch|digest mismatch|restore failed|chain[_ -]?id mismatch|block_producer: true" ${logPath} ${remotePath(`${node.paths.baseDir}/.teleno/receipts`)} 2>/dev/null; then`,
     '  echo "TELENO_STOP_CRITERIA: preserve state DB and stop remote rollout";',
     '  exit 65;',
     'fi'
+  ].join('\n')
+}
+
+function telenoControlDir(node: RemoteFleetNode): string {
+  return `${node.paths.baseDir}/.teleno`
+}
+
+function rollbackHistoryDir(node: RemoteFleetNode): string {
+  return `${telenoControlDir(node)}/rollback`
+}
+
+function receiptDir(node: RemoteFleetNode): string {
+  return `${telenoControlDir(node)}/receipts`
+}
+
+function preserveReceiptCommand(node: RemoteFleetNode, action: 'rollback' | 'cleanup'): string {
+  return [
+    'set -eu',
+    `mkdir -p ${remotePath(`${telenoControlDir(node)}/preserved`)} ${remotePath(receiptDir(node))}`,
+    `test -f ${remotePath(node.paths.config)} && cp ${remotePath(node.paths.config)} ${remotePath(`${telenoControlDir(node)}/preserved/config.before-${action}.yml`)}`,
+    `if test -d ${remotePath(`${node.paths.baseDir}/chain`)} || test -d ${remotePath(`${node.paths.baseDir}/blockchain`)} || test -d ${remotePath(`${node.paths.baseDir}/state`)}; then`,
+    '  echo "TELENO_DB_PRESERVED existing chain/state DB paths were detected and left untouched";',
+    'else',
+    '  echo "TELENO_STOP_CRITERIA: cleanup state unknown";',
+    '  exit 65;',
+    'fi',
+    `printf 'action=%s\\ndb_preserved=true\\n' ${q(action)} > ${remotePath(`${receiptDir(node)}/${action}-preserve.receipt`)}`,
+    stopCriteriaGuardCommand(node)
+  ].join('\n')
+}
+
+function rollbackEvidencePreflightCommand(node: RemoteFleetNode): string {
+  return [
+    'set -eu',
+    `test -f ${remotePath(node.paths.config)}`,
+    `grep -R "network: ${node.network}" ${remotePath(node.paths.config)}`,
+    `grep -R "block_producer: false" ${remotePath(node.paths.config)}`,
+    `test -f ${remotePath(`${rollbackHistoryDir(node)}/previous_image`)} || { echo "TELENO_STOP_CRITERIA: rollback evidence missing"; exit 65; }`,
+    `test -f ${remotePath(`${rollbackHistoryDir(node)}/previous_config.yml`)} || { echo "TELENO_STOP_CRITERIA: rollback evidence missing"; exit 65; }`,
+    `previous_image=$(cat ${remotePath(`${rollbackHistoryDir(node)}/previous_image`)})`,
+    'case "$previous_image" in *[!A-Za-z0-9_./:@+-]*|"") echo "TELENO_STOP_CRITERIA: rollback evidence invalid"; exit 65;; esac',
+    'echo "TELENO_ROLLBACK_EVIDENCE previous artifact and config present"',
+    stopCriteriaGuardCommand(node)
+  ].join('\n')
+}
+
+function cleanupEvidencePreflightCommand(node: RemoteFleetNode): string {
+  return [
+    'set -eu',
+    `test -f ${remotePath(node.paths.config)}`,
+    `grep -R "network: ${node.network}" ${remotePath(node.paths.config)}`,
+    `grep -R "block_producer: false" ${remotePath(node.paths.config)}`,
+    `if ! ls ${remotePath(receiptDir(node))}/*.receipt >/dev/null 2>&1; then echo "TELENO_STOP_CRITERIA: cleanup receipt evidence missing"; exit 65; fi`,
+    stopCriteriaGuardCommand(node)
+  ].join('\n')
+}
+
+function rollbackConfigCommand(node: RemoteFleetNode): string {
+  return [
+    'set -eu',
+    `cp ${remotePath(`${rollbackHistoryDir(node)}/previous_config.yml`)} ${remotePath(node.paths.config)}`,
+    `grep -R "network: ${node.network}" ${remotePath(node.paths.config)}`,
+    `grep -R "block_producer: false" ${remotePath(node.paths.config)}`,
+    'echo "TELENO_ROLLBACK_CONFIG applied previous observer config with producer disabled"'
+  ].join('\n')
+}
+
+function rollbackRuntimeCommand(node: RemoteFleetNode): string {
+  if (node.runtime.kind !== 'docker') {
+    return 'echo "TELENO_STOP_CRITERIA: rollback runtime unsupported for this node"; exit 65'
+  }
+  const jsonrpcPort = bindPort(node.ports.jsonrpcHostBind) || '8080'
+  return [
+    'set -eu',
+    `previous_image=$(cat ${remotePath(`${rollbackHistoryDir(node)}/previous_image`)})`,
+    `docker pull "$previous_image"`,
+    `${runtimeStopCommand(node)} || true`,
+    `docker rm ${serviceName(node)} 2>/dev/null || true`,
+    [
+      `docker run -d --name ${serviceName(node)}`,
+      `-v ${remotePath(node.paths.baseDir)}:/data`,
+      `-p ${node.ports.jsonrpcHostBind}:${jsonrpcPort}`,
+      `-p ${node.ports.p2pPublic}:${p2pInternalPort(node)}`,
+      '"$previous_image"',
+      '--basedir /data --config /data/config.yml'
+    ].join(' '),
+    'echo "TELENO_ROLLBACK_ARTIFACT started previous reviewed artifact with existing DB preserved"'
+  ].join('\n')
+}
+
+function cleanupCandidateListCommand(node: RemoteFleetNode): string {
+  const candidates = [
+    `${node.paths.baseDir}/tmp`,
+    `${node.paths.baseDir}/restore-work`,
+    `${node.paths.baseDir}/backup-work`,
+    `${telenoControlDir(node)}/tmp`
+  ]
+  return [
+    'set -eu',
+    `for item in ${candidates.map(remotePath).join(' ')}; do`,
+    '  if test -e "$item"; then echo "TELENO_CLEANUP_CANDIDATE non-state temporary item present"; fi',
+    'done',
+    'echo "TELENO_DB_PRESERVED cleanup candidates exclude chain, blockchain, state, config, wallet, and producer data"'
+  ].join('\n')
+}
+
+function cleanupTemporaryCommand(node: RemoteFleetNode): string {
+  const candidates = [
+    `${node.paths.baseDir}/tmp`,
+    `${node.paths.baseDir}/restore-work`,
+    `${node.paths.baseDir}/backup-work`,
+    `${telenoControlDir(node)}/tmp`
+  ]
+  return [
+    'set -eu',
+    `for item in ${candidates.map(remotePath).join(' ')}; do`,
+    '  case "$item" in',
+    '    *chain*|*blockchain*|*state*|*wallet*|*producer*|*config.yml) echo "TELENO_STOP_CRITERIA: cleanup attempted protected path"; exit 65;;',
+    '  esac',
+    '  test -e "$item" && rm -rf -- "$item"',
+    'done',
+    `printf 'action=cleanup\\ndb_preserved=true\\n' > ${remotePath(`${receiptDir(node)}/cleanup.receipt`)}`,
+    'echo "TELENO_DB_PRESERVED cleanup removed only non-state temporary items"'
+  ].join('\n')
+}
+
+function destructiveReceiptCommand(node: RemoteFleetNode, action: 'rollback' | 'cleanup'): string {
+  return [
+    'set -eu',
+    `mkdir -p ${remotePath(receiptDir(node))}`,
+    `printf 'action=%s\\ndb_preserved=true\\nstatus=complete\\n' ${q(action)} > ${remotePath(`${receiptDir(node)}/${action}.receipt`)}`,
+    `test -f ${remotePath(node.paths.config)} && grep -R "block_producer: false" ${remotePath(node.paths.config)}`,
+    'echo "TELENO_DB_PRESERVED receipt recorded with state DB untouched"'
   ].join('\n')
 }
 
@@ -651,7 +786,7 @@ export function generateRemoteCommandPlan(
 
   notices.push({ code: 'dryRunOnly', field: node.id })
   if (action === 'rollback' || action === 'cleanup') notices.push({ code: 'destructiveConfirmationRequired', field: node.id })
-  if (node.network === 'mainnet' && ['install-observer', 'restore-public-bootstrap', 'upgrade', 'rollback'].includes(action)) {
+  if (node.network === 'mainnet' && ['install-observer', 'restore-public-bootstrap', 'upgrade', 'rollback', 'cleanup'].includes(action)) {
     notices.push({ code: 'prodnetConfirmationRequired', field: node.id })
   }
 
@@ -703,21 +838,23 @@ export function generateRemoteCommandPlan(
     )
   } else if (action === 'rollback') {
     steps.push(
-      commandStep('rollback', ssh(node, [
-        'echo "TELENO_ROLLBACK_PLAN review-only"',
-        `echo "preserve basedir: ${node.paths.baseDir}"`,
-        'echo "verify current artifact, select previous artifact, stop observer, start previous observer artifact"',
-        'echo "rollback execution is future-gated and unavailable in this MVP"'
-      ].join('\n')), { destructive: true }),
-      commandStep('verify', ssh(node, `grep -R \"block_producer: false\" ${remotePath(node.paths.config)} 2>/dev/null || true; ${runtimeStatusCommand(node)} || true`))
+      commandStep('preflight', ssh(node, rollbackEvidencePreflightCommand(node))),
+      commandStep('preserve', ssh(node, preserveReceiptCommand(node, 'rollback')), { hostMutation: true }),
+      commandStep('runtime', ssh(node, runtimeStopCommand(node)), { hostMutation: true, destructive: true }),
+      commandStep('config', ssh(node, rollbackConfigCommand(node)), { hostMutation: true, destructive: true }),
+      commandStep('artifact', ssh(node, rollbackRuntimeCommand(node)), { hostMutation: true, destructive: true }),
+      commandStep('verify', ssh(node, `${runtimeStatusCommand(node)}; grep -R "block_producer: false" ${remotePath(node.paths.config)}\n${stopCriteriaGuardCommand(node)}`)),
+      commandStep('receipt', ssh(node, destructiveReceiptCommand(node, 'rollback')), { hostMutation: true })
     )
   } else if (action === 'cleanup') {
-    steps.push(commandStep('cleanup', ssh(node, [
-      'echo "TELENO_CLEANUP_PLAN review-only"',
-      `echo "inspect basedir first: ${node.paths.baseDir}"`,
-      'echo "preserve chain/state DB on merkle mismatch, restore failure, digest mismatch, or interrupted restore"',
-      'echo "cleanup execution is unavailable in this MVP"'
-    ].join('\n')), { destructive: true }))
+    steps.push(
+      commandStep('preflight', ssh(node, cleanupEvidencePreflightCommand(node))),
+      commandStep('preserve', ssh(node, preserveReceiptCommand(node, 'cleanup')), { hostMutation: true }),
+      commandStep('cleanup', ssh(node, cleanupCandidateListCommand(node))),
+      commandStep('cleanup', ssh(node, cleanupTemporaryCommand(node)), { hostMutation: true, destructive: true }),
+      commandStep('verify', ssh(node, `test -f ${remotePath(node.paths.config)}; grep -R "block_producer: false" ${remotePath(node.paths.config)}\n${stopCriteriaGuardCommand(node)}`)),
+      commandStep('receipt', ssh(node, destructiveReceiptCommand(node, 'cleanup')), { hostMutation: true })
+    )
   }
 
   const blockerCodes: RemotePlanNoticeCode[] = [

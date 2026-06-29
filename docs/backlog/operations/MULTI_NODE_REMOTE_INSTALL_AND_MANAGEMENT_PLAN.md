@@ -54,11 +54,19 @@ remote management layer:
   and confirmed execution through explicit IPC channels.
 - `src/components/panels/RemoteNodesPanel.tsx` now supports local inventory
   editing, save/remove/add, dry-run command preview, exact confirmation,
-  execution progress/output, health state updates, and local receipt display.
+  streamed per-step execution progress/output, health state updates, and local
+  receipt display.
 - Remote health plans collect read-only host, runtime, config, loopback bind,
   log, and JSON-RPC head signals where safely reachable.
 - Execution and receipts redact secret-looking values, raw SSH targets, and IP
   addresses from output.
+- Remote execution streams sanitized step lifecycle events over Electron IPC
+  while SSH is running. Simple mode shows human phase states; expert mode can
+  show sanitized excerpts, and receipts store per-step summaries.
+- Expert rollback and cleanup are executable for safe testnet observer cases
+  only after strong `PRESERVE_DB` confirmation, prior evidence, DB preservation
+  steps, stop-criteria checks, and sanitized receipts. Prodnet/mainnet mutation
+  stays blocked.
 - The generated Docker testnet observer plan now matches the live proven flow:
   safe user-home basedir, Docker-based public restore/list, loopback JSON-RPC,
   expected testnet P2P container mapping, no invalid shell `pipefail` dependency,
@@ -109,12 +117,14 @@ Current hard limits:
 - Prodnet/mainnet remote mutation is blocked. Read-only health and log
   diagnostics can execute after exact per-node confirmation.
 - Producer activation remains unavailable.
-- Cleanup execution remains unavailable.
+- Rollback and cleanup execution are available only for selected testnet
+  observers when prior evidence and DB-preservation gates pass. They do not
+  delete chain/state DB.
 - The testnet observer install/restore/start path is implemented as a confirmed
   execution path and has sanitized live acceptance evidence. Re-running install
   over an existing restored basedir is blocked; follow-up start/status actions
-  require exact per-node confirmation and cleanup still requires future gated
-  work.
+  require exact per-node confirmation. Automatic prodnet rollback/cleanup and
+  deep DB compaction remain future-gated.
 
 ## Non-Goals
 

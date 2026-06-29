@@ -31,8 +31,15 @@ describe('remote node execution gates', () => {
       .toContain('prodnet-execution-blocked')
 
     const rollbackPlan = generateRemoteCommandPlan(inventory, testnetNode.id, 'rollback')
-    expect(validateRemoteExecutionGate(inventory, rollbackPlan, remoteExecutionConfirmationPhrase(testnetNode, 'rollback')).codes)
-      .toContain('rollback-unavailable')
+    expect(remoteExecutionConfirmationPhrase(testnetNode, 'rollback')).toBe('EXECUTE testnet-observer-a testnet rollback PRESERVE_DB')
+    expect(validateRemoteExecutionGate(inventory, rollbackPlan, 'EXECUTE testnet-observer-a testnet rollback').codes)
+      .toContain('confirmation-required')
+    expect(validateRemoteExecutionGate(inventory, rollbackPlan, remoteExecutionConfirmationPhrase(testnetNode, 'rollback')).ok)
+      .toBe(true)
+
+    const prodnetRollbackPlan = generateRemoteCommandPlan(inventory, prodnetNode.id, 'rollback')
+    expect(validateRemoteExecutionGate(inventory, prodnetRollbackPlan, remoteExecutionConfirmationPhrase(prodnetNode, 'rollback')).codes)
+      .toContain('prodnet-execution-blocked')
   })
 
   it('blocks execution when generated commands still contain placeholders', () => {
@@ -95,7 +102,7 @@ describe('remote node execution gates', () => {
   })
 
   it('redacts secrets and parses unsafe stop criteria', () => {
-    const raw = 'token=abc token-file: /secret/admin.token password: hunter2 root@192.0.2.10 http://192.0.2.20:18080 block_producer: true'
+    const raw = 'token=abc token-file: /secret/admin.token password: hunter2 root@192.0.2.10 http://192.0.2.20:18080 ipv6=2001:db8::1 block_producer: true'
     const redacted = redactRemoteOutput(raw)
     const health = parseRemoteHealthOutput(raw, '2026-06-26T00:00:00.000Z')
 
@@ -105,6 +112,13 @@ describe('remote node execution gates', () => {
     expect(redacted).toContain('<ssh-target-redacted>')
     expect(redacted).toContain('<ip-redacted>:<port-redacted>')
     expect(redacted).not.toContain(':18080')
+    expect(redacted).not.toContain('2a01:4f8')
+    expect(redactRemoteOutput('System information as of 04:46:39 PM')).toContain('04:46:39 PM')
+    expect(redactRemoteOutput('Linux private-host 6.8.0 /home/operator/koinos-one/node')).not.toContain('private-host')
+    expect(redactRemoteOutput('Linux private-host 6.8.0 /home/operator/koinos-one/node')).not.toContain('/home/operator')
+    expect(redactRemoteOutput('ssh: Could not resolve hostname private-vps')).not.toContain('private-vps')
+    expect(redactRemoteOutput('planned port 28890 is already in use')).not.toContain('28890')
+    expect(redactRemoteOutput('/ip4/203.0.113.10/tcp/18888')).not.toContain('/tcp/18888')
     expect(health.state).toBe('unsafe')
     expect(health.stopCriteria).toContain('producer-enabled')
   })
@@ -127,6 +141,23 @@ describe('remote node execution gates', () => {
       'public-admin-exposure'
     ]))
     expect(health.summary).toContain('Stop criteria detected')
+  })
+
+  it('parses rollback and cleanup safety stop criteria', () => {
+    const health = parseRemoteHealthOutput([
+      'TELENO_STOP_CRITERIA: rollback evidence missing',
+      'TELENO_STOP_CRITERIA: cleanup receipt evidence missing',
+      'TELENO_STOP_CRITERIA: cleanup state unknown',
+      'TELENO_STOP_CRITERIA: cleanup attempted protected path'
+    ].join('\n'))
+
+    expect(health.state).toBe('failed')
+    expect(health.stopCriteria).toEqual(expect.arrayContaining([
+      'rollback-evidence-missing',
+      'cleanup-evidence-missing',
+      'cleanup-state-unknown',
+      'cleanup-protected-path'
+    ]))
   })
 
   it('does not classify Docker container-local JSON-RPC listen as public exposure', () => {

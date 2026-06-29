@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const LOGS_FOLLOW_EVENT_CHANNEL = 'teleno:node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'teleno:node:backup-progress:event'
+const REMOTE_EXECUTION_PROGRESS_EVENT_CHANNEL = 'teleno:remote-nodes:execution-progress:event'
 
 // Read version via IPC from main process (preload can't require package.json reliably)
 const appVersion = ipcRenderer.sendSync('teleno:app-version') || '0.10.1'
@@ -58,7 +59,14 @@ contextBridge.exposeInMainWorld('teleno', {
     loadInventory: () => ipcRenderer.invoke('teleno:remote-nodes:inventory:load'),
     saveInventory: (params?: unknown) => ipcRenderer.invoke('teleno:remote-nodes:inventory:save', params),
     loadReceipts: () => ipcRenderer.invoke('teleno:remote-nodes:receipts:load'),
-    executePlan: (params?: unknown) => ipcRenderer.invoke('teleno:remote-nodes:execute-plan', params)
+    executePlan: (params?: unknown) => ipcRenderer.invoke('teleno:remote-nodes:execute-plan', params),
+    onExecutionProgressEvent: (listener: (event: unknown) => void) => {
+      const wrapped = (_event: unknown, payload: unknown) => listener(payload)
+      ipcRenderer.on(REMOTE_EXECUTION_PROGRESS_EVENT_CHANNEL, wrapped)
+      return () => {
+        ipcRenderer.removeListener(REMOTE_EXECUTION_PROGRESS_EVENT_CHANNEL, wrapped)
+      }
+    }
   },
   telenoNode: {
     defaults: () => ipcRenderer.invoke('teleno:node:defaults'),

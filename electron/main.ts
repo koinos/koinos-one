@@ -241,11 +241,16 @@ let appShutdownInProgress = false
 let appShutdownApproved = false
 let mainWindow: BrowserWindow | null = null
 const telenoStorage = createTelenoStorage(app.getPath('userData'))
-const remoteNodeExecutionService = createRemoteNodeExecutionService()
 const FIRST_RUN_SETUP_STATE_FILE = 'first-run-setup-state.v1.json'
 
 const LOGS_FOLLOW_EVENT_CHANNEL = 'teleno:node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'teleno:node:backup-progress:event'
+const REMOTE_EXECUTION_PROGRESS_EVENT_CHANNEL = 'teleno:remote-nodes:execution-progress:event'
+const remoteNodeExecutionService = createRemoteNodeExecutionService({
+  onProgress: (event) => {
+    mainWindow?.webContents.send(REMOTE_EXECUTION_PROGRESS_EVENT_CHANNEL, event)
+  }
+})
 const logsFollowSessions = new Map<string, LogsFollowSession>()
 const nativeServiceProcesses = new Map<string, NativeServiceProcessState>()
 const nativeLogsStreamIdsByService = new Map<string, Set<string>>()

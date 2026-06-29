@@ -92,6 +92,8 @@ const translations: Record<string, string> = {
   'remote.phase.runtime': 'Runtime control',
   'remote.phase.verify': 'Observer verification',
   'remote.phase.diagnostics': 'Diagnostics',
+  'remote.phase.preserve': 'Preserve DB',
+  'remote.phase.receipt': 'Receipt',
   'remote.phase.rollback': 'Rollback',
   'remote.phase.cleanup': 'Cleanup',
   'remote.phaseHelp.preflight': 'Checks server, disk, ports, runtime, and safety blockers before changing anything.',
@@ -102,8 +104,10 @@ const translations: Record<string, string> = {
   'remote.phaseHelp.runtime': 'Starts, stops, or restarts only the selected observer runtime.',
   'remote.phaseHelp.verify': 'Checks observer status, config, health signals, and stop criteria.',
   'remote.phaseHelp.diagnostics': 'Collects sanitized read-only diagnostics and logs.',
-  'remote.phaseHelp.rollback': 'Review-only rollback planning; execution is future-gated.',
-  'remote.phaseHelp.cleanup': 'Review-only cleanup planning; destructive cleanup is unavailable.',
+  'remote.phaseHelp.preserve': 'Records DB preservation evidence before any runtime or cleanup mutation.',
+  'remote.phaseHelp.receipt': 'Writes a sanitized receipt that confirms DB preservation and final status.',
+  'remote.phaseHelp.rollback': 'Uses prior rollback evidence to restore the previous observer artifact and config without deleting DB state.',
+  'remote.phaseHelp.cleanup': 'Lists and removes only non-state temporary files after receipt evidence and stop-criteria checks pass.',
   'remote.notice.dryRunOnly': 'Dry-run preview: commands are generated for review before any confirmed testnet execution.',
   'remote.notice.dryRunOnlySimple': 'Koinos One will ask for review before any confirmed testnet action.',
   'remote.notice.prodnetConfirmationRequired': 'Prodnet observer actions require explicit per-node confirmation before any future execution.',
@@ -112,6 +116,9 @@ const translations: Record<string, string> = {
   'remote.executionTitle': 'Confirmed execution',
   'remote.executionDescriptionTestnet': 'Execution is available only for this selected testnet observer after exact confirmation.',
   'remote.executionDescriptionProdnet': 'Prodnet execution is limited to read-only health and logs plans; mutating plans stay blocked.',
+  'remote.destructiveTitle': 'Strong confirmation required',
+  'remote.destructiveRollbackDescription': 'Rollback requires prior rollback evidence, preserves the existing DB, replaces only the observer runtime/config, and writes a sanitized receipt.',
+  'remote.destructiveCleanupDescription': 'Cleanup requires prior receipt evidence, preserves chain/state DB paths, removes only non-state temporary files, and writes a sanitized receipt.',
   'remote.confirmationPhrase': 'Required phrase',
   'remote.confirmationInput': 'Type the phrase',
   'remote.executeConfirmedPlan': 'Execute confirmed plan',
@@ -123,11 +130,17 @@ const translations: Record<string, string> = {
   'remote.executionGate.producer-unavailable': 'Producer mode is unavailable and must remain disabled.',
   'remote.executionGate.unsafe-command': 'The command plan contains an unsafe command or exposure pattern.',
   'remote.executionGate.unresolved-placeholder': 'Fill in the remaining placeholder values before execution.',
-  'remote.executionGate.cleanup-unavailable': 'Remote cleanup execution is unavailable.',
-  'remote.executionGate.rollback-unavailable': 'Remote rollback execution is unavailable in this MVP.',
   'remote.simpleSummaryTitle': 'Safe observer setup',
   'remote.progressTitle': 'Operation phases',
-  'remote.progressDescription': 'Koinos One runs these phases in order and writes one sanitized receipt at the end.',
+  'remote.progressDescription': 'Koinos One streams each phase while the selected remote plan runs.',
+  'remote.progressLiveDescription': 'Current step status: {status}.',
+  'remote.progressHealth': 'Health: {health}',
+  'remote.stepStatus.queued': 'queued',
+  'remote.stepStatus.running': 'running',
+  'remote.stepStatus.succeeded': 'succeeded',
+  'remote.stepStatus.failed': 'failed',
+  'remote.stepStatus.blocked': 'blocked',
+  'remote.stepStatus.skipped': 'skipped',
   'remote.providerChecklistTitle': 'Server checklist',
   'remote.providerChecklistDescription': 'Use any Linux VPS or LAN server with a local SSH alias. Provider API tokens are not required.',
   'remote.providerChecklist.resources': 'Choose a Linux server with enough disk, CPU, RAM, and outbound HTTPS access.',
@@ -214,6 +227,27 @@ describe('RemoteNodesPanel', () => {
     expect(html).toContain('--backup-public-restore')
     expect(html).toContain('block_producer: false')
     expect(html).toContain('Dry-run preview: commands are generated for review')
+  })
+
+  it('renders expert destructive actions without exposing them in simple mode', () => {
+    const html = renderToStaticMarkup(
+      <RemoteNodesPanel
+        t={t}
+        advancedMode
+        inventory={{
+          version: 1,
+          nodes: [{
+            id: 'testnet-simple-a',
+            network: 'testnet',
+            connectionRef: 'ssh-testnet-simple-a'
+          }]
+        }}
+      />
+    )
+
+    expect(html).toContain('Rollback Plan')
+    expect(html).toContain('Cleanup Plan')
+    expect(html).not.toContain('Strong confirmation required')
   })
 
   it('surfaces safety blockers for unsanitized inventory records', () => {

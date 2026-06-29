@@ -3,7 +3,8 @@ import type {
   RemoteFleetInventory,
   RemoteFleetNode,
   RemoteNodeAction,
-  RemoteNodeHealthState
+  RemoteNodeHealthState,
+  RemotePlanPhase
 } from './remote-nodes'
 
 export type RemoteExecutionGateCode =
@@ -14,8 +15,6 @@ export type RemoteExecutionGateCode =
   | 'producer-unavailable'
   | 'unsafe-command'
   | 'unresolved-placeholder'
-  | 'cleanup-unavailable'
-  | 'rollback-unavailable'
 
 export type RemoteExecutionGateResult = {
   ok: boolean
@@ -32,6 +31,10 @@ export type RemoteExecutionStopCriterion =
   | 'restore-failure'
   | 'digest-mismatch'
   | 'state-merkle-mismatch'
+  | 'rollback-evidence-missing'
+  | 'cleanup-evidence-missing'
+  | 'cleanup-state-unknown'
+  | 'cleanup-protected-path'
 
 export type RemoteHealthSnapshot = {
   state: RemoteNodeHealthState
@@ -40,8 +43,31 @@ export type RemoteHealthSnapshot = {
   stopCriteria: RemoteExecutionStopCriterion[]
 }
 
+export type RemoteExecutionStepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped'
+
+export type RemoteExecutionStepSummary = {
+  stepIndex: number
+  stepCount: number
+  phase: RemotePlanPhase | string
+  status: RemoteExecutionStepStatus
+  startedAt: string | null
+  completedAt: string | null
+  exitCode: number | null
+  health: RemoteHealthSnapshot | null
+  outputExcerpt: string
+}
+
+export type RemoteExecutionProgressEvent = RemoteExecutionStepSummary & {
+  event: 'remote-execution-progress'
+  planId: string
+  nodeId: string
+  network: string
+  action: RemoteNodeAction | string
+}
+
 export type RemoteExecutionReceipt = {
   id: string
+  planId?: string
   nodeId: string
   network: string
   action: RemoteNodeAction
@@ -50,6 +76,7 @@ export type RemoteExecutionReceipt = {
   completedAt: string
   planStepCount: number
   health: RemoteHealthSnapshot
+  steps?: RemoteExecutionStepSummary[]
   output: string
 }
 
@@ -59,12 +86,29 @@ function isReadOnlyRemoteAction(action: RemoteNodeAction): boolean {
   return action === 'status' || action === 'logs'
 }
 
+function isDbPreservingDestructiveAction(action: RemoteNodeAction): boolean {
+  return action === 'rollback' || action === 'cleanup'
+}
+
 function planStepsAreReadOnly(plan: RemoteCommandPlan): boolean {
   return plan.steps.every((step) => !step.hostMutation && !step.chainMutation && !step.destructive)
 }
 
 export function remoteExecutionConfirmationPhrase(node: RemoteFleetNode, action: RemoteNodeAction): string {
-  return `${EXECUTION_CONFIRMATION_PREFIX} ${node.id} ${node.network} ${action}`
+  const base = `${EXECUTION_CONFIRMATION_PREFIX} ${node.id} ${node.network} ${action}`
+  return isDbPreservingDestructiveAction(action) ? `${base} PRESERVE_DB` : base
+}
+
+function destructivePlanHasDbPreservationEvidence(plan: RemoteCommandPlan): boolean {
+  const commandText = plan.steps.map((step) => step.command).join('\n')
+  if (!commandText.includes('TELENO_DB_PRESERVED')) return false
+  if (plan.action === 'rollback' && !commandText.includes('TELENO_ROLLBACK_EVIDENCE')) return false
+  if (plan.action === 'cleanup' && !commandText.includes('TELENO_CLEANUP_CANDIDATE')) return false
+  if (
+    plan.action === 'cleanup' &&
+    commandText.split('\n').some((line) => /\brm\s+-rf\b/i.test(line) && /(chain|blockchain|state|wallet|producer|config\.yml)/i.test(line))
+  ) return false
+  return true
 }
 
 function commandLooksUnsafe(command: string): boolean {
@@ -100,13 +144,14 @@ export function validateRemoteExecutionGate(
       codes.push('prodnet-execution-blocked')
     }
     if (node.producer.enabled || node.role === 'producer') codes.push('producer-unavailable')
-    if (plan.action === 'cleanup') codes.push('cleanup-unavailable')
-    if (plan.action === 'rollback') codes.push('rollback-unavailable')
     if (confirmation.trim() !== expectedConfirmation) codes.push('confirmation-required')
     if (plan.steps.some((step) => /<[^>\n]+>/.test(step.command))) {
       codes.push('unresolved-placeholder')
     }
-    if (plan.steps.some((step) => step.chainMutation || commandLooksUnsafe(step.command))) {
+    if (
+      plan.steps.some((step) => step.chainMutation || commandLooksUnsafe(step.command)) ||
+      (isDbPreservingDestructiveAction(plan.action) && !destructivePlanHasDbPreservationEvidence(plan))
+    ) {
       codes.push('unsafe-command')
     }
   }
@@ -124,9 +169,19 @@ export function redactRemoteOutput(value: string): string {
     .replace(/\b(token[-_ ]?file|password[-_ ]?file|secret[-_ ]?file|private[-_ ]?key[-_ ]?file)(\s*[:=]\s*)([^\s"',;]+)/gi, '$1$2<redacted>')
     .replace(/\b(password|passwd|passphrase|token|secret|seed|wif)(\s*[:=]\s*)([^\s"',;]+)/gi, '$1$2<redacted>')
     .replace(/\b(private[-_ ]?key)(\s*[:=]\s*)([^\s"',;]+)/gi, '$1$2<redacted>')
+    .replace(/\b(hostname|host|server)(\s*[:=]\s*)([^\s"',;]+)/gi, '$1$2<redacted>')
+    .replace(/\b(could not resolve hostname)\s+[^\s:]+/gi, '$1 <host-redacted>')
+    .replace(/\b(Linux|Darwin)\s+[A-Za-z0-9_.-]+\s+/g, '$1 <host-redacted> ')
     .replace(/\b([A-Za-z0-9._%+-]+)@((?:\d{1,3}\.){3}\d{1,3}|[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g, '<ssh-target-redacted>')
+    .replace(/(^|[\s"'=(])(?:~|\$HOME)\/[^\s"',;)]+/g, '$1<remote-path-redacted>')
+    .replace(/(^|[\s"'=(])\/home\/[A-Za-z0-9_.-]+\/[^\s"',;)]+/g, '$1<remote-path-redacted>')
+    .replace(/(^|[\s"'=(])\/Users\/[A-Za-z0-9_.-]+\/[^\s"',;)]+/g, '$1<local-path-redacted>')
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<ip-redacted>')
+    .replace(/\b(?=(?:[a-f0-9]*:){3,}[a-f0-9:]*\b|[a-f0-9:]*::[a-f0-9:]*\b)(?:[a-f0-9]{1,4}:){1,7}:?(?:[a-f0-9]{1,4})?\b/gi, '<ip-redacted>')
     .replace(/(<ip-redacted>|localhost|\[::1\]|::1):\d{2,5}\b/g, '$1:<port-redacted>')
+    .replace(/\b(port|p2p|json[-_ ]?rpc|admin[-_ ]?listen|listen)(\s*[:=]\s*)\d{2,5}\b/gi, '$1$2<port-redacted>')
+    .replace(/\bport\s+\d{2,5}\b/gi, 'port <port-redacted>')
+    .replace(/\/tcp\/\d{2,5}\b/g, '/tcp/<port-redacted>')
 }
 
 function stopCriteriaFromOutput(output: string): RemoteExecutionStopCriterion[] {
@@ -140,6 +195,10 @@ function stopCriteriaFromOutput(output: string): RemoteExecutionStopCriterion[] 
   if (/restore failed|public bootstrap restore failed/.test(lower)) criteria.push('restore-failure')
   if (/digest mismatch|sha256 mismatch|hash mismatch/.test(lower)) criteria.push('digest-mismatch')
   if (/state merkle mismatch|previous state merkle mismatch/.test(lower)) criteria.push('state-merkle-mismatch')
+  if (/rollback evidence missing|rollback evidence invalid/.test(lower)) criteria.push('rollback-evidence-missing')
+  if (/cleanup receipt evidence missing/.test(lower)) criteria.push('cleanup-evidence-missing')
+  if (/cleanup state unknown/.test(lower)) criteria.push('cleanup-state-unknown')
+  if (/cleanup attempted protected path/.test(lower)) criteria.push('cleanup-protected-path')
   return [...new Set(criteria)]
 }
 
@@ -222,6 +281,7 @@ export function createRemoteExecutionReceipt(input: {
   startedAt?: string
   completedAt?: string
   planStepCount: number
+  steps?: RemoteExecutionStepSummary[]
   output: string
 }): RemoteExecutionReceipt {
   const completedAt = input.completedAt || new Date().toISOString()
@@ -237,6 +297,10 @@ export function createRemoteExecutionReceipt(input: {
     completedAt,
     planStepCount: input.planStepCount,
     health: parseRemoteHealthOutput(safeOutput, completedAt),
+    steps: input.steps?.map((step) => ({
+      ...step,
+      outputExcerpt: redactRemoteOutput(step.outputExcerpt)
+    })),
     output: safeOutput
   }
 }
