@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 - Fixed restore cancellation being treated as an error in the renderer.
 - Fixed backup helper commands being detected as an external `teleno_node` process conflict.
 - Fixed low-contrast wallet warning text and several disabled wallet button states.
+- Fixed release build metadata so a clean source tree is reported as clean instead of unknown.
 
 ## [0.10.1] - 2026-03-29
 

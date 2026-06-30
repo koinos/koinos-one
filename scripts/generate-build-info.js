@@ -26,7 +26,7 @@ function git(args) {
       cwd: ROOT,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim() || null;
+    }).trim();
   } catch {
     return null;
   }
@@ -66,9 +66,9 @@ function releaseChannel(version) {
 }
 
 const productVersion = readPackageVersion();
-const gitCommit = git(['rev-parse', 'HEAD']);
-const gitShortCommit = git(['rev-parse', '--short=12', 'HEAD']);
-const gitBranch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+const gitCommit = git(['rev-parse', 'HEAD']) || null;
+const gitShortCommit = git(['rev-parse', '--short=12', 'HEAD']) || null;
+const gitBranch = git(['rev-parse', '--abbrev-ref', 'HEAD']) || null;
 const gitStatus = git(['status', '--porcelain']);
 
 const buildInfo = {
