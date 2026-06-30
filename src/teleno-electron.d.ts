@@ -669,7 +669,7 @@ declare global {
 
   type TelenoNodeBackupProgressEvent = {
     action: 'restore-backup' | 'restore-backup-verify' | 'create-backup'
-    phase: 'prepare' | 'stop' | 'download' | 'checksum' | 'extract' | 'restore' | 'compress' | 'save' | 'upload' | 'start' | 'verify' | 'complete' | 'error'
+    phase: 'prepare' | 'stop' | 'download' | 'checksum' | 'extract' | 'restore' | 'compress' | 'save' | 'upload' | 'start' | 'verify' | 'complete' | 'cancelled' | 'error'
     progress: number
     message: string
     completedBytes?: number | null

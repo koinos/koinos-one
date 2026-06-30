@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.0.1] - 2026-06-30
+
+### Added
+
+- Added native restore staging progress so public bootstrap restores report live file and byte progress after download.
+- Added a safe **Stop restore** action for in-progress backup restores. Cancelled restores preserve staging data and do not activate a partial database.
+- Added recovery handling for stale `restore-staging.partial` directories. A retry can clear only the stale staging folder and keeps the node database, config, wallet data, and producer data untouched.
+- Added disabled-control tooltips in the Node and Wallet screens so operators can see why an action is unavailable.
+
+### Changed
+
+- Improved the simple backup restore UI with clearer phases, realistic progress text, safer cancelled-state handling, and readable failure messages.
+- Simplified wallet recovery visibility so import, create, and delete recovery actions appear only after an unlock attempt fails.
+- Refined Settings and backup path copy to make the selected Base Data Folder the default source for local backup paths.
+
+### Fixed
+
+- Fixed restore progress that could appear stalled at the end of download while native staging continued.
+- Fixed restore cancellation being treated as an error in the renderer.
+- Fixed backup helper commands being detected as an external `teleno_node` process conflict.
+- Fixed low-contrast wallet warning text and several disabled wallet button states.
+
 ## [0.10.1] - 2026-03-29
 
 ### Added

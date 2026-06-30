@@ -37,6 +37,18 @@ export function WalletSecurityTab(props: WalletSecurityTabProps) {
 
   const isWatchOnly = activeAccount?.kind === 'watch-only'
   const isBusy = walletActionLoading !== null
+  const controlsDisabledReason = !hasWalletControls
+    ? t('wallet.disabledTooltip.electronOnly')
+    : isBusy
+      ? t('wallet.disabledTooltip.busy')
+      : undefined
+  const revealDisabledTitle = loading
+    ? t('wallet.disabledTooltip.revealLoading')
+    : isWatchOnly
+      ? t('wallet.watchOnlyNoSecrets')
+      : !activeAccount
+        ? t('wallet.secretsNoAccount')
+        : undefined
 
   return (
     <div className="wallet-subpanel">
@@ -47,7 +59,13 @@ export function WalletSecurityTab(props: WalletSecurityTabProps) {
               <h3>{t('wallet.showSeedTitle')}</h3>
               <p>{t('wallet.showSeedDescription')}</p>
             </div>
-            <button type="button" className="ghost-button" onClick={onReveal} disabled={loading || isWatchOnly || !activeAccount}>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={onReveal}
+              disabled={loading || isWatchOnly || !activeAccount}
+              title={revealDisabledTitle}
+            >
               {loading ? t('common.loading') : t('wallet.revealSecretsAction')}
             </button>
           </div>
@@ -96,10 +114,10 @@ export function WalletSecurityTab(props: WalletSecurityTabProps) {
           <h3>{t('wallet.securityActionsTitle')}</h3>
           <p>{t('wallet.securityActionsDescription')}</p>
           <div className="wallet-inline-actions">
-            <button type="button" className="ghost-button" onClick={onCloseWallet} disabled={!hasWalletControls || isBusy}>
+            <button type="button" className="ghost-button" onClick={onCloseWallet} disabled={!hasWalletControls || isBusy} title={controlsDisabledReason}>
               {walletActionLoading === 'wallet-close' ? t('common.loading') : t('wallet.closeAction')}
             </button>
-            <button type="button" className="danger-button" onClick={onDeleteWallet} disabled={!hasWalletControls || isBusy}>
+            <button type="button" className="danger-button" onClick={onDeleteWallet} disabled={!hasWalletControls || isBusy} title={controlsDisabledReason}>
               {t('wallet.deleteAction')}
             </button>
           </div>

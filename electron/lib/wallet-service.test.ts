@@ -142,6 +142,24 @@ describe('wallet-service helpers', () => {
     expect(removeResult.accounts).toHaveLength(2)
   })
 
+  it('returns a recovery-oriented message when wallet decryption fails', async () => {
+    const { service } = createWalletTestService()
+    const [firstAccount] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 1)
+
+    const importResult = await service.walletImport({
+      privateKey: firstAccount.privateKeyWif,
+      password: 'correct-password'
+    })
+    expect(importResult.ok).toBe(true)
+
+    const unlockResult = await service.walletUnlock({ password: 'wrong-password' })
+
+    expect(unlockResult.ok).toBe(false)
+    expect(unlockResult.output).toContain('The password did not unlock the stored wallet')
+    expect(unlockResult.output).not.toContain('Unsupported state')
+    expect(unlockResult.output).not.toContain('authenticate data')
+  })
+
   it('syncs non-mainnet private-key wallet account changes to the runtime producer config', async () => {
     const updates: Array<{ address: string; network?: string; baseDir?: string }> = []
     const { service } = createWalletTestService({

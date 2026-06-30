@@ -12,6 +12,7 @@ import {
   normalizeBlockchainBackupArchiveUrl,
   parseBlockchainBackupMetadataDirectories,
   parseBlockchainBackupSha256Checksum,
+  restoreBlockedMessageFromOutput,
   writeNativeBackupConfig
 } from './backup-service'
 import { resolveMonolithBinaryPath, resolveTelenoConfigRoot } from './constants'
@@ -85,6 +86,21 @@ afterEach(() => {
 })
 
 describe('backup-service helpers', () => {
+  it('turns stale restore partial staging errors into an actionable recovery message', () => {
+    const output = [
+      '{"event":"backup-progress","phase":"public-restore-objects"}',
+      'Fatal: restore partial staging directory already exists: /tmp/koinos/.teleno-native-backups/restore-staging.partial'
+    ].join('\n')
+
+    const message = restoreBlockedMessageFromOutput(output, output)
+
+    expect(message).toContain('A previous restore left partial staging data')
+    expect(message).toContain('existing node database was not replaced')
+    expect(message).toContain('click Restore Backup again')
+    expect(message).toContain('clear only the stale partial restore staging directory')
+    expect(message).not.toContain('{"event"')
+  })
+
   it('normalizes valid backup archive urls and rejects invalid ones', () => {
     expect(normalizeBlockchainBackupArchiveUrl('https://example.com/backup.tar.gz')).toBe(
       'https://example.com/backup.tar.gz'

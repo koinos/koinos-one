@@ -46,6 +46,28 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
   const isBusy = walletActionLoading !== null
   const [copied, setCopied] = useState(false)
   const activeAddress = accounts.find((a) => a.id === activeAccountId)?.address ?? ''
+  const disabledTitle = (reason?: string) => reason || undefined
+  const controlsDisabledReason = !hasWalletControls
+    ? t('wallet.disabledTooltip.electronOnly')
+    : isBusy
+      ? t('wallet.disabledTooltip.busy')
+      : ''
+  const accountPickerTitle = disabledTitle(
+    controlsDisabledReason || (accounts.length === 0 ? t('wallet.disabledTooltip.noActiveAccount') : '')
+  )
+  const setProducerTitle = disabledTitle(
+    controlsDisabledReason || (!activeWalletCanSign ? t('wallet.watchOnlyCannotSign') : '')
+  )
+  const renameTitle = disabledTitle(
+    controlsDisabledReason || (accounts.length === 0 ? t('wallet.disabledTooltip.noActiveAccount') : '')
+  )
+  const removeTitle = disabledTitle(
+    controlsDisabledReason || (accounts.length <= 1 ? t('wallet.disabledTooltip.removeLastAccount') : '')
+  )
+  const createTitle = disabledTitle(
+    controlsDisabledReason || (!canCreateDerivedAccount ? t('wallet.deriveAccountUnavailable') : '')
+  )
+  const importTitle = disabledTitle(controlsDisabledReason)
 
   const handleCopyAddress = () => {
     if (!activeAddress) return
@@ -64,6 +86,7 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
             value={activeAccountId}
             onChange={(event) => onSetActiveAccount(event.target.value)}
             disabled={!hasWalletControls || isBusy || accounts.length === 0}
+            title={accountPickerTitle}
           >
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
@@ -77,7 +100,7 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
           className="ghost-button copy-address-button"
           onClick={handleCopyAddress}
           disabled={!activeAddress}
-          title={copied ? t('common.copied') : t('wallet.copyAddress')}
+          title={!activeAddress ? t('wallet.disabledTooltip.noActiveAccount') : copied ? t('common.copied') : t('wallet.copyAddress')}
         >
           {copied ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -90,10 +113,22 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
             </svg>
           )}
         </button>
-        <button type="button" className="ghost-button" onClick={onSetAsProducer} disabled={!hasWalletControls || isBusy || !activeWalletCanSign}>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={onSetAsProducer}
+          disabled={!hasWalletControls || isBusy || !activeWalletCanSign}
+          title={setProducerTitle}
+        >
           {t('wallet.setAsProducerAction')}
         </button>
-        <button type="button" className="ghost-button" onClick={onOpenRenameAccount} disabled={!hasWalletControls || isBusy}>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={onOpenRenameAccount}
+          disabled={!hasWalletControls || isBusy || accounts.length === 0}
+          title={renameTitle}
+        >
           {t('wallet.renameAccountAction')}
         </button>
         <button
@@ -101,6 +136,7 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
           className="danger-button"
           onClick={onOpenRemoveAccount}
           disabled={!hasWalletControls || isBusy || accounts.length <= 1}
+          title={removeTitle}
         >
           {t('wallet.removeAccountAction')}
         </button>
@@ -110,11 +146,11 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
           className="ghost-button"
           onClick={onOpenCreateAccount}
           disabled={!hasWalletControls || isBusy || !canCreateDerivedAccount}
-          title={!canCreateDerivedAccount ? t('wallet.deriveAccountUnavailable') : undefined}
+          title={createTitle}
         >
           {t('wallet.createDerivedAccountAction')}
         </button>
-        <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={!hasWalletControls || isBusy}>
+        <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={!hasWalletControls || isBusy} title={importTitle}>
           {t('wallet.importAccountAction')}
         </button>
       </div>

@@ -48,6 +48,7 @@ import { createAppLifecycleService } from './lib/app-lifecycle-service'
 import { createTelenoStorage } from './lib/teleno-storage'
 import { createBackupService, writeNativeBackupConfig } from './lib/backup-service'
 import { deriveMonolithComponentHealth } from './lib/component-health'
+import { isTelenoNodeBackupUtilityCommand } from './lib/process-detection'
 import {
   baseDirConfigFilePath,
   blockProducerDirectoryPath,
@@ -2357,27 +2358,12 @@ function detectExternalNativeServiceProcesses(
   const rawBaseDir = settings.baseDir
   const resolvedBaseDir = path.resolve(settings.baseDir)
   const baseDirArgs = new Set([rawBaseDir, resolvedBaseDir].map((baseDir) => `--basedir=${baseDir}`))
-  const monolithBackupCommandArgs = [
-    '--backup-create',
-    '--backup-create-local',
-    '--backup-upload-latest',
-    '--backup-list',
-    '--backup-list-remote',
-    '--backup-delete',
-    '--backup-restore',
-    '--backup-restore-preflight',
-    '--backup-restore-stage',
-    '--backup-restore-activate',
-    '--backup-restore-fetch',
-    '--backup-dry-run',
-    '--backup-checkpoint'
-  ]
 
   return processSnapshot.filter((entry) => {
     if (excludedPidSet.has(entry.pid)) return false
     if (![...baseDirArgs].some((baseDirArg) => entry.command.includes(baseDirArg))) return false
     return commandHints.some((hint) => entry.command.includes(hint))
-      && !(serviceId === 'teleno-node' && monolithBackupCommandArgs.some((arg) => entry.command.includes(arg)))
+      && !(serviceId === 'teleno-node' && isTelenoNodeBackupUtilityCommand(entry.command))
   })
 }
 

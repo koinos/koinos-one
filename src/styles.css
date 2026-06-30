@@ -1633,6 +1633,15 @@ body {
   width: 100%;
 }
 
+.node-action-tooltip-wrap {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.node-action-tooltip-wrap > button {
+  width: 100%;
+}
+
 .node-active-preset {
   flex: 1 1 auto;
   min-width: 180px;
@@ -1724,16 +1733,15 @@ body {
   justify-content: flex-end;
 }
 
-.wallet-header-shell {
-  display: block;
-  margin: var(--ui-gap) var(--ui-gap) 0;
-  padding-bottom: 16px;
-}
-
 .wallet-account-bar {
   display: grid;
   gap: 14px;
   width: 100%;
+  margin: var(--ui-gap) var(--ui-gap) 0;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(151, 184, 199, 0.1);
+  background: rgba(7, 12, 16, 0.78);
 }
 
 .wallet-account-bar-main {
@@ -1916,7 +1924,7 @@ body {
 }
 
 .wallet-card-grid-locked {
-  grid-template-columns: minmax(480px, 560px);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 520px));
   justify-content: center;
   margin: 16px;
 }
@@ -2001,6 +2009,18 @@ body {
   padding: 7px 11px;
   border-radius: 8px;
   font-size: 0.84rem;
+}
+
+.wallet-card-recovery {
+  align-content: start;
+}
+
+.wallet-recovery-warning {
+  margin: 2px 0 0;
+}
+
+.wallet-recovery-delete {
+  justify-self: start;
 }
 
 .wallet-inline-actions {
@@ -4282,6 +4302,10 @@ body {
   padding: 12px;
 }
 
+.node-backups-panel-simple .node-backup-bootstrap-guide {
+  grid-template-columns: minmax(220px, 1fr) auto;
+}
+
 .node-backup-bootstrap-guide div {
   min-width: 0;
 }
@@ -4318,6 +4342,11 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(180px, 1fr));
   gap: var(--ui-gap);
+}
+
+.node-backups-panel-simple .node-backup-simple-actions {
+  grid-template-columns: minmax(0, 592px);
+  justify-content: center;
 }
 
 .node-backup-advanced-create {
@@ -5876,7 +5905,6 @@ tbody tr.is-fresh {
 .config-legacy-banner,
 .microservices-config-panel,
 .wallet-panel,
-.wallet-header-shell,
 .wallet-card,
 .wallet-empty-state,
 .wallet-account-bar,
@@ -5978,6 +6006,20 @@ tbody tr.is-fresh {
 .bid-action-btn:hover {
   border-color: rgba(8, 24, 36, 0.42);
   background: linear-gradient(180deg, #1a3147, var(--teleno-ink));
+}
+
+.node-backups-panel-simple .node-backup-large-button.primary-button {
+  color: var(--teleno-ink);
+  border-color: rgba(31, 71, 85, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 250, 251, 0.98));
+  box-shadow: 0 8px 18px rgba(31, 71, 85, 0.08);
+}
+
+.node-backups-panel-simple .node-backup-large-button.primary-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(31, 71, 85, 0.1);
 }
 
 .settings-save-button.is-dirty {
@@ -6132,6 +6174,23 @@ textarea {
   background: #fff0ef;
 }
 
+.settings-inline-help.is-error,
+.stat-note.is-error {
+  color: #8f1f18;
+  opacity: 1;
+}
+
+.settings-inline-help.is-ok,
+.stat-note.is-ok {
+  color: #226846;
+  opacity: 1;
+}
+
+.settings-inline-help.is-busy {
+  color: #345f85;
+  opacity: 1;
+}
+
 .status-pill.is-live,
 .node-service-status.is-running,
 .node-preset-state.is-live,
@@ -6198,6 +6257,23 @@ textarea {
 .footer-status-progress-fill,
 .node-backup-progress-fill {
   background: linear-gradient(90deg, rgba(128, 148, 172, 0.62), rgba(20, 40, 59, 0.88));
+}
+
+.node-backup-progress-text {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.node-backup-progress-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.node-backup-progress-meta {
+  color: var(--muted);
 }
 
 .node-services-table,

@@ -107,6 +107,7 @@ export function WalletPanel(props: WalletPanelProps) {
   const [importWatchModalOpen, setImportWatchModalOpen] = useState(false)
   const [renameAccountModalOpen, setRenameAccountModalOpen] = useState(false)
   const [removeAccountModalOpen, setRemoveAccountModalOpen] = useState(false)
+  const [unlockRecoveryVisible, setUnlockRecoveryVisible] = useState(false)
   const [showSeedLoading, setShowSeedLoading] = useState(false)
   const [showSeedError, setShowSeedError] = useState<string | null>(null)
   const [showSeedResult, setShowSeedResult] = useState<WalletSecretsResult | null>(null)
@@ -131,6 +132,8 @@ export function WalletPanel(props: WalletPanelProps) {
   const showSeedRequestIdRef = useRef(0)
   const hasWallet = Boolean(walletOverview?.walletExists)
   const walletUnlocked = Boolean(walletOverview?.unlocked)
+  const walletLocked = hasWallet && !walletUnlocked
+  const importWifReplacesVault = !hasWallet || walletLocked
   const isBusy = walletLoading || walletActionLoading !== null
   const accounts = walletOverview?.accounts || []
   const showCreateModalError = createModalOpen && createAttempted && Boolean(walletError)
@@ -140,6 +143,10 @@ export function WalletPanel(props: WalletPanelProps) {
     setShowSeedResult(null)
     setShowSeedError(null)
   }, [activeWalletAccountId])
+
+  useEffect(() => {
+    if (walletUnlocked) setUnlockRecoveryVisible(false)
+  }, [walletUnlocked, walletOverview?.walletAddress])
 
   const closeCreateModal = () => {
     createDraftRequestIdRef.current += 1
@@ -328,45 +335,50 @@ export function WalletPanel(props: WalletPanelProps) {
           walletUnlockPassword={walletUnlockPassword}
           setWalletUnlockPassword={setWalletUnlockPassword}
           unlockWalletAccount={() => {
-            void unlockWalletAccount()
+            void Promise.resolve(unlockWalletAccount()).then((ok: boolean) => {
+              setUnlockRecoveryVisible(!ok)
+            })
           }}
           hasWalletControls={hasWalletControls}
           walletActionLoading={walletActionLoading}
+          showRecovery={unlockRecoveryVisible}
+          onImportWif={() => setImportModalOpen(true)}
+          onImportSeed={() => setImportSeedModalOpen(true)}
+          onCreateWallet={openCreateModal}
+          onDeleteWallet={() => setDeleteModalOpen(true)}
         />
       ) : (
         <>
-          <div className="wallet-header wallet-header-shell">
-            <WalletAccountBar
-              t={t}
-              hasWalletControls={hasWalletControls}
-              walletActionLoading={walletActionLoading}
-              accounts={accounts}
-              activeAccountId={activeWalletAccountId}
-              activeWalletCanSign={activeWalletCanSign}
-              canCreateDerivedAccount={canCreateDerivedAccount}
-              onSetActiveAccount={(accountId: string) => {
-                void setWalletActiveAccount(accountId)
-              }}
-              onOpenCreateAccount={() => setCreateAccountModalOpen(true)}
-              onOpenImportWif={() => setImportModalOpen(true)}
-              onOpenRenameAccount={() => {
-                const active = accounts.find((a) => a.id === activeWalletAccountId)
-                if (active) openRenameModalForAccount(active)
-              }}
-              onOpenRemoveAccount={() => {
-                const active = accounts.find((a) => a.id === activeWalletAccountId)
-                if (active) openRemoveModalForAccount(active)
-              }}
-              activeView={walletSubtab}
-              onOpenSend={() => openSendModal('send')}
-              onOpenBurn={() => openSendModal('burn')}
-              onSetAsProducer={() => {
-                void setWalletAccountAsProducer(activeWalletAccountId)
-              }}
-              onToggleTokens={() => toggleWalletView('tokens')}
-              onToggleSecurity={() => toggleWalletView('security')}
-            />
-          </div>
+          <WalletAccountBar
+            t={t}
+            hasWalletControls={hasWalletControls}
+            walletActionLoading={walletActionLoading}
+            accounts={accounts}
+            activeAccountId={activeWalletAccountId}
+            activeWalletCanSign={activeWalletCanSign}
+            canCreateDerivedAccount={canCreateDerivedAccount}
+            onSetActiveAccount={(accountId: string) => {
+              void setWalletActiveAccount(accountId)
+            }}
+            onOpenCreateAccount={() => setCreateAccountModalOpen(true)}
+            onOpenImportWif={() => setImportModalOpen(true)}
+            onOpenRenameAccount={() => {
+              const active = accounts.find((a) => a.id === activeWalletAccountId)
+              if (active) openRenameModalForAccount(active)
+            }}
+            onOpenRemoveAccount={() => {
+              const active = accounts.find((a) => a.id === activeWalletAccountId)
+              if (active) openRemoveModalForAccount(active)
+            }}
+            activeView={walletSubtab}
+            onOpenSend={() => openSendModal('send')}
+            onOpenBurn={() => openSendModal('burn')}
+            onSetAsProducer={() => {
+              void setWalletAccountAsProducer(activeWalletAccountId)
+            }}
+            onToggleTokens={() => toggleWalletView('tokens')}
+            onToggleSecurity={() => toggleWalletView('security')}
+          />
 
           {walletSubtab === 'tokens' && (
             <WalletPortfolioTab
@@ -412,10 +424,10 @@ export function WalletPanel(props: WalletPanelProps) {
             <div className="log-modal-header">
               <div>
                 <h3 id="wallet-import-key-title" className="log-modal-title">
-                  {hasWallet ? t('wallet.importAccountAction') : t('wallet.importKeyTitle')}
+                  {importWifReplacesVault ? t('wallet.importKeyTitle') : t('wallet.importAccountAction')}
                 </h3>
                 <p className="log-modal-meta">
-                  {hasWallet ? t('wallet.importAccountDescription') : t('wallet.importKeyDescription')}
+                  {importWifReplacesVault ? t('wallet.importKeyDescription') : t('wallet.importAccountDescription')}
                 </p>
               </div>
               <button type="button" className="ghost-button" onClick={closeImportModal}>
@@ -429,7 +441,12 @@ export function WalletPanel(props: WalletPanelProps) {
                   {walletError}
                 </div>
               )}
-              {hasWallet && (
+              {walletLocked && (
+                <div className="node-warning" role="note">
+                  {t('wallet.lockedReplaceWarning')}
+                </div>
+              )}
+              {!importWifReplacesVault && (
                 <label>
                   {t('wallet.accountName')}
                   <input
@@ -489,9 +506,9 @@ export function WalletPanel(props: WalletPanelProps) {
                 >
                   {walletActionLoading === 'wallet-import' || walletActionLoading === 'wallet-import-account'
                     ? t('common.loading')
-                    : hasWallet
-                      ? t('wallet.importAccountAction')
-                      : t('wallet.importKeyAction')}
+                    : importWifReplacesVault
+                      ? t('wallet.importKeyAction')
+                      : t('wallet.importAccountAction')}
                 </button>
               </div>
             </div>
@@ -522,6 +539,11 @@ export function WalletPanel(props: WalletPanelProps) {
               {walletError && (
                 <div className="wallet-modal-alert" role="alert">
                   {walletError}
+                </div>
+              )}
+              {walletLocked && (
+                <div className="node-warning" role="note">
+                  {t('wallet.lockedReplaceWarning')}
                 </div>
               )}
               <label>
@@ -602,6 +624,11 @@ export function WalletPanel(props: WalletPanelProps) {
               {createSeedError && (
                 <div className="wallet-modal-alert" role="alert">
                   {createSeedError}
+                </div>
+              )}
+              {walletLocked && (
+                <div className="node-warning" role="note">
+                  {t('wallet.lockedReplaceWarning')}
                 </div>
               )}
               <p className="wallet-modal-note">{t('wallet.createBackupNotice')}</p>

@@ -526,7 +526,9 @@ function parseNativeBackupProgressLine(line: string): NativeBackupProgressPayloa
 }
 
 function nativeProgressFraction(progress: NativeBackupProgressPayload): number {
-  if (!progress.totalBatches) return 0
+  if (!progress.totalBatches) {
+    return progress.totalBytes > 0 ? Math.max(0, Math.min(1, progress.completedBytes / progress.totalBytes)) : 0
+  }
   return Math.max(0, Math.min(1, progress.completedBatches / progress.totalBatches))
 }
 
@@ -550,8 +552,13 @@ function nativeProgressTelemetry(
 }
 
 function nativeProgressSuffix(progress: NativeBackupProgressPayload): string {
+  const unit = progress.phase.includes('stage')
+    ? 'files'
+    : progress.phase.includes('objects')
+      ? 'objects'
+      : 'operations'
   const operations = progress.totalBatches
-    ? `${progress.completedBatches}/${progress.totalBatches} operations`
+    ? `${progress.completedBatches}/${progress.totalBatches} ${unit}`
     : ''
   const size = progress.totalBytes ? formatByteCount(progress.totalBytes) : ''
   return [operations, size].filter(Boolean).join(' · ')
@@ -831,7 +838,25 @@ function restoreBlockedMessage(payload: Record<string, unknown>, fallback: strin
   return fallback
 }
 
-function restoreBlockedMessageFromOutput(output: string, fallback: string): string {
+function restorePartialStagingDirectoryFromOutput(output: string): string {
+  const match = output.match(/restore partial staging directory already exists:\s*([^\r\n]+)/i)
+  return match?.[1]?.trim() || ''
+}
+
+function restorePartialStagingSolutionMessage(partialDir: string): string {
+  const location = partialDir ? ` (${partialDir})` : ''
+  return [
+    `A previous restore left partial staging data${location}.`,
+    'The existing node database was not replaced.',
+    'If no restore is currently running, click Restore Backup again; Koinos One will clear only the stale partial restore staging directory and restart the restore safely.',
+    'If another restore is still running, use Stop restore first or wait for it to finish.'
+  ].join(' ')
+}
+
+export function restoreBlockedMessageFromOutput(output: string, fallback: string): string {
+  const partialStagingDir = restorePartialStagingDirectoryFromOutput(output)
+  if (partialStagingDir) return restorePartialStagingSolutionMessage(partialStagingDir)
+
   try {
     return restoreBlockedMessage(parseNativeBackupJsonOutput(output), fallback)
   } catch {
@@ -2552,6 +2577,26 @@ export function createBackupService(deps: BackupServiceDeps) {
     throw new Error(`Timed out waiting for native restore staging to complete: ${stagingDir}`)
   }
 
+  function clearStaleRestorePartialStaging(
+    stagingDir: string,
+    emitProgress: (phase: TelenoNodeBackupProgressPhase, progress: number, message: string) => void
+  ): void {
+    const partialDir = `${stagingDir}.partial`
+    if (!fs.existsSync(partialDir)) return
+    if (activeBackupProcess) {
+      throw new Error(
+        'A native restore is still running. Use Stop restore first, then retry after the restore process has stopped.'
+      )
+    }
+
+    emitProgress(
+      'prepare',
+      6,
+      'Clearing stale partial restore staging left by a previous interrupted restore'
+    )
+    fs.rmSync(partialDir, { recursive: true, force: true })
+  }
+
   function nodeStatusLooksRunning(status: unknown): boolean {
     if (!status || typeof status !== 'object') return false
     const services = (status as { services?: unknown }).services
@@ -2582,7 +2627,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       activeBackupCancelled = true
       try {
         await backupAdminRequest(operation.baseUrl, operation.token, 'POST', `/admin/backup/cancel/${encodeURIComponent(operation.operationId)}`)
-        return { ok: true, output: 'Admin backup cancel signal sent' }
+        return { ok: true, output: 'Backup operation cancel signal sent through the admin API' }
       } catch (error) {
         return { ok: false, output: error instanceof Error ? error.message : String(error) }
       }
@@ -2590,7 +2635,7 @@ export function createBackupService(deps: BackupServiceDeps) {
 
     if (!activeBackupProcess && !activeBackupCancelled) {
       activeBackupCancelled = true
-      return { ok: true, output: 'Cancel requested (no native backup process running yet)' }
+      return { ok: true, output: 'Cancel requested. The current backup operation will stop at the next safe checkpoint.' }
     }
     activeBackupCancelled = true
     if (activeBackupProcess) {
@@ -2599,7 +2644,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         try { activeBackupProcess?.kill('SIGKILL') } catch { /* ignore */ }
       }, 2000)
     }
-    return { ok: true, output: 'Cancel signal sent' }
+    return { ok: true, output: 'Cancel signal sent to the native backup operation' }
   }
 
   function spawnTrackedBackupCommand(
@@ -2678,8 +2723,9 @@ export function createBackupService(deps: BackupServiceDeps) {
 
     function cleanupOnCancel() {
       activeBackupProcess = null
-      emitProgress('complete', 0, 'Backup cancelado por el usuario')
-      return { ok: false, action, output: 'Backup cancelado por el usuario', status: 'cancelled' } as TelenoNodeBackupRestoreResult
+      const message = 'Backup stopped by user. Partial backup data may remain in the backup workspace.'
+      emitProgress('cancelled', 0, message)
+      return { ok: false, action, output: message, status: 'cancelled' } as TelenoNodeBackupRestoreResult
     }
 
     try {
@@ -3248,6 +3294,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     sender: WebContents
   ): Promise<TelenoNodeBackupRestoreResult> {
     const action: TelenoNodeBackupProgressAction = 'restore-backup'
+    activeBackupCancelled = false
 
     function emitProgress(
       phase: TelenoNodeBackupProgressPhase,
@@ -3262,6 +3309,18 @@ export function createBackupService(deps: BackupServiceDeps) {
         message,
         ...telemetry
       } satisfies TelenoNodeBackupProgressEvent)
+    }
+
+    function checkCancelled(): boolean {
+      return activeBackupCancelled
+    }
+
+    function cleanupRestoreOnCancel(progress = 0): TelenoNodeBackupRestoreResult {
+      activeBackupProcess = null
+      activeBackupAdminOperation = null
+      const message = 'Restore stopped by user. Partial restore staging data was preserved; start restore again to run a clean restore flow.'
+      emitProgress('cancelled', progress, message)
+      return { ok: false, action, output: message, status: 'cancelled' }
     }
 
     try {
@@ -3308,6 +3367,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           try {
             const startedAt = Date.now()
             while (Date.now() - startedAt < 6 * 60 * 60 * 1000) {
+              if (checkCancelled()) return cleanupRestoreOnCancel(45)
               const state = stringField(currentStatus.state)
               const message = stringField(currentStatus.message) || `Native restore fetch state: ${state || 'unknown'}`
               if (state === 'succeeded') {
@@ -3352,6 +3412,7 @@ export function createBackupService(deps: BackupServiceDeps) {
                 nativeProgressTelemetry(nativeLikeProgress, 25, 60)
               )
               await delay(1000)
+              if (checkCancelled()) return cleanupRestoreOnCancel(45)
               currentStatus = backupStatusPayload(
                 await backupAdminRequest(runningAdmin.baseUrl, runningAdmin.token, 'GET', `/admin/backup/status/${encodeURIComponent(operationId)}`)
               )
@@ -3361,6 +3422,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           }
         }
 
+        if (checkCancelled()) return cleanupRestoreOnCancel(60)
         emitProgress('verify', 62, 'Verifying selected native backup before staging')
         const preflightPayload = await backupAdminRequest(
           runningAdmin.baseUrl,
@@ -3377,9 +3439,12 @@ export function createBackupService(deps: BackupServiceDeps) {
           return { ok: false, action, output: JSON.stringify(preflightPayload, null, 2), status: 'error' }
         }
 
+        if (checkCancelled()) return cleanupRestoreOnCancel(62)
+        clearStaleRestorePartialStaging(stagingDir, emitProgress)
         fs.rmSync(stagingDir, { recursive: true, force: true })
         fs.mkdirSync(stagingDir, { recursive: true })
 
+        if (checkCancelled()) return cleanupRestoreOnCancel(72)
         emitProgress('restore', 72, 'Staging native backup restore')
         let stagePayload: Record<string, unknown>
         try {
@@ -3391,8 +3456,9 @@ export function createBackupService(deps: BackupServiceDeps) {
             { backup_id: backupId, staging_dir: stagingDir },
             6 * 60 * 60 * 1000
           )
-        } catch (error) {
+      } catch (error) {
           if (!backupAdminHeaderTimeout(error)) throw error
+          if (checkCancelled()) return cleanupRestoreOnCancel(78)
           emitProgress(
             'restore',
             78,
@@ -3404,6 +3470,7 @@ export function createBackupService(deps: BackupServiceDeps) {
             emitProgress
           )
         }
+        if (checkCancelled()) return cleanupRestoreOnCancel(88)
         emitProgress('restore', 88, 'Writing restore activation request')
         const activationPayload = await backupAdminRequest(
           runningAdmin.baseUrl,
@@ -3435,10 +3502,13 @@ export function createBackupService(deps: BackupServiceDeps) {
         return { ok: false, action, output: `teleno_node binary not found: ${binaryPath}`, status: 'error' }
       }
 
+      if (checkCancelled()) return cleanupRestoreOnCancel(5)
       emitProgress('prepare', 5, 'Preparing native backup restore')
+      clearStaleRestorePartialStaging(stagingDir, emitProgress)
       fs.rmSync(stagingDir, { recursive: true, force: true })
       fs.mkdirSync(stagingDir, { recursive: true })
 
+      if (checkCancelled()) return cleanupRestoreOnCancel(12)
       emitProgress('stop', 12, 'Stopping node before native restore')
       const stopResult = await deps.telenoNodeAction('stop', input)
       if (!stopResult.ok) {
@@ -3450,6 +3520,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       const backupIdArgs = requestedBackupId && requestedBackupId !== 'latest' ? [`--backup-id=${requestedBackupId}`] : []
 
       if (!shouldFetchRemote && !shouldFetchPublic) {
+        if (checkCancelled()) return cleanupRestoreOnCancel(25)
         emitProgress('verify', 25, 'Verifying selected local native backup')
         const preflightResult = await deps.runCommand(
           binaryPath,
@@ -3467,8 +3538,9 @@ export function createBackupService(deps: BackupServiceDeps) {
           return { ok: false, action, output: preflightResult.output || 'Native backup preflight failed', status: 'error' }
         }
 
+        if (checkCancelled()) return cleanupRestoreOnCancel(55)
         emitProgress('restore', 55, 'Staging selected local native backup')
-        const stageResult = await deps.runCommand(
+        const stageResult = await spawnTrackedBackupCommand(
           binaryPath,
           [
             `--basedir=${settings.baseDir}`,
@@ -3478,13 +3550,26 @@ export function createBackupService(deps: BackupServiceDeps) {
             `--backup-output=${stagingDir}`,
             ...backupIdArgs
           ],
-          { cwd: settings.repoPath, timeoutMs: 6 * 60 * 60 * 1000 }
+          settings.repoPath,
+          (nativeProgress) => {
+            if (nativeProgress.phase !== 'restore-stage') return
+            const fraction = nativeProgressFraction(nativeProgress)
+            const suffix = nativeProgressSuffix(nativeProgress)
+            emitProgress(
+              'restore',
+              Math.min(88, 55 + (fraction * 33)),
+              suffix ? `Staging selected local native backup (${suffix})` : 'Staging selected local native backup',
+              nativeProgressTelemetry(nativeProgress, 55, 88)
+            )
+          }
         )
+        if (checkCancelled()) return cleanupRestoreOnCancel(70)
         if (!stageResult.ok) {
           emitProgress('error', 70, stageResult.output || 'Native backup stage failed')
           return { ok: false, action, output: stageResult.output || 'Native backup stage failed', status: 'error' }
         }
 
+        if (checkCancelled()) return cleanupRestoreOnCancel(85)
         emitProgress('restore', 85, 'Writing restore activation request')
         const activationResult = await deps.runCommand(
           binaryPath,
@@ -3565,10 +3650,20 @@ export function createBackupService(deps: BackupServiceDeps) {
               suffix ? `Fetching public backup objects (${suffix})` : 'Fetching public backup objects',
               nativeProgressTelemetry(nativeProgress, 35, 60)
             )
+            return
+          }
+          if (nativeProgress.phase === 'restore-stage' || nativeProgress.phase === 'public-restore-stage') {
+            emitProgress(
+              'restore',
+              Math.min(92, 60 + (fraction * 32)),
+              suffix ? `Staging restored database files (${suffix})` : 'Staging restored database files',
+              nativeProgressTelemetry(nativeProgress, 60, 92)
+            )
           }
         }
       )
 
+      if (checkCancelled()) return cleanupRestoreOnCancel(92)
       if (!result.ok) {
         const fallback = result.output || 'Native restore command failed'
         const blockedMessage = restoreBlockedMessageFromOutput(result.output, fallback)
@@ -3603,6 +3698,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         status: 'complete'
       }
     } catch (error) {
+      if (checkCancelled()) return cleanupRestoreOnCancel(0)
       const message = error instanceof Error ? error.message : String(error)
       emitProgress('error', 0, `Error restoring native backup: ${message}`)
       return { ok: false, action, output: message, status: 'error' }

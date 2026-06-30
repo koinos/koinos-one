@@ -252,7 +252,7 @@ type BackupProgressSample = {
   sampledAt: number
 }
 
-const TERMINAL_BACKUP_PHASES = new Set<TelenoNodeBackupProgressEvent['phase']>(['complete', 'error'])
+const TERMINAL_BACKUP_PHASES = new Set<TelenoNodeBackupProgressEvent['phase']>(['complete', 'cancelled', 'error'])
 
 function numericOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -490,7 +490,6 @@ export function App() {
   const nodeLogsPreRef = useRef<HTMLPreElement | null>(null)
   const nodeRepoBootstrapAttemptsRef = useRef<Set<string>>(new Set())
   const simpleBackupPerformanceRefreshKeyRef = useRef<string | null>(null)
-  const simpleBackupPreflightKeyRef = useRef<string | null>(null)
   const nodeBackupOperationActiveRef = useRef(false)
   const locale = localeForLanguage(language)
   const t = useMemo(() => {
@@ -1133,7 +1132,8 @@ export function App() {
 
       setNodeBackupProgress((current) => {
         const rawProgress = clampBackupProgress(payload.progress)
-        const previousDisplay = current?.action === payload.action && !TERMINAL_BACKUP_PHASES.has(payload.phase)
+        const previousDisplay = current?.action === payload.action &&
+          (!TERMINAL_BACKUP_PHASES.has(payload.phase) || payload.phase === 'cancelled')
           ? current.displayProgress
           : rawProgress
         return createBackupProgressState(
@@ -1702,6 +1702,41 @@ export function App() {
                 : t('status.error')
           : t('status.noState')
   const nodeStatusClass = nodeError || nodeHasPartialOutage ? 'is-error' : nodeRunningCount > 0 ? 'is-live' : 'is-idle'
+  const nodeActionTooltip = (fallback: string, ...reasons: Array<string | null | false | undefined>) =>
+    reasons.find((reason): reason is string => Boolean(reason)) ?? fallback
+  const nodeControlsUnavailableReason = !hasNodeControls ? t('node.actionDisabled.electronOnly') : null
+  const nodeActionBusyReason = nodeBusy ? t('node.actionDisabled.busy', { state: nodeStateText }) : null
+  const nodePrimaryUnavailableReason = !nodePrimaryService ? t('node.actionDisabled.noPrimaryService') : null
+  const nodePrimaryStatusUnavailableReason =
+    nodePrimaryService && !nodePrimaryCapabilities ? t('node.actionDisabled.statusUnavailable') : null
+  const nodePresetsTooltip = nodeActionTooltip(
+    t('node.actionTooltip.presets'),
+    nodeControlsUnavailableReason
+  )
+  const nodeStartTooltip = nodeActionTooltip(
+    t('node.actionTooltip.start'),
+    nodeControlsUnavailableReason,
+    nodeActionBusyReason
+  )
+  const nodeLogsTooltip = nodeActionTooltip(
+    t('node.actionTooltip.logs'),
+    nodeControlsUnavailableReason,
+    nodeActionBusyReason,
+    nodePrimaryUnavailableReason
+  )
+  const nodeRestartTooltip = nodeActionTooltip(
+    t('node.actionTooltip.restart'),
+    nodeControlsUnavailableReason,
+    nodeActionBusyReason,
+    nodePrimaryUnavailableReason,
+    nodePrimaryStatusUnavailableReason,
+    nodePrimaryCapabilities?.restartBlockedReason
+  )
+  const nodeStopTooltip = nodeActionTooltip(
+    t('node.actionTooltip.stop'),
+    nodeControlsUnavailableReason,
+    nodeActionBusyReason
+  )
   // Calculate blocks/sec from chain head height changes
   useEffect(() => {
     if (!localChainHead) return
@@ -2962,7 +2997,7 @@ export function App() {
 
   const unlockProducerAccount = async () => {
     const bridge = getWalletBridge()
-    if (!bridge?.unlock) return
+    if (!bridge?.unlock) return false
 
     setWalletActionLoading('wallet-unlock')
     setWalletError(null)
@@ -2978,7 +3013,7 @@ export function App() {
 
       if (!result.ok) {
         setWalletError(result.output || t('producer.unlockError'))
-        return
+        return false
       }
 
       setProducerUnlockPassword('')
@@ -2986,8 +3021,10 @@ export function App() {
       await refreshWalletOverview()
       await refreshNodeProducerOverview(undefined, producerAdvancedMode ? undefined : result.walletAddress || undefined)
       await refreshProducerSigningWalletBalance(result.walletAddress || undefined)
+      return true
     } catch (error) {
       setWalletError(error instanceof Error ? error.message : t('producer.unlockError'))
+      return false
     } finally {
       setWalletActionLoading(null)
     }
@@ -3469,7 +3506,7 @@ export function App() {
     confirmPassword: string,
     name = ''
   ) => {
-    if (!walletOverview?.walletExists) {
+    if (!walletOverview?.walletExists || !walletOverview?.unlocked) {
       return importProducerAccount(privateKey, password, confirmPassword)
     }
 
@@ -4351,6 +4388,10 @@ export function App() {
     try {
       const result = await bridge.createBackup(toNodeApiSettings(createSettings))
       if (!result.ok) {
+        if (result.status === 'cancelled') {
+          setNodeError(null)
+          return
+        }
         setNodeError(result.output || 'Error creating backup')
       }
     } catch (error) {
@@ -4533,9 +4574,13 @@ export function App() {
               ...apiSettings,
               backupId: trimmedBackupId,
               backupSource: selectedBackup.source
-            })
+      })
       setNodeOutput(result.output || '')
       if (!result.ok) {
+        if (result.status === 'cancelled') {
+          setNodeError(null)
+          return false
+        }
         setNodeError(result.output || t('node.unableRestoreNativeBackup'))
         return false
       } else {
@@ -4628,41 +4673,6 @@ export function App() {
       void runNativeBackupList('public')
     }
 
-    if (settings.nodeAdvancedMode) return
-
-    const localLatestBackupId = nodeNativeBackupLocalList?.latestBackupId ||
-      nodeNativeBackupLocalList?.snapshots.find((snapshot) => snapshot.latest)?.backupId ||
-      ''
-    const remoteLatestBackupId = nodeNativeBackupRemoteList?.latestBackupId ||
-      nodeNativeBackupRemoteList?.snapshots.find((snapshot) => snapshot.latest)?.backupId ||
-      ''
-    const publicLatestBackupId = nodeNativeBackupPublicList?.latestBackupId ||
-      nodeNativeBackupPublicList?.snapshots.find((snapshot) => snapshot.latest)?.backupId ||
-      ''
-    const selectedSource = publicBootstrapAvailable && publicLatestBackupId
-      ? 'public'
-      : localLatestBackupId
-        ? 'local'
-        : backup.remoteEnabled && remoteLatestBackupId
-          ? 'remote'
-          : publicBootstrapAvailable
-            ? 'public'
-            : backup.remoteEnabled
-              ? 'remote'
-              : 'local'
-    const selectedList = selectedSource === 'public'
-      ? nodeNativeBackupPublicList
-      : selectedSource === 'remote'
-        ? nodeNativeBackupRemoteList
-        : nodeNativeBackupLocalList
-    const latestBackupId = selectedList?.latestBackupId || selectedList?.snapshots.find((snapshot) => snapshot.latest)?.backupId || ''
-    if (!latestBackupId || nodeNativeBackupPreflightLoading) return
-
-    const preflightKey = `${backupKey}|${selectedSource}|${latestBackupId}`
-    if (simpleBackupPreflightKeyRef.current === preflightKey) return
-    simpleBackupPreflightKeyRef.current = preflightKey
-    setSelectedNativeBackupId(`${selectedSource}:${latestBackupId}`)
-    void runNativeBackupRestorePreflight(`${selectedSource}:${latestBackupId}`)
   }, [
     activeTab,
     dashboardPerformanceLoading,
@@ -4670,15 +4680,13 @@ export function App() {
     hasNodeControls,
     nodeNativeBackupLocalList,
     nodeNativeBackupLocalListLoading,
-    nodeNativeBackupPreflightLoading,
     nodeNativeBackupPublicList,
     nodeNativeBackupPublicListLoading,
     nodeNativeBackupRemoteList,
     nodeNativeBackupRemoteListLoading,
     nodeSettings.baseDir,
     nodeSettings.network,
-    nodeSubtab,
-    settings.nodeAdvancedMode
+    nodeSubtab
   ])
 
   const runCancelBackup = async () => {
@@ -5499,38 +5507,41 @@ export function App() {
             <span className="node-active-preset">
               {t('node.activePreset', { label: activeNodePresetLabel })}
             </span>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => setNodeProfilesModalOpen(true)}
-              disabled={!hasNodeControls}
-            >
-              {t('node.profilesTitle')}
-            </button>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => {
-                void runNodeAction('start')
-              }}
-              disabled={!hasNodeControls || nodeBusy}
-            >
-              {nodeActionLoading === 'start' ? t('common.starting') : t('node.startNode')}
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => {
-                if (nodePrimaryService) openServiceLogsModal(nodePrimaryService.id)
-              }}
-              disabled={!hasNodeControls || nodeBusy || !nodePrimaryService}
-            >
-              {t('common.logs')}
-            </button>
-            <span
-              className="node-service-action-wrap"
-              title={nodePrimaryCapabilities?.restartBlockedReason || t('node.restartService')}
-            >
+            <span className="node-action-tooltip-wrap" title={nodePresetsTooltip}>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setNodeProfilesModalOpen(true)}
+                disabled={!hasNodeControls}
+              >
+                {t('node.profilesTitle')}
+              </button>
+            </span>
+            <span className="node-action-tooltip-wrap" title={nodeStartTooltip}>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  void runNodeAction('start')
+                }}
+                disabled={!hasNodeControls || nodeBusy}
+              >
+                {nodeActionLoading === 'start' ? t('common.starting') : t('node.startNode')}
+              </button>
+            </span>
+            <span className="node-action-tooltip-wrap" title={nodeLogsTooltip}>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  if (nodePrimaryService) openServiceLogsModal(nodePrimaryService.id)
+                }}
+                disabled={!hasNodeControls || nodeBusy || !nodePrimaryService}
+              >
+                {t('common.logs')}
+              </button>
+            </span>
+            <span className="node-action-tooltip-wrap" title={nodeRestartTooltip}>
               <button
                 type="button"
                 className="ghost-button"
@@ -5551,16 +5562,18 @@ export function App() {
                   : t('common.restart')}
               </button>
             </span>
-            <button
-              type="button"
-              className="ghost-button danger-button"
-              onClick={() => {
-                void runNodeAction('stop')
-              }}
-              disabled={!hasNodeControls || nodeBusy}
-            >
-              {nodeActionLoading === 'stop' ? t('common.stopping') : t('node.stopNode')}
-            </button>
+            <span className="node-action-tooltip-wrap" title={nodeStopTooltip}>
+              <button
+                type="button"
+                className="ghost-button danger-button"
+                onClick={() => {
+                  void runNodeAction('stop')
+                }}
+                disabled={!hasNodeControls || nodeBusy}
+              >
+                {nodeActionLoading === 'stop' ? t('common.stopping') : t('node.stopNode')}
+              </button>
+            </span>
           </div>
           {nodePrimaryService && nodePrimaryCapabilities ? (
             <section

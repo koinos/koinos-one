@@ -7,20 +7,25 @@ const translations: Record<string, string> = {
   'common.disabled': 'Disabled',
   'common.na': 'N/A',
   'node.cancelBackup': 'Cancel backup',
+  'node.cancelBackupTooltip': 'Stops the current native backup command.',
+  'node.cancelRestore': 'Stop restore',
+  'node.cancelRestoreTooltip': 'Stops the current restore command.',
   'node.createBackup': 'Create Backup',
   'node.restoreBackupPrimary': 'Restore Backup',
   'node.backupChooseDataFolder': 'Choose data folder',
-  'node.backupCheckBootstrap': 'Check restore source',
-  'node.backupCheckingBootstrap': 'Checking restore source...',
+  'node.backupCheckBootstrap': 'Check Repository',
+  'node.backupCheckingBootstrap': 'Checking repository...',
+  'node.backupCheckRepositoryHelp': 'Checks the public backup repository for the latest backup metadata and updates the size, date, and local space estimate. It does not download or restore backup data.',
   'node.backupSimpleDescription': 'This is the normal way to get a node running quickly.',
   'node.backupSimpleDataFolder': 'Data folder',
-  'node.backupSimpleBootstrapSource': 'Standard restore source',
+  'node.backupSimpleBootstrapSource': 'Public Backup Repository',
   'node.backupSimpleRestoreMode': 'Restore mode',
   'node.backupSimpleObserverFirst': 'Observer first',
   'node.backupSourcePublic': 'standard public bootstrap',
   'node.backupSourceRemote': 'private remote',
   'node.backupSourceLocal': 'local',
-  'node.backupSimpleLatestSize': 'Latest {source} backup size: {size}',
+  'node.backupSimpleLatestSize': 'Latest backup size: {size}',
+  'node.backupSimpleLatestDate': 'Latest backup date: {date}',
   'node.backupSimpleRestoreSpace': 'Local restore space: {status}.',
   'node.backupSpaceEnough': 'enough space',
   'node.backupSpaceNotEnough': 'not enough space',
@@ -30,7 +35,17 @@ const translations: Record<string, string> = {
   'node.backupSimpleListError': 'Could not load latest {source} backup metadata.',
   'node.backupSimpleAdvancedHint': 'Additional backup management tools are available in Expert Mode.',
   'node.restoreNativeLatestHelp': 'Restore help',
-  'node.restoringNativeLatest': 'Restoring native backup...'
+  'node.restoringNativeLatest': 'Restoring native backup...',
+  'node.backupProgress.restore': 'Restore Backup',
+  'node.backupProgress.verify': 'Restore from backup',
+  'node.backupProgress.create': 'Create Backup',
+  'node.backupLiveDownload': 'Downloading',
+  'node.backupLiveRestore': 'Restoring',
+  'node.backupLiveUpload': 'Uploading',
+  'node.backupLiveTransferMeta': '{completed} of {total} · {speed}/s · {eta} left',
+  'node.backupLiveSpeedMeta': '{speed}/s · {eta} left',
+  'node.backupPhaseMeta': 'Phase {phase} · {time}',
+  'node.backupSampleMeta': 'sample {latency}'
 }
 
 function t(key: string, values: Record<string, string | number> = {}): string {
@@ -431,13 +446,18 @@ describe('NodeBackupsPanel', () => {
       />
     )
 
-    expect(html.match(/<button/g)).toHaveLength(3)
-    expect(html).toContain('Choose data folder')
-    expect(html).toContain('Check restore source')
+    expect(html.match(/<button/g)).toHaveLength(2)
+    expect(html).not.toContain('Choose data folder')
+    expect(html).toContain('Check Repository')
+    expect(html).toContain('It does not download or restore backup data.')
     expect(html).toContain('Restore Backup')
-    expect(html).toContain('Standard restore source')
-    expect(html).toContain('This is the normal way to get a node running quickly.')
-    expect(html).toContain('Additional backup management tools are available in Expert Mode.')
+    expect(html).toContain('Public Backup Repository')
+    expect(html).not.toContain('Data folder')
+    expect(html).not.toContain('/tmp/teleno')
+    expect(html).not.toContain('Restore mode')
+    expect(html).not.toContain('Observer first')
+    expect(html).not.toContain('This is the normal way to get a node running quickly.')
+    expect(html).not.toContain('Additional backup management tools are available in Expert Mode.')
     expect(html).not.toContain('Create Backup')
     expect(html).not.toContain('Allow remote backup')
     expect(html).not.toContain('Local backup: enough space')
@@ -545,7 +565,8 @@ describe('NodeBackupsPanel', () => {
       />
     )
 
-    expect(html).toContain('Latest standard public bootstrap backup size: 1 MB')
+    expect(html).toContain('Latest backup size: 1 MB')
+    expect(html).toContain('Latest backup date:')
     expect(html).toContain('Local restore space: enough space')
     expect(html).toContain('Free 8 MB')
     expect(html).toContain('needed 2 MB')
@@ -607,31 +628,8 @@ describe('NodeBackupsPanel', () => {
         snapshots: [snapshot('public-20260615T213234Z', true)]
       },
       nodeNativeBackupPreflightLoading: false,
-      nodeNativeBackupPreflight: {
-        ok: true,
-        output: '',
-        backupId: 'public-20260615T213234Z',
-        readyToRestore: true,
-        snapshotComplete: true,
-        fileCount: 6,
-        missingObjectCount: 0,
-        missingObjectBytes: 0,
-        restoreSpace: {
-          restoredDatabaseBytes: 1024 * 1024,
-          runtimeFilesBytes: 0,
-          objectDownloadBytes: 0,
-          minimumTargetFreeBytes: 2 * 1024 * 1024,
-          recommendedTargetFreeBytes: 4 * 1024 * 1024
-        },
-        spaceCheck: {
-          passesMinimum: true,
-          belowRecommended: false,
-          availableBytes: 8 * 1024 * 1024,
-          targetPath: '/tmp/teleno',
-          message: 'ok'
-        }
-      },
-      selectedNativeBackupId: 'public:public-20260615T213234Z',
+      nodeNativeBackupPreflight: null,
+      selectedNativeBackupId: 'latest',
       setSelectedNativeBackupId: vi.fn(),
       nodeRestoreNativeBackupLoading: false,
       simpleRemoteBackupSaving: false,
@@ -649,7 +647,173 @@ describe('NodeBackupsPanel', () => {
 
     const restoreButton = findButtonByText(tree, 'Restore Backup')
     expect(restoreButton).toBeTruthy()
+    expect(restoreButton.props.disabled).toBe(false)
     restoreButton.props.onClick()
     expect(runRestoreNativeBackupSelected).toHaveBeenCalledWith('public:public-20260615T213234Z')
+  })
+
+  it('shows restore progress in simple mode', () => {
+    const html = renderToStaticMarkup(
+      <NodeBackupsPanel
+        t={t}
+        locale="en-US"
+        hasNodeControls
+        nodeBusy={false}
+        settingsDirty={false}
+        advancedMode={false}
+        nodeSettings={{
+          network: 'mainnet',
+          baseDir: '/tmp/teleno',
+          backup: {
+            remoteEnabled: false
+          }
+        }}
+        draftNodeBackup={{
+          remoteEnabled: false
+        }}
+        nodeStatus={{ baseDir: '/tmp/teleno' }}
+        nodePrimaryConfigPath="/tmp/teleno/config.yml"
+        runCreateBackup={vi.fn()}
+        runCancelBackup={vi.fn()}
+        runNativeBackupList={vi.fn()}
+        runNativeBackupRestorePreflight={vi.fn()}
+        runRestoreNativeBackupSelected={vi.fn()}
+        nodeCreateBackupLoading={false}
+        nodeNativeBackupListLoading={false}
+        nodeNativeBackupLocalListLoading={false}
+        nodeNativeBackupRemoteListLoading={false}
+        nodeNativeBackupPublicListLoading={false}
+        nodeNativeBackupLocalList={null}
+        nodeNativeBackupRemoteList={null}
+        nodeNativeBackupPublicList={{
+          ok: true,
+          source: 'public',
+          latestBackupId: 'public-20260615T213234Z',
+          snapshots: [snapshot('public-20260615T213234Z', true)]
+        }}
+        nodeNativeBackupPreflightLoading={false}
+        nodeNativeBackupPreflight={null}
+        selectedNativeBackupId="latest"
+        setSelectedNativeBackupId={vi.fn()}
+        nodeRestoreNativeBackupLoading
+        simpleRemoteBackupSaving={false}
+        setSimpleRemoteBackupEnabled={vi.fn()}
+        dashboardPerformance={{
+          host: {
+            freeDiskBytes: 8 * 1024 * 1024,
+            blockchainDataBytes: 4 * 1024 * 1024
+          }
+        }}
+        dashboardPerformanceLoading={false}
+        formError={null}
+        nodeBackupProgress={{
+          action: 'restore-backup',
+          phase: 'download',
+          progress: 42,
+          displayProgress: 42,
+          message: 'Downloading public bootstrap backup',
+          updatedAt: Date.UTC(2026, 5, 15),
+          completedBytes: 1024 * 1024,
+          totalBytes: 2 * 1024 * 1024,
+          bytesPerSecond: 512 * 1024,
+          etaSeconds: 2,
+          completedBatches: null,
+          totalBatches: null,
+          phaseProgress: null,
+          progressRangeStart: 25,
+          progressRangeEnd: 60,
+          sampleIntervalMs: 1000
+        }}
+      />
+    )
+
+    expect(html).toContain('node-backup-progress')
+    expect(html).toContain('Restore Backup')
+    expect(html).toContain('42%')
+    expect(html).toContain('Downloading public bootstrap backup')
+    expect(html).toContain('Downloading')
+    expect(html).toContain('Stop restore')
+    expect(html).toContain('Stops the current restore command.')
+  })
+
+  it('labels staging progress as live restore in simple mode', () => {
+    const html = renderToStaticMarkup(
+      <NodeBackupsPanel
+        t={t}
+        locale="en-US"
+        hasNodeControls
+        nodeBusy={false}
+        settingsDirty={false}
+        advancedMode={false}
+        nodeSettings={{
+          network: 'mainnet',
+          baseDir: '/tmp/teleno',
+          backup: {
+            remoteEnabled: false
+          }
+        }}
+        draftNodeBackup={{
+          remoteEnabled: false
+        }}
+        nodeStatus={{ baseDir: '/tmp/teleno' }}
+        nodePrimaryConfigPath="/tmp/teleno/config.yml"
+        runCreateBackup={vi.fn()}
+        runCancelBackup={vi.fn()}
+        runNativeBackupList={vi.fn()}
+        runNativeBackupRestorePreflight={vi.fn()}
+        runRestoreNativeBackupSelected={vi.fn()}
+        nodeCreateBackupLoading={false}
+        nodeNativeBackupListLoading={false}
+        nodeNativeBackupLocalListLoading={false}
+        nodeNativeBackupRemoteListLoading={false}
+        nodeNativeBackupPublicListLoading={false}
+        nodeNativeBackupLocalList={null}
+        nodeNativeBackupRemoteList={null}
+        nodeNativeBackupPublicList={{
+          ok: true,
+          source: 'public',
+          latestBackupId: 'public-20260615T213234Z',
+          snapshots: [snapshot('public-20260615T213234Z', true)]
+        }}
+        nodeNativeBackupPreflightLoading={false}
+        nodeNativeBackupPreflight={null}
+        selectedNativeBackupId="latest"
+        setSelectedNativeBackupId={vi.fn()}
+        nodeRestoreNativeBackupLoading
+        simpleRemoteBackupSaving={false}
+        setSimpleRemoteBackupEnabled={vi.fn()}
+        dashboardPerformance={{
+          host: {
+            freeDiskBytes: 8 * 1024 * 1024,
+            blockchainDataBytes: 4 * 1024 * 1024
+          }
+        }}
+        dashboardPerformanceLoading={false}
+        formError={null}
+        nodeBackupProgress={{
+          action: 'restore-backup',
+          phase: 'restore',
+          progress: 72,
+          displayProgress: 72,
+          message: 'Staging restored database files',
+          updatedAt: Date.UTC(2026, 5, 15),
+          completedBytes: 1024 * 1024,
+          totalBytes: 2 * 1024 * 1024,
+          bytesPerSecond: 512 * 1024,
+          etaSeconds: 2,
+          completedBatches: 51,
+          totalBatches: 102,
+          phaseProgress: 0.5,
+          progressRangeStart: 60,
+          progressRangeEnd: 92,
+          sampleIntervalMs: 1000
+        }}
+      />
+    )
+
+    expect(html).toContain('72%')
+    expect(html).toContain('Staging restored database files')
+    expect(html).toContain('Restoring')
+    expect(html).not.toContain('Downloading')
   })
 })

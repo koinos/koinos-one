@@ -75,6 +75,13 @@ export function WalletSendModal(props: WalletSendModalProps) {
 
   const isSend = mode === 'send'
   const isBusy = walletActionLoading !== null
+  const submitDisabledTitle = !hasWalletControls
+    ? t('wallet.disabledTooltip.electronOnly')
+    : isBusy
+      ? t('wallet.disabledTooltip.busy')
+      : !activeWalletCanSign
+        ? t('wallet.watchOnlyCannotSign')
+        : undefined
 
   return (
     <div className="log-modal-backdrop" role="presentation" onClick={onClose}>
@@ -239,6 +246,7 @@ export function WalletSendModal(props: WalletSendModalProps) {
               className="primary-button"
               onClick={isSend ? transferWalletToken : burnKoinToVhp}
               disabled={!hasWalletControls || isBusy || !activeWalletCanSign}
+              title={submitDisabledTitle}
             >
               {isBusy ? t('common.loading') : isSend ? t('wallet.transferAction') : t('wallet.burnAction')}
             </button>

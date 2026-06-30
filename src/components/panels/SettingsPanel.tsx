@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { normalizeAppLanguage } from '../../i18n'
 import { KOINOS_NETWORK_OPTIONS, normalizeKoinosNetworkId } from '../../app/network'
-import { remoteBackupDefaults } from '../../app/utils'
+import { remoteBackupDefaults, syncLocalBackupPathsToBaseDir } from '../../app/utils'
 import { NodeConfigPanel } from './MicroservicesConfigPanel'
 type SettingsPanelProps = any
 
@@ -114,6 +114,13 @@ export function SettingsPanel(props: SettingsPanelProps) {
   ])
 
   useEffect(() => {
+    setDraftNodeBackup((current: any) => {
+      const next = syncLocalBackupPathsToBaseDir(current, draftNodeBaseDir)
+      return JSON.stringify(next) === JSON.stringify(current) ? current : next
+    })
+  }, [draftNodeBaseDir, setDraftNodeBackup])
+
+  useEffect(() => {
     if (settings.nodeAdvancedMode === settings.producerAdvancedMode) return
     const enabled = settings.nodeAdvancedMode || settings.producerAdvancedMode
     setAdvancedMode(enabled)
@@ -197,6 +204,59 @@ export function SettingsPanel(props: SettingsPanelProps) {
             </div>
 
             <label>
+              {t('settings.baseDataDir')}
+              <div className="settings-input-with-button">
+                <input
+                  type="text"
+                  value={draftNodeBaseDir}
+                  onChange={(event) => {
+                    setDraftNodeBaseDir(event.target.value)
+                    setNodeBaseDirValidation(null)
+                  }}
+                  onBlur={(event) => {
+                    const input = event.target.value.trim()
+                    void validateDraftNodeBaseDir(input).then((result: any) => {
+                      if (!result.ok) {
+                        setFormError(result.output || t('settings.baseDirNotUsable', { baseDir: input }))
+                      } else {
+                        setDraftNodeBaseDir(result.baseDir)
+                        setFormError(null)
+                      }
+                    })
+                  }}
+                  placeholder="~/.koinos"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="ghost-button settings-inline-button"
+                  onClick={() => {
+                    void pickNodeBaseDir()
+                  }}
+                  disabled={!hasNodeControls || nodeBusy}
+                >
+                  {nodeBaseDirPickerLoading ? t('common.opening') : t('common.browse')}
+                </button>
+              </div>
+              <span
+                className={`settings-inline-help ${
+                  nodeBaseDirValidationLoading
+                    ? 'is-busy'
+                    : nodeBaseDirValidation
+                      ? nodeBaseDirValidation.ok
+                        ? 'is-ok'
+                        : 'is-error'
+                      : ''
+                }`.trim()}
+              >
+                {nodeBaseDirValidationLoading
+                  ? t('settings.baseDirChecking')
+                  : nodeBaseDirValidation?.message || t('settings.baseDirHelp')}
+              </span>
+            </label>
+
+            <label>
               {t('settings.language')}
               <select style={{ maxWidth: '200px' }} value={language} onChange={(event) => setLanguage(normalizeAppLanguage(event.target.value))}>
                 <option value="en">{t('language.english')}</option>
@@ -257,59 +317,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <strong className="settings-build-info-value mono" title={nativeNodeHashTitle}>{nativeNodeLabel}</strong>
               </div>
             </div>
-
-            <label>
-              {t('settings.baseDataDir')}
-              <div className="settings-input-with-button">
-                <input
-                  type="text"
-                  value={draftNodeBaseDir}
-                  onChange={(event) => {
-                    setDraftNodeBaseDir(event.target.value)
-                    setNodeBaseDirValidation(null)
-                  }}
-                  onBlur={(event) => {
-                    const input = event.target.value.trim()
-                    void validateDraftNodeBaseDir(input).then((result: any) => {
-                      if (!result.ok) {
-                        setFormError(result.output || t('settings.baseDirNotUsable', { baseDir: input }))
-                      } else {
-                        setDraftNodeBaseDir(result.baseDir)
-                        setFormError(null)
-                      }
-                    })
-                  }}
-                  placeholder="~/.koinos"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  className="ghost-button settings-inline-button"
-                  onClick={() => {
-                    void pickNodeBaseDir()
-                  }}
-                  disabled={!hasNodeControls || nodeBusy}
-                >
-                  {nodeBaseDirPickerLoading ? t('common.opening') : t('common.browse')}
-                </button>
-              </div>
-              <span
-                className={`settings-inline-help ${
-                  nodeBaseDirValidationLoading
-                    ? 'is-busy'
-                    : nodeBaseDirValidation
-                      ? nodeBaseDirValidation.ok
-                        ? 'is-ok'
-                        : 'is-error'
-                      : ''
-                }`.trim()}
-              >
-                {nodeBaseDirValidationLoading
-                  ? t('settings.baseDirChecking')
-                  : nodeBaseDirValidation?.message || t('settings.baseDirHelp')}
-              </span>
-            </label>
 
             {renderFormError()}
 
@@ -479,14 +486,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 className="ghost-button"
                 onClick={() => { void runNativeBackupDryRun() }}
                 disabled={!hasNodeControls || nodeBusy || settingsDirty}
-                title={settingsDirty ? 'Save Settings before checking the native backup config.' : undefined}
+                title={settingsDirty ? t('node.nativeBackupDryRunDisabledTooltip') : t('node.nativeBackupDryRunTooltip')}
               >
                 {nodeNativeBackupDryRunLoading ? t('node.nativeBackupDryRunLoading') : t('node.nativeBackupDryRun')}
               </button>
             </div>
             {settingsDirty && (
               <p className="settings-inline-help is-busy">
-                Save Settings before checking the native backup configuration.
+                {t('node.nativeBackupDryRunSaveFirst')}
               </p>
             )}
 
@@ -500,6 +507,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 />
                 <span>Enable local backup repository</span>
               </label>
+            </div>
+            <div className="settings-row">
               <label>
                 Local repository
                 <input
@@ -511,7 +520,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   autoComplete="off"
                   disabled={nodeBusy || !draftNodeBackup.localEnabled}
                 />
-                <span className="settings-inline-help">Leave empty to use the BASEDIR-scoped native repository.</span>
+                <span className="settings-inline-help">{t('settings.backupLocalRepositoryHelp')}</span>
               </label>
               <label>
                 Workspace
@@ -524,7 +533,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   autoComplete="off"
                   disabled={nodeBusy || !draftNodeBackup.localEnabled}
                 />
-                <span className="settings-inline-help">Used for checkpoint and restore staging work.</span>
+                <span className="settings-inline-help">{t('settings.backupWorkspaceHelp')}</span>
               </label>
             </div>
             <div className="settings-row">
@@ -841,6 +850,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   placeholder="Auto-generated if empty"
                   disabled={nodeBusy || !draftNodeBackup.adminEnabled}
                 />
+                <span className="settings-inline-help">{t('settings.backupAdminTokenFileHelp')}</span>
               </label>
               <label>
                 Jobs

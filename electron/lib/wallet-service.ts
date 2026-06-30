@@ -231,6 +231,14 @@ function walletNetwork(input?: WalletRpcInput): KoinosNetworkId {
   return normalizeKoinosNetworkId(input?.network)
 }
 
+function walletUnlockFailureMessage(error?: unknown): string {
+  const message = error instanceof Error ? error.message : `${error || ''}`
+  if (/unsupported state|authenticate data|bad decrypt|decrypt|auth/i.test(message)) {
+    return 'The password did not unlock the stored wallet, or the local wallet file could not be decrypted. Use recovery options in the Wallet tab if you need to replace it.'
+  }
+  return message || 'Could not unlock producer account'
+}
+
 export function createWalletService(deps: WalletServiceDeps) {
   function syncNonMainnetProducerRuntimeConfig(
     address: string,
@@ -752,7 +760,7 @@ export function createWalletService(deps: WalletServiceDeps) {
     } catch (error) {
       return {
         ok: false,
-        output: error instanceof Error ? error.message : 'Could not unlock producer account',
+        output: walletUnlockFailureMessage(error),
         walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
         unlocked: false
       }

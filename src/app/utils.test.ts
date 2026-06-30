@@ -11,6 +11,7 @@ import {
   formatKoinscanBlockUrl,
   loadInitialNodeSettings,
   mapBlockItem,
+  nativeBackupDefaultPaths,
   normalizeBackupTarGzUrl,
   normalizeDashboardProducerWindowBlocks,
   normalizeDashboardRefreshSeconds,
@@ -29,6 +30,7 @@ import {
   sameProfiles,
   sameStringList,
   storeNodeBaseDirForNetwork,
+  syncLocalBackupPathsToBaseDir,
   tryNormalizeHttpUrl
 } from './utils'
 
@@ -252,6 +254,43 @@ describe('node path and state helpers', () => {
       remoteDirectory: '',
       sshPrivateKeyFile: '',
       sshKnownHostsFile: ''
+    })
+  })
+
+  it('keeps expert local backup paths scoped to the selected BASEDIR', () => {
+    const oldDefaults = nativeBackupDefaultPaths('/tmp/koinos-one-old/basedir')
+    const next = syncLocalBackupPathsToBaseDir(
+      normalizeNodeBackupSettings({
+        localDirectory: oldDefaults.localDirectory,
+        workspace: oldDefaults.workspace,
+        adminTokenFile: oldDefaults.adminTokenFile,
+        remoteDirectory: '/srv/teleno-backups/prodnet/custom-node'
+      }),
+      '/mnt/koinos-one/basedir'
+    )
+
+    expect(next).toMatchObject({
+      localDirectory: '/mnt/koinos-one/basedir/.teleno-native-backups/repository',
+      workspace: '/mnt/koinos-one/basedir/.teleno-native-backups/workspace',
+      adminTokenFile: '/mnt/koinos-one/basedir/.teleno-native-backups/admin.token',
+      remoteDirectory: '/srv/teleno-backups/prodnet/custom-node'
+    })
+  })
+
+  it('does not rewrite custom expert local backup paths when BASEDIR changes', () => {
+    const next = syncLocalBackupPathsToBaseDir(
+      normalizeNodeBackupSettings({
+        localDirectory: '/srv/koinos-one-backups/custom-repository',
+        workspace: '/srv/koinos-one-backups/custom-workspace',
+        adminTokenFile: '/home/operator/.config/koinos-one/admin.token'
+      }),
+      '/mnt/koinos-one/basedir'
+    )
+
+    expect(next).toMatchObject({
+      localDirectory: '/srv/koinos-one-backups/custom-repository',
+      workspace: '/srv/koinos-one-backups/custom-workspace',
+      adminTokenFile: '/home/operator/.config/koinos-one/admin.token'
     })
   })
 

@@ -13,6 +13,14 @@ Koinos One is the Koinos Foundation desktop app for running, restoring, backing 
 - **Runtime model:** one local process with in-process Koinos components
 - **Platforms:** macOS first, Windows planned
 
+## Current Release Highlights
+
+- Public bootstrap restore now shows live download and staging progress, including file counts, byte progress, transfer rate, and restore phase.
+- In-progress restores can be stopped safely from the UI. A cancelled restore preserves staging data and never activates a partial database.
+- If a previous restore left a stale native staging directory, Koinos One reports the cause and can clear only the stale restore staging folder on retry.
+- Node and Wallet controls explain disabled states through tooltips, including unavailable logs, restart/stop actions, wallet registration, and account actions.
+- Settings treats the selected Base Data Folder as the default root for local native backup paths.
+
 ## Repository Layout
 
 The active node code and UX live in this repository. Legacy Koinos material remains only where it is needed for protocol compatibility evidence, migrations, or upstream references.

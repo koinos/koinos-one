@@ -190,7 +190,11 @@ async function installBackupBridge(
       output: 'mock status'
     }
     const calls: Array<{ name: string; payload: unknown }> = []
+    const backupProgressListeners: Array<(event: unknown) => void> = []
     const record = (name: string, payload: unknown) => calls.push({ name, payload })
+    const emitBackupProgress = (event: unknown) => {
+      for (const listener of backupProgressListeners) listener(event)
+    }
     const listResult = (source: 'local' | 'remote' | 'public') => {
       if (source === 'public') {
         if (scenario === 'loading') return new Promise(() => undefined)
@@ -300,10 +304,32 @@ async function installBackupBridge(
         },
         restoreNativeBackup: async (settings?: unknown) => {
           record('restoreNativeBackup', settings)
+          emitBackupProgress({
+            action: 'restore-backup',
+            phase: 'download',
+            progress: 42,
+            message: 'Downloading public bootstrap backup',
+            completedBytes: 8 * 1024 * 1024 * 1024,
+            totalBytes: 12 * 1024 * 1024 * 1024,
+            progressRangeStart: 25,
+            progressRangeEnd: 60
+          })
+          await new Promise((resolve) => setTimeout(resolve, 250))
           return { ok: true, action: 'restore-backup', output: 'mock restore kept observer-first', status }
         },
         restoreNativeBackupLatest: async (settings?: unknown) => {
           record('restoreNativeBackupLatest', settings)
+          emitBackupProgress({
+            action: 'restore-backup',
+            phase: 'download',
+            progress: 42,
+            message: 'Downloading public bootstrap backup',
+            completedBytes: 8 * 1024 * 1024 * 1024,
+            totalBytes: 12 * 1024 * 1024 * 1024,
+            progressRangeStart: 25,
+            progressRangeEnd: 60
+          })
+          await new Promise((resolve) => setTimeout(resolve, 250))
           return { ok: true, action: 'restore-backup', output: 'mock latest restore kept observer-first', status }
         },
         createBackup: async (settings?: unknown) => {
@@ -314,7 +340,10 @@ async function installBackupBridge(
           record('nativeBackupPurge', settings)
           return { ok: true, output: 'mock purge', backupId: (settings as { backupId?: string })?.backupId || '', source: (settings as { backupSource?: string })?.backupSource || 'local' }
         },
-        cancelCreateBackup: async () => ({ ok: true, output: '' }),
+        cancelCreateBackup: async () => {
+          record('cancelCreateBackup')
+          return { ok: true, output: '' }
+        },
         dashboardPerformance: async () => ({
           ok: true,
           output: '',
@@ -345,7 +374,13 @@ async function installBackupBridge(
         logsFollowStart: async () => ({ ok: true, streamId: 'mock' }),
         logsFollowStop: async () => ({ ok: true }),
         onLogsFollowEvent: () => () => undefined,
-        onBackupProgressEvent: () => () => undefined
+        onBackupProgressEvent: (listener: (event: unknown) => void) => {
+          backupProgressListeners.push(listener)
+          return () => {
+            const index = backupProgressListeners.indexOf(listener)
+            if (index >= 0) backupProgressListeners.splice(index, 1)
+          }
+        }
       },
       wallet: {
         overview: async () => ({ ok: true, output: '', walletExists: false, accounts: [], activeAccountId: null, producerAccountId: null }),
@@ -416,19 +451,28 @@ async function calls(page: Page) {
   return page.evaluate(() => (window as any).__telenoBackupTest?.calls ?? [])
 }
 
-test('simple mode is restore-first and blocks restore until public bootstrap preflight passes', async ({ page }, testInfo) => {
+test('simple mode is restore-first and does not auto-fetch the public bootstrap', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await installBackupBridge(page, { scenario: 'success', advanced: false, remoteEnabled: true, preflightDelayMs: 750 })
   await openNodeBackups(page)
 
   const simplePanel = page.locator('.node-backups-panel-simple')
-  await expect(simplePanel.getByText('Standard restore source')).toBeVisible()
-  await expect(simplePanel.getByText('Observer first')).toBeVisible()
-  await expect(simplePanel.getByText('This is the normal way to get a node running quickly.')).toBeVisible()
-  await expect(simplePanel.getByRole('button', { name: 'Restore Backup' })).toBeDisabled()
+  await expect(simplePanel.getByText('Public Backup Repository')).toBeVisible()
+  await expect(simplePanel.getByRole('button', { name: 'Check Repository' })).toHaveAttribute(
+    'title',
+    'Checks the public backup repository for the latest backup metadata and updates the size, date, and local space estimate. It does not download or restore backup data.'
+  )
+  await expect(simplePanel.getByText('Restore mode')).toHaveCount(0)
+  await expect(simplePanel.getByText('Observer first')).toHaveCount(0)
+  await expect(simplePanel.getByRole('button', { name: 'Choose data folder' })).toHaveCount(0)
+  await expect(simplePanel.locator('.node-backup-bootstrap-guide > div > span').filter({ hasText: /^Data folder$/ })).toHaveCount(0)
+  await expect(simplePanel.getByText('/tmp/teleno-ui-success-simple')).toHaveCount(0)
+  await expect(simplePanel.getByText('This is the normal way to get a node running quickly.')).toHaveCount(0)
   await expect(simplePanel.getByText('Local restore space: enough space.')).toBeVisible()
+  await expect(simplePanel.getByText('Latest backup date:', { exact: false })).toBeVisible()
   await expect(simplePanel.getByRole('button', { name: 'Restore Backup' })).toBeEnabled()
-  await expect(simplePanel.getByText('Additional backup management tools are available in Expert Mode.')).toBeVisible()
+  await expect(simplePanel.getByText('Additional backup management tools are available in Expert Mode.')).toHaveCount(0)
+  expect(await calls(page)).not.toContainEqual(expect.objectContaining({ name: 'nativeBackupRestorePreflight' }))
 
   await expect(simplePanel.getByText('Create Backup')).toHaveCount(0)
   await expect(simplePanel.getByText('Create Local Backup')).toHaveCount(0)
@@ -450,12 +494,33 @@ test('simple mode is restore-first and blocks restore until public bootstrap pre
   expect(await calls(page)).not.toContainEqual(expect.objectContaining({ name: 'restoreNativeBackup' }))
 })
 
+test('simple mode shows the restore progress bar during public bootstrap restore', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await installBackupBridge(page, { scenario: 'success', advanced: false, remoteEnabled: true })
+  await openNodeBackups(page)
+
+  const simplePanel = page.locator('.node-backups-panel-simple')
+  page.once('dialog', async (dialog) => {
+    await dialog.accept()
+  })
+  await simplePanel.getByRole('button', { name: 'Restore Backup' }).click()
+
+  await expect(simplePanel.locator('.node-backup-progress')).toBeVisible()
+  await expect(simplePanel.getByText('Downloading public bootstrap backup')).toBeVisible()
+  await expect(simplePanel.getByText('42%')).toBeVisible()
+  await expect(simplePanel.getByRole('button', { name: 'Stop restore' })).toBeVisible()
+  await simplePanel.getByRole('button', { name: 'Stop restore' }).click()
+  await expect.poll(() => calls(page)).toContainEqual(expect.objectContaining({ name: 'restoreNativeBackup' }))
+  await expect.poll(() => calls(page)).toContainEqual(expect.objectContaining({ name: 'cancelCreateBackup' }))
+  await captureNodePanel(page, testInfo, 'simple-restore-progress-desktop')
+})
+
 test('simple mode handles loading, empty, and error states with disabled restore', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 1180 })
 
   await installBackupBridge(page, { scenario: 'loading', advanced: false })
   await openNodeBackups(page)
-  await expect(page.getByRole('button', { name: 'Checking restore source...' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Checking repository...' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Restore Backup' })).toBeDisabled()
   await captureNodePanel(page, testInfo, 'simple-loading-mobile')
 
@@ -479,10 +544,12 @@ test('simple mode Spanish copy remains restore-first and hides expert concepts',
 
   const simplePanel = page.locator('.node-backups-panel-simple')
   await expect(simplePanel.getByRole('button', { name: 'Restaurar backup' })).toBeEnabled()
-  await expect(simplePanel.getByText('Origen estandar de restauracion')).toBeVisible()
-  await expect(simplePanel.getByText('Observador primero')).toBeVisible()
-  await expect(simplePanel.getByText('Esta es la forma normal de poner un nodo en marcha rapidamente.')).toBeVisible()
-  await expect(simplePanel.getByText('Hay herramientas adicionales de gestion de backups en el modo experto.')).toBeVisible()
+  await expect(simplePanel.getByText('Repositorio publico de backups')).toBeVisible()
+  await expect(simplePanel.getByText('Modo de restauracion')).toHaveCount(0)
+  await expect(simplePanel.getByText('Observador primero')).toHaveCount(0)
+  await expect(simplePanel.getByText('Fecha del ultimo backup:', { exact: false })).toBeVisible()
+  await expect(simplePanel.getByText('Esta es la forma normal de poner un nodo en marcha rapidamente.')).toHaveCount(0)
+  await expect(simplePanel.getByText('Hay herramientas adicionales de gestion de backups en el modo experto.')).toHaveCount(0)
   await expect(simplePanel.getByText('SFTP')).toHaveCount(0)
   await expect(simplePanel.getByText('admin')).toHaveCount(0)
   await capture(page, testInfo, 'simple-spanish-desktop')

@@ -6,6 +6,11 @@ type WalletLockedStateProps = {
   unlockWalletAccount: () => void
   hasWalletControls: boolean
   walletActionLoading: string | null
+  showRecovery: boolean
+  onImportWif: () => void
+  onImportSeed: () => void
+  onCreateWallet: () => void
+  onDeleteWallet: () => void
 }
 
 export function WalletLockedState(props: WalletLockedStateProps) {
@@ -16,13 +21,24 @@ export function WalletLockedState(props: WalletLockedStateProps) {
     setWalletUnlockPassword,
     unlockWalletAccount,
     hasWalletControls,
-    walletActionLoading
+    walletActionLoading,
+    showRecovery,
+    onImportWif,
+    onImportSeed,
+    onCreateWallet,
+    onDeleteWallet
   } = props
 
   const accountCount = walletOverview?.accountCount || 0
   const vaultSummary = walletOverview?.hasSeedPhrase
     ? t('wallet.lockedSeedBackedSummary', { count: accountCount })
     : t('wallet.lockedWifSummary', { count: accountCount })
+  const isBusy = walletActionLoading !== null
+  const disabledTitle = !hasWalletControls
+    ? t('wallet.disabledTooltip.electronOnly')
+    : isBusy
+      ? t('wallet.disabledTooltip.busy')
+      : undefined
 
   return (
     <div className="wallet-card-grid wallet-card-grid-locked">
@@ -50,11 +66,36 @@ export function WalletLockedState(props: WalletLockedStateProps) {
           type="button"
           className="primary-button wallet-unlock-button"
           onClick={unlockWalletAccount}
-          disabled={!hasWalletControls || walletActionLoading !== null}
+          disabled={!hasWalletControls || isBusy}
+          title={disabledTitle}
         >
           {walletActionLoading === 'wallet-unlock' ? t('common.loading') : t('wallet.unlockAction')}
         </button>
       </article>
+
+      {showRecovery && (
+        <article className="wallet-card wallet-card-recovery">
+          <h3>{t('wallet.lockedRecoveryTitle')}</h3>
+          <p>{t('wallet.lockedRecoveryDescription')}</p>
+          <div className="wallet-inline-actions">
+            <button type="button" className="ghost-button" onClick={onImportWif} disabled={!hasWalletControls || isBusy} title={disabledTitle}>
+              {t('wallet.importKeyAction')}
+            </button>
+            <button type="button" className="ghost-button" onClick={onImportSeed} disabled={!hasWalletControls || isBusy} title={disabledTitle}>
+              {t('wallet.importSeedAction')}
+            </button>
+            <button type="button" className="ghost-button" onClick={onCreateWallet} disabled={!hasWalletControls || isBusy} title={disabledTitle}>
+              {t('wallet.createAction')}
+            </button>
+          </div>
+          <div className="node-warning wallet-recovery-warning" role="note">
+            {t('wallet.lockedRecoveryDeleteWarning')}
+          </div>
+          <button type="button" className="danger-button wallet-recovery-delete" onClick={onDeleteWallet} disabled={!hasWalletControls || isBusy} title={disabledTitle}>
+            {t('wallet.deleteAction')}
+          </button>
+        </article>
+      )}
     </div>
   )
 }

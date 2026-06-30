@@ -222,6 +222,41 @@ export function joinDisplayPath(basePath: string, childPath: string): string {
   return `${base}/${child}`
 }
 
+export function nativeBackupDefaultPaths(baseDir: string): Pick<NodeBackupSettings, 'localDirectory' | 'workspace' | 'adminTokenFile'> {
+  const normalizedBaseDir = normalizeNodeBaseDirInput(baseDir)
+  const root = joinDisplayPath(normalizedBaseDir, '.teleno-native-backups')
+  return {
+    localDirectory: joinDisplayPath(root, 'repository'),
+    workspace: joinDisplayPath(root, 'workspace'),
+    adminTokenFile: joinDisplayPath(root, 'admin.token')
+  }
+}
+
+function normalizeBackupPathForDefaultMatch(value: string): string {
+  return value.trim().replace(/[\\/]+$/, '').replace(/\\/g, '/')
+}
+
+function shouldUseBaseDirBackupDefault(value: string, suffix: string): boolean {
+  const normalized = normalizeBackupPathForDefaultMatch(value)
+  return !normalized || normalized.endsWith(`/.teleno-native-backups/${suffix}`)
+}
+
+export function syncLocalBackupPathsToBaseDir(backup: NodeBackupSettings, baseDir: string): NodeBackupSettings {
+  const defaults = nativeBackupDefaultPaths(baseDir)
+  return {
+    ...backup,
+    localDirectory: shouldUseBaseDirBackupDefault(backup.localDirectory, 'repository')
+      ? defaults.localDirectory
+      : backup.localDirectory,
+    workspace: shouldUseBaseDirBackupDefault(backup.workspace, 'workspace')
+      ? defaults.workspace
+      : backup.workspace,
+    adminTokenFile: shouldUseBaseDirBackupDefault(backup.adminTokenFile, 'admin.token')
+      ? defaults.adminTokenFile
+      : backup.adminTokenFile
+  }
+}
+
 export function resolveNodeFileDisplayPath(repoPath: string, filePathValue: string): string {
   const raw = filePathValue.trim()
   if (!raw) return ''
@@ -532,7 +567,7 @@ function normalizeInitialNodeSettings(
       typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
         ? parsed.blockchainBackupUrl
         : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
-    backup: normalizeNodeBackupSettings(parsed.backup)
+    backup: syncLocalBackupPathsToBaseDir(normalizeNodeBackupSettings(parsed.backup), baseDir)
   }
 }
 

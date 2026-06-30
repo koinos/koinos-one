@@ -106,8 +106,7 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
     dashboardPerformance,
     dashboardPerformanceLoading,
     formError,
-    nodeBackupProgress,
-    openSettings
+    nodeBackupProgress
   } = props
 
   const backupSettings = nodeSettings.backup ?? {}
@@ -222,11 +221,31 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
           eta: backupEta || 'N/A'
         })
     : t('node.backupWaitingTransferSample')
+  const backupLiveTransferLabel = nodeBackupProgress?.phase === 'restore'
+    ? t('node.backupLiveRestore')
+    : nodeBackupProgress?.phase === 'upload'
+      ? t('node.backupLiveUpload')
+      : t('node.backupLiveDownload')
   const backupLiveTransferVisible = Boolean(
     nodeBackupProgress &&
     nodeBackupProgress.phase !== 'error' &&
+    nodeBackupProgress.phase !== 'cancelled' &&
     nodeBackupProgress.phase !== 'complete'
   )
+  const backupProgressCancelable = Boolean(
+    hasNodeControls &&
+    nodeBackupProgress &&
+    nodeBackupProgress.phase !== 'error' &&
+    nodeBackupProgress.phase !== 'cancelled' &&
+    nodeBackupProgress.phase !== 'complete' &&
+    (nodeBackupProgress.action === 'create-backup' || nodeBackupProgress.action === 'restore-backup')
+  )
+  const backupCancelLabel = nodeBackupProgress?.action === 'restore-backup'
+    ? t('node.cancelRestore')
+    : t('node.cancelBackup')
+  const backupCancelTitle = nodeBackupProgress?.action === 'restore-backup'
+    ? t('node.cancelRestoreTooltip')
+    : t('node.cancelBackupTooltip')
   const renderNativeBackupSnapshots = (
     snapshots: TelenoNodeNativeBackupSnapshot[],
     sourceLabel: BackupSourceLabel,
@@ -344,7 +363,19 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
                 ? t('node.backupProgress.restore')
                 : t('node.backupProgress.verify')}
           </h3>
-          <span>{backupProgressPercentLabel}%</span>
+          <div className="node-backup-progress-header-actions">
+            <span>{backupProgressPercentLabel}%</span>
+            {backupProgressCancelable && (
+              <button
+                type="button"
+                className="ghost-button danger-button node-backup-cancel-button"
+                onClick={() => { void runCancelBackup() }}
+                title={backupCancelTitle}
+              >
+                {backupCancelLabel}
+              </button>
+            )}
+          </div>
         </div>
         <p className="node-backup-progress-text">{nodeBackupProgress.message}</p>
         <div className="node-backup-progress-bar" aria-hidden="true">
@@ -356,7 +387,7 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
         {backupLiveTransferVisible && (
           <p className="node-backup-progress-live">
             <span className="first-run-restore-live-dot" aria-hidden="true" />
-            <span>{t('node.backupLiveDownload')}</span>
+            <span>{backupLiveTransferLabel}</span>
             <strong>{backupLiveTransferDetail}</strong>
           </p>
         )}
@@ -409,11 +440,19 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
       nodeNativeBackupPreflight?.backupId === restoreSnapshot.backupId &&
       selectedNativeBackupId === backupSelectionValue(restoreSource, restoreSnapshot.backupId)
     )
-    const restoreAvailableBytes = restorePreflightMatches ? nodeNativeBackupPreflight?.spaceCheck.availableBytes : null
+    const estimatedAvailableBytes = dashboardPerformance?.host.freeDiskBytes ?? null
     const restoreNeededBytes = restorePreflightMatches
       ? nodeNativeBackupPreflight?.restoreSpace.minimumTargetFreeBytes
       : restoreSnapshot?.restoreSpace.minimumTargetFreeBytes
-    const restorePasses = restorePreflightMatches ? nodeNativeBackupPreflight?.spaceCheck.passesMinimum === true : null
+    const estimatedRestorePasses = estimatedAvailableBytes !== null && restoreNeededBytes !== null && restoreNeededBytes !== undefined
+      ? estimatedAvailableBytes >= restoreNeededBytes
+      : null
+    const restoreAvailableBytes = restorePreflightMatches
+      ? nodeNativeBackupPreflight?.spaceCheck.availableBytes
+      : estimatedAvailableBytes
+    const restorePasses = restorePreflightMatches
+      ? nodeNativeBackupPreflight?.spaceCheck.passesMinimum === true
+      : estimatedRestorePasses
     const restoreLoading = (restoreSource === 'remote'
       ? nodeNativeBackupRemoteListLoading
       : restoreSource === 'public'
@@ -421,7 +460,9 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
         : nodeNativeBackupLocalListLoading) ||
       nodeNativeBackupPreflightLoading
     const restoreSelection = backupSelectionValue(restoreSource, restoreSnapshot?.backupId || 'latest')
-    const restoreVerified = Boolean(restorePreflightMatches && nodeNativeBackupPreflight?.readyToRestore === true)
+    const restoreReady = restorePreflightMatches
+      ? nodeNativeBackupPreflight?.readyToRestore === true
+      : restorePasses !== false
     const simpleRestoreDisabled =
       !hasNodeControls ||
       nodeBusy ||
@@ -429,7 +470,7 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
       nodeRestoreNativeBackupLoading ||
       restoreLoading ||
       !restoreSnapshot ||
-      !restoreVerified ||
+      !restoreReady ||
       Boolean(restoreListError) ||
       (restoreSource === 'public' && !publicBootstrapAllowed)
 
@@ -437,26 +478,10 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
       <div className="node-backups-panel node-backups-panel-simple">
         <section className="node-backup-bootstrap-guide">
           <div>
-            <span>{t('node.backupSimpleDataFolder')}</span>
-            <strong className="mono" title={activeBaseDir || t('common.na')}>{activeBaseDir || t('common.na')}</strong>
-          </div>
-          <div>
             <span>{t('node.backupSimpleBootstrapSource')}</span>
             <strong className="mono" title={publicBootstrapTarget}>{publicBootstrapTarget}</strong>
           </div>
-          <div>
-            <span>{t('node.backupSimpleRestoreMode')}</span>
-            <strong>{t('node.backupSimpleObserverFirst')}</strong>
-          </div>
           <div className="node-backup-bootstrap-guide-actions">
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => { if (typeof openSettings === 'function') openSettings() }}
-              disabled={nodeBusy || typeof openSettings !== 'function'}
-            >
-              {t('node.backupChooseDataFolder')}
-            </button>
             <button
               type="button"
               className="ghost-button"
@@ -469,17 +494,12 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
                   void runNativeBackupList()
                 }
               }}
-              disabled={!hasNodeControls || nodeBusy || settingsDirty || restoreLoading || (restoreSource === 'public' && !publicBootstrapAllowed)}
+              disabled={!hasNodeControls || settingsDirty || restoreLoading || nodeRestoreNativeBackupLoading || (restoreSource === 'public' && !publicBootstrapAllowed)}
+              title={t('node.backupCheckRepositoryHelp')}
             >
               {restoreLoading ? t('node.backupCheckingBootstrap') : t('node.backupCheckBootstrap')}
             </button>
           </div>
-          <p className="settings-inline-help">
-            {publicBootstrapDescription}
-          </p>
-          <p className="settings-inline-help">
-            {t('node.backupSimpleDescription')}
-          </p>
         </section>
         <div className="node-backup-simple-actions">
           <div className="node-backup-simple-action-card">
@@ -505,6 +525,11 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
                       size: formatBytes(restoreSnapshot.totalBytes, locale)
                     })}
                   </p>
+                  <p className="settings-inline-help">
+                    {t('node.backupSimpleLatestDate', {
+                      date: formatBackupTimestamp(restoreSnapshot.createdAt, restoreSnapshot.backupId)
+                    })}
+                  </p>
                   <p className={`settings-inline-help ${spaceStatusClass(restorePasses, restoreLoading)}`.trim()}>
                     {t('node.backupSimpleRestoreSpace', {
                       status: restorePasses === true
@@ -528,11 +553,8 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
             </div>
           </div>
         </div>
-        <p className="settings-inline-help">
-          {t('node.backupSimpleAdvancedHint')}
-        </p>
-        {formError && <p className="form-error" role="alert">{formError}</p>}
         {renderBackupProgress()}
+        {formError && <p className="form-error" role="alert">{formError}</p>}
       </div>
     )
   }
@@ -621,11 +643,12 @@ export function NodeBackupsPanel(props: NodeBackupsPanelProps) {
             </div>
           </div>
         </div>
-        {nodeCreateBackupLoading && (
+        {nodeCreateBackupLoading && !nodeBackupProgress && (
           <button
             type="button"
             className="ghost-button danger-button node-backup-cancel-button"
             onClick={() => { void runCancelBackup() }}
+            title={t('node.cancelBackupTooltip')}
           >
             {t('node.cancelBackup')}
           </button>

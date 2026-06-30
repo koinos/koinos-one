@@ -716,6 +716,7 @@ export type TelenoNodeBackupProgressPhase =
   | 'start'
   | 'verify'
   | 'complete'
+  | 'cancelled'
   | 'error'
 
 export type TelenoNodeBackupProgressEvent = {

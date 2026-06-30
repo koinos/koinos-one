@@ -11,6 +11,11 @@ type WalletPortfolioTabProps = {
 
 export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
   const { t, nativeTokenSymbol, walletBalance, activeWalletCanSign, isBusy, onOpenSend, onOpenBurn, onOpenImportWif } = props
+  const signingActionTitle = isBusy
+    ? t('wallet.disabledTooltip.busy')
+    : !activeWalletCanSign
+      ? t('wallet.watchOnlyCannotSign')
+      : undefined
 
   return (
     <div className="wallet-subpanel">
@@ -30,17 +35,17 @@ export function WalletPortfolioTab(props: WalletPortfolioTabProps) {
           </div>
         </div>
         <div className="wallet-portfolio-actions">
-          <button type="button" className="primary-button" onClick={onOpenSend} disabled={isBusy || !activeWalletCanSign}>
-            Send
+          <button type="button" className="primary-button" onClick={onOpenSend} disabled={isBusy || !activeWalletCanSign} title={signingActionTitle}>
+            {t('wallet.transferAction')}
           </button>
-          <button type="button" className="ghost-button" onClick={onOpenBurn} disabled={isBusy || !activeWalletCanSign}>
+          <button type="button" className="ghost-button" onClick={onOpenBurn} disabled={isBusy || !activeWalletCanSign} title={signingActionTitle}>
             {t('wallet.burnAction')}
           </button>
         </div>
         {!activeWalletCanSign && (
           <div className="node-warning" role="note">
             <span>{t('wallet.watchOnlyCannotSign')}</span>
-            <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={isBusy}>
+            <button type="button" className="ghost-button" onClick={onOpenImportWif} disabled={isBusy} title={isBusy ? t('wallet.disabledTooltip.busy') : undefined}>
               {t('wallet.importSigningKeyAction')}
             </button>
           </div>
