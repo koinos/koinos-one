@@ -107,4 +107,26 @@ describe('workspace-service', () => {
     expect(output).toContain('jsonrpc/descriptors/koinos_descriptors.pb')
     expect(fs.existsSync(path.join(repoPath, 'config'))).toBe(false)
   })
+
+  it('reports existing local node database evidence during BASEDIR validation', () => {
+    const repoPath = makeTempDir()
+    const baseDir = path.join(repoPath, 'basedir')
+    fs.mkdirSync(path.join(baseDir, 'chain', 'blockchain'), { recursive: true })
+    fs.writeFileSync(path.join(baseDir, 'chain', 'blockchain', '000001.sst'), 'block data')
+
+    const service = createService()
+    const result = service.validateNodeBaseDirAccess(
+      normalizeNodeSettings({
+        repoPath,
+        baseDir
+      })
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.localCopy?.detected).toBe(true)
+    expect(result.localCopy?.evidence).toContain('chain/blockchain')
+    expect(result.localCopy?.totalBytes).toBeGreaterThan(0)
+    expect(result.localCopy?.newestModifiedMs).toBeGreaterThan(0)
+    expect(result.output).toContain('existing local node data detected')
+  })
 })

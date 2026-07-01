@@ -614,7 +614,17 @@ declare global {
     path: string
     restoreWorkspaceParent: string
     writable: boolean
+    localCopy?: TelenoNodeBaseDirLocalCopy
     output: string
+  }
+
+  type TelenoNodeBaseDirLocalCopy = {
+    detected: boolean
+    evidence: string[]
+    newestModifiedMs: number | null
+    totalBytes: number | null
+    scannedEntries: number
+    truncated: boolean
   }
 
   type TelenoNodeValidateBaseDirResult = {
@@ -622,6 +632,7 @@ declare global {
     baseDir: string
     restoreWorkspaceParent: string
     writable: boolean
+    localCopy?: TelenoNodeBaseDirLocalCopy
     output: string
   }
 

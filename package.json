@@ -1,6 +1,6 @@
 {
   "name": "koinos-one",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Koinos One desktop app powered by the native monolithic Koinos node (Electron + React + TypeScript)",
   "author": "pgarciagon",

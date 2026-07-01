@@ -651,7 +651,17 @@ export type TelenoNodeSelectDirectoryResult = {
   path: string
   restoreWorkspaceParent: string
   writable: boolean
+  localCopy?: TelenoNodeBaseDirLocalCopy
   output: string
+}
+
+export type TelenoNodeBaseDirLocalCopy = {
+  detected: boolean
+  evidence: string[]
+  newestModifiedMs: number | null
+  totalBytes: number | null
+  scannedEntries: number
+  truncated: boolean
 }
 
 export type TelenoNodeValidateBaseDirResult = {
@@ -659,6 +669,7 @@ export type TelenoNodeValidateBaseDirResult = {
   baseDir: string
   restoreWorkspaceParent: string
   writable: boolean
+  localCopy?: TelenoNodeBaseDirLocalCopy
   output: string
 }
 

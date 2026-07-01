@@ -2224,6 +2224,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           path: validation.baseDir,
           restoreWorkspaceParent: validation.restoreWorkspaceParent,
           writable: false,
+          localCopy: validation.localCopy,
           output: validation.output
         }
       }
@@ -2234,6 +2235,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         path: selectedPath,
         restoreWorkspaceParent: validation.restoreWorkspaceParent,
         writable: true,
+        localCopy: validation.localCopy,
         output: `BASEDIR seleccionado: ${selectedPath} · restore temporal en ${validation.restoreWorkspaceParent}`
       }
     } catch (error) {

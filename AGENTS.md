@@ -154,6 +154,30 @@ non-packaged/dev runtime, keep the assistant closed and show the normal app.
 The assistant is observer-only. It launches an observer node and must not
 configure, register, fund, or activate a producer.
 
+When the user selects a data folder that already contains local node database
+data, the assistant must explain that local copy before restoring a public
+backup. Offer a simple choice to keep the local copy and skip public backup
+restore, compare the best available local age evidence with the public backup
+age, and preserve the existing database unless the user explicitly chooses a
+restore.
+
+Keep the assistant simple and guided. Do not show raw command output, JSON
+payloads, wallet action result dumps, expert logs, or debug panels inside the
+first-run assistant. Reuse underlying wallet, restore, and node functions where
+useful, but adapt their presentation to compact human states such as ready,
+working, failed, or next action.
+
+When the assistant wallet step already has an unlocked wallet, show an explicit
+choice instead of a passive ready-only state: keep the current wallet, create a
+new wallet, or import an existing wallet. This matters when a user goes back
+from later setup steps and wants to reconsider the wallet created earlier.
+
+The restore step must explain both trust paths: restoring the public backup is
+the fastest way to prepare an observer, while skipping restore starts from an
+empty chain database and syncs from seed peers. The seed-peer path is slower but
+must remain available as the safest option for users who do not want to trust a
+backup.
+
 ## Versioning And Build Identity Guardrail
 
 Every packaged Koinos One app build must have a traceable build identity:
@@ -177,6 +201,21 @@ as required release work, not optional cleanup:
   verification before tagging or publishing;
 - only create/push a release tag and GitHub release after the version,
   changelog, manual changelog, and package artifacts match.
+
+After a release has been created, start the next user-facing feature track on a
+feature branch instead of continuing directly on `main`. Pick the next intended
+SemVer version for that branch early, keep `CHANGELOG.md` updated under that
+version while the feature evolves, and keep related documentation current in the
+same branch. For the assistant feature track, this means first-run assistant
+changes, changelog entries, manual pages, tests, and UI footer/version-link
+behavior should advance together on the feature branch.
+
+When the user says to release that feature branch, interpret it as the full
+release workflow: finish the changelog section with the release date, update the
+manual changelog and affected documentation, ensure the bottom/footer version
+link opens the changelog section for the released version, merge the feature
+branch into `main`, run the required verification, create the release tag, build
+and publish the release artifacts, and only then report the release as done.
 
 ## Mainnet Safety Guardrails
 

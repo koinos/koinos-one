@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import type { NodeBackupProgressState } from '../../app/types'
-import { formatBytes } from '../../app/utils'
+import type { HeadSnapshot, NodeBackupProgressState, NodeBaseDirLocalCopyState } from '../../app/types'
+import { formatBytes, formatDateTime, formatRelativeAge } from '../../app/utils'
 import { NodeBackupProgressPanel } from './NodeBackupProgressPanel'
 
 type FirstRunNetwork = 'mainnet' | 'testnet'
@@ -27,6 +27,8 @@ type FirstRunSetupModalProps = {
   publicBootstrapList: any
   publicBootstrapListLoading: boolean
   publicBootstrapRestoreLoading: boolean
+  baseDirLocalCopy?: NodeBaseDirLocalCopyState | null
+  localChainHead?: HeadSnapshot | null
   nodeActionLoading: string | null
   nodeRunning: boolean
   syncStatusClass: string
@@ -36,6 +38,7 @@ type FirstRunSetupModalProps = {
   syncStatusPercent: number | null
   nodeBackupProgress: NodeBackupProgressState | null
   walletSetupContent?: ReactNode
+  walletReady?: boolean
   selectNetwork: (network: FirstRunNetwork) => void
   chooseDataFolder: () => Promise<boolean>
   saveSettings: () => Promise<boolean>
@@ -138,6 +141,45 @@ function latestPublicBackupSnapshot(publicBootstrapList: any, latestPublicBackup
   return snapshots.find((snapshot: any) => snapshot?.latest) ?? snapshots[0] ?? null
 }
 
+function parseTimestampMs(rawValue?: string, fallbackValue?: string): number {
+  const rawCreatedAt = rawValue?.trim()
+  const isoMs = rawCreatedAt ? Date.parse(rawCreatedAt) : Number.NaN
+  if (Number.isFinite(isoMs)) return isoMs
+
+  const compactTimestamp = rawCreatedAt || fallbackValue || ''
+  const match = compactTimestamp.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/)
+  if (!match) return 0
+
+  const [, year, month, day, hour, minute, second] = match
+  return Date.UTC(
+    Number.parseInt(year, 10),
+    Number.parseInt(month, 10) - 1,
+    Number.parseInt(day, 10),
+    Number.parseInt(hour, 10),
+    Number.parseInt(minute, 10),
+    Number.parseInt(second, 10)
+  )
+}
+
+function publicBackupTimestampMs(snapshot: any): number {
+  if (!snapshot) return 0
+  return parseTimestampMs(
+    snapshot.sourceCreatedAt || snapshot.createdAt || snapshot.promotedAt,
+    snapshot.backupId
+  )
+}
+
+function formatDurationMs(valueMs: number): string {
+  const diffSec = Math.max(0, Math.floor(valueMs / 1000))
+  if (diffSec < 60) return `${diffSec}s`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m`
+  const diffHours = Math.floor(diffMin / 60)
+  if (diffHours < 24) return `${diffHours}h`
+  const diffDays = Math.floor(diffHours / 24)
+  return `${diffDays}d`
+}
+
 export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const {
     locale,
@@ -151,6 +193,8 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     publicBootstrapList,
     publicBootstrapListLoading,
     publicBootstrapRestoreLoading,
+    baseDirLocalCopy,
+    localChainHead,
     nodeActionLoading,
     nodeRunning,
     syncStatusClass,
@@ -160,6 +204,7 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     syncStatusPercent,
     nodeBackupProgress,
     walletSetupContent,
+    walletReady = false,
     selectNetwork,
     chooseDataFolder,
     saveSettings,
@@ -186,6 +231,47 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const progressPercent = Math.round((stepNumber / SETUP_STEPS.length) * 100)
   const latestPublicBackupId = publicBootstrapList?.latestBackupId || ''
   const latestPublicBackup = latestPublicBackupSnapshot(publicBootstrapList, latestPublicBackupId)
+  const nowMs = Date.now()
+  const localCopyDetected = Boolean(baseDirLocalCopy?.detected || localChainHead)
+  const localCopyTimestamp = localChainHead?.timestampMs || baseDirLocalCopy?.newestModifiedMs || 0
+  const latestPublicBackupTimestamp = publicBackupTimestampMs(latestPublicBackup)
+  const localCopyEvidence = baseDirLocalCopy?.evidence?.length ? baseDirLocalCopy.evidence.join(', ') : t('firstRun.restore.localCopyEvidenceUnknown')
+  const localCopyMeta = localChainHead
+    ? t('firstRun.restore.localCopyLiveMeta', {
+        height: localChainHead.height.toLocaleString(locale),
+        time: formatDateTime(localChainHead.timestampMs, locale, t('common.na')),
+        age: formatRelativeAge(localChainHead.timestampMs, nowMs)
+      })
+    : localCopyTimestamp > 0
+      ? t('firstRun.restore.localCopyFileMeta', {
+          time: formatDateTime(localCopyTimestamp, locale, t('common.na')),
+          age: formatRelativeAge(localCopyTimestamp, nowMs),
+          size: formatBytes(baseDirLocalCopy?.totalBytes, locale)
+        })
+      : t('firstRun.restore.localCopyUnknownMeta', { evidence: localCopyEvidence })
+  const publicBackupHeadSuffix = latestPublicBackup?.sourceHeadHeight > 0
+    ? t('firstRun.restore.publicBackupHeadSuffix', {
+        height: Number(latestPublicBackup.sourceHeadHeight).toLocaleString(locale)
+      })
+    : ''
+  const publicBackupMeta = latestPublicBackupTimestamp > 0
+    ? t('firstRun.restore.publicBackupMeta', {
+        time: formatDateTime(latestPublicBackupTimestamp, locale, t('common.na')),
+        age: formatRelativeAge(latestPublicBackupTimestamp, nowMs),
+        head: publicBackupHeadSuffix
+      })
+    : t('firstRun.restore.publicBackupUnknownMeta')
+  const localCopyAgeComparison = localCopyTimestamp > 0 && latestPublicBackupTimestamp > 0
+    ? latestPublicBackupTimestamp - localCopyTimestamp > 60000
+      ? t('firstRun.restore.publicBackupNewer', {
+          age: formatDurationMs(latestPublicBackupTimestamp - localCopyTimestamp)
+        })
+      : localCopyTimestamp - latestPublicBackupTimestamp > 60000
+        ? t('firstRun.restore.localCopyNewer', {
+            age: formatDurationMs(localCopyTimestamp - latestPublicBackupTimestamp)
+          })
+        : t('firstRun.restore.localCopySimilarAge')
+    : t('firstRun.restore.localCopyUnknownComparison')
   const publicBackupSizeBytes = positiveBytes(latestPublicBackup?.totalBytes)
   const publicRestoreMinimumBytes = positiveBytes(latestPublicBackup?.restoreSpace?.minimumTargetFreeBytes)
   const publicRestoreRecommendedBytes = positiveBytes(latestPublicBackup?.restoreSpace?.recommendedTargetFreeBytes)
@@ -332,7 +418,19 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     }
 
     setSetupNotice(publicBootstrapUnavailableMessage(t))
-    setSetupStep('start')
+    setStep('start')
+  }
+
+  const handleSkipRestore = () => {
+    setSetupError(null)
+    setSetupNotice(t('firstRun.restore.skipNotice'))
+    setStep('start')
+  }
+
+  const handleUseLocalCopy = () => {
+    setSetupError(null)
+    setSetupNotice(t('firstRun.restore.localCopyNotice'))
+    setStep('start')
   }
 
   const handlePrevious = () => {
@@ -505,10 +603,14 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
 
           {step === 'wallet' && (
             <div className="first-run-setup-panel">
-              <h4>{t('firstRun.wallet.question')}</h4>
-              <p className="conflict-modal-copy">
-                {t('firstRun.wallet.description')}
-              </p>
+              {!walletReady && (
+                <>
+                  <h4>{t('firstRun.wallet.question')}</h4>
+                  <p className="conflict-modal-copy">
+                    {t('firstRun.wallet.description')}
+                  </p>
+                </>
+              )}
               {walletSetupContent || (
                 <div className="node-warning" role="note">
                   {t('firstRun.wallet.unavailable')}
@@ -530,7 +632,9 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
 
           {step === 'restore' && (
             <div className="first-run-setup-panel">
-              <h4>{t('firstRun.restore.question')}</h4>
+              {!localCopyDetected && (
+                <h4>{t('firstRun.restore.question')}</h4>
+              )}
               <section className="first-run-restore-card" aria-live="polite">
                 <div className="first-run-restore-meta first-run-restore-url">
                   <span>{t('firstRun.summary.publicBackupUrl')}</span>
@@ -549,32 +653,67 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
                   />
                 )}
 
-                {!publicRestoreInProgress && bootstrapAvailabilityState === 'checking' && (
+                {!publicRestoreInProgress && (
                   <>
-                    <h4>{t('firstRun.status.bootstrapChecking')}</h4>
-                    <p>{t('firstRun.restore.checkingDescription', { network: currentNetworkLabel })}</p>
-                    <div className="first-run-restore-status">
-                      <span className="status-dot" aria-hidden="true" />
-                      <strong>{publicBootstrapListLoading ? t('firstRun.status.bootstrapChecking') : t('firstRun.status.bootstrapPreparing')}</strong>
-                    </div>
-                  </>
-                )}
+                    {localCopyDetected && (
+                      <div className="first-run-local-copy-card">
+                        <div>
+                          <h4>{t('firstRun.restore.localCopyTitle')}</h4>
+                          <p>{t('firstRun.restore.localCopyDescription')}</p>
+                        </div>
+                        <div className="first-run-local-copy-grid">
+                          <div className="first-run-restore-meta">
+                            <span>{t('firstRun.restore.localCopyLabel')}</span>
+                            <strong>{localCopyMeta}</strong>
+                          </div>
+                          <div className="first-run-restore-meta">
+                            <span>{t('firstRun.restore.publicBackupLabel')}</span>
+                            <strong>{publicBackupMeta}</strong>
+                          </div>
+                        </div>
+                        <p className="first-run-local-copy-comparison">{localCopyAgeComparison}</p>
+                      </div>
+                    )}
 
-                {!publicRestoreInProgress && bootstrapAvailabilityState === 'unavailable' && (
-                  <>
-                    <h4>{t('firstRun.status.bootstrapUnavailable')}</h4>
-                    <p>{publicBootstrapUnavailableMessage(t)}</p>
-                  </>
-                )}
+                    {!localCopyDetected && (
+                      <div className="first-run-restore-choice-grid">
+                        <div>
+                          {bootstrapAvailabilityState === 'checking' && (
+                            <>
+                              <h4>{t('firstRun.status.bootstrapChecking')}</h4>
+                              <p>{t('firstRun.restore.checkingDescription', { network: currentNetworkLabel })}</p>
+                              <div className="first-run-restore-status">
+                                <span className="status-dot" aria-hidden="true" />
+                                <strong>{publicBootstrapListLoading ? t('firstRun.status.bootstrapChecking') : t('firstRun.status.bootstrapPreparing')}</strong>
+                              </div>
+                            </>
+                          )}
 
-                {!publicRestoreInProgress && bootstrapAvailabilityState === 'available' && (
-                  <>
-                    <h4>{t('firstRun.status.bootstrapAvailable')}</h4>
-                    <p>{t('firstRun.restore.availableDescription')}</p>
-                    <div className="first-run-restore-meta">
-                      <span>{t('firstRun.summary.latestSnapshot')}</span>
-                      <strong>{shortStatus(latestPublicBackupId, t('firstRun.empty.notSet'))}</strong>
-                    </div>
+                          {bootstrapAvailabilityState === 'unavailable' && (
+                            <>
+                              <h4>{t('firstRun.status.bootstrapUnavailable')}</h4>
+                              <p>{publicBootstrapUnavailableMessage(t)}</p>
+                            </>
+                          )}
+
+                          {bootstrapAvailabilityState === 'available' && (
+                            <>
+                              <h4>{t('firstRun.status.bootstrapAvailable')}</h4>
+                              <p>{t('firstRun.restore.availableDescription')}</p>
+                              <div className="first-run-restore-meta">
+                                <span>{t('firstRun.summary.latestSnapshot')}</span>
+                                <strong>{shortStatus(latestPublicBackupId, t('firstRun.empty.notSet'))}</strong>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        <div className="first-run-seed-sync-card">
+                          <h4>{t('firstRun.restore.seedSyncTitle')}</h4>
+                          <p>{t('firstRun.restore.seedSyncDescription')}</p>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </section>
@@ -583,6 +722,26 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
                 {showPrevious && (
                   <button type="button" className="ghost-button" onClick={handlePrevious}>
                     {t('firstRun.action.previous')}
+                  </button>
+                )}
+                {!publicRestoreInProgress && (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={handleSkipRestore}
+                    disabled={publicRestoreBusy}
+                  >
+                    {t('firstRun.action.skipRestore')}
+                  </button>
+                )}
+                {localCopyDetected && !publicRestoreInProgress && (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={handleUseLocalCopy}
+                    disabled={publicRestoreBusy}
+                  >
+                    {t('firstRun.action.useLocalCopy')}
                   </button>
                 )}
                 <button

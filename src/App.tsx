@@ -95,6 +95,11 @@ import {
   storeNodeBaseDirForNetwork,
   toNodeApiSettings
 } from './app/utils'
+import {
+  resolveWalletBurnTargetAddress,
+  resolveWalletSendTargetAddress,
+  walletDefaultReceiverAddress
+} from './app/wallet-actions'
 import { AppFooter } from './components/panels/AppFooter'
 import { DashboardPanel } from './components/panels/DashboardPanel'
 import { DocumentationPanel } from './components/panels/DocumentationPanel'
@@ -766,7 +771,7 @@ export function App() {
     setDraftNodeBackup(normalizeNodeBackupSettings(nodeSettings.backup))
     setDraftNodeBackupPassword('')
     nativeBackupUserEditedRef.current = false
-    setNodeBaseDirValidation(null)
+    setNodeBaseDirValidation((current) => current?.baseDir === nodeSettings.baseDir ? current : null)
   }, [nodeSettings])
 
   useEffect(() => {
@@ -846,8 +851,8 @@ export function App() {
   }, [producerUseWalletAddress, producerAllowDelegatedSigner])
 
   useEffect(() => {
-    const defaultBurnTarget = activeWalletAddress || ''
-    const defaultTransferTarget = producerProfile?.profile?.producerAddress || activeWalletAddress || ''
+    const defaultBurnTarget = walletDefaultReceiverAddress(activeWalletAddress)
+    const defaultTransferTarget = walletDefaultReceiverAddress(activeWalletAddress)
 
     if (!walletBurnTargetAddressDraft.trim() && defaultBurnTarget) {
       setWalletBurnTargetAddressDraft(defaultBurnTarget)
@@ -856,7 +861,6 @@ export function App() {
       setWalletTransferAddressDraft(defaultTransferTarget)
     }
   }, [
-    producerProfile?.profile?.producerAddress,
     activeWalletAddress,
     walletBurnTargetAddressDraft,
     walletTransferAddressDraft
@@ -911,7 +915,7 @@ export function App() {
     setProducerSigningWalletBalanceError(null)
     setWalletBalanceRefreshedAt(null)
 
-    if (activeTab === 'wallet' || activeTab === 'producer' || (activeTab === 'dashboard' && dashboardSubtab === 'forecast')) {
+    if (firstRunSetupOpen || activeTab === 'wallet' || activeTab === 'producer' || (activeTab === 'dashboard' && dashboardSubtab === 'forecast')) {
       void refreshWalletOverview()
       if (activeWalletAddress) {
         void refreshProducerSigningWalletBalance(activeWalletAddress, activeWalletAccountId || undefined, {
@@ -919,13 +923,13 @@ export function App() {
         })
       }
     }
-  }, [nodeSettings.network])
+  }, [nodeSettings.network, firstRunSetupOpen])
 
   useEffect(() => {
-    if (activeTab !== 'producer' && activeTab !== 'wallet' && !(activeTab === 'dashboard' && dashboardSubtab === 'forecast')) return
+    if (!firstRunSetupOpen && activeTab !== 'producer' && activeTab !== 'wallet' && !(activeTab === 'dashboard' && dashboardSubtab === 'forecast')) return
     if (!getWalletBridge()) return
     void refreshWalletOverview()
-  }, [activeTab, dashboardSubtab, effectiveExplorerRpcUrl, nodeSettings.network, walletRpcUrl])
+  }, [activeTab, dashboardSubtab, effectiveExplorerRpcUrl, firstRunSetupOpen, nodeSettings.network, walletRpcUrl])
 
   useEffect(() => {
     if (activeTab !== 'producer' && activeTab !== 'wallet' && !(activeTab === 'dashboard' && dashboardSubtab === 'forecast')) return
@@ -3950,7 +3954,7 @@ export function App() {
     const bridge = getWalletBridge()
     if (!bridge?.transferVhp || !bridge?.transferKoin) return
     const amount = Number.parseFloat(walletTransferAmountDraft)
-    const toAddress = walletTransferAddressDraft.trim() || producerProfile?.profile?.producerAddress || ''
+    const toAddress = resolveWalletSendTargetAddress(walletTransferAddressDraft, activeWalletAddress)
     const actionId = walletTransferAsset === 'koin' ? 'wallet-transfer-koin' : 'wallet-transfer-vhp'
     await runWalletAction(actionId, t('wallet.transferTitle'), async () => {
       if (walletTransferAsset === 'koin') {
@@ -3981,7 +3985,7 @@ export function App() {
     if (!bridge?.burn) return
     const percent = walletBurnPercentDraft.trim() ? Number.parseFloat(walletBurnPercentDraft) : undefined
     const amount = walletBurnAmountDraft.trim() ? Number.parseFloat(walletBurnAmountDraft) : undefined
-    const targetAddress = walletBurnTargetAddressDraft.trim() || activeWalletAddress || undefined
+    const targetAddress = resolveWalletBurnTargetAddress(walletBurnTargetAddressDraft, activeWalletAddress)
     await runWalletAction('wallet-burn', t('wallet.burnTitle'), async () => {
       return bridge.burn({
         network: nodeSettings.network,
@@ -4039,6 +4043,7 @@ export function App() {
         ok: result.ok,
         baseDir: result.baseDir,
         restoreWorkspaceParent: result.restoreWorkspaceParent,
+        localCopy: result.localCopy,
         message: result.output || ''
       })
       return result
@@ -4062,6 +4067,7 @@ export function App() {
           ok: false,
           baseDir: result.path,
           restoreWorkspaceParent: result.restoreWorkspaceParent,
+          localCopy: result.localCopy,
           message: result.output || ''
         })
         setFormError(result.output || t('node.unableSelectBaseDir'))
@@ -4074,6 +4080,7 @@ export function App() {
           ok: result.ok,
           baseDir: result.path,
           restoreWorkspaceParent: result.restoreWorkspaceParent,
+          localCopy: result.localCopy,
           message: result.output || ''
         })
         setNodeOutput(result.output || `BASEDIR seleccionado: ${result.path}`)
@@ -5368,6 +5375,7 @@ export function App() {
       walletUnlockPassword={producerUnlockPassword}
       setWalletUnlockPassword={setProducerUnlockPassword}
       importWalletAccount={importWalletVaultAccount}
+      replaceWalletAccount={importProducerAccount}
       importWalletFromSeed={importWalletFromSeed}
       createWalletAccount={createWalletAccount}
       generateWalletDraft={generateWalletDraft}
@@ -6492,6 +6500,8 @@ export function App() {
           publicBootstrapList={nodeNativeBackupPublicList}
           publicBootstrapListLoading={nodeNativeBackupPublicListLoading}
           publicBootstrapRestoreLoading={nodeRestoreNativeBackupLoading}
+          baseDirLocalCopy={nodeBaseDirValidation?.baseDir === draftNodeBaseDir ? nodeBaseDirValidation.localCopy : null}
+          localChainHead={draftNodeBaseDir.trim() === nodeSettings.baseDir.trim() ? localChainHead : null}
           nodeActionLoading={nodeActionLoading}
           nodeRunning={nodeRunningCount > 0}
           syncStatusClass={footerStatusClass}
@@ -6508,6 +6518,7 @@ export function App() {
           cancelRestorePublicBackup={runCancelBackup}
           startObserverNode={startObserverNodeFromSetup}
           walletSetupContent={renderWalletPanel(true)}
+          walletReady={Boolean(walletOverview?.walletExists && walletOverview?.unlocked)}
           onQuitSetup={quitUnfinishedFirstRunSetup}
           onComplete={completeFirstRunSetup}
         />

@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [1.0.3] - In progress
+
+### Changed
+
+- Started the next post-`1.0.2` feature track on version `1.0.3` so assistant,
+  wallet safety, documentation, and release-preparation changes are tracked
+  together before the next release.
+- Documented the release-branch policy in project memory: after a release,
+  continue user-facing work on a feature branch with the next intended SemVer
+  version, keep the changelog and docs current there, and merge/tag/package
+  only when the user asks to release it.
+- Documented that first-run assistant surfaces must stay compact and guided,
+  without raw command output, JSON payloads, expert logs, or debug panels.
+- Added an explicit assistant restore choice to skip public backup restore and
+  sync from seed peers when the user prefers the slower, backup-free trust path.
+- Added assistant detection for existing local node data in the selected data
+  folder, with a keep-local-copy option and age comparison against the public
+  backup before restore.
+- Improved the assistant wallet step so returning after wallet creation asks
+  whether to keep the current wallet, create a new one, or import an existing
+  wallet.
+
+### Fixed
+
+- Fixed Wallet Send and Burn defaults so the receiver account always starts as
+  the active wallet account, not a producer address or stale account from a
+  previous operation.
+- Hid raw wallet action output from the assistant wallet step after wallet
+  creation so the setup flow remains simple.
+- Added regression coverage for wallet action receiver defaults.
+
 ## [1.0.2] - 2026-07-01
 
 ### Added

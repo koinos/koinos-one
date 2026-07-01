@@ -2311,6 +2311,43 @@ body {
   padding: 16px;
 }
 
+.wallet-setup-choice-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.wallet-setup-keep-choice {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid rgba(13, 153, 96, 0.2);
+  border-radius: 8px;
+  background: rgba(13, 153, 96, 0.06);
+  color: #0f5132;
+  padding: 10px 12px;
+}
+
+.wallet-setup-keep-choice strong,
+.wallet-setup-keep-choice span {
+  min-width: 0;
+}
+
+.wallet-setup-keep-choice span {
+  color: #37634f;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.wallet-setup-replace-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .wallet-modal {
   width: min(560px, 100%);
   grid-template-rows: auto minmax(0, 1fr);
@@ -5230,6 +5267,50 @@ body {
   line-height: 1.5;
 }
 
+.first-run-restore-choice-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.first-run-restore-choice-grid > div {
+  min-width: 0;
+}
+
+.first-run-seed-sync-card {
+  border-left: 1px solid rgba(93, 0, 179, 0.14);
+  padding-left: 16px;
+}
+
+.first-run-local-copy-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid rgba(23, 120, 91, 0.18);
+  border-radius: 8px;
+  background: #f7fbfa;
+  padding: 14px;
+}
+
+.first-run-local-copy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.first-run-local-copy-card .first-run-restore-meta {
+  width: auto;
+  min-width: 0;
+}
+
+.first-run-local-copy-comparison {
+  color: #174f3f;
+  font-weight: 600;
+}
+
 .first-run-restore-status {
   display: inline-flex;
   align-items: center;
@@ -5813,10 +5894,31 @@ tbody tr.is-fresh {
 
   .first-run-setup-steps,
   .first-run-setup-summary-grid,
+  .first-run-restore-choice-grid,
+  .first-run-local-copy-grid,
   .first-run-choice-grid,
   .first-run-setup-split,
   .first-run-setup-form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .first-run-seed-sync-card {
+    border-top: 1px solid rgba(93, 0, 179, 0.14);
+    border-left: 0;
+    padding-top: 14px;
+    padding-left: 0;
+  }
+
+  .wallet-setup-choice-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wallet-setup-replace-actions {
+    justify-content: stretch;
+  }
+
+  .wallet-setup-replace-actions button {
+    flex: 1 1 140px;
   }
 
   .node-backup-bootstrap-guide {

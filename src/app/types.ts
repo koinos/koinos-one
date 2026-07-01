@@ -124,7 +124,17 @@ export type NodeBaseDirValidationState = {
   ok: boolean
   baseDir: string
   restoreWorkspaceParent: string
+  localCopy?: NodeBaseDirLocalCopyState
   message: string
+}
+
+export type NodeBaseDirLocalCopyState = {
+  detected: boolean
+  evidence: string[]
+  newestModifiedMs: number | null
+  totalBytes: number | null
+  scannedEntries: number
+  truncated: boolean
 }
 
 export type NodeBaseDirChangeDialogState = {

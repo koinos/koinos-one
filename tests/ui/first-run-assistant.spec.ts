@@ -7,7 +7,7 @@ const NODE_SETTINGS_STORAGE_KEY = 'teleno.node.settings.v1'
 const LANGUAGE_STORAGE_KEY = 'teleno.ui.language.v1'
 const STABLE_SCREENSHOT_DIR = path.join(process.cwd(), '.run', 'first-run-assistant-ui-screenshots')
 
-async function installFirstRunBridge(page: Page) {
+async function installFirstRunBridge(page: Page, options: { walletReady?: boolean; localCopy?: boolean } = {}) {
   const baseDir = '/tmp/koinos-one-first-run'
   const nodeSettings = {
     network: 'mainnet',
@@ -99,8 +99,58 @@ async function installFirstRunBridge(page: Page) {
       recommendedTargetFreeBytes: 80 * 1024 * 1024 * 1024
     }
   }
+  const baseDirLocalCopy = options.localCopy
+    ? {
+        detected: true,
+        evidence: ['chain/blockchain', 'block_store/db'],
+        newestModifiedMs: Date.UTC(2026, 5, 28, 12, 0, 0),
+        totalBytes: 24 * 1024 * 1024 * 1024,
+        scannedEntries: 42,
+        truncated: false
+      }
+    : {
+        detected: false,
+        evidence: [],
+        newestModifiedMs: null,
+        totalBytes: null,
+        scannedEntries: 0,
+        truncated: false
+      }
 
-  await page.addInitScript(({ languageKey, nodeSettings, nodeSettingsKey, settingsKey, status, publicSnapshot }) => {
+  const readyWallet = {
+    ok: true,
+    output: '',
+    walletExists: true,
+    unlocked: true,
+    walletAddress: '16VX7BrVScLMhJqFxdnnJcuLnsFebTEc5N',
+    accountCount: 1,
+    hasSeedPhrase: true,
+    activeAccountId: 'account-1',
+    activeAccountName: 'Account 1',
+    activeAccountKind: 'seed',
+    producerAccountId: null,
+    accounts: [{
+      id: 'account-1',
+      name: 'Account 1',
+      address: '16VX7BrVScLMhJqFxdnnJcuLnsFebTEc5N',
+      kind: 'seed',
+      hasPrivateKey: true,
+      derivationPath: "m/44'/659'/0'/0/0"
+    }]
+  }
+  const emptyWallet = {
+    ok: true,
+    output: '',
+    walletExists: false,
+    unlocked: false,
+    accountCount: 0,
+    accounts: [],
+    activeAccountId: null,
+    producerAccountId: null
+  }
+  const walletOverview = options.walletReady ? readyWallet : emptyWallet
+
+  await page.addInitScript(({ baseDirLocalCopy, languageKey, nodeSettings, nodeSettingsKey, settingsKey, status, publicSnapshot, walletOverview }) => {
     window.localStorage.clear()
     window.localStorage.setItem(languageKey, 'en')
     window.localStorage.setItem(settingsKey, JSON.stringify({
@@ -129,7 +179,8 @@ async function installFirstRunBridge(page: Page) {
       },
       telenoNode: {
         defaults: async () => nodeSettings,
-        validateBaseDir: async () => ({ ok: true, baseDir: nodeSettings.baseDir, restoreWorkspaceParent: '/tmp', writable: true, output: '' }),
+        validateBaseDir: async () => ({ ok: true, baseDir: nodeSettings.baseDir, restoreWorkspaceParent: '/tmp', writable: true, localCopy: baseDirLocalCopy, output: '' }),
+        selectBaseDir: async () => ({ ok: true, canceled: false, path: nodeSettings.baseDir, restoreWorkspaceParent: '/tmp', writable: true, localCopy: baseDirLocalCopy, output: '' }),
         status: async () => status,
         presets: async () => ({ ok: true, output: '', presets: [] }),
         nativeBuilds: async () => ({ ok: true, sourceRoot: '/mock/teleno', services: [], output: '' }),
@@ -148,17 +199,19 @@ async function installFirstRunBridge(page: Page) {
         onBackupProgressEvent: () => () => undefined
       },
       wallet: {
-        overview: async () => ({ ok: true, output: '', walletExists: false, unlocked: false, accountCount: 0, accounts: [], activeAccountId: null, producerAccountId: null }),
-        listAccounts: async () => ({ ok: true, accounts: [] })
+        overview: async () => walletOverview,
+        listAccounts: async () => ({ ok: true, accounts: walletOverview.accounts || [] })
       }
     }
   }, {
+    baseDirLocalCopy,
     languageKey: LANGUAGE_STORAGE_KEY,
     nodeSettings,
     nodeSettingsKey: NODE_SETTINGS_STORAGE_KEY,
     publicSnapshot,
     settingsKey: SETTINGS_STORAGE_KEY,
-    status
+    status,
+    walletOverview
   })
 }
 
@@ -191,4 +244,53 @@ test('first-run assistant includes wallet setup after the data folder step', asy
   await expect(page.getByRole('button', { name: 'Import with seed' })).toBeVisible()
 
   await capture(page, testInfo, 'first-run-wallet-step')
+
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.locator('#first-run-setup-title')).toHaveText('Restore Public Backup')
+  await expect(page.getByText('Public backup available')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Restore Public Backup' })).toBeVisible()
+  await expect(page.getByText('Or start from an empty chain database')).toBeVisible()
+  await expect(page.getByText('sync every block from seed peers')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sync from seed peers' })).toBeVisible()
+
+  await capture(page, testInfo, 'first-run-restore-choice')
+})
+
+test('first-run assistant asks what to do with an existing ready wallet', async ({ page }, testInfo) => {
+  await installFirstRunBridge(page, { walletReady: true })
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Get started' }).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await expect(page.locator('#first-run-setup-title')).toHaveText('Create or open a wallet')
+  await expect(page.getByText('Use this wallet?')).toBeVisible()
+  await expect(page.getByText('Keep this wallet', { exact: true })).toBeVisible()
+  await expect(page.getByText('16VX7BrVScLMhJqFxdnnJcuLnsFebTEc5N')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create new wallet' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Import WIF' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Import seed' })).toBeVisible()
+  await expect(page.locator('.wallet-output')).toHaveCount(0)
+
+  await capture(page, testInfo, 'first-run-wallet-ready-choice')
+})
+
+test('first-run assistant offers to keep existing local node data before public restore', async ({ page }, testInfo) => {
+  await installFirstRunBridge(page, { localCopy: true })
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Get started' }).click()
+  await page.getByRole('button', { name: 'Choose folder' }).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await expect(page.locator('#first-run-setup-title')).toHaveText('Restore Public Backup')
+  await expect(page.getByText('Existing local node data found')).toBeVisible()
+  await expect(page.getByText('Local copy', { exact: true })).toBeVisible()
+  await expect(page.getByText('Public backup', { exact: true })).toBeVisible()
+  await expect(page.getByText('The public backup appears newer')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Use local copy' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Restore Public Backup' })).toBeVisible()
+
+  await capture(page, testInfo, 'first-run-local-copy-choice')
 })
