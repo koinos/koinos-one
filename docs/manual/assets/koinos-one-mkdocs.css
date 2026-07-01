@@ -1,0 +1,60 @@
+html,
+body {
+  background: #eef3f6;
+}
+
+.wy-nav-content-wrap {
+  background: #f3f6f8;
+}
+
+.wy-nav-content {
+  width: 100%;
+  max-width: none;
+  min-height: 100vh;
+  padding: 30px clamp(28px, 4vw, 72px);
+  background: #ffffff;
+}
+
+.rst-content {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.rst-content .wy-breadcrumbs {
+  max-width: 1040px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.rst-content p,
+.rst-content li {
+  line-height: 1.62;
+}
+
+.rst-content pre,
+.rst-content div[class^='highlight'] {
+  max-width: 100%;
+}
+
+.koinos-one-overview-illustration {
+  margin: 18px auto 24px;
+  text-align: center;
+}
+
+.koinos-one-overview-illustration img {
+  width: 50%;
+  min-width: 320px;
+  max-width: 100%;
+  height: auto;
+}
+
+@media screen and (max-width: 768px) {
+  .wy-nav-content {
+    padding: 24px 24px;
+  }
+
+  .koinos-one-overview-illustration img {
+    width: 100%;
+    min-width: 0;
+  }
+}

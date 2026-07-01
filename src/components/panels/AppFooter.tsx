@@ -9,7 +9,8 @@ export function AppFooter(props: AppFooterProps) {
     showChainSyncProgress,
     chainSyncPercent,
     t,
-    appVersion
+    appVersion,
+    openVersionChangelog
   } = props
 
   return (
@@ -36,9 +37,14 @@ export function AppFooter(props: AppFooterProps) {
               <span>{footerRpcUrl}</span>
             </span>
           )}
-          <div className="app-version-badge" title={t('app.versionTitle', { version: appVersion })}>
+          <button
+            type="button"
+            className="app-version-badge"
+            title={t('app.versionChangelogTitle', { version: appVersion })}
+            onClick={() => openVersionChangelog?.()}
+          >
             <span className="mono">v{appVersion}</span>
-          </div>
+          </button>
         </div>
       </footer>
   )

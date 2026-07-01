@@ -61,6 +61,9 @@ starting a new feature or claiming full legacy parity.
 - gRPC ACL enforcement matching the intended JSON-RPC access-control model.
 - Mainnet producer activation signoff.
 - Runtime component restart/supervision hardening.
+- macOS menu bar background mode for keeping Koinos One available as a status
+  item while the main window is hidden:
+  `operations/MACOS_MENU_BAR_BACKGROUND_MODE_PLAN.md`.
 - Remaining log-prefix normalization below the monolith wrapper.
 - First-run installation assistant welcome screen and UX signoff:
   `operations/FIRST_RUN_INSTALLATION_ASSISTANT_PLAN.md`.

@@ -93,7 +93,8 @@ export function WalletPanel(props: WalletPanelProps) {
     createWalletDerivedAccount,
     importWalletWatchAccount,
     renameWalletVaultAccount,
-    removeWalletVaultAccount
+    removeWalletVaultAccount,
+    setupMode = false
   } = props
 
   const [walletSubtab, setWalletSubtab] = useState<WalletSubtab>('tokens')
@@ -297,7 +298,13 @@ export function WalletPanel(props: WalletPanelProps) {
   }
 
   return (
-    <section id="panel-wallet" className="wallet-panel" aria-label={t('wallet.panelAria')} role="tabpanel" aria-labelledby="tab-wallet">
+    <section
+      id={setupMode ? undefined : 'panel-wallet'}
+      className={`wallet-panel ${setupMode ? 'wallet-panel-setup' : ''}`.trim()}
+      aria-label={setupMode ? t('firstRun.step.wallet.title') : t('wallet.panelAria')}
+      role={setupMode ? undefined : 'tabpanel'}
+      aria-labelledby={setupMode ? undefined : 'tab-wallet'}
+    >
       {!hasWalletControls && (
         <div className="node-warning" role="note">
           {t('node.electronOnlyWarning')}
@@ -347,6 +354,21 @@ export function WalletPanel(props: WalletPanelProps) {
           onCreateWallet={openCreateModal}
           onDeleteWallet={() => setDeleteModalOpen(true)}
         />
+      ) : setupMode ? (
+        <section className="wallet-setup-ready">
+          <div>
+            <h3>{t('firstRun.wallet.readyTitle')}</h3>
+            <p>{t('firstRun.wallet.readyDescription')}</p>
+          </div>
+          <div className="first-run-setup-summary-grid first-run-single-path-grid">
+            <div>
+              <span>{t('firstRun.wallet.address')}</span>
+              <strong className="mono" title={activeWalletAddress || t('common.na')}>
+                {activeWalletAddress || t('common.na')}
+              </strong>
+            </div>
+          </div>
+        </section>
       ) : (
         <>
           <WalletAccountBar

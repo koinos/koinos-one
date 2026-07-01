@@ -30,6 +30,7 @@ function renderSetup(overrides: Partial<Parameters<typeof FirstRunSetupModal>[0]
       syncStatusProgressVisible={true}
       syncStatusPercent={10}
       nodeBackupProgress={null}
+      walletSetupContent={<div className="wallet-setup-test-content">Create or open wallet content</div>}
       selectNetwork={vi.fn()}
       chooseDataFolder={vi.fn(async () => true)}
       saveSettings={vi.fn(async () => true)}
@@ -48,6 +49,7 @@ describe('FirstRunSetupModal', () => {
   it('renders the observer-only linear step questions', () => {
     expect(renderSetup({ initialStep: 'welcome' })).toContain('Welcome to Koinos One')
     expect(renderSetup({ initialStep: 'data' })).toContain('Select a folder to use for data storage.')
+    expect(renderSetup({ initialStep: 'wallet' })).toContain('Create or open a local wallet?')
     expect(renderSetup({ initialStep: 'restore' })).toContain('Restore the recommended public backup if it is available?')
     expect(renderSetup({ initialStep: 'start' })).toContain('Start this node as an observer now?')
     expect(renderSetup({ initialStep: 'done', nodeRunning: true })).toContain('Observer is running. Continue to Koinos One?')
@@ -61,29 +63,55 @@ describe('FirstRunSetupModal', () => {
   })
 
   it('shows disk capacity guidance on the data folder step', () => {
-    const html = renderSetup({ initialStep: 'data' })
+    const html = renderSetup({
+      initialStep: 'data',
+      publicBootstrapList: {
+        ok: true,
+        latestBackupId: '20260620T120000Z-public',
+        source: 'public',
+        snapshots: [{
+          backupId: '20260620T120000Z-public',
+          latest: true,
+          totalBytes: 25 * 1024 * 1024 * 1024,
+          restoreSpace: {
+            minimumTargetFreeBytes: 55 * 1024 * 1024 * 1024,
+            recommendedTargetFreeBytes: 80 * 1024 * 1024 * 1024
+          }
+        }]
+      }
+    })
 
-    expect(html).toContain('Mainnet needs at least 100 GB free')
-    expect(html).toContain('200 GB or more')
-    expect(html).toContain('external SSD')
+    expect(html).toContain('Current public backup size: 25 GB')
+    expect(html).toContain('Required free space: at least 55 GB')
+    expect(html).toContain('recommended 80 GB')
+    expect(html).not.toContain('100 GB free')
+    expect(html).not.toContain('200 GB or more')
   })
 
-  it('does not render wallet, funding, burn, registration, or signing prompts', () => {
+  it('renders wallet setup without funding, burn, registration, or signing prompts', () => {
     const html = [
       renderSetup({ initialStep: 'welcome' }),
       renderSetup({ initialStep: 'data' }),
+      renderSetup({ initialStep: 'wallet' }),
       renderSetup({ initialStep: 'restore' }),
       renderSetup({ initialStep: 'start' }),
       renderSetup({ initialStep: 'done', nodeRunning: true })
     ].join('\n')
 
     expect(html).not.toContain('Set Producer')
-    expect(html).not.toMatch(/wallet password/i)
-    expect(html).not.toMatch(/seed phrase/i)
     expect(html).not.toMatch(/\bVHP\b/i)
     expect(html).not.toMatch(/\bburn\b/i)
     expect(html).not.toMatch(/\bregister/i)
     expect(html).not.toMatch(/\bsigning\b/i)
+  })
+
+  it('shows reusable wallet setup content in the wallet step', () => {
+    const html = renderSetup({ initialStep: 'wallet' })
+
+    expect(html).toContain('Create or open wallet content')
+    expect(html).toContain('A wallet is not required to run an observer')
+    expect(html).toContain('Previous')
+    expect(html).toContain('Next')
   })
 
   it('shows public backup 404s as plain observer guidance instead of raw errors', () => {

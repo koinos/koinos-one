@@ -2,6 +2,7 @@ import type { IpcMain, WebContents } from 'electron'
 
 import type {
   KoinosJsonRpcProxyInput,
+  TelenoAppPreferencesInput,
   TelenoNodeBackupPasswordFileInput,
   TelenoNodeBaseDirCopyInput,
   TelenoNodeComponentToggleInput,
@@ -56,6 +57,8 @@ type IpcHandlerDeps = {
   firstRunSetupState: () => Awaitable<unknown>
   completeFirstRunSetup: (input?: unknown) => Awaitable<unknown>
   resetFirstRunSetup: () => Awaitable<unknown>
+  loadAppPreferences: () => Awaitable<unknown>
+  saveAppPreferences: (input?: TelenoAppPreferencesInput) => Awaitable<unknown>
   loadPublicRpcConfig: () => Awaitable<unknown>
   savePublicRpcConfig: (input?: PublicRpcConfigInput) => Awaitable<unknown>
   loadRemoteInventory: () => Awaitable<unknown>
@@ -148,6 +151,8 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'teleno:app:first-run-state',
     'teleno:app:first-run-complete',
     'teleno:app:first-run-reset',
+    'teleno:app-config:preferences:load',
+    'teleno:app-config:preferences:save',
     'teleno:app-config:public-rpcs:load',
     'teleno:app-config:public-rpcs:save',
     'teleno:remote-nodes:inventory:load',
@@ -279,6 +284,10 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('teleno:app:first-run-complete', async (_event, input?: unknown) => deps.completeFirstRunSetup(input))
   ipcMain.handle('teleno:app:first-run-reset', async () => deps.resetFirstRunSetup())
 
+  ipcMain.handle('teleno:app-config:preferences:load', async () => deps.loadAppPreferences())
+  ipcMain.handle('teleno:app-config:preferences:save', async (_event, input?: TelenoAppPreferencesInput) =>
+    deps.saveAppPreferences(input)
+  )
   ipcMain.handle('teleno:app-config:public-rpcs:load', async () => deps.loadPublicRpcConfig())
   ipcMain.handle('teleno:app-config:public-rpcs:save', async (_event, input?: PublicRpcConfigInput) => deps.savePublicRpcConfig(input))
   ipcMain.handle('teleno:remote-nodes:inventory:load', async () => deps.loadRemoteInventory())

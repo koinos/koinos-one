@@ -2,18 +2,28 @@ import path from 'node:path'
 
 import { BrowserWindow, dialog, type MessageBoxOptions, type MessageBoxReturnValue } from 'electron'
 
-import type { TelenoNodeSettingsInput, TelenoNodeStatus, NativeServiceProcessState } from './main-types'
+import type {
+  TelenoAppPreferences,
+  TelenoNodeSettingsInput,
+  TelenoNodeStatus,
+  NativeServiceProcessState
+} from './main-types'
 
 type AppLifecycleServiceDeps = {
   isDev: boolean
+  platform?: NodeJS.Platform
   viteDevServerUrl?: string
   preloadPath: string
   nodeSettingsStorageKey: string
   languageStorageKey: string
+  getAppPreferences: () => TelenoAppPreferences
   parsePersistedNodeSettings: (input: unknown) => TelenoNodeSettingsInput | undefined
   telenoNodeStatus: (input?: TelenoNodeSettingsInput) => Promise<TelenoNodeStatus>
   isComposeServiceRunning: (service: TelenoNodeStatus['services'][number]) => boolean
   telenoNodeAction: (action: 'start' | 'stop', input?: TelenoNodeSettingsInput) => Promise<unknown>
+  hasActiveBackupOperation: () => boolean
+  cancelBackupOperation: () => Promise<{ ok: boolean; output: string }>
+  isFirstRunSetupActive?: () => Promise<boolean>
   nativeServiceProcesses: Map<string, NativeServiceProcessState>
   getLogsFollowStreamIds: () => string[]
   stopLogsFollowStream: (streamId: string) => void
@@ -23,6 +33,9 @@ type AppLifecycleServiceDeps = {
   setAppShutdownApproved: (value: boolean) => void
   getAppShutdownInProgress: () => boolean
   setAppShutdownInProgress: (value: boolean) => void
+  setDockIconVisible?: (visible: boolean) => void
+  onWindowHiddenToMenuBar?: () => void
+  onWindowShown?: () => void
   quitApp: () => void
 }
 
@@ -71,7 +84,83 @@ function localizedShutdownCopy(language: string | null | undefined): {
   }
 }
 
+function localizedBackgroundModeCopy(language: string | null | undefined): {
+  closeTitle: string
+  closeMessage: string
+  keepRunningAction: string
+  stopAndQuitAction: string
+  cancelAction: string
+  runningDetailPrefix: string
+  producerRunningDetail: string
+  backupActiveDetail: string
+  hiddenTitle: string
+  managedServicesFallback: string
+  activeBackupQuitTitle: string
+  activeBackupQuitMessage: string
+  activeBackupQuitDetail: string
+  stopOperationAndQuitAction: string
+  keepOpenAction: string
+  cancelOperationFailedTitle: string
+} {
+  const spanish = `${language || ''}`.toLowerCase().startsWith('es')
+  if (spanish) {
+    return {
+      closeTitle: 'Mantener Koinos One en la barra de menus',
+      closeMessage: 'Koinos One puede seguir ejecutando el nodo aunque la ventana este oculta.',
+      keepRunningAction: 'Mantener en barra de menus',
+      stopAndQuitAction: 'Detener y salir',
+      cancelAction: 'Cancelar',
+      runningDetailPrefix: 'Servicios activos',
+      producerRunningDetail: 'Producer activo: la produccion de bloques puede continuar mientras la ventana esta oculta.',
+      backupActiveDetail: 'Hay un backup o restore activo. Puede seguir en segundo plano, pero salir debe detenerlo explicitamente.',
+      hiddenTitle: 'Koinos One seguira en la barra de menus.',
+      managedServicesFallback: 'servicios gestionados del nodo',
+      activeBackupQuitTitle: 'Backup o restore en curso',
+      activeBackupQuitMessage: 'Hay una operacion de backup o restore activa.',
+      activeBackupQuitDetail: 'Detenla antes de salir para evitar datos parciales o staging incompleto.',
+      stopOperationAndQuitAction: 'Detener operacion y salir',
+      keepOpenAction: 'Mantener abierta',
+      cancelOperationFailedTitle: 'No se pudo detener la operacion'
+    }
+  }
+
+  return {
+    closeTitle: 'Keep Koinos One in the menu bar',
+    closeMessage: 'Koinos One can keep the node running while the window is hidden.',
+    keepRunningAction: 'Keep running in menu bar',
+    stopAndQuitAction: 'Stop and quit',
+    cancelAction: 'Cancel',
+    runningDetailPrefix: 'Running services',
+    producerRunningDetail: 'Producer active: block production can continue while the window is hidden.',
+    backupActiveDetail: 'A backup or restore is active. It can continue in the background, but quitting must stop it explicitly.',
+    hiddenTitle: 'Koinos One will stay available from the menu bar.',
+    managedServicesFallback: 'managed node services',
+    activeBackupQuitTitle: 'Backup or restore in progress',
+    activeBackupQuitMessage: 'A backup or restore operation is active.',
+    activeBackupQuitDetail: 'Stop it before quitting to avoid partial data or incomplete staging.',
+    stopOperationAndQuitAction: 'Stop operation and quit',
+    keepOpenAction: 'Keep open',
+    cancelOperationFailedTitle: 'Could not stop the operation'
+  }
+}
+
+function serviceLooksRunning(service: TelenoNodeStatus['services'][number]): boolean {
+  return /running|up/i.test(`${service.state} ${service.status}`) && !service.lastError
+}
+
+function producerLooksRunning(status: TelenoNodeStatus): boolean {
+  const producerService = status.services.find((service) => service.id === 'block_producer' || service.name === 'block_producer')
+  const producerComponent = status.components.find((component) => component.name === 'block_producer')
+  const nodeRunning = status.runningServices > 0 || status.services.some((service) => service.managedByTeleno && serviceLooksRunning(service))
+  return Boolean(
+    (producerService && serviceLooksRunning(producerService)) ||
+    (nodeRunning && producerComponent?.enabled && producerComponent.healthy && producerComponent.state !== 'disabled')
+  )
+}
+
 export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
+  const platform = deps.platform ?? process.platform
+
   async function loadRendererShutdownContext(
     win: BrowserWindow | null
   ): Promise<{ nodeSettings?: TelenoNodeSettingsInput; language: string | null }> {
@@ -109,6 +198,10 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     return status.services.filter(deps.isComposeServiceRunning).map((service) => service.name)
   }
 
+  function menuBarBackgroundModeEnabled(): boolean {
+    return platform === 'darwin' && deps.getAppPreferences().keepRunningInMenuBar === true
+  }
+
   function withShutdownWindowState(win: BrowserWindow | null, title: string): () => void {
     if (!win || win.isDestroyed()) return () => {}
     const previousTitle = win.getTitle()
@@ -140,6 +233,35 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
   async function confirmNodeShutdownBeforeQuit(win: BrowserWindow | null): Promise<boolean> {
     const { nodeSettings, language } = await loadRendererShutdownContext(win)
     const copy = localizedShutdownCopy(language)
+    const backgroundCopy = localizedBackgroundModeCopy(language)
+
+    if (deps.hasActiveBackupOperation()) {
+      const backupConfirmation = await showMessageBoxForWindow(win, {
+        type: 'warning',
+        title: backgroundCopy.activeBackupQuitTitle,
+        message: backgroundCopy.activeBackupQuitMessage,
+        detail: backgroundCopy.activeBackupQuitDetail,
+        buttons: [backgroundCopy.stopOperationAndQuitAction, backgroundCopy.keepOpenAction],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true
+      })
+      if (backupConfirmation.response !== 0) return false
+
+      const cancelResult = await deps.cancelBackupOperation()
+      if (!cancelResult.ok) {
+        await showMessageBoxForWindow(win, {
+          type: 'error',
+          title: backgroundCopy.cancelOperationFailedTitle,
+          message: cancelResult.output || backgroundCopy.cancelOperationFailedTitle,
+          buttons: ['OK'],
+          defaultId: 0,
+          noLink: true
+        })
+        return false
+      }
+    }
+
     const status = await deps.telenoNodeStatus(nodeSettings)
     const runningServiceNames = listRunningManagedServiceNames(status)
     const needsManagedShutdown = status.runningServices > 0 || deps.nativeServiceProcesses.size > 0
@@ -251,6 +373,75 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     }
   }
 
+  function hideWindowToMenuBar(win: BrowserWindow): void {
+    if (win.isDestroyed()) return
+    try {
+      win.hide()
+      deps.setDockIconVisible?.(false)
+      deps.onWindowHiddenToMenuBar?.()
+    } catch {
+      // ignore hide errors during shutdown
+    }
+  }
+
+  async function requestCloseToMenuBar(win: BrowserWindow): Promise<void> {
+    if (deps.getAppShutdownApproved() || deps.getAppShutdownInProgress()) return
+
+    if (await deps.isFirstRunSetupActive?.()) {
+      void requestOrderedAppShutdown(win)
+      return
+    }
+
+    const { nodeSettings, language } = await loadRendererShutdownContext(win)
+    const copy = localizedBackgroundModeCopy(language)
+    const status = await deps.telenoNodeStatus(nodeSettings).catch(() => null)
+    const runningServiceNames = status ? listRunningManagedServiceNames(status) : []
+    const runningServices = Math.max(status?.runningServices ?? 0, runningServiceNames.length, deps.nativeServiceProcesses.size)
+    const producerRunning = status ? producerLooksRunning(status) : false
+    const activeBackup = deps.hasActiveBackupOperation()
+
+    if (runningServices > 0 || activeBackup) {
+      const detailLines = [
+        runningServices > 0
+          ? `${copy.runningDetailPrefix} (${runningServices}): ${runningServiceNames.length ? runningServiceNames.join(', ') : copy.managedServicesFallback}`
+          : '',
+        producerRunning ? copy.producerRunningDetail : '',
+        activeBackup ? copy.backupActiveDetail : ''
+      ].filter(Boolean)
+      const confirmation = await showMessageBoxForWindow(win, {
+        type: producerRunning ? 'warning' : 'info',
+        title: copy.closeTitle,
+        message: copy.closeMessage,
+        detail: detailLines.join('\n\n'),
+        buttons: [copy.keepRunningAction, copy.stopAndQuitAction, copy.cancelAction],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true
+      })
+
+      if (confirmation.response === 1) {
+        void requestOrderedAppShutdown(win)
+        return
+      }
+      if (confirmation.response !== 0) return
+    }
+
+    hideWindowToMenuBar(win)
+  }
+
+  function showMainWindow(): BrowserWindow {
+    let win = deps.getMainWindow()
+    if (!win || win.isDestroyed()) {
+      win = createWindow()
+    }
+    deps.setDockIconVisible?.(true)
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    deps.onWindowShown?.()
+    return win
+  }
+
   function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
       title: 'Koinos One',
@@ -274,7 +465,19 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
     win.on('close', (event) => {
       if (deps.getAppShutdownApproved()) return
       event.preventDefault()
+      if (menuBarBackgroundModeEnabled() && !deps.getAppShutdownInProgress()) {
+        void requestCloseToMenuBar(win)
+        return
+      }
       void requestOrderedAppShutdown(win)
+    })
+
+    ;(win as BrowserWindow & {
+      on(event: 'minimize', listener: (event: { preventDefault: () => void }) => void): BrowserWindow
+    }).on('minimize', (event: { preventDefault: () => void }) => {
+      if (!menuBarBackgroundModeEnabled() || deps.getAppShutdownInProgress()) return
+      event.preventDefault()
+      hideWindowToMenuBar(win)
     })
 
     win.on('closed', () => {
@@ -287,6 +490,8 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
   return {
     createWindow,
     cleanupAppRuntimeResources,
-    requestOrderedAppShutdown
+    requestOrderedAppShutdown,
+    showMainWindow,
+    loadRendererAppContext: loadRendererShutdownContext
   }
 }

@@ -2418,6 +2418,10 @@ export function createBackupService(deps: BackupServiceDeps) {
   let activeBackupAdminOperation: { baseUrl: string; token: string; operationId: string } | null = null
   let activeBackupCancelled = false
 
+  function isBackupOperationActive(): boolean {
+    return Boolean(activeBackupProcess || activeBackupAdminOperation)
+  }
+
   function backupAdminConnection(settings: TelenoNodeSettings): { baseUrl: string; token: string } | null {
     if (!settings.backup.adminEnabled) return null
     const listen = settings.backup.adminListen.trim() || '127.0.0.1:18088'
@@ -3745,6 +3749,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     restoreNativeBackup,
     restoreNativeBackupLatest,
     cancelCreateBackup,
+    isBackupOperationActive,
     restoreFromLocalFile,
     copyNodeBaseDirData,
     selectNodeBaseDir,

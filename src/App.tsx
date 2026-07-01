@@ -15,6 +15,7 @@ import {
 } from './app/constants'
 import type {
   AppTab,
+  AppPreferences,
   BlockRow,
   DashboardSubtab,
   ExplorerSettings,
@@ -96,6 +97,7 @@ import {
 } from './app/utils'
 import { AppFooter } from './components/panels/AppFooter'
 import { DashboardPanel } from './components/panels/DashboardPanel'
+import { DocumentationPanel } from './components/panels/DocumentationPanel'
 import { ExplorerPanel } from './components/panels/ExplorerPanel'
 import { BlockDetailDialog } from './components/panels/BlockDetailDialog'
 import { NodeFileEditorModal } from './components/panels/NodeFileEditorModal'
@@ -112,6 +114,18 @@ import pkg from '../package.json'
 
 const appLogoUrl = new URL('../assets/newbranding/logo.svg', import.meta.url).href
 const REMOTE_NODE_MANAGEMENT_ENABLED = false
+const DEFAULT_APP_PREFERENCES: AppPreferences = {
+  keepRunningInMenuBar: false
+}
+const DEFAULT_DOCUMENTATION_PATH = 'manual-site/index.html'
+
+function changelogAnchorForVersion(version: string): string {
+  return version.trim().toLowerCase().replace(/^v/, '').replace(/[^a-z0-9.-]+/g, '-')
+}
+
+function changelogPathForVersion(version: string): string {
+  return `manual-site/reference/changelog.html#version-${changelogAnchorForVersion(version)}`
+}
 
 type NativeBackupSelectionSource = 'local' | 'remote' | 'public' | 'auto'
 
@@ -314,6 +328,8 @@ export function App() {
   const appVersion = appBuildInfo.productVersion?.trim() || window.teleno?.version?.trim() || pkg.version
   const [language, setLanguage] = useState<AppLanguage>(() => loadInitialLanguage())
   const [settings, setSettings] = useState<ExplorerSettings>(() => loadInitialSettings())
+  const [appPreferences, setAppPreferences] = useState<AppPreferences>(() => DEFAULT_APP_PREFERENCES)
+  const [savedAppPreferences, setSavedAppPreferences] = useState<AppPreferences>(() => DEFAULT_APP_PREFERENCES)
   const [savedLanguage, setSavedLanguage] = useState<AppLanguage>(() => language)
   const [savedSettings, setSavedSettings] = useState<ExplorerSettings>(() => settings)
   const [nodeSettings, setNodeSettings] = useState<NodeManagerSettings>(() => loadInitialNodeSettings())
@@ -347,6 +363,7 @@ export function App() {
   const [draftPublicRpcUrls, setDraftPublicRpcUrls] = useState(settings.publicRpcUrls.join('\n'))
   const [draftKoinscanUrl, setDraftKoinscanUrl] = useState(settings.koinscanUrl)
   const [publicRpcConfigLoaded, setPublicRpcConfigLoaded] = useState(() => !Boolean(getAppConfigBridge()?.loadPublicRpcUrls))
+  const [appPreferencesLoaded, setAppPreferencesLoaded] = useState(() => !Boolean(getAppConfigBridge()?.loadPreferences))
   const [draftPollMs, setDraftPollMs] = useState(String(settings.pollMs))
   const [draftRowLimit, setDraftRowLimit] = useState(String(settings.rowLimit))
   const [draftDashboardProducerWindowBlocks, setDraftDashboardProducerWindowBlocks] = useState(
@@ -447,6 +464,7 @@ export function App() {
   const [settingsUnsavedDialogOpen, setSettingsUnsavedDialogOpen] = useState(false)
   const [settingsUnsavedTargetTab, setSettingsUnsavedTargetTab] = useState<AppTab | null>(null)
   const [activeTab, setActiveTab] = useState<AppTab>('explorer')
+  const [documentationPath, setDocumentationPath] = useState(DEFAULT_DOCUMENTATION_PATH)
   const [nodeSubtab, setNodeSubtab] = useState<NodeSubtab>('overview')
   const [dashboardSubtab, setDashboardSubtab] = useState<DashboardSubtab>('producers')
   const [nodeProfilesModalOpen, setNodeProfilesModalOpen] = useState(false)
@@ -572,6 +590,7 @@ export function App() {
 
     return (
       language !== savedLanguage ||
+      appPreferences.keepRunningInMenuBar !== savedAppPreferences.keepRunningInMenuBar ||
       Boolean(draftNodeBackupPassword) ||
       settings.nodeAdvancedMode !== savedSettings.nodeAdvancedMode ||
       settings.producerAdvancedMode !== savedSettings.producerAdvancedMode ||
@@ -602,10 +621,12 @@ export function App() {
     draftPollMs,
     draftPublicRpcUrls,
     draftRowLimit,
+    appPreferences.keepRunningInMenuBar,
     language,
     nodeSettings,
     publicRpcUrlsByNetwork,
     savedLanguage,
+    savedAppPreferences.keepRunningInMenuBar,
     savedSettings.nodeAdvancedMode,
     savedSettings.producerAdvancedMode,
     settings.dashboardProducerWindowBlocks,
@@ -688,6 +709,32 @@ export function App() {
       })
       .finally(() => {
         if (!disposed) setPublicRpcConfigLoaded(true)
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const bridge = getAppConfigBridge()
+    if (!bridge?.loadPreferences) {
+      setAppPreferencesLoaded(true)
+      return
+    }
+
+    let disposed = false
+    void bridge.loadPreferences()
+      .then((result) => {
+        if (disposed || !result.ok) return
+        const nextPreferences = {
+          keepRunningInMenuBar: result.preferences.keepRunningInMenuBar === true
+        }
+        setAppPreferences(nextPreferences)
+        setSavedAppPreferences(nextPreferences)
+      })
+      .finally(() => {
+        if (!disposed) setAppPreferencesLoaded(true)
       })
 
     return () => {
@@ -4937,7 +4984,10 @@ export function App() {
     return backup
   }
 
-  const saveCurrentSettings = async (overrides: { backup?: NodeBackupSettings } = {}) => {
+  const saveCurrentSettings = async (overrides: {
+    backup?: NodeBackupSettings
+    suppressBaseDirChangeDialog?: boolean
+  } = {}) => {
     if (!settingsDirty && !overrides.backup) return true
     setFormError(null)
 
@@ -5049,9 +5099,21 @@ export function App() {
         dashboardProducerWindowBlocks,
         dashboardRefreshSeconds
       }
+      const nextAppPreferences: AppPreferences = {
+        keepRunningInMenuBar: appPreferences.keepRunningInMenuBar === true
+      }
+      const appConfigBridge = getAppConfigBridge()
+      if (appPreferencesLoaded && appConfigBridge?.savePreferences) {
+        const preferencesResult = await appConfigBridge.savePreferences(nextAppPreferences)
+        if (!preferencesResult.ok) {
+          throw new Error(preferencesResult.output || t('settings.menuBarSaveFailed'))
+        }
+      }
 
       setSettings(nextSettings)
       setSavedSettings(nextSettings)
+      setAppPreferences(nextAppPreferences)
+      setSavedAppPreferences(nextAppPreferences)
       setSavedLanguage(language)
       setPublicRpcUrlsByNetwork((current) => ({
         ...current,
@@ -5072,7 +5134,7 @@ export function App() {
         ? t('settings.savedBaseDirChanged', { previous: previousBaseDir, next: baseDir })
         : t('settings.savedBaseDir', { baseDir })
       setNodeOutput([settingsSummary, networkStopOutput].filter(Boolean).join('\n'))
-      if (baseDirChanged && !networkChanged) {
+      if (baseDirChanged && !networkChanged && !overrides.suppressBaseDirChangeDialog) {
         setNodeBaseDirChangeDialog({
           previousBaseDir,
           nextBaseDir: baseDir,
@@ -5103,6 +5165,7 @@ export function App() {
     const savedPublicRpcUrls = publicRpcUrlsForActiveNetwork(nodeSettings.network, publicRpcUrlsByNetwork)
     setLanguage(savedLanguage)
     setSettings(savedSettings)
+    setAppPreferences(savedAppPreferences)
     setDraftPublicRpcUrls(savedPublicRpcUrls.join('\n'))
     setDraftKoinscanUrl(savedSettings.koinscanUrl)
     setDraftPollMs(String(savedSettings.pollMs))
@@ -5218,6 +5281,11 @@ export function App() {
   }
 
   const completeFirstRunSetup = () => {
+    const simpleModeSettings: ExplorerSettings = {
+      ...settings,
+      nodeAdvancedMode: false,
+      producerAdvancedMode: false
+    }
     if (window.teleno?.app?.completeFirstRunSetup) {
       void window.teleno.app.completeFirstRunSetup({
         appVersion: pkg.version,
@@ -5230,9 +5298,13 @@ export function App() {
     }
     try {
       window.localStorage.setItem(FIRST_RUN_SETUP_STORAGE_KEY, 'complete')
+      window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(simpleModeSettings))
     } catch {
       // If localStorage is unavailable, this session can continue but setup will be required again next launch.
     }
+    setSettings(simpleModeSettings)
+    setSavedSettings(simpleModeSettings)
+    setNodeBaseDirChangeDialog(null)
     setFirstRunSetupOpen(false)
   }
 
@@ -5265,6 +5337,84 @@ export function App() {
     }
     setActiveTab(nextTab)
   }
+
+  const openVersionChangelog = () => {
+    setDocumentationPath(changelogPathForVersion(appVersion))
+    requestActiveTab('documentation')
+  }
+
+  const renderWalletPanel = (setupMode = false) => (
+    <WalletPanel
+      t={t}
+      hasWalletControls={hasWalletControls}
+      walletOverview={walletOverview}
+      walletLoading={walletLoading}
+      walletActionLoading={walletActionLoading}
+      walletError={walletError}
+      network={nodeSettings.network}
+      nativeTokenSymbol={nativeTokenSymbol}
+      walletBalance={walletDisplayBalance}
+      walletBalanceLoading={producerSigningWalletBalanceLoading}
+      walletBalanceError={producerSigningWalletBalanceError}
+      walletBalanceRefreshedAt={walletDisplayBalanceRefreshedAt}
+      walletImportPrivateKey={walletImportPrivateKey}
+      setWalletImportPrivateKey={setWalletImportPrivateKey}
+      walletImportPassword={walletImportPassword}
+      setWalletImportPassword={setWalletImportPassword}
+      walletImportSeedPhrase={walletImportSeedPhrase}
+      setWalletImportSeedPhrase={setWalletImportSeedPhrase}
+      walletImportSeedPassword={walletImportSeedPassword}
+      setWalletImportSeedPassword={setWalletImportSeedPassword}
+      walletUnlockPassword={producerUnlockPassword}
+      setWalletUnlockPassword={setProducerUnlockPassword}
+      importWalletAccount={importWalletVaultAccount}
+      importWalletFromSeed={importWalletFromSeed}
+      createWalletAccount={createWalletAccount}
+      generateWalletDraft={generateWalletDraft}
+      showWalletSeed={showWalletSeed}
+      closeWalletAccount={closeWalletAccount}
+      deleteWalletAccount={deleteWalletAccount}
+      unlockWalletAccount={unlockProducerAccount}
+      walletTransferAsset={walletTransferAsset}
+      setWalletTransferAsset={setWalletTransferAsset}
+      walletTransferAddressDraft={walletTransferAddressDraft}
+      setWalletTransferAddressDraft={setWalletTransferAddressDraft}
+      walletTransferAmountDraft={walletTransferAmountDraft}
+      setWalletTransferAmountDraft={setWalletTransferAmountDraft}
+      walletTransferDryRun={walletTransferDryRun}
+      setWalletTransferDryRun={setWalletTransferDryRun}
+      walletTransferUseFreeMana={walletTransferUseFreeMana}
+      setWalletTransferUseFreeMana={setWalletTransferUseFreeMana}
+      transferWalletToken={transferWalletToken}
+      walletBurnTargetAddressDraft={walletBurnTargetAddressDraft}
+      setWalletBurnTargetAddressDraft={setWalletBurnTargetAddressDraft}
+      walletBurnPercentDraft={walletBurnPercentDraft}
+      setWalletBurnPercentDraft={setWalletBurnPercentDraft}
+      walletBurnAmountDraft={walletBurnAmountDraft}
+      setWalletBurnAmountDraft={setWalletBurnAmountDraft}
+      walletBurnDryRun={walletBurnDryRun}
+      setWalletBurnDryRun={setWalletBurnDryRun}
+      walletBurnUseFreeMana={walletBurnUseFreeMana}
+      setWalletBurnUseFreeMana={setWalletBurnUseFreeMana}
+      burnKoinToVhp={burnKoinToVhp}
+      advancedMode={appAdvancedMode}
+      walletResultData={walletResultData}
+      walletResultTitle={walletResultTitle}
+      walletResultText={walletResultText}
+      walletActivityEntries={walletActivityEntries}
+      activeWalletAccount={activeWalletAccount}
+      activeWalletAccountId={activeWalletAccountId}
+      activeWalletAddress={activeWalletAddress}
+      activeWalletCanSign={activeWalletCanSign}
+      setWalletActiveAccount={setWalletActiveAccount}
+      setWalletAccountAsProducer={setWalletAccountAsProducer}
+      createWalletDerivedAccount={createWalletDerivedAccount}
+      importWalletWatchAccount={importWalletWatchAccount}
+      renameWalletVaultAccount={renameWalletVaultAccount}
+      removeWalletVaultAccount={removeWalletVaultAccount}
+      setupMode={setupMode}
+    />
+  )
 
   return (
     <div className={`app-shell ${firstRunSetupOpen ? 'is-first-run-locked' : ''}`.trim()}>
@@ -5348,6 +5498,17 @@ export function App() {
               {t('tab.wallet')}
             </button>
             <button
+              id="tab-documentation"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'documentation'}
+              aria-controls="panel-documentation"
+              className={`tab-button ${activeTab === 'documentation' ? 'is-active' : ''}`.trim()}
+              onClick={() => requestActiveTab('documentation')}
+            >
+              {t('tab.documentation')}
+            </button>
+            <button
               id="tab-settings"
               type="button"
               role="tab"
@@ -5362,7 +5523,7 @@ export function App() {
         </nav>
       </div>
 
-      <div className={`app-content ${hasAppOverlayOpen ? 'has-overlay' : ''}`.trim()}>
+      <div className={`app-content ${hasAppOverlayOpen ? 'has-overlay' : ''} ${activeTab === 'documentation' ? 'is-documentation' : ''}`.trim()}>
 
       {activeTab === 'settings' && (
         <SettingsPanel
@@ -5372,6 +5533,8 @@ export function App() {
           setLanguage={setLanguage}
           settings={settings}
           setSettings={setSettings}
+          appPreferences={appPreferences}
+          setAppPreferences={setAppPreferences}
           draftPublicRpcUrls={draftPublicRpcUrls}
           setDraftPublicRpcUrls={setDraftPublicRpcUrls}
           draftKoinscanUrl={draftKoinscanUrl}
@@ -6227,74 +6390,13 @@ export function App() {
       )}
 
       {activeTab === 'wallet' && (
-        <WalletPanel
+        renderWalletPanel(false)
+      )}
+
+      {activeTab === 'documentation' && (
+        <DocumentationPanel
           t={t}
-          hasWalletControls={hasWalletControls}
-          walletOverview={walletOverview}
-          walletLoading={walletLoading}
-          walletActionLoading={walletActionLoading}
-          walletError={walletError}
-          network={nodeSettings.network}
-          nativeTokenSymbol={nativeTokenSymbol}
-          walletBalance={walletDisplayBalance}
-          walletBalanceLoading={producerSigningWalletBalanceLoading}
-          walletBalanceError={producerSigningWalletBalanceError}
-          walletBalanceRefreshedAt={walletDisplayBalanceRefreshedAt}
-          walletImportPrivateKey={walletImportPrivateKey}
-          setWalletImportPrivateKey={setWalletImportPrivateKey}
-          walletImportPassword={walletImportPassword}
-          setWalletImportPassword={setWalletImportPassword}
-          walletImportSeedPhrase={walletImportSeedPhrase}
-          setWalletImportSeedPhrase={setWalletImportSeedPhrase}
-          walletImportSeedPassword={walletImportSeedPassword}
-          setWalletImportSeedPassword={setWalletImportSeedPassword}
-          walletUnlockPassword={producerUnlockPassword}
-          setWalletUnlockPassword={setProducerUnlockPassword}
-          importWalletAccount={importWalletVaultAccount}
-          importWalletFromSeed={importWalletFromSeed}
-          createWalletAccount={createWalletAccount}
-          generateWalletDraft={generateWalletDraft}
-          showWalletSeed={showWalletSeed}
-          closeWalletAccount={closeWalletAccount}
-          deleteWalletAccount={deleteWalletAccount}
-          unlockWalletAccount={unlockProducerAccount}
-          walletTransferAsset={walletTransferAsset}
-          setWalletTransferAsset={setWalletTransferAsset}
-          walletTransferAddressDraft={walletTransferAddressDraft}
-          setWalletTransferAddressDraft={setWalletTransferAddressDraft}
-          walletTransferAmountDraft={walletTransferAmountDraft}
-          setWalletTransferAmountDraft={setWalletTransferAmountDraft}
-          walletTransferDryRun={walletTransferDryRun}
-          setWalletTransferDryRun={setWalletTransferDryRun}
-          walletTransferUseFreeMana={walletTransferUseFreeMana}
-          setWalletTransferUseFreeMana={setWalletTransferUseFreeMana}
-          transferWalletToken={transferWalletToken}
-          walletBurnTargetAddressDraft={walletBurnTargetAddressDraft}
-          setWalletBurnTargetAddressDraft={setWalletBurnTargetAddressDraft}
-          walletBurnPercentDraft={walletBurnPercentDraft}
-          setWalletBurnPercentDraft={setWalletBurnPercentDraft}
-          walletBurnAmountDraft={walletBurnAmountDraft}
-          setWalletBurnAmountDraft={setWalletBurnAmountDraft}
-          walletBurnDryRun={walletBurnDryRun}
-          setWalletBurnDryRun={setWalletBurnDryRun}
-          walletBurnUseFreeMana={walletBurnUseFreeMana}
-          setWalletBurnUseFreeMana={setWalletBurnUseFreeMana}
-          burnKoinToVhp={burnKoinToVhp}
-          advancedMode={appAdvancedMode}
-          walletResultData={walletResultData}
-          walletResultTitle={walletResultTitle}
-          walletResultText={walletResultText}
-          walletActivityEntries={walletActivityEntries}
-          activeWalletAccount={activeWalletAccount}
-          activeWalletAccountId={activeWalletAccountId}
-          activeWalletAddress={activeWalletAddress}
-          activeWalletCanSign={activeWalletCanSign}
-          setWalletActiveAccount={setWalletActiveAccount}
-          setWalletAccountAsProducer={setWalletAccountAsProducer}
-          createWalletDerivedAccount={createWalletDerivedAccount}
-          importWalletWatchAccount={importWalletWatchAccount}
-          renameWalletVaultAccount={renameWalletVaultAccount}
-          removeWalletVaultAccount={removeWalletVaultAccount}
+          manualSitePath={documentationPath}
         />
       )}
 
@@ -6400,11 +6502,12 @@ export function App() {
           nodeBackupProgress={nodeBackupProgress}
           selectNetwork={updateDraftNodeNetwork}
           chooseDataFolder={pickNodeBaseDir}
-          saveSettings={saveCurrentSettings}
+          saveSettings={() => saveCurrentSettings({ suppressBaseDirChangeDialog: true })}
           checkPublicBootstrap={() => runNativeBackupList('public')}
           restorePublicBootstrap={restorePublicBootstrapFromSetup}
           cancelRestorePublicBackup={runCancelBackup}
           startObserverNode={startObserverNodeFromSetup}
+          walletSetupContent={renderWalletPanel(true)}
           onQuitSetup={quitUnfinishedFirstRunSetup}
           onComplete={completeFirstRunSetup}
         />
@@ -6419,6 +6522,7 @@ export function App() {
         chainSyncPercent={chainSyncPercent}
         t={t}
         appVersion={appVersion}
+        openVersionChangelog={openVersionChangelog}
       />
     </div>
   )

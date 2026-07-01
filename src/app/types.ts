@@ -15,6 +15,10 @@ export type ExplorerSettings = {
 
 export type ExplorerRpcSource = 'local' | string
 
+export type AppPreferences = {
+  keepRunningInMenuBar: boolean
+}
+
 export type NodeManagerSettings = {
   network: KoinosNetworkId
   repoPath: string
@@ -61,7 +65,7 @@ export type NodeBackupSettings = {
 
 export type NodeAction = 'start' | 'stop'
 export type NodeServiceAction = 'start' | 'stop' | 'restart'
-export type AppTab = 'explorer' | 'dashboard' | 'node' | 'remote' | 'producer' | 'wallet' | 'settings'
+export type AppTab = 'explorer' | 'dashboard' | 'node' | 'remote' | 'producer' | 'wallet' | 'documentation' | 'settings'
 export type DashboardSubtab = 'producers' | 'peers' | 'forecast' | 'performance'
 export type NodeManagedFileKind = 'config'
 

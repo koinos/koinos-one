@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld('teleno', {
     resetFirstRunSetup: () => ipcRenderer.invoke('teleno:app:first-run-reset')
   },
   appConfig: {
+    loadPreferences: () => ipcRenderer.invoke('teleno:app-config:preferences:load'),
+    savePreferences: (params?: unknown) => ipcRenderer.invoke('teleno:app-config:preferences:save', params),
     loadPublicRpcUrls: () => ipcRenderer.invoke('teleno:app-config:public-rpcs:load'),
     savePublicRpcUrls: (params?: unknown) => ipcRenderer.invoke('teleno:app-config:public-rpcs:save', params)
   },

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, type MessageBoxOptions, type OpenDialogOptions } from 'electron'
 import { createCipheriv, createHash, createDecipheriv, pbkdf2Sync, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import { Socket } from 'node:net'
@@ -45,6 +45,7 @@ import {
   isPackagedBuild
 } from './lib/constants'
 import { createAppLifecycleService } from './lib/app-lifecycle-service'
+import { createMenuBarService } from './lib/menu-bar-service'
 import { createTelenoStorage } from './lib/teleno-storage'
 import { createBackupService, writeNativeBackupConfig } from './lib/backup-service'
 import { deriveMonolithComponentHealth } from './lib/component-health'
@@ -159,6 +160,8 @@ import type {
   TelenoNodeSettingsInput,
   TelenoNodeStatus,
   TelenoNodeValidateBaseDirResult,
+  TelenoAppPreferencesInput,
+  TelenoAppPreferencesResult,
   TelenoEncryptedSecret,
   TelenoEncryptedWallet,
   TelenoProducerProfile,
@@ -241,6 +244,20 @@ app.setName('KoinosOne')
 let appShutdownInProgress = false
 let appShutdownApproved = false
 let mainWindow: BrowserWindow | null = null
+let menuBarService: ReturnType<typeof createMenuBarService> | null = null
+
+function setMacDockIconVisible(visible: boolean): void {
+  if (process.platform !== 'darwin') return
+  try {
+    if (visible) {
+      app.dock.show()
+    } else {
+      app.dock.hide()
+    }
+  } catch {
+    // Dock visibility is best-effort only; node shutdown safety must not depend on it.
+  }
+}
 const telenoStorage = createTelenoStorage(app.getPath('userData'))
 const FIRST_RUN_SETUP_STATE_FILE = 'first-run-setup-state.v1.json'
 
@@ -1117,14 +1134,22 @@ const nativeRuntimeService = createNativeRuntimeService({
 
 const appLifecycleService = createAppLifecycleService({
   isDev,
+  platform: process.platform,
   viteDevServerUrl: process.env.VITE_DEV_SERVER_URL,
   preloadPath: path.join(__dirname, 'preload.js'),
   nodeSettingsStorageKey: NODE_SETTINGS_STORAGE_KEY,
   languageStorageKey: LANGUAGE_STORAGE_KEY,
+  getAppPreferences: () => loadAppPreferences().preferences,
   parsePersistedNodeSettings,
   telenoNodeStatus,
   isComposeServiceRunning,
   telenoNodeAction,
+  hasActiveBackupOperation: () => backupService.isBackupOperationActive(),
+  cancelBackupOperation: () => backupService.cancelCreateBackup(),
+  isFirstRunSetupActive: async () => {
+    const state = readFirstRunSetupState()
+    return state.ok && state.completed !== true && state.install.packaged === true
+  },
   nativeServiceProcesses,
   getLogsFollowStreamIds: () => [...logsFollowSessions.keys()],
   stopLogsFollowStream: (streamId) => {
@@ -1141,6 +1166,13 @@ const appLifecycleService = createAppLifecycleService({
   getAppShutdownInProgress: () => appShutdownInProgress,
   setAppShutdownInProgress: (value) => {
     appShutdownInProgress = value
+  },
+  setDockIconVisible: setMacDockIconVisible,
+  onWindowHiddenToMenuBar: () => {
+    void menuBarService?.refresh()
+  },
+  onWindowShown: () => {
+    void menuBarService?.refresh()
   },
   quitApp: () => app.quit()
 })
@@ -1573,6 +1605,16 @@ function telenoProducerProfileFilePath(network?: KoinosNetworkId): string {
 
 function loadPublicRpcConfig(): PublicRpcConfigResult {
   return telenoStorage.loadPublicRpcConfig() as PublicRpcConfigResult
+}
+
+function loadAppPreferences(): TelenoAppPreferencesResult {
+  return telenoStorage.loadAppPreferences() as TelenoAppPreferencesResult
+}
+
+function saveAppPreferences(input?: TelenoAppPreferencesInput): TelenoAppPreferencesResult {
+  const result = telenoStorage.saveAppPreferences(input) as TelenoAppPreferencesResult
+  menuBarService?.syncFromPreferences()
+  return result
 }
 
 function savePublicRpcConfig(input?: PublicRpcConfigInput): PublicRpcConfigResult {
@@ -4617,6 +4659,8 @@ function registerIpcHandlers() {
     firstRunSetupState: readFirstRunSetupState,
     completeFirstRunSetup,
     resetFirstRunSetup,
+    loadAppPreferences,
+    saveAppPreferences,
     loadPublicRpcConfig,
     savePublicRpcConfig,
     loadRemoteInventory,
@@ -4706,20 +4750,57 @@ function createWindow(): BrowserWindow {
   return appLifecycleService.createWindow()
 }
 
+function createOrRefreshMenuBarService() {
+  if (!menuBarService) {
+    menuBarService = createMenuBarService({
+      platform: process.platform,
+      iconPath: path.join(__dirname, '../assets/branding/trayTemplate.png'),
+      getPreferences: () => loadAppPreferences().preferences,
+      getLanguage: async () => (await appLifecycleService.loadRendererAppContext(mainWindow)).language,
+      getNodeStatus: async () => {
+        const context = await appLifecycleService.loadRendererAppContext(mainWindow)
+        return telenoNodeStatus(context.nodeSettings)
+      },
+      showMainWindow: () => {
+        appLifecycleService.showMainWindow()
+      },
+      requestQuit: () => {
+        void requestOrderedAppShutdown(mainWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null)
+      },
+      stopNode: async () => {
+        const context = await appLifecycleService.loadRendererAppContext(mainWindow)
+        return telenoNodeAction('stop', context.nodeSettings)
+      },
+      showError: (title, message) => {
+        const targetWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+        const options: MessageBoxOptions = {
+          type: 'error',
+          title,
+          message,
+          buttons: ['OK'],
+          defaultId: 0,
+          noLink: true
+        }
+        if (targetWindow) {
+          void dialog.showMessageBox(targetWindow, options)
+        } else {
+          void dialog.showMessageBox(options)
+        }
+      }
+    })
+  }
+  menuBarService.syncFromPreferences()
+}
+
 app.whenReady().then(() => {
   if (process.platform === 'darwin') {
     app.dock.setIcon(path.join(__dirname, '../assets/branding/icon.png'))
   }
   registerIpcHandlers()
+  createOrRefreshMenuBarService()
   createWindow()
   app.on('activate', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      createWindow()
-      return
-    }
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
+    appLifecycleService.showMainWindow()
   })
 })
 
@@ -4735,6 +4816,10 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
+  if (process.platform === 'darwin' && loadAppPreferences().preferences.keepRunningInMenuBar && !appShutdownApproved) {
+    createOrRefreshMenuBarService()
+    return
+  }
   cleanupAppRuntimeResources()
   if (process.platform !== 'darwin') app.quit()
 })

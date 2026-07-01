@@ -2,6 +2,49 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+## [1.0.2] - 2026-07-01
+
+### Added
+
+- Added a Documentation tab in Koinos One with the initial manual structure for
+  Koinos concepts, the Koinos One user guide, the `teleno_node` CLI guide,
+  developer documentation, and reference material.
+- Added MkDocs static documentation rendering inside the Documentation tab.
+- Added the project changelog to the local rendered Documentation manual, with
+  stable anchors for each released version.
+- Added footer-version navigation so clicking the version badge opens the
+  Documentation tab at the matching local changelog entry.
+- Added macOS menu bar background mode, enabled by default on macOS and
+  configurable from Settings.
+- Added a macOS template Koinos cube tray icon, sanitized status menu, and
+  menu actions to show Koinos One, stop the managed node, and quit safely.
+- Added menu-bar-only hidden-window behavior on macOS: while backgrounded, the
+  Dock icon is hidden and is restored when the app window is shown.
+- Added first-run assistant refinements for the welcome, data-folder, public
+  backup restore, progress, and previous-step flows.
+
+### Changed
+
+- Updated Settings copy to explain that background mode hides both the window
+  and Dock icon while managed node services can continue from the menu bar.
+- Updated release documentation so creating a release requires a version bump,
+  changelog update, and rendered manual changelog entry.
+- Improved the first-run assistant by keeping testnet setup out of the default
+  first-install path and making public backup restore terminology consistent.
+
+### Fixed
+
+- Fixed MkDocs side-navigation links opening the Koinos One app recursively
+  inside the Documentation tab.
+- Improved the Documentation tab layout so rendered MkDocs pages use more of
+  the app window and center better on wide screens.
+- Fixed the macOS tray asset so it is a transparent template mark instead of a
+  filled square in the upper-right menu bar.
+- Fixed first-run restore visibility so the assistant can reuse the same
+  restore progress surface as the main app.
+
 ## [1.0.1] - 2026-06-30
 
 ### Added

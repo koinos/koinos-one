@@ -17,6 +17,9 @@ import {
 } from './constants'
 import { normalizeKoinosNetworkId, publicRpcUrlsForNetwork, type KoinosNetworkId } from './network-profiles'
 import type {
+  TelenoAppPreferences,
+  TelenoAppPreferencesInput,
+  TelenoAppPreferencesResult,
   TelenoEncryptedSecret,
   TelenoEncryptedWallet,
   TelenoEncryptedWalletAccount,
@@ -71,8 +74,25 @@ type WalletAccountSecrets = {
 type PublicRpcUrlsByNetwork = Record<KoinosNetworkId, string[]>
 
 const PUBLIC_RPC_NETWORKS: KoinosNetworkId[] = ['mainnet', 'testnet', 'custom']
+const TELENO_APP_PREFERENCES_FILE = 'app-preferences.v1.json'
 const TELENO_REMOTE_INVENTORY_FILE = 'remote-nodes.inventory.v1.json'
 const TELENO_REMOTE_RECEIPTS_FILE = 'remote-nodes.receipts.v1.json'
+
+function defaultAppPreferences(): TelenoAppPreferences {
+  return {
+    keepRunningInMenuBar: process.platform === 'darwin'
+  }
+}
+
+function normalizeAppPreferences(input?: TelenoAppPreferencesInput | null): TelenoAppPreferences {
+  const defaults = defaultAppPreferences()
+  return {
+    keepRunningInMenuBar:
+      typeof input?.keepRunningInMenuBar === 'boolean'
+        ? input.keepRunningInMenuBar
+        : defaults.keepRunningInMenuBar
+  }
+}
 
 function defaultPublicRpcUrlsByNetwork(): PublicRpcUrlsByNetwork {
   return {
@@ -457,6 +477,7 @@ export function createTelenoStorage(userDataPath: string) {
     path.join(scopedSecureStoragePath(network), TELENO_PRODUCER_WALLET_FILE)
   const producerProfileFilePath = (network?: KoinosNetworkId) =>
     path.join(scopedSecureStoragePath(network), TELENO_PRODUCER_PROFILE_FILE)
+  const appPreferencesFilePath = () => configPath(userDataPath, TELENO_APP_PREFERENCES_FILE)
   const publicRpcsFilePath = () => configPath(userDataPath, TELENO_PUBLIC_RPCS_FILE)
   const remoteInventoryFilePath = () => configPath(userDataPath, TELENO_REMOTE_INVENTORY_FILE)
   const remoteReceiptsFilePath = () => configPath(userDataPath, TELENO_REMOTE_RECEIPTS_FILE)
@@ -472,6 +493,65 @@ export function createTelenoStorage(userDataPath: string) {
     if (!requestedNetwork) return unlockedWallet
     if (unlockedWalletNetwork !== requestedNetwork) return null
     return unlockedWallet
+  }
+
+  const loadAppPreferences = (): TelenoAppPreferencesResult => {
+    const filePath = appPreferencesFilePath()
+    if (!fs.existsSync(filePath)) {
+      return {
+        ok: true,
+        output: 'Using default app preferences.',
+        filePath,
+        preferences: defaultAppPreferences()
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as TelenoAppPreferencesInput
+      return {
+        ok: true,
+        output: `Loaded app preferences from ${filePath}`,
+        filePath,
+        preferences: normalizeAppPreferences(parsed)
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not read app preferences.',
+        filePath,
+        preferences: defaultAppPreferences()
+      }
+    }
+  }
+
+  const saveAppPreferences = (input?: TelenoAppPreferencesInput): TelenoAppPreferencesResult => {
+    const filePath = appPreferencesFilePath()
+    const existing = loadAppPreferences().preferences
+    const preferences = normalizeAppPreferences({
+      ...existing,
+      ...(input && typeof input === 'object' ? input : {})
+    })
+
+    try {
+      ensureConfigDir()
+      const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`
+      fs.writeFileSync(tempPath, JSON.stringify(preferences, null, 2), { mode: 0o600 })
+      fs.renameSync(tempPath, filePath)
+      fs.chmodSync(filePath, 0o600)
+      return {
+        ok: true,
+        output: `Saved app preferences to ${filePath}`,
+        filePath,
+        preferences
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        output: error instanceof Error ? error.message : 'Could not save app preferences.',
+        filePath,
+        preferences
+      }
+    }
   }
 
   const writeWalletFile = (wallet: TelenoEncryptedWallet, network?: KoinosNetworkId): string => {
@@ -1204,9 +1284,12 @@ export function createTelenoStorage(userDataPath: string) {
   return {
     producerWalletFilePath,
     producerProfileFilePath,
+    appPreferencesFilePath,
     publicRpcsFilePath,
     remoteInventoryFilePath,
     remoteReceiptsFilePath,
+    loadAppPreferences,
+    saveAppPreferences,
     loadPublicRpcConfig,
     savePublicRpcConfig,
     loadRemoteInventory,

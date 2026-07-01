@@ -1,0 +1,96 @@
+site_name: Koinos One Documentation
+site_description: User, operator, and developer documentation for Koinos One and Teleno Node.
+repo_url: https://github.com/pgarciagon/koinos-one
+docs_dir: docs/manual
+site_dir: build/docs/manual-site
+strict: true
+use_directory_urls: false
+
+theme:
+  name: readthedocs
+  navigation_depth: 4
+
+extra_css:
+  - assets/koinos-one-mkdocs.css
+
+markdown_extensions:
+  - admonition
+  - fenced_code
+  - sane_lists
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: README.md
+  - Koinos Concepts:
+      - Overview: concepts/README.md
+      - What Is Koinos?: concepts/what-is-koinos.md
+      - Accounts, Keys, And Wallets: concepts/accounts-keys-wallets.md
+      - Transactions, Blocks, And Finality: concepts/transactions-blocks-finality.md
+      - Observers, Producers, And Mainnet: concepts/observers-producers-and-mainnet.md
+  - Koinos One User Guide:
+      - Overview: koinos-one/README.md
+      - Install On macOS: koinos-one/install-macos.md
+      - First-Run Setup: koinos-one/first-run-setup.md
+      - Node Dashboard: koinos-one/node-dashboard.md
+      - Syncing A Node: koinos-one/syncing-a-node.md
+      - Backup And Restore: koinos-one/backup-and-restore.md
+      - Public Bootstrap Restore: koinos-one/public-bootstrap-restore.md
+      - Wallet And Accounts: koinos-one/wallet-and-accounts.md
+      - Producer Mode: koinos-one/producer-mode.md
+      - Troubleshooting: koinos-one/troubleshooting.md
+  - Teleno Node CLI Guide:
+      - Overview: teleno-node/README.md
+      - Install Or Build: teleno-node/install-or-build.md
+      - Quickstart: teleno-node/quickstart.md
+      - Configuration: teleno-node/configuration.md
+      - Running Observer Nodes: teleno-node/running-observer-node.md
+      - Running Producer Nodes: teleno-node/running-producer-node.md
+      - Backup And Restore CLI: teleno-node/backup-restore-cli.md
+      - RPC Endpoints: teleno-node/rpc-endpoints.md
+      - Logs And Diagnostics: teleno-node/logs-and-diagnostics.md
+      - Command Reference: teleno-node/command-reference.md
+      - Troubleshooting: teleno-node/troubleshooting.md
+  - Developer Documentation:
+      - Overview: developers/README.md
+      - Repository Tour: developers/repository-tour.md
+      - Local Development: developers/local-development.md
+      - Architecture Overview: developers/architecture-overview.md
+      - GUI:
+          - Overview: developers/gui/README.md
+          - Electron, Vite, React Structure: developers/gui/electron-vite-react-structure.md
+          - App State And Native Bridge: developers/gui/app-state-and-native-bridge.md
+          - i18n And GUI Copy: developers/gui/i18n-and-gui-copy.md
+          - Settings Screens: developers/gui/settings-screens.md
+          - Packaging: developers/gui/packaging.md
+      - Teleno Node:
+          - Overview: developers/teleno-node/README.md
+          - Source Layout: developers/teleno-node/source-layout.md
+          - Component Overview: developers/teleno-node/component-overview.md
+          - Chain, Block Store, And Mempool: developers/teleno-node/chain-block-store-mempool.md
+          - P2P, JSON-RPC, And gRPC: developers/teleno-node/p2p-jsonrpc-grpc.md
+          - Backup And Restore Internals: developers/teleno-node/backup-restore-internals.md
+          - Storage And RocksDB: developers/teleno-node/storage-and-rocksdb.md
+          - Testing And Validation: developers/teleno-node/testing-and-validation.md
+          - Release Builds: developers/teleno-node/release-builds.md
+      - Compatibility And Safety:
+          - Koinos Protocol Boundary: developers/compatibility/koinos-protocol-boundary.md
+          - Legacy Service Parity: developers/compatibility/legacy-service-parity.md
+          - Mainnet Safety: developers/compatibility/mainnet-safety.md
+  - Reference:
+      - Overview: reference/README.md
+      - Glossary: reference/glossary.md
+      - Ports And Endpoints: reference/ports.md
+      - Config Files And Data Directories: reference/config-files.md
+      - Environment Variables: reference/environment-variables.md
+      - Security Model: reference/security-model.md
+      - Release Channels: reference/release-channels.md
+      - Changelog: reference/changelog.md
+  - Authoring Prompts:
+      - Overview: prompts/README.md
+      - Concepts: prompts/concepts.md
+      - Koinos One User Guide: prompts/koinos-one-user-guide.md
+      - Teleno Node CLI Guide: prompts/teleno-node-cli-guide.md
+      - Developer Documentation: prompts/developer-documentation.md
+      - Reference: prompts/reference.md

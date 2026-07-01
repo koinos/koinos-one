@@ -1,6 +1,6 @@
 # Teleno Codex Project Memory
 
-Last updated: 2026-06-29
+Last updated: 2026-07-01
 
 This file is intentionally short. It is operational memory for Codex sessions,
 not the full project history. Long benchmark results, sprint logs, validation
@@ -56,6 +56,31 @@ protocol compatibility and avoid shortcuts that diverge from mainnet behavior.
 All project documentation must be written in English, even when discussion with
 the user happens in Spanish.
 
+## Documentation Static Site Guardrail
+
+The Koinos One manual uses MkDocs-compatible Markdown as its authoring format.
+The source documentation lives in `docs/manual/`, and the navigation, theme, and
+static output location are defined by `mkdocs.yml`.
+
+MkDocs is a build-time documentation tool, not a runtime dependency of Koinos
+One. Generate the static documentation with `mkdocs build --strict`; the output
+is written to `build/docs/manual-site/` unless the configuration is explicitly
+changed. Packaged or in-app documentation should consume the generated static
+HTML, not start a live MkDocs server.
+
+Keep `use_directory_urls: false` in `mkdocs.yml`. The Documentation tab embeds
+the generated site inside the React app, and directory-style MkDocs links such
+as `concepts/` can be handled by the Vite/Electron app fallback instead of the
+static docs server, causing Koinos One to render recursively inside the docs
+iframe. Static documentation links must resolve to concrete HTML files such as
+`concepts/index.html` or `concepts/what-is-koinos.html`.
+
+Keep `docs/manual/` readable both in GitHub and in MkDocs. Use normal Markdown
+links for pages inside `docs/manual/`. When referencing deeper engineering docs
+outside the manual tree, prefer plain code paths such as
+`docs/current/monolith/ARCHITECTURE.md` unless those files are intentionally
+added to the MkDocs source tree.
+
 ## GUI Copy Consistency Guardrail
 
 When updating or adding a user-facing feature, verify that the visible GUI
@@ -87,6 +112,34 @@ running app or with a screenshot and verify that text remains readable, labels
 and values do not clash, the layout works at the expected window size, and the
 new UI does not draw more attention than the feature warrants.
 
+## GUI Box Model And Spacing Guardrail
+
+When adding or modifying panels, cards, tab bars, button rows, forms, or nested
+UI surfaces, explicitly account for the CSS box model. A child element inside a
+bordered parent must not use `width: 100%` together with horizontal margins,
+padding, or borders unless the total rendered width is constrained with
+`calc(...)`, `max-width`, or an equivalent layout rule. Prefer `width: auto`,
+parent padding, and `gap` on flex/grid containers for internal spacing.
+
+Every bordered container must preserve visible breathing room on all sides. As a
+default, keep at least 12-16px between a parent's border and its child controls,
+and at least 10-16px between sibling panels or action groups, unless the
+surrounding component already uses a tighter established rhythm. Do not let
+buttons, cards, tables, lists, or nested panels touch or visually overlap the
+rightmost or leftmost border of their parent.
+
+Before completing any GUI layout change, verify the affected screen for box
+overflow and spacing:
+
+- inspect the screen in the running app or a screenshot at the expected window
+  size;
+- check that `scrollWidth` does not exceed `clientWidth` unless horizontal
+  scrolling is an intentional feature;
+- compare parent and child bounding boxes when a panel contains nested cards,
+  button rows, or controls near the edges;
+- confirm left/right padding appears balanced and sibling bordered surfaces have
+  a visible gap between borders.
+
 ## First-Run Setup Guardrail
 
 The first-run installation assistant must not open during normal development
@@ -111,6 +164,19 @@ every packaged canary, beta, or stable build.
 When changing user-facing functionality, update changelog or release notes as
 appropriate, and ensure the GUI About/Build Info surface can show the exact
 version and commit included in the build.
+
+When the user asks to create a new release, treat versioning and release notes
+as required release work, not optional cleanup:
+
+- increase the SemVer product version in `package.json` and `package-lock.json`;
+- move relevant `CHANGELOG.md` entries into the new version section with the
+  release date;
+- update or regenerate the rendered manual changelog so the Documentation tab
+  can show the corresponding version entry;
+- run the relevant tests, docs build, package build, and packaged-app
+  verification before tagging or publishing;
+- only create/push a release tag and GitHub release after the version,
+  changelog, manual changelog, and package artifacts match.
 
 ## Mainnet Safety Guardrails
 

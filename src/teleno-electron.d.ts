@@ -75,6 +75,17 @@ declare global {
     nodeSettings?: Partial<TelenoNodeSettings>
   }
 
+  type TelenoAppPreferences = {
+    keepRunningInMenuBar: boolean
+  }
+
+  type TelenoAppPreferencesResult = {
+    ok: boolean
+    output: string
+    filePath: string
+    preferences: TelenoAppPreferences
+  }
+
   type TelenoFirstRunSetupState = {
     ok: boolean
     completed: boolean
@@ -1148,6 +1159,8 @@ declare global {
       resetFirstRunSetup?: () => Promise<TelenoFirstRunSetupState>
     }
     appConfig?: {
+      loadPreferences?: () => Promise<TelenoAppPreferencesResult>
+      savePreferences?: (params?: Partial<TelenoAppPreferences>) => Promise<TelenoAppPreferencesResult>
       loadPublicRpcUrls: () => Promise<TelenoPublicRpcConfigResult>
       savePublicRpcUrls: (params?: TelenoPublicRpcConfigParams) => Promise<TelenoPublicRpcConfigResult>
     }

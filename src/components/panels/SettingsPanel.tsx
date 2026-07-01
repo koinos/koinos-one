@@ -15,6 +15,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setLanguage,
     settings,
     setSettings,
+    appPreferences = { keepRunningInMenuBar: false },
+    setAppPreferences = () => {},
     draftPublicRpcUrls,
     setDraftPublicRpcUrls,
     draftKoinscanUrl,
@@ -200,6 +202,25 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </label>
               <span className="settings-inline-help">
                 {advancedMode ? t('settings.advancedModeHelpOn') : t('settings.advancedModeHelpOff')}
+              </span>
+            </div>
+
+            <div>
+              <label className="settings-toggle-row" title={t('settings.menuBarHelp')}>
+                <input
+                  type="checkbox"
+                  checked={appPreferences.keepRunningInMenuBar === true}
+                  onChange={(event) => {
+                    setAppPreferences((current: any) => ({
+                      ...current,
+                      keepRunningInMenuBar: event.target.checked
+                    }))
+                  }}
+                />
+                <span>{t('settings.menuBarMode')}</span>
+              </label>
+              <span className="settings-inline-help">
+                {t('settings.menuBarHelp')}
               </span>
             </div>
 

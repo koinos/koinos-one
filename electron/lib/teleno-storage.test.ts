@@ -42,6 +42,20 @@ describe('teleno storage', () => {
     ])
   })
 
+  it('persists local app preferences', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-prefs-'))
+
+    const initial = storage.loadAppPreferences()
+    expect(initial.ok).toBe(true)
+    expect(typeof initial.preferences.keepRunningInMenuBar).toBe('boolean')
+
+    const saved = storage.saveAppPreferences({ keepRunningInMenuBar: false })
+    expect(saved.ok).toBe(true)
+    expect(saved.filePath).toContain('app-preferences.v1.json')
+    expect(saved.preferences).toEqual({ keepRunningInMenuBar: false })
+    expect(storage.loadAppPreferences().preferences).toEqual({ keepRunningInMenuBar: false })
+  })
+
   it('keeps public rpc config separate per network', () => {
     const storage = createTelenoStorage(createTempDir('teleno-storage-rpc-network-'))
 

@@ -28,6 +28,8 @@ function createDeps() {
     firstRunSetupState: vi.fn(async () => ({ ok: true, completed: false })),
     completeFirstRunSetup: vi.fn(async (input?: unknown) => ({ ok: true, completed: true, setup: input })),
     resetFirstRunSetup: vi.fn(async () => ({ ok: true, completed: false })),
+    loadAppPreferences: vi.fn(async () => ({ ok: true, preferences: { keepRunningInMenuBar: true } })),
+    saveAppPreferences: vi.fn(async (input?: unknown) => ({ ok: true, preferences: input })),
     loadPublicRpcConfig: vi.fn(async () => ({ ok: true })),
     savePublicRpcConfig: vi.fn(async () => ({ ok: true })),
     loadRemoteInventory: vi.fn(async () => ({ ok: true, inventory: { version: 1, nodes: [] } })),
@@ -139,6 +141,22 @@ describe('ipc-handlers', () => {
     expect(deps.firstRunSetupState).toHaveBeenCalledTimes(1)
     expect(deps.completeFirstRunSetup).toHaveBeenCalledWith(payload)
     expect(deps.resetFirstRunSetup).toHaveBeenCalledTimes(1)
+  })
+
+  it('registers app preference handlers', async () => {
+    const ipcMain = createFakeIpcMain()
+    const deps = createDeps()
+
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
+
+    const payload = { keepRunningInMenuBar: false }
+    const loaded = await ipcMain.handlers.get('teleno:app-config:preferences:load')?.({ sender: {} })
+    const saved = await ipcMain.handlers.get('teleno:app-config:preferences:save')?.({ sender: {} }, payload)
+
+    expect(loaded).toEqual({ ok: true, preferences: { keepRunningInMenuBar: true } })
+    expect(saved).toEqual({ ok: true, preferences: payload })
+    expect(deps.loadAppPreferences).toHaveBeenCalledTimes(1)
+    expect(deps.saveAppPreferences).toHaveBeenCalledWith(payload)
   })
 
   it('registers handlers and uses getNodeDefaults', async () => {

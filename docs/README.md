@@ -3,6 +3,20 @@
 This directory is organized by document lifecycle, not by the order in which the
 work originally happened.
 
+## User-Facing Manual
+
+Use `manual/` for the documentation that is exposed through the Koinos One app
+and intended for users, operators, and contributors.
+
+- `manual/README.md` - publishable documentation entrypoint.
+- `manual/concepts/` - basic Koinos blockchain concepts.
+- `manual/koinos-one/` - desktop app user guide.
+- `manual/teleno-node/` - command-line guide for the native `teleno_node`
+  binary.
+- `manual/developers/` - contributor documentation for the GUI and native node.
+- `manual/reference/` - glossary, ports, paths, config, security, and release
+  reference.
+
 ## Current Implementation
 
 Use `current/` for behavior that exists in the active Koinos One / Teleno

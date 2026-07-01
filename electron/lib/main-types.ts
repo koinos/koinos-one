@@ -6,6 +6,21 @@ import type { WebContents } from 'electron'
 import type { NativeBuildSystem } from './native-tooling'
 import type { KoinosNetworkId } from './network-profiles'
 
+export type TelenoAppPreferencesInput = {
+  keepRunningInMenuBar?: boolean
+}
+
+export type TelenoAppPreferences = {
+  keepRunningInMenuBar: boolean
+}
+
+export type TelenoAppPreferencesResult = {
+  ok: boolean
+  output: string
+  filePath: string
+  preferences: TelenoAppPreferences
+}
+
 export type TelenoNodeSettingsInput = {
   network?: KoinosNetworkId
   repoPath?: string

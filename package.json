@@ -1,6 +1,6 @@
 {
   "name": "koinos-one",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Koinos One desktop app powered by the native monolithic Koinos node (Electron + React + TypeScript)",
   "author": "pgarciagon",
@@ -10,7 +10,9 @@
     "dev:renderer": "vite",
     "dev:main": "tsc -p tsconfig.electron.json --watch",
     "dev:electron": "wait-on tcp:5173 dist-electron/main.js && node scripts/dev-electron.js",
-    "build": "npm run generate:build-info && npm run build:renderer && npm run build:electron",
+    "build": "npm run docs:build && npm run generate:build-info && npm run build:renderer && npm run build:electron",
+    "docs:sync-changelog": "node scripts/sync-manual-changelog.js",
+    "docs:build": "npm run docs:sync-changelog && mkdocs build --strict",
     "build:icon:mac": "node scripts/build-mac-icon.js",
     "notarize:preflight": "node scripts/check-notarize-credentials.js",
     "generate:build-info": "node scripts/generate-build-info.js",

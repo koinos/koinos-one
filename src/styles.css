@@ -111,6 +111,13 @@ body {
   z-index: 3;
 }
 
+.app-content.is-documentation {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 0 8px;
+}
+
 .app-footer {
   position: relative;
   z-index: 2;
@@ -192,8 +199,17 @@ body {
   border-radius: 999px;
   background: rgba(8, 24, 36, 0.9);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  color: inherit;
+  cursor: pointer;
   font-size: 0.88rem;
+  font-family: inherit;
   line-height: 1;
+}
+
+.app-version-badge:hover,
+.app-version-badge:focus-visible {
+  border-color: rgba(111, 55, 215, 0.42);
+  background: rgba(13, 31, 46, 0.96);
 }
 
 .app-footer-right {
@@ -1736,7 +1752,7 @@ body {
 .wallet-account-bar {
   display: grid;
   gap: 14px;
-  width: 100%;
+  width: auto;
   margin: var(--ui-gap) var(--ui-gap) 0;
   padding: 16px;
   border-radius: 12px;
@@ -2233,6 +2249,68 @@ body {
   flex-wrap: wrap;
 }
 
+.first-run-setup-modal .wallet-panel-setup {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.first-run-setup-modal .wallet-panel-setup .wallet-empty-state,
+.first-run-setup-modal .wallet-panel-setup .wallet-card,
+.first-run-setup-modal .wallet-panel-setup .wallet-setup-ready {
+  margin: 0;
+  border: 1px solid rgba(93, 0, 179, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(18, 18, 18, 0.04);
+}
+
+.first-run-setup-modal .wallet-panel-setup .wallet-card-grid-locked {
+  margin: 0;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+}
+
+.first-run-setup-modal .wallet-panel-setup .wallet-empty-state h3,
+.first-run-setup-modal .wallet-panel-setup .wallet-card h3,
+.first-run-setup-modal .wallet-panel-setup .wallet-setup-ready h3 {
+  color: #121212;
+}
+
+.first-run-setup-modal .wallet-panel-setup .wallet-empty-state p,
+.first-run-setup-modal .wallet-panel-setup .wallet-card p,
+.first-run-setup-modal .wallet-panel-setup .wallet-lock-summary,
+.first-run-setup-modal .wallet-panel-setup .wallet-setup-ready p {
+  color: #536b7e;
+}
+
+.first-run-setup-modal .wallet-panel-setup .wallet-card label,
+.first-run-setup-modal .wallet-panel-setup .wallet-account-picker-label,
+.first-run-setup-modal .wallet-panel-setup .stat-label {
+  color: #536b7e;
+}
+
+.first-run-setup-modal .wallet-panel-setup .wallet-card input,
+.first-run-setup-modal .wallet-panel-setup .wallet-card select,
+.first-run-setup-modal .wallet-panel-setup .wallet-card textarea {
+  background: #ffffff;
+  color: #121212;
+  border-color: rgba(74, 91, 105, 0.22);
+}
+
+.first-run-setup-modal .wallet-panel-setup .wallet-unlock-address {
+  color: #121212;
+}
+
+.wallet-setup-ready {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
 .wallet-modal {
   width: min(560px, 100%);
   grid-template-rows: auto minmax(0, 1fr);
@@ -2437,6 +2515,29 @@ body {
   display: grid;
   gap: var(--ui-gap-loose);
   margin: 12px 16px 16px;
+}
+
+.documentation-panel {
+  flex: 1 1 auto;
+  display: block;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  height: auto;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.documentation-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(8, 24, 36, 0.12);
+  border-radius: 6px;
+  background: #ffffff;
 }
 
 .dashboard-subtabs {
@@ -5829,6 +5930,10 @@ tbody tr.is-fresh {
 
   .node-panel-header {
     flex-direction: column;
+  }
+
+  .documentation-panel {
+    min-height: 0;
   }
 
   .wallet-header,

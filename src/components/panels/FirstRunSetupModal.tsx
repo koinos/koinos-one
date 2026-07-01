@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { NodeBackupProgressState } from '../../app/types'
+import { formatBytes } from '../../app/utils'
 import { NodeBackupProgressPanel } from './NodeBackupProgressPanel'
 
 type FirstRunNetwork = 'mainnet' | 'testnet'
-type FirstRunSetupStep = 'welcome' | 'data' | 'restore' | 'start' | 'done'
+type FirstRunSetupStep = 'welcome' | 'data' | 'wallet' | 'restore' | 'start' | 'done'
 type PublicBootstrapCheckState = 'idle' | 'checking' | 'available' | 'unavailable'
 
 type StartObserverResult = boolean | {
@@ -34,6 +35,7 @@ type FirstRunSetupModalProps = {
   syncStatusProgressVisible: boolean
   syncStatusPercent: number | null
   nodeBackupProgress: NodeBackupProgressState | null
+  walletSetupContent?: ReactNode
   selectNetwork: (network: FirstRunNetwork) => void
   chooseDataFolder: () => Promise<boolean>
   saveSettings: () => Promise<boolean>
@@ -58,6 +60,12 @@ const SETUP_STEPS: Array<{ id: FirstRunSetupStep; labelKey: string; titleKey: st
     labelKey: 'firstRun.step.dataFolder.label',
     titleKey: 'firstRun.step.dataFolder.title',
     helpKey: 'firstRun.step.dataFolder.help'
+  },
+  {
+    id: 'wallet',
+    labelKey: 'firstRun.step.wallet.label',
+    titleKey: 'firstRun.step.wallet.title',
+    helpKey: 'firstRun.step.wallet.help'
   },
   {
     id: 'restore',
@@ -117,6 +125,19 @@ function networkLabel(t: Translate, network: FirstRunNetwork) {
   return network === 'testnet' ? t('firstRun.network.testnet') : t('firstRun.network.mainnet')
 }
 
+function positiveBytes(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function latestPublicBackupSnapshot(publicBootstrapList: any, latestPublicBackupId: string) {
+  const snapshots = Array.isArray(publicBootstrapList?.snapshots) ? publicBootstrapList.snapshots : []
+  if (latestPublicBackupId) {
+    const byId = snapshots.find((snapshot: any) => snapshot?.backupId === latestPublicBackupId)
+    if (byId) return byId
+  }
+  return snapshots.find((snapshot: any) => snapshot?.latest) ?? snapshots[0] ?? null
+}
+
 export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const {
     locale,
@@ -138,6 +159,7 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     syncStatusProgressVisible,
     syncStatusPercent,
     nodeBackupProgress,
+    walletSetupContent,
     selectNetwork,
     chooseDataFolder,
     saveSettings,
@@ -163,6 +185,11 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const stepNumber = activeStepIndex + 1
   const progressPercent = Math.round((stepNumber / SETUP_STEPS.length) * 100)
   const latestPublicBackupId = publicBootstrapList?.latestBackupId || ''
+  const latestPublicBackup = latestPublicBackupSnapshot(publicBootstrapList, latestPublicBackupId)
+  const publicBackupSizeBytes = positiveBytes(latestPublicBackup?.totalBytes)
+  const publicRestoreMinimumBytes = positiveBytes(latestPublicBackup?.restoreSpace?.minimumTargetFreeBytes)
+  const publicRestoreRecommendedBytes = positiveBytes(latestPublicBackup?.restoreSpace?.recommendedTargetFreeBytes)
+  const hasPublicRestoreEstimate = Boolean(publicBackupSizeBytes && publicRestoreMinimumBytes && publicRestoreRecommendedBytes)
   const visibleDataFolder = draftBaseDir?.trim() || baseDir?.trim()
   const dataFolderIsDraft = Boolean(draftBaseDir?.trim() && draftBaseDir.trim() !== baseDir.trim())
   const dataFolderReady = Boolean(baseDir?.trim()) && !settingsDirty
@@ -199,11 +226,20 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     : bootstrapAvailabilityState === 'available'
       ? t('firstRun.action.restorePublicBackup')
       : t('firstRun.action.next')
+  const dataFolderDescription = hasPublicRestoreEstimate
+    ? t('firstRun.dataFolder.descriptionWithEstimate', {
+        backupSize: formatBytes(publicBackupSizeBytes, locale),
+        minimumFree: formatBytes(publicRestoreMinimumBytes, locale),
+        recommendedFree: formatBytes(publicRestoreRecommendedBytes, locale)
+      })
+    : publicBootstrapListLoading || publicBootstrapCheckState === 'checking'
+      ? t('firstRun.dataFolder.descriptionCheckingEstimate')
+      : t('firstRun.dataFolder.descriptionNoEstimate')
 
   useEffect(() => {
-    if (step !== 'restore') return
+    if (step !== 'data' && step !== 'restore') return
 
-    if (settingsDirty) {
+    if (step === 'restore' && settingsDirty) {
       setPublicBootstrapCheckState('idle')
       return
     }
@@ -222,7 +258,7 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
       return
     }
 
-    const checkKey = `${network}|${baseDir}|${publicBootstrapUrl}`
+    const checkKey = `${network}|${publicBootstrapUrl}`
     if (publicBootstrapCheckKeyRef.current === checkKey && publicBootstrapCheckState !== 'idle') return
     publicBootstrapCheckKeyRef.current = checkKey
 
@@ -248,7 +284,7 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     return () => {
       cancelled = true
     }
-  }, [baseDir, checkPublicBootstrap, latestPublicBackupId, network, publicBootstrapUrl, publicBootstrapCheckState, settingsDirty, step])
+  }, [checkPublicBootstrap, latestPublicBackupId, network, publicBootstrapUrl, publicBootstrapCheckState, settingsDirty, step])
 
   const setSetupStep = (nextStep: FirstRunSetupStep) => {
     setSetupError(null)
@@ -279,7 +315,7 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     setSetupError(null)
     setSetupNotice(null)
     const ok = await saveSettings()
-    if (ok) setSetupStep('restore')
+    if (ok) setSetupStep('wallet')
   }
 
   const handleContinueRestore = async () => {
@@ -304,8 +340,12 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
       setSetupStep('welcome')
       return
     }
-    if (step === 'restore' && !publicRestoreInProgress) {
+    if (step === 'wallet') {
       setSetupStep('data')
+      return
+    }
+    if (step === 'restore' && !publicRestoreInProgress) {
+      setSetupStep('wallet')
     }
   }
 
@@ -341,7 +381,7 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   }
 
   const currentNetworkLabel = networkLabel(t, 'mainnet')
-  const showPrevious = step === 'data' || (step === 'restore' && !publicRestoreInProgress)
+  const showPrevious = step === 'data' || step === 'wallet' || (step === 'restore' && !publicRestoreInProgress)
 
   return (
     <div className="log-modal-backdrop first-run-setup-backdrop" role="presentation">
@@ -444,7 +484,7 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
               </div>
 
               <p className="conflict-modal-copy">
-                {t('firstRun.dataFolder.description')}
+                {dataFolderDescription}
               </p>
 
               <div className="first-run-setup-actions">
@@ -457,6 +497,31 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
                   {t('firstRun.action.chooseFolder')}
                 </button>
                 <button type="button" className="primary-button" onClick={handleSaveSettings} disabled={!draftBaseDir.trim()}>
+                  {t('firstRun.action.next')}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 'wallet' && (
+            <div className="first-run-setup-panel">
+              <h4>{t('firstRun.wallet.question')}</h4>
+              <p className="conflict-modal-copy">
+                {t('firstRun.wallet.description')}
+              </p>
+              {walletSetupContent || (
+                <div className="node-warning" role="note">
+                  {t('firstRun.wallet.unavailable')}
+                </div>
+              )}
+
+              <div className="first-run-setup-actions">
+                {showPrevious && (
+                  <button type="button" className="ghost-button" onClick={handlePrevious}>
+                    {t('firstRun.action.previous')}
+                  </button>
+                )}
+                <button type="button" className="primary-button" onClick={() => setSetupStep('restore')}>
                   {t('firstRun.action.next')}
                 </button>
               </div>
