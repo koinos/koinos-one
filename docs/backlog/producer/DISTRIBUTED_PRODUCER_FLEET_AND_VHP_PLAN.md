@@ -121,6 +121,146 @@ This is the core onboarding problem. The app must make it easy to solve, but the
 
 MVP recommendation: implement the user-owned funding wallet plus manual funding fallback first. Add sponsor-wallet support only when the transaction preview can clearly separate signer, payer, source account, and target producer. Treat payment providers, DEX routing, and managed servers as future integrations with a compliance gate.
 
+### ETH-To-KOIN Funding Possibilities
+
+This section is planning only. It does not authorize implementation, live swaps,
+bridge operations, KOIN burns, producer registration, or producer activation.
+
+Problem statement: a user may have ETH or another EVM asset but no KOIN in the
+Koinos One wallet. To become a block producer, the user still needs a safe route
+from external funds to liquid KOIN, then from KOIN to VHP, then to producer-key
+registration and observer-first producer activation.
+
+Current reference assumptions to verify again before implementation:
+
+- Koinos Proof-of-Burn producer setup requires KOIN, a KOIN-to-VHP burn, and
+  producer hot-key registration.
+- The Vortex bridge has been described publicly as a bridge path for KOIN,
+  USDT, and ETH between Koinos and Ethereum, with KOIN liquidity on Uniswap.
+- Uniswap integration docs treat the app as the transaction integrator: the app
+  must handle wallet connection or local key management, RPC, approvals, signing,
+  transaction submission, gas, slippage, and failure handling.
+
+Do not assume an Ethereum-side asset name such as `vKOIN` unless official current
+bridge metadata uses that name. In Koinos One, `vKOIN` can also refer to testnet
+native token naming, so UI copy must avoid ambiguous token names.
+
+#### Option A - Guide-Only External Funding Assistant
+
+Recommended first implementation.
+
+Koinos One shows the target Koinos address, required funding/VHP checklist,
+official links, warnings, and balance watchers. The user performs Uniswap,
+Vortex, exchange, or wallet actions outside Koinos One. Koinos One only verifies
+incoming KOIN/VHP state and resumes the producer setup once funds are present.
+
+Pros:
+
+- no ETH private-key handling in Koinos One;
+- no in-app swap, bridge, approval, or gas logic;
+- lowest legal, security, and implementation risk;
+- works with MetaMask, Rabby, WalletConnect wallets, CEX withdrawals, and manual
+  transfers.
+
+Cons:
+
+- user leaves the app;
+- harder to make fully one-click;
+- troubleshooting depends on external wallet and bridge state.
+
+#### Option B - External EVM Wallet Integration
+
+Koinos One integrates WalletConnect or a browser-wallet style provider and asks
+the user's external EVM wallet to sign approvals, swaps, bridge transactions, and
+claims. Koinos One can still build the guided state machine and monitor progress,
+but the ETH key stays in the external wallet.
+
+Pros:
+
+- avoids storing ETH private keys in Koinos One;
+- can support MetaMask, Rabby, and mobile wallets through one integration model;
+- keeps the app non-custodial while improving UX.
+
+Cons:
+
+- more complex than guide-only;
+- requires wallet-session security, chain switching, transaction status tracking,
+  and clear user recovery when the wallet rejects or drops a transaction;
+- still depends on official bridge and swap contract metadata.
+
+#### Option C - Embedded Local EVM Wallet
+
+Koinos One can implement a local Ethereum wallet so the user does not need
+MetaMask. That means Koinos One must generate or import an EVM account, derive
+an Ethereum address, encrypt and store the seed/private key locally, connect to
+an Ethereum RPC, estimate gas, sign EIP-1559 transactions, and broadcast them.
+
+This is possible, but it changes the product boundary: Koinos One becomes a
+multi-chain wallet. It needs a stronger security review, backup/recovery UX,
+keychain integration, redaction rules, seed export rules, and a clear migration
+story before it is exposed to non-expert users.
+
+#### Option D - In-App Uniswap Quote And Swap
+
+Koinos One can use Uniswap API/SDK flows to quote ETH-to-KOIN or token-to-KOIN
+swaps, show price impact and slippage, request approval only when needed, build
+the swap transaction, sign through Option B or Option C, broadcast, and track the
+transaction until final.
+
+This is not a standalone option. It requires an external EVM wallet integration
+or an embedded local EVM wallet first. It also requires an allowlist for token
+contracts, chain ID, router/API source, maximum slippage, approval scope, and
+sanitized receipts.
+
+#### Option E - Vortex Bridge Integration
+
+Koinos One can start with a guide/deep-link flow to the official bridge and later
+integrate bridge status or bridge transactions directly if official production
+contracts, APIs, event semantics, and claim/finality rules are stable and pinned.
+
+The app must be able to explain pending, failed, partially completed, and
+claim-required bridge states. It must never hide the fact that funds are crossing
+chain boundaries and may need confirmations or guardian validation before they
+arrive on Koinos.
+
+#### Option F - CEX, On-Ramp, Or Manual Deposit
+
+Koinos One can show a deposit address and wait for KOIN, regardless of whether
+the user buys on an exchange, receives a transfer, or uses a future on-ramp. This
+is the most generic fallback and should remain available even if DEX and bridge
+integrations are added later.
+
+#### Option G - Fully Automated ETH-To-Producer Flow
+
+The attractive product shape is:
+
+1. sign with ETH wallet;
+2. swap ETH to Ethereum-side KOIN;
+3. bridge KOIN to Koinos;
+4. verify KOIN balance;
+5. burn selected KOIN into VHP;
+6. register producer hot key;
+7. start observer-first production after health checks.
+
+This must not be MVP. It chains several irreversible or failure-prone operations.
+It should be considered only after guide-only funding, external wallet signing,
+swap quotes, bridge monitoring, Koinos burn/register dry-runs, and observer-first
+producer activation have all been validated independently.
+
+Recommended product order:
+
+1. Build a guide-only Producer Funding Assistant with balance watching.
+2. Add external wallet or bridge deep links, but keep the user signing outside
+   Koinos One.
+3. Add WalletConnect/external EVM wallet support if the guide-only path is too
+   manual.
+4. Add Uniswap quotes as read-only estimates before enabling in-app swap signing.
+5. Add Vortex status monitoring before bridge transaction construction.
+6. Consider embedded EVM wallet only as an expert-mode feature after a security
+   review.
+7. Chain swap, bridge, burn, registration, and producer start only after each
+   individual step has receipts, dry-runs, confirmations, and recovery paths.
+
 ## Core Concepts
 
 ### Producer Profile
@@ -647,11 +787,24 @@ Tasks:
 4. Evaluate whether DEX purchase happens on Koinos, Ethereum-wrapped KOIN, or another route.
 5. Define provider abstraction for server provisioning.
 6. Keep all payment-provider secrets outside committed code and docs.
+7. Add an ETH-to-KOIN feasibility spike:
+   - guide-only external flow;
+   - WalletConnect or equivalent external EVM wallet signing;
+   - optional embedded EVM wallet as expert-only future work;
+   - Uniswap quote/swap integration boundaries;
+   - Vortex bridge integration boundaries;
+   - CEX/on-ramp/manual-deposit fallback.
+8. Pin official token, bridge, router/API, and chain metadata before any in-app
+   transaction construction.
+9. Require transaction receipts and recovery behavior for every step before
+   combining swap, bridge, burn, registration, and producer activation.
 
 Exit criteria:
 
 - A product decision exists on whether Koinos One is only a local orchestrator or also a billing/provisioning product.
 - No payment-provider integration ships without legal/compliance approval.
+- No ETH wallet, DEX, or bridge integration ships without an explicit
+  non-custodial security model and current official contract/API metadata.
 
 ## UX Surfaces
 
@@ -815,6 +968,14 @@ Mainnet acceptance:
 - Should Koinos One remain a purely local non-custodial orchestrator, or should it eventually become a payment/provisioning product?
 - Which payment provider or on-ramp can legally deliver KOIN to a user-generated address?
 - Is a DEX route practical for acquiring KOIN directly, or does it require wrapped assets, bridge assumptions, and additional custody risk?
+- Should the first ETH-to-KOIN experience be guide-only, WalletConnect-based, or
+  an embedded local EVM wallet?
+- Which official Ethereum token contract, Uniswap pool/route, Vortex bridge
+  contract/API, and finality model should Koinos One trust?
+- How should the UI explain partial completion when the swap succeeds but the
+  bridge is pending, fails, or requires a claim?
+- What minimum liquid KOIN reserve should remain after burning so the producer
+  address still has enough mana for registration and maintenance?
 - What refund and failure recovery flow applies if payment succeeds but KOIN delivery, burn, registration, or server provisioning fails?
 - Should Koinos One ever sponsor setup transactions for users, or should sponsorship always be user-owned/configured?
 - Does Fogata need code/security review before Koinos One exposes deployment controls?
@@ -835,6 +996,8 @@ Mainnet acceptance:
 8. Add a minimal local producer setup wizard using existing Wallet, Producer, and Backup primitives.
 9. Add Fogata ABI/WASM inspection tooling before any deployment UI.
 10. Add sensitive-data grep checks to release and docs validation.
+11. Write a separate ETH-to-KOIN Producer Funding Assistant technical design
+    before adding WalletConnect, embedded EVM wallet, Uniswap, or Vortex code.
 
 ## Recommended Sequencing
 
@@ -850,4 +1013,6 @@ Mainnet acceptance:
 10. Add user-owned SSH remote-node installation.
 11. Add Fogata testnet integration.
 12. Only then consider mainnet mutation workflows.
-13. Treat PayPal/card/on-ramp/DEX/managed-provider work as a separate product and compliance track.
+13. Add a guide-only ETH-to-KOIN funding assistant before any in-app EVM signing.
+14. Treat PayPal/card/on-ramp/DEX/bridge/managed-provider work as a separate
+    product, security, and compliance track.
