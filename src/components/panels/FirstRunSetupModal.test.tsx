@@ -11,6 +11,7 @@ function renderSetup(overrides: Partial<Parameters<typeof FirstRunSetupModal>[0]
   return renderToStaticMarkup(
     <FirstRunSetupModal
       t={t}
+      locale="en-US"
       network="mainnet"
       baseDir="/tmp/koinos-one"
       draftBaseDir="/tmp/koinos-one"
@@ -28,11 +29,13 @@ function renderSetup(overrides: Partial<Parameters<typeof FirstRunSetupModal>[0]
       syncStatusMeta="Head 10 / 100 - 10%"
       syncStatusProgressVisible={true}
       syncStatusPercent={10}
+      nodeBackupProgress={null}
       selectNetwork={vi.fn()}
       chooseDataFolder={vi.fn(async () => true)}
       saveSettings={vi.fn(async () => true)}
       checkPublicBootstrap={vi.fn(async () => ({ ok: false, output: rawPublicBootstrapFailure }))}
       restorePublicBootstrap={vi.fn(async () => true)}
+      cancelRestorePublicBackup={vi.fn(async () => undefined)}
       startObserverNode={vi.fn(async () => true)}
       onQuitSetup={vi.fn()}
       onComplete={vi.fn()}
@@ -43,23 +46,38 @@ function renderSetup(overrides: Partial<Parameters<typeof FirstRunSetupModal>[0]
 
 describe('FirstRunSetupModal', () => {
   it('renders the observer-only linear step questions', () => {
-    expect(renderSetup({ initialStep: 'network' })).toContain('Which network should this observer follow?')
-    expect(renderSetup({ initialStep: 'data' })).toContain('Use this folder for node data?')
-    expect(renderSetup({ initialStep: 'bootstrap' })).toContain('Use the recommended public bootstrap if it is available?')
+    expect(renderSetup({ initialStep: 'welcome' })).toContain('Welcome to Koinos One')
+    expect(renderSetup({ initialStep: 'data' })).toContain('Select a folder to use for data storage.')
+    expect(renderSetup({ initialStep: 'restore' })).toContain('Restore the recommended public backup if it is available?')
     expect(renderSetup({ initialStep: 'start' })).toContain('Start this node as an observer now?')
     expect(renderSetup({ initialStep: 'done', nodeRunning: true })).toContain('Observer is running. Continue to Koinos One?')
   })
 
-  it('does not render producer, wallet, funding, burn, registration, or signing prompts', () => {
+  it('does not expose testnet selection in first-run setup', () => {
+    const html = renderSetup({ initialStep: 'welcome' })
+
+    expect(html).not.toContain('Which network should this observer follow?')
+    expect(html).not.toContain('Testnet')
+  })
+
+  it('shows disk capacity guidance on the data folder step', () => {
+    const html = renderSetup({ initialStep: 'data' })
+
+    expect(html).toContain('Mainnet needs at least 100 GB free')
+    expect(html).toContain('200 GB or more')
+    expect(html).toContain('external SSD')
+  })
+
+  it('does not render wallet, funding, burn, registration, or signing prompts', () => {
     const html = [
-      renderSetup({ initialStep: 'network' }),
+      renderSetup({ initialStep: 'welcome' }),
       renderSetup({ initialStep: 'data' }),
-      renderSetup({ initialStep: 'bootstrap' }),
+      renderSetup({ initialStep: 'restore' }),
       renderSetup({ initialStep: 'start' }),
       renderSetup({ initialStep: 'done', nodeRunning: true })
     ].join('\n')
 
-    expect(html).not.toMatch(/producer/i)
+    expect(html).not.toContain('Set Producer')
     expect(html).not.toMatch(/wallet password/i)
     expect(html).not.toMatch(/seed phrase/i)
     expect(html).not.toMatch(/\bVHP\b/i)
@@ -68,14 +86,14 @@ describe('FirstRunSetupModal', () => {
     expect(html).not.toMatch(/\bsigning\b/i)
   })
 
-  it('shows public bootstrap 404s as plain observer guidance instead of raw errors', () => {
+  it('shows public backup 404s as plain observer guidance instead of raw errors', () => {
     const html = renderSetup({
-      initialStep: 'bootstrap',
+      initialStep: 'restore',
       nodeError: rawPublicBootstrapFailure
     })
 
-    expect(html).toContain('No public bootstrap is available for this network right now.')
-    expect(html).toContain('No public bootstrap available')
+    expect(html).toContain('No public backup is available for this network right now.')
+    expect(html).toContain('No public backup available')
     expect(html).toContain('Next')
     expect(html).not.toContain('first-run-setup-error')
     expect(html).not.toContain('Fatal:')
@@ -84,9 +102,9 @@ describe('FirstRunSetupModal', () => {
     expect(html).not.toContain('address setup')
   })
 
-  it('uses a single next action when a public bootstrap is available', () => {
+  it('uses a single restore action when a public backup is available', () => {
     const html = renderSetup({
-      initialStep: 'bootstrap',
+      initialStep: 'restore',
       publicBootstrapList: {
         ok: true,
         latestBackupId: '20260620T120000Z-public',
@@ -95,11 +113,78 @@ describe('FirstRunSetupModal', () => {
       }
     })
 
-    expect(html).toContain('Public bootstrap available')
+    expect(html).toContain('Public backup available')
     expect(html).toContain('20260620T120000Z-public')
-    expect(html).toContain('Next')
+    expect(html).toContain('Restore Public Backup')
+    expect(html).toContain('Public Backup URL')
+    expect(html).toContain('https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap')
     expect(html).not.toContain('Sync without bootstrap')
     expect(html).not.toContain('Restore public bootstrap')
+  })
+
+  it('shows one data folder value instead of saved and selected paths', () => {
+    const html = renderSetup({
+      initialStep: 'data',
+      baseDir: '/tmp/old-koinos-one',
+      draftBaseDir: '/tmp/new-koinos-one'
+    })
+
+    expect(html).toContain('Data folder')
+    expect(html).toContain('/tmp/new-koinos-one')
+    expect(html).toContain('This folder will be saved when you continue.')
+    expect(html).not.toContain('Saved data folder')
+    expect(html).not.toContain('Selected folder')
+  })
+
+  it('shows Previous on restore before the restore starts', () => {
+    const html = renderSetup({
+      initialStep: 'restore',
+      publicBootstrapList: {
+        ok: true,
+        latestBackupId: '20260620T120000Z-public',
+        source: 'public',
+        snapshots: [{ backupId: '20260620T120000Z-public' }]
+      }
+    })
+
+    expect(html).toContain('Previous')
+  })
+
+  it('hides Previous and renders shared restore progress while restore runs', () => {
+    const html = renderSetup({
+      initialStep: 'restore',
+      publicBootstrapRestoreLoading: true,
+      publicBootstrapList: {
+        ok: true,
+        latestBackupId: '20260620T120000Z-public',
+        source: 'public',
+        snapshots: [{ backupId: '20260620T120000Z-public' }]
+      },
+      nodeBackupProgress: {
+        action: 'restore-backup',
+        phase: 'download',
+        progress: 42,
+        displayProgress: 42,
+        message: 'Downloading public backup objects',
+        updatedAt: Date.UTC(2026, 5, 15),
+        completedBytes: 1024 * 1024,
+        totalBytes: 2 * 1024 * 1024,
+        bytesPerSecond: 512 * 1024,
+        etaSeconds: 2,
+        completedBatches: null,
+        totalBatches: null,
+        phaseProgress: null,
+        progressRangeStart: 25,
+        progressRangeEnd: 60,
+        sampleIntervalMs: 1000
+      }
+    })
+
+    expect(html).toContain('node-backup-progress')
+    expect(html).toContain('Downloading public backup objects')
+    expect(html).toContain('42%')
+    expect(html).toContain('Stop restore')
+    expect(html).not.toContain('Previous')
   })
 
   it('keeps progress display non-clickable', () => {

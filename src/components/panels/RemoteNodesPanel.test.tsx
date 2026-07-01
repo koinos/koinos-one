@@ -6,7 +6,7 @@ import { RemoteNodesPanel } from './RemoteNodesPanel'
 const translations: Record<string, string> = {
   'remote.panelAria': 'Remote node management',
   'remote.title': 'Remote Nodes',
-  'remote.descriptionSimple': 'Plan observer-first remote installs and public bootstrap restores.',
+  'remote.descriptionSimple': 'Plan observer-first remote installs and public backup restores.',
   'remote.descriptionExpert': 'Plan remote observer operations, upgrades, diagnostics, rollback, and cleanup.',
   'remote.dryRunBadge': 'Dry-run by default',
   'remote.safetyObserverFirst': 'Observer-first',
@@ -36,11 +36,11 @@ const translations: Record<string, string> = {
   'remote.fieldJsonRpcBind': 'JSON-RPC bind',
   'remote.fieldP2pPort': 'P2P port',
   'remote.fieldBackupAdminBind': 'Backup admin bind',
-  'remote.fieldBootstrapUrl': 'Public bootstrap URL',
+  'remote.fieldBootstrapUrl': 'Public backup URL',
   'remote.fieldArtifactDigest': 'Artifact digest',
   'remote.fieldArtifactSignatureRef': 'Artifact signature ref',
-  'remote.fieldBootstrapPolicyId': 'Bootstrap policy ID',
-  'remote.fieldBootstrapPolicyDigest': 'Bootstrap policy digest',
+  'remote.fieldBootstrapPolicyId': 'Public backup policy ID',
+  'remote.fieldBootstrapPolicyDigest': 'Public backup policy digest',
   'remote.fieldProdnetProofRef': 'Prodnet proof receipt',
   'remote.network.testnet': 'Testnet',
   'remote.network.mainnet': 'Prodnet',
@@ -64,7 +64,7 @@ const translations: Record<string, string> = {
   'remote.stepDestructive': 'destructive',
   'remote.action.prodnet-observer-proof': 'Prodnet Proof Plan',
   'remote.action.install-observer': 'Install Observer Plan',
-  'remote.action.restore-public-bootstrap': 'Restore Bootstrap Plan',
+  'remote.action.restore-public-bootstrap': 'Restore Public Backup Plan',
   'remote.action.start-observer': 'Start Observer Plan',
   'remote.action.status': 'Health Check Plan',
   'remote.action.logs': 'Collect Logs Plan',
@@ -96,7 +96,7 @@ const translations: Record<string, string> = {
   'remote.phase.proof': 'Dry-run proof',
   'remote.phase.prepare': 'Prepare BASEDIR',
   'remote.phase.config': 'Observer config',
-  'remote.phase.bootstrap': 'Public bootstrap',
+  'remote.phase.bootstrap': 'Public backup',
   'remote.phase.runtime': 'Runtime control',
   'remote.phase.verify': 'Observer verification',
   'remote.phase.diagnostics': 'Diagnostics',
@@ -106,11 +106,11 @@ const translations: Record<string, string> = {
   'remote.phase.cleanup': 'Cleanup',
   'remote.phaseHelp.preflight': 'Checks server, disk, ports, runtime, and safety blockers before changing anything.',
   'remote.phaseHelp.artifact': 'Fetches or verifies the reviewed artifact and records image identity evidence.',
-  'remote.phaseHelp.trust': 'Verifies pinned artifact identity and reviewed bootstrap policy before prodnet mutation.',
+  'remote.phaseHelp.trust': 'Verifies pinned artifact identity and reviewed public backup policy before prodnet mutation.',
   'remote.phaseHelp.proof': 'Records the dry-run proof receipt and observer-only review required before prodnet mutation.',
   'remote.phaseHelp.prepare': 'Creates only the selected observer BASEDIR and support folders.',
   'remote.phaseHelp.config': 'Writes observer-only config with loopback RPC, P2P peers, and producer disabled.',
-  'remote.phaseHelp.bootstrap': 'Lists and restores the public bootstrap while preserving state on failure.',
+  'remote.phaseHelp.bootstrap': 'Lists and restores the public backup while preserving state on failure.',
   'remote.phaseHelp.runtime': 'Starts, stops, or restarts only the selected observer runtime.',
   'remote.phaseHelp.verify': 'Checks observer status, config, health signals, and stop criteria.',
   'remote.phaseHelp.diagnostics': 'Collects sanitized read-only diagnostics and logs.',
@@ -122,7 +122,7 @@ const translations: Record<string, string> = {
   'remote.notice.dryRunOnlySimple': 'Koinos One will ask for review before any confirmed testnet action.',
   'remote.notice.prodnetConfirmationRequired': 'Prodnet observer actions require explicit per-node confirmation before any future execution.',
   'remote.notice.prodnetArtifactTrustRequired': 'Prodnet observer execution requires an artifact image pinned to the matching sha256 digest for {field}.',
-  'remote.notice.prodnetBootstrapPolicyRequired': 'Prodnet observer execution requires the reviewed prodnet public bootstrap trust policy for {field}.',
+  'remote.notice.prodnetBootstrapPolicyRequired': 'Prodnet observer execution requires the reviewed prodnet public backup trust policy for {field}.',
   'remote.notice.prodnetDryRunProofRequired': 'Prodnet observer execution requires a successful dry-run proof receipt reference for {field}.',
   'remote.notice.prodnetBatchMutationBlocked': 'Prodnet observer mutation is one-node only and cannot run as a fleet rollout yet.',
   'remote.notice.rawHostRefBlocked': 'Use a sanitized host reference, not a raw SSH target, for {field}.',
@@ -134,7 +134,7 @@ const translations: Record<string, string> = {
   'remote.destructiveRollbackDescription': 'Rollback requires prior rollback evidence, preserves the existing DB, replaces only the observer runtime/config, and writes a sanitized receipt.',
   'remote.destructiveCleanupDescription': 'Cleanup requires prior receipt evidence, preserves chain/state DB paths, removes only non-state temporary files, and writes a sanitized receipt.',
   'remote.prodnetTrustTitle': 'Prodnet observer trust gates',
-  'remote.prodnetTrustDescription': 'Prodnet mutation requires a pinned artifact digest, reviewed bootstrap policy, matching dry-run proof receipt, loopback RPC/admin, and observer-only confirmation.',
+  'remote.prodnetTrustDescription': 'Prodnet mutation requires a pinned artifact digest, reviewed public backup policy, matching dry-run proof receipt, loopback RPC/admin, and observer-only confirmation.',
   'remote.prodnetTrustMissing': 'missing',
   'remote.confirmationPhrase': 'Required phrase',
   'remote.confirmationInput': 'Type the phrase',
@@ -280,7 +280,7 @@ describe('RemoteNodesPanel', () => {
     expect(html).not.toContain('Redacted preview')
     expect(html).not.toContain('Node ID')
     expect(html).not.toContain('Host ref')
-    expect(html).not.toContain('Restore Bootstrap Plan')
+    expect(html).not.toContain('Restore Public Backup Plan')
     expect(html).not.toContain('Start Observer Plan')
     expect(html).not.toContain('Upgrade Plan')
     expect(html).not.toContain('Cleanup Plan')
@@ -312,7 +312,7 @@ describe('RemoteNodesPanel', () => {
     expect(html).toContain('Stop observer')
     expect(html).toContain('Restart observer')
     expect(html).toContain('Operation phases')
-    expect(html).toContain('Public bootstrap')
+    expect(html).toContain('Public backup')
     expect(html).toContain('Observer verification')
     expect(html).not.toContain('--backup-public-restore')
   })

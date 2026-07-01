@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import type { NodeBackupProgressState } from '../../app/types'
+import { NodeBackupProgressPanel } from './NodeBackupProgressPanel'
 
 type FirstRunNetwork = 'mainnet' | 'testnet'
-type FirstRunSetupStep = 'network' | 'data' | 'bootstrap' | 'start' | 'done'
+type FirstRunSetupStep = 'welcome' | 'data' | 'restore' | 'start' | 'done'
 type PublicBootstrapCheckState = 'idle' | 'checking' | 'available' | 'unavailable'
 
 type StartObserverResult = boolean | {
@@ -13,6 +15,7 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
 
 type FirstRunSetupModalProps = {
   initialStep?: FirstRunSetupStep
+  locale: string
   network: FirstRunNetwork
   baseDir: string
   draftBaseDir: string
@@ -30,11 +33,13 @@ type FirstRunSetupModalProps = {
   syncStatusMeta: string | null
   syncStatusProgressVisible: boolean
   syncStatusPercent: number | null
+  nodeBackupProgress: NodeBackupProgressState | null
   selectNetwork: (network: FirstRunNetwork) => void
   chooseDataFolder: () => Promise<boolean>
   saveSettings: () => Promise<boolean>
   checkPublicBootstrap: () => Promise<any>
   restorePublicBootstrap: (backupId: string) => Promise<boolean>
+  cancelRestorePublicBackup: () => Promise<void>
   startObserverNode: () => Promise<StartObserverResult>
   onQuitSetup: () => void
   onComplete: () => void
@@ -43,10 +48,10 @@ type FirstRunSetupModalProps = {
 
 const SETUP_STEPS: Array<{ id: FirstRunSetupStep; labelKey: string; titleKey: string; helpKey: string }> = [
   {
-    id: 'network',
-    labelKey: 'firstRun.step.network.label',
-    titleKey: 'firstRun.step.network.title',
-    helpKey: 'firstRun.step.network.help'
+    id: 'welcome',
+    labelKey: 'firstRun.step.welcome.label',
+    titleKey: 'firstRun.step.welcome.title',
+    helpKey: 'firstRun.step.welcome.help'
   },
   {
     id: 'data',
@@ -55,10 +60,10 @@ const SETUP_STEPS: Array<{ id: FirstRunSetupStep; labelKey: string; titleKey: st
     helpKey: 'firstRun.step.dataFolder.help'
   },
   {
-    id: 'bootstrap',
-    labelKey: 'firstRun.step.bootstrap.label',
-    titleKey: 'firstRun.step.bootstrap.title',
-    helpKey: 'firstRun.step.bootstrap.help'
+    id: 'restore',
+    labelKey: 'firstRun.step.restore.label',
+    titleKey: 'firstRun.step.restore.title',
+    helpKey: 'firstRun.step.restore.help'
   },
   {
     id: 'start',
@@ -96,7 +101,7 @@ function isPublicBootstrapUnavailableOutput(message: string) {
 
 function friendlySetupError(message: string | null, step: FirstRunSetupStep, t: Translate) {
   if (!message) return null
-  if (step === 'bootstrap' && isPublicBootstrapUnavailableOutput(message)) {
+  if (step === 'restore' && isPublicBootstrapUnavailableOutput(message)) {
     return publicBootstrapUnavailableMessage(t)
   }
   return message
@@ -114,6 +119,7 @@ function networkLabel(t: Translate, network: FirstRunNetwork) {
 
 export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const {
+    locale,
     network,
     baseDir,
     draftBaseDir,
@@ -131,16 +137,18 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     syncStatusMeta,
     syncStatusProgressVisible,
     syncStatusPercent,
+    nodeBackupProgress,
     selectNetwork,
     chooseDataFolder,
     saveSettings,
     checkPublicBootstrap,
     restorePublicBootstrap,
+    cancelRestorePublicBackup,
     startObserverNode,
     onQuitSetup,
     onComplete,
     t,
-    initialStep = 'network'
+    initialStep = 'welcome'
   } = props
 
   const [step, setStep] = useState<FirstRunSetupStep>(initialStep)
@@ -155,8 +163,14 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const stepNumber = activeStepIndex + 1
   const progressPercent = Math.round((stepNumber / SETUP_STEPS.length) * 100)
   const latestPublicBackupId = publicBootstrapList?.latestBackupId || ''
+  const visibleDataFolder = draftBaseDir?.trim() || baseDir?.trim()
+  const dataFolderIsDraft = Boolean(draftBaseDir?.trim() && draftBaseDir.trim() !== baseDir.trim())
   const dataFolderReady = Boolean(baseDir?.trim()) && !settingsDirty
-  const publicRestoreBusy = publicBootstrapListLoading || publicBootstrapRestoreLoading
+  const publicRestoreProgressActive = Boolean(
+    nodeBackupProgress?.action === 'restore-backup' && !['error', 'cancelled', 'complete'].includes(nodeBackupProgress.phase)
+  )
+  const publicRestoreInProgress = Boolean(publicBootstrapRestoreLoading || publicRestoreProgressActive)
+  const publicRestoreBusy = publicBootstrapListLoading || publicRestoreInProgress
   const publicRestoreReady = Boolean(latestPublicBackupId)
   const setupCanComplete = observerStarted || nodeRunning
   const showSyncStatus =
@@ -164,9 +178,9 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
   const stepError =
     setupError ||
     (step === 'data' ? formError : null) ||
-    (step === 'bootstrap' || step === 'start' ? nodeError : null)
+    (step === 'restore' || step === 'start' ? nodeError : null)
   const publicBootstrapUnavailable =
-    step === 'bootstrap' && stepError ? isPublicBootstrapUnavailableOutput(stepError) : false
+    step === 'restore' && stepError ? isPublicBootstrapUnavailableOutput(stepError) : false
   const bootstrapAvailabilityState: PublicBootstrapCheckState =
     publicRestoreReady
       ? 'available'
@@ -174,14 +188,20 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
         ? 'unavailable'
       : publicBootstrapListLoading ||
           publicBootstrapCheckState === 'checking' ||
-          (step === 'bootstrap' && publicBootstrapCheckState === 'idle' && Boolean(publicBootstrapUrl) && !settingsDirty)
+          (step === 'restore' && publicBootstrapCheckState === 'idle' && Boolean(publicBootstrapUrl) && !settingsDirty)
         ? 'checking'
         : 'idle'
   const currentError = publicBootstrapUnavailable ? null : friendlySetupError(stepError, step, t)
   const currentNotice = setupNotice
 
+  const restorePrimaryLabel = publicBootstrapRestoreLoading
+    ? t('firstRun.status.bootstrapRestoring')
+    : bootstrapAvailabilityState === 'available'
+      ? t('firstRun.action.restorePublicBackup')
+      : t('firstRun.action.next')
+
   useEffect(() => {
-    if (step !== 'bootstrap') return
+    if (step !== 'restore') return
 
     if (settingsDirty) {
       setPublicBootstrapCheckState('idle')
@@ -236,7 +256,16 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     setStep(nextStep)
   }
 
-  const handleNetworkNext = () => {
+  useEffect(() => {
+    if (network !== 'mainnet') {
+      selectNetwork('mainnet')
+    }
+  }, [network, selectNetwork])
+
+  const handleWelcomeNext = () => {
+    if (network !== 'mainnet') {
+      selectNetwork('mainnet')
+    }
     setSetupStep('data')
   }
 
@@ -250,10 +279,10 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     setSetupError(null)
     setSetupNotice(null)
     const ok = await saveSettings()
-    if (ok) setSetupStep('bootstrap')
+    if (ok) setSetupStep('restore')
   }
 
-  const handleContinueBootstrap = async () => {
+  const handleContinueRestore = async () => {
     setSetupError(null)
     setSetupNotice(null)
 
@@ -268,6 +297,16 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
 
     setSetupNotice(publicBootstrapUnavailableMessage(t))
     setSetupStep('start')
+  }
+
+  const handlePrevious = () => {
+    if (step === 'data') {
+      setSetupStep('welcome')
+      return
+    }
+    if (step === 'restore' && !publicRestoreInProgress) {
+      setSetupStep('data')
+    }
   }
 
   const handleStartObserver = async () => {
@@ -301,7 +340,8 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
     onComplete()
   }
 
-  const currentNetworkLabel = networkLabel(t, network)
+  const currentNetworkLabel = networkLabel(t, 'mainnet')
+  const showPrevious = step === 'data' || (step === 'restore' && !publicRestoreInProgress)
 
   return (
     <div className="log-modal-backdrop first-run-setup-backdrop" role="presentation">
@@ -371,38 +411,20 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
             </div>
           )}
 
-          {step === 'network' && (
+          {step === 'welcome' && (
             <div className="first-run-setup-panel">
-              <h4>{t('firstRun.network.question')}</h4>
-              <div className="first-run-choice-grid" role="radiogroup" aria-label={t('firstRun.network.question')}>
-                <label className={`first-run-choice-card ${network === 'mainnet' ? 'is-selected' : ''}`.trim()}>
-                  <span className="first-run-radio-row">
-                    <input
-                      type="radio"
-                      name="first-run-network"
-                      checked={network === 'mainnet'}
-                      onChange={() => selectNetwork('mainnet')}
-                    />
-                    <strong>{t('firstRun.network.mainnet')}</strong>
-                  </span>
-                  <p>{t('firstRun.network.mainnetHelp')}</p>
-                </label>
-                <label className={`first-run-choice-card ${network === 'testnet' ? 'is-selected' : ''}`.trim()}>
-                  <span className="first-run-radio-row">
-                    <input
-                      type="radio"
-                      name="first-run-network"
-                      checked={network === 'testnet'}
-                      onChange={() => selectNetwork('testnet')}
-                    />
-                    <strong>{t('firstRun.network.testnet')}</strong>
-                  </span>
-                  <p>{t('firstRun.network.testnetHelp')}</p>
-                </label>
+              <div className="first-run-welcome-copy">
+                <h4>{t('firstRun.welcome.heading')}</h4>
+                <p>{t('firstRun.welcome.description')}</p>
+                <p>{t('firstRun.welcome.flow')}</p>
+                <p>{t('firstRun.welcome.safety')}</p>
               </div>
               <div className="first-run-setup-actions">
-                <button type="button" className="primary-button" onClick={handleNetworkNext}>
-                  {t('firstRun.action.next')}
+                <button type="button" className="ghost-button" onClick={onComplete}>
+                  {t('firstRun.action.skipSetup')}
+                </button>
+                <button type="button" className="primary-button" onClick={handleWelcomeNext}>
+                  {t('firstRun.action.getStarted')}
                 </button>
               </div>
             </div>
@@ -411,18 +433,13 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
           {step === 'data' && (
             <div className="first-run-setup-panel">
               <h4>{t('firstRun.dataFolder.question')}</h4>
-              <div className="first-run-setup-summary-grid">
+              <div className="first-run-setup-summary-grid first-run-single-path-grid">
                 <div>
-                  <span>{t('firstRun.summary.network')}</span>
-                  <strong>{currentNetworkLabel}</strong>
-                </div>
-                <div>
-                  <span>{t('firstRun.summary.savedDataFolder')}</span>
-                  <strong>{shortStatus(baseDir, t('firstRun.empty.notSet'))}</strong>
-                </div>
-                <div>
-                  <span>{t('firstRun.summary.selectedDataFolder')}</span>
-                  <strong>{shortStatus(draftBaseDir, t('firstRun.empty.notSet'))}</strong>
+                  <span>{t('firstRun.summary.dataFolder')}</span>
+                  <strong>{shortStatus(visibleDataFolder, t('firstRun.empty.notSet'))}</strong>
+                  {dataFolderIsDraft && (
+                    <em>{t('firstRun.dataFolder.unsaved')}</em>
+                  )}
                 </div>
               </div>
 
@@ -431,6 +448,11 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
               </p>
 
               <div className="first-run-setup-actions">
+                {showPrevious && (
+                  <button type="button" className="ghost-button" onClick={handlePrevious}>
+                    {t('firstRun.action.previous')}
+                  </button>
+                )}
                 <button type="button" className="ghost-button" onClick={handleChooseDataFolder}>
                   {t('firstRun.action.chooseFolder')}
                 </button>
@@ -441,14 +463,31 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
             </div>
           )}
 
-          {step === 'bootstrap' && (
+          {step === 'restore' && (
             <div className="first-run-setup-panel">
-              <h4>{t('firstRun.bootstrap.question')}</h4>
+              <h4>{t('firstRun.restore.question')}</h4>
               <section className="first-run-restore-card" aria-live="polite">
-                {bootstrapAvailabilityState === 'checking' && (
+                <div className="first-run-restore-meta first-run-restore-url">
+                  <span>{t('firstRun.summary.publicBackupUrl')}</span>
+                  <strong className="mono" title={publicBootstrapUrl}>
+                    {shortStatus(publicBootstrapUrl, t('firstRun.empty.notSet'))}
+                  </strong>
+                </div>
+
+                {nodeBackupProgress?.action === 'restore-backup' && (
+                  <NodeBackupProgressPanel
+                    t={t}
+                    locale={locale}
+                    nodeBackupProgress={nodeBackupProgress}
+                    hasNodeControls={publicRestoreInProgress}
+                    onCancelBackup={cancelRestorePublicBackup}
+                  />
+                )}
+
+                {!publicRestoreInProgress && bootstrapAvailabilityState === 'checking' && (
                   <>
                     <h4>{t('firstRun.status.bootstrapChecking')}</h4>
-                    <p>{t('firstRun.bootstrap.checkingDescription', { network: currentNetworkLabel })}</p>
+                    <p>{t('firstRun.restore.checkingDescription', { network: currentNetworkLabel })}</p>
                     <div className="first-run-restore-status">
                       <span className="status-dot" aria-hidden="true" />
                       <strong>{publicBootstrapListLoading ? t('firstRun.status.bootstrapChecking') : t('firstRun.status.bootstrapPreparing')}</strong>
@@ -456,17 +495,17 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
                   </>
                 )}
 
-                {bootstrapAvailabilityState === 'unavailable' && (
+                {!publicRestoreInProgress && bootstrapAvailabilityState === 'unavailable' && (
                   <>
                     <h4>{t('firstRun.status.bootstrapUnavailable')}</h4>
                     <p>{publicBootstrapUnavailableMessage(t)}</p>
                   </>
                 )}
 
-                {bootstrapAvailabilityState === 'available' && (
+                {!publicRestoreInProgress && bootstrapAvailabilityState === 'available' && (
                   <>
                     <h4>{t('firstRun.status.bootstrapAvailable')}</h4>
-                    <p>{t('firstRun.bootstrap.availableDescription')}</p>
+                    <p>{t('firstRun.restore.availableDescription')}</p>
                     <div className="first-run-restore-meta">
                       <span>{t('firstRun.summary.latestSnapshot')}</span>
                       <strong>{shortStatus(latestPublicBackupId, t('firstRun.empty.notSet'))}</strong>
@@ -476,13 +515,18 @@ export function FirstRunSetupModal(props: FirstRunSetupModalProps) {
               </section>
 
               <div className="first-run-setup-actions">
+                {showPrevious && (
+                  <button type="button" className="ghost-button" onClick={handlePrevious}>
+                    {t('firstRun.action.previous')}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="primary-button"
-                  onClick={handleContinueBootstrap}
+                  onClick={handleContinueRestore}
                   disabled={bootstrapAvailabilityState === 'checking' || publicRestoreBusy}
                 >
-                  {publicBootstrapRestoreLoading ? t('firstRun.status.bootstrapRestoring') : t('firstRun.action.next')}
+                  {restorePrimaryLabel}
                 </button>
               </div>
             </div>

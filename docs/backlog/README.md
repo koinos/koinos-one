@@ -62,4 +62,5 @@ starting a new feature or claiming full legacy parity.
 - Mainnet producer activation signoff.
 - Runtime component restart/supervision hardening.
 - Remaining log-prefix normalization below the monolith wrapper.
-- Final signed/notarized Koinos One DMG validation and first-run UX signoff.
+- First-run installation assistant welcome screen and UX signoff:
+  `operations/FIRST_RUN_INSTALLATION_ASSISTANT_PLAN.md`.

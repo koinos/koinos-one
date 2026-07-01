@@ -11,10 +11,10 @@ export function publicBootstrapUrlForNetwork(network: KoinosNetworkId): string {
 
 export function publicBootstrapDescriptionForNetwork(network: KoinosNetworkId): string {
   if (network === 'mainnet') {
-    return 'Official read-only prodnet bootstrap snapshots for new mainnet nodes. Restore starts as an observer with block production disabled.'
+    return 'Official read-only prodnet public backups for new mainnet nodes. Restore starts as an observer with block production disabled.'
   }
   if (network === 'testnet') {
-    return 'Read-only signed testnet bootstrap snapshots for new testnet nodes. No SSH credentials are required.'
+    return 'Read-only signed testnet public backups for new testnet nodes. No SSH credentials are required.'
   }
-  return 'Public bootstrap restore is not available for custom networks.'
+  return 'Public backup restore is not available for custom networks.'
 }

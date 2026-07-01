@@ -21,7 +21,7 @@ const translations: Record<string, string> = {
   'node.backupSimpleBootstrapSource': 'Public Backup Repository',
   'node.backupSimpleRestoreMode': 'Restore mode',
   'node.backupSimpleObserverFirst': 'Observer first',
-  'node.backupSourcePublic': 'standard public bootstrap',
+  'node.backupSourcePublic': 'standard public backup',
   'node.backupSourceRemote': 'private remote',
   'node.backupSourceLocal': 'local',
   'node.backupSimpleLatestSize': 'Latest backup size: {size}',
@@ -469,7 +469,7 @@ describe('NodeBackupsPanel', () => {
     expect(html).not.toContain('Remote SFTP backups')
   })
 
-  it('prefers the public bootstrap latest backup in simple mode when remote backup is allowed', () => {
+  it('prefers the public backup latest backup in simple mode when remote backup is allowed', () => {
     const html = renderToStaticMarkup(
       <NodeBackupsPanel
         t={t}
@@ -573,7 +573,7 @@ describe('NodeBackupsPanel', () => {
     expect(html).not.toContain('Remote backup: enough space')
   })
 
-  it('restores the public bootstrap latest backup in simple mode when remote backup is allowed', () => {
+  it('restores the public backup latest backup in simple mode when remote backup is allowed', () => {
     const runRestoreNativeBackupSelected = vi.fn()
     const tree = NodeBackupsPanel({
       t,
@@ -711,7 +711,7 @@ describe('NodeBackupsPanel', () => {
           phase: 'download',
           progress: 42,
           displayProgress: 42,
-          message: 'Downloading public bootstrap backup',
+          message: 'Downloading public backup objects',
           updatedAt: Date.UTC(2026, 5, 15),
           completedBytes: 1024 * 1024,
           totalBytes: 2 * 1024 * 1024,
@@ -730,7 +730,7 @@ describe('NodeBackupsPanel', () => {
     expect(html).toContain('node-backup-progress')
     expect(html).toContain('Restore Backup')
     expect(html).toContain('42%')
-    expect(html).toContain('Downloading public bootstrap backup')
+    expect(html).toContain('Downloading public backup objects')
     expect(html).toContain('Downloading')
     expect(html).toContain('Stop restore')
     expect(html).toContain('Stops the current restore command.')

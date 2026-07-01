@@ -524,8 +524,8 @@ export function App() {
   const activeWalletCanSign = Boolean(walletOverview?.unlocked && activeWalletAccount?.hasPrivateKey)
   const nativeTokenSymbol = nativeTokenSymbolForNetwork(nodeSettings.network)
   const firstRunPublicBootstrapUrl = useMemo(
-    () => publicBootstrapUrlForNetwork(draftNodeNetwork === 'testnet' ? 'testnet' : 'mainnet'),
-    [draftNodeNetwork]
+    () => publicBootstrapUrlForNetwork('mainnet'),
+    []
   )
   const activeWalletBalanceCacheEntry = useMemo(() => {
     const keys = walletBalanceCacheKeys(nodeSettings.network, activeWalletAddress, activeWalletAccountId)
@@ -6379,6 +6379,7 @@ export function App() {
       {firstRunSetupOpen && (
         <FirstRunSetupModal
           t={t}
+          locale={locale}
           network={draftNodeNetwork === 'testnet' ? 'testnet' : 'mainnet'}
           baseDir={nodeSettings.baseDir}
           draftBaseDir={draftNodeBaseDir}
@@ -6396,11 +6397,13 @@ export function App() {
           syncStatusMeta={footerStatusMeta}
           syncStatusProgressVisible={showChainSyncProgress}
           syncStatusPercent={chainSyncPercent}
+          nodeBackupProgress={nodeBackupProgress}
           selectNetwork={updateDraftNodeNetwork}
           chooseDataFolder={pickNodeBaseDir}
           saveSettings={saveCurrentSettings}
           checkPublicBootstrap={() => runNativeBackupList('public')}
           restorePublicBootstrap={restorePublicBootstrapFromSetup}
+          cancelRestorePublicBackup={runCancelBackup}
           startObserverNode={startObserverNodeFromSetup}
           onQuitSetup={quitUnfinishedFirstRunSetup}
           onComplete={completeFirstRunSetup}

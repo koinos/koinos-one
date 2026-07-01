@@ -4950,6 +4950,10 @@ body {
   gap: 10px;
 }
 
+.first-run-single-path-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .first-run-setup-summary-grid div,
 .first-run-setup-box,
 .first-run-seed-box {
@@ -4977,6 +4981,15 @@ body {
   color: #121212;
   font-size: 0.86rem;
   overflow-wrap: anywhere;
+}
+
+.first-run-setup-summary-grid em {
+  display: block;
+  margin-top: 6px;
+  color: #536b7e;
+  font-size: 0.82rem;
+  font-style: normal;
+  line-height: 1.35;
 }
 
 .first-run-setup-actions {
@@ -5069,6 +5082,28 @@ body {
   line-height: 1.45;
 }
 
+.first-run-welcome-copy {
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+}
+
+.first-run-welcome-copy h4,
+.first-run-welcome-copy p {
+  margin: 0;
+}
+
+.first-run-welcome-copy h4 {
+  color: #121212;
+  font-size: 1.02rem;
+}
+
+.first-run-welcome-copy p {
+  color: #33485b;
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
 .first-run-restore-card {
   display: grid;
   gap: 14px;
@@ -5137,6 +5172,14 @@ body {
   color: #121212;
   font-size: 0.86rem;
   overflow-wrap: anywhere;
+}
+
+.first-run-restore-url {
+  width: 100%;
+}
+
+.first-run-restore-card .node-backup-progress {
+  box-shadow: 0 10px 28px rgba(18, 18, 18, 0.08);
 }
 
 .first-run-restore-progress {

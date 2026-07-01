@@ -201,7 +201,7 @@ async function installBackupBridge(
         if (scenario === 'error') {
           return {
             ok: false,
-            output: 'Mock public bootstrap metadata unavailable',
+            output: 'Mock public backup metadata unavailable',
             source: 'public',
             latestBackupId: '',
             snapshots: []
@@ -308,7 +308,7 @@ async function installBackupBridge(
             action: 'restore-backup',
             phase: 'download',
             progress: 42,
-            message: 'Downloading public bootstrap backup',
+            message: 'Downloading public backup objects',
             completedBytes: 8 * 1024 * 1024 * 1024,
             totalBytes: 12 * 1024 * 1024 * 1024,
             progressRangeStart: 25,
@@ -323,7 +323,7 @@ async function installBackupBridge(
             action: 'restore-backup',
             phase: 'download',
             progress: 42,
-            message: 'Downloading public bootstrap backup',
+            message: 'Downloading public backup objects',
             completedBytes: 8 * 1024 * 1024 * 1024,
             totalBytes: 12 * 1024 * 1024 * 1024,
             progressRangeStart: 25,
@@ -451,7 +451,7 @@ async function calls(page: Page) {
   return page.evaluate(() => (window as any).__telenoBackupTest?.calls ?? [])
 }
 
-test('simple mode is restore-first and does not auto-fetch the public bootstrap', async ({ page }, testInfo) => {
+test('simple mode is restore-first and does not auto-fetch the public backup', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await installBackupBridge(page, { scenario: 'success', advanced: false, remoteEnabled: true, preflightDelayMs: 750 })
   await openNodeBackups(page)
@@ -494,7 +494,7 @@ test('simple mode is restore-first and does not auto-fetch the public bootstrap'
   expect(await calls(page)).not.toContainEqual(expect.objectContaining({ name: 'restoreNativeBackup' }))
 })
 
-test('simple mode shows the restore progress bar during public bootstrap restore', async ({ page }, testInfo) => {
+test('simple mode shows the restore progress bar during public backup restore', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await installBackupBridge(page, { scenario: 'success', advanced: false, remoteEnabled: true })
   await openNodeBackups(page)
@@ -506,7 +506,7 @@ test('simple mode shows the restore progress bar during public bootstrap restore
   await simplePanel.getByRole('button', { name: 'Restore Backup' }).click()
 
   await expect(simplePanel.locator('.node-backup-progress')).toBeVisible()
-  await expect(simplePanel.getByText('Downloading public bootstrap backup')).toBeVisible()
+  await expect(simplePanel.getByText('Downloading public backup objects')).toBeVisible()
   await expect(simplePanel.getByText('42%')).toBeVisible()
   await expect(simplePanel.getByRole('button', { name: 'Stop restore' })).toBeVisible()
   await simplePanel.getByRole('button', { name: 'Stop restore' }).click()
@@ -526,13 +526,13 @@ test('simple mode handles loading, empty, and error states with disabled restore
 
   await installBackupBridge(page, { scenario: 'empty', advanced: false })
   await openNodeBackups(page)
-  await expect(page.getByText('No latest standard public bootstrap backup found yet.')).toBeVisible()
+  await expect(page.getByText('No latest standard public backup found yet.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Restore Backup' })).toBeDisabled()
   await captureNodePanel(page, testInfo, 'simple-empty-mobile')
 
   await installBackupBridge(page, { scenario: 'error', advanced: false })
   await openNodeBackups(page)
-  await expect(page.locator('.node-backups-panel-simple .settings-inline-help.is-error')).toContainText('Mock public bootstrap metadata unavailable')
+  await expect(page.locator('.node-backups-panel-simple .settings-inline-help.is-error')).toContainText('Mock public backup metadata unavailable')
   await expect(page.getByRole('button', { name: 'Restore Backup' })).toBeDisabled()
   await captureNodePanel(page, testInfo, 'simple-error-mobile')
 })
@@ -555,7 +555,7 @@ test('simple mode Spanish copy remains restore-first and hides expert concepts',
   await capture(page, testInfo, 'simple-spanish-desktop')
 })
 
-test('expert mode separates private backup tools from read-only public bootstrap inventory', async ({ page }, testInfo) => {
+test('expert mode separates private backup tools from read-only public backup inventory', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 960 })
   await installBackupBridge(page, { scenario: 'success', advanced: true, remoteEnabled: true })
   await openNodeBackups(page)
@@ -563,7 +563,7 @@ test('expert mode separates private backup tools from read-only public bootstrap
   await expect(page.getByRole('button', { name: 'Create Local Backup' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create Remote Backup' })).toBeVisible()
   await expect(page.getByText('Remote SFTP')).toBeVisible()
-  await expect(page.getByText('Public bootstrap backups')).toBeVisible()
+  await expect(page.getByText('Public backup snapshots')).toBeVisible()
   await expect(page.getByText('Admin API')).toBeVisible()
 
   const publicCard = page.locator('.node-backup-snapshot', { hasText: PUBLIC_BACKUP_ID })
