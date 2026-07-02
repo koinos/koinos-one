@@ -130,7 +130,25 @@ describe('FirstRunSetupModal', () => {
     expect(html).not.toContain('address setup')
   })
 
-  it('uses a single restore action when a public backup is available', () => {
+  it('shows backup admin authorization failures as actionable restore guidance', () => {
+    const html = renderSetup({
+      initialStep: 'restore',
+      nodeError: 'Backup admin POST /admin/backup/public/fetch failed: unauthorized',
+      publicBootstrapList: {
+        ok: true,
+        latestBackupId: '20260620T120000Z-public',
+        source: 'public',
+        snapshots: [{ backupId: '20260620T120000Z-public' }]
+      }
+    })
+
+    expect(html).toContain('The running node rejected the local backup control token.')
+    expect(html).toContain('Stop and start the node from Koinos One')
+    expect(html).not.toContain('/admin/backup/public/fetch')
+    expect(html).not.toContain('unauthorized')
+  })
+
+  it('offers public backup restore and seed-peer sync when a public backup is available', () => {
     const html = renderSetup({
       initialStep: 'restore',
       publicBootstrapList: {
@@ -146,8 +164,44 @@ describe('FirstRunSetupModal', () => {
     expect(html).toContain('Restore Public Backup')
     expect(html).toContain('Public Backup URL')
     expect(html).toContain('https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap')
+    expect(html).toContain('Or start from an empty chain database')
+    expect(html).toContain('sync every block from seed peers')
+    expect(html).toContain('Sync from seed peers')
     expect(html).not.toContain('Sync without bootstrap')
     expect(html).not.toContain('Restore public bootstrap')
+  })
+
+  it('offers to keep existing local node data and compares it with the public backup', () => {
+    const html = renderSetup({
+      initialStep: 'restore',
+      baseDirLocalCopy: {
+        detected: true,
+        evidence: ['chain/blockchain'],
+        newestModifiedMs: Date.UTC(2026, 5, 19, 12, 0, 0),
+        totalBytes: 24 * 1024 * 1024 * 1024,
+        scannedEntries: 10,
+        truncated: false
+      },
+      publicBootstrapList: {
+        ok: true,
+        latestBackupId: '20260620T120000Z-public',
+        source: 'public',
+        snapshots: [{
+          backupId: '20260620T120000Z-public',
+          sourceCreatedAt: '2026-06-20T12:00:00Z',
+          sourceHeadHeight: 37100000
+        }]
+      }
+    })
+
+    expect(html).toContain('Existing local node data found')
+    expect(html).toContain('Local copy')
+    expect(html).toContain('Public backup')
+    expect(html).toContain('Files last changed')
+    expect(html).toContain('head 37,100,000')
+    expect(html).toContain('The public backup appears newer')
+    expect(html).toContain('Use local copy')
+    expect(html).toContain('Restore Public Backup')
   })
 
   it('shows one data folder value instead of saved and selected paths', () => {

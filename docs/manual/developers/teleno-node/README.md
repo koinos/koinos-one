@@ -16,16 +16,16 @@ It embeds the runtime components that were historically separate services.
 
 ## Main Source Areas
 
-- `node/teleno-node/src/main.cpp`
-- `node/teleno-node/src/core/`
-- `node/teleno-node/src/block_store/`
-- `node/teleno-node/src/mempool/`
-- `node/teleno-node/src/p2p/`
-- `node/teleno-node/src/jsonrpc/`
-- `node/teleno-node/src/grpc_server/`
-- `node/teleno-node/src/block_production/`
-- `node/teleno-node/src/storage/`
-- `node/teleno-node/src/backup/`
+- [`node/teleno-node/src/main.cpp`](https://github.com/pgarciagon/koinos-one/blob/main/node/teleno-node/src/main.cpp)
+- [`node/teleno-node/src/core/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/core)
+- [`node/teleno-node/src/block_store/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/block_store)
+- [`node/teleno-node/src/mempool/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/mempool)
+- [`node/teleno-node/src/p2p/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/p2p)
+- [`node/teleno-node/src/jsonrpc/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/jsonrpc)
+- [`node/teleno-node/src/grpc_server/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/grpc_server)
+- [`node/teleno-node/src/block_production/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/block_production)
+- [`node/teleno-node/src/storage/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/storage)
+- [`node/teleno-node/src/backup/`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node/src/backup)
 
 ## Development Principle
 
@@ -34,4 +34,7 @@ backup behavior, but must not change externally observable Koinos protocol
 behavior.
 
 Before changing backup, restore, storage, P2P, producer, or release behavior,
-read the relevant files under `docs/current/` and `docs/backlog/`.
+read the relevant files under
+[`docs/current/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/current)
+and
+[`docs/backlog/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/backlog).

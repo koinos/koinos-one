@@ -96,4 +96,5 @@ but restored nodes should still start as observers first. Production should be
 enabled only after the node is healthy, following the expected network, and the
 producer setup is explicitly verified.
 
-For deeper protocol detail, see `docs/koinos/KOINOS_PROTOCOL.md`.
+For deeper protocol detail, see the
+[Koinos Protocol Compatibility Reference](../developers/deeper-references/koinos-protocol.md).

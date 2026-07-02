@@ -14,9 +14,10 @@ Every packaged app build must be traceable by:
 - release channel;
 - native node binary identity.
 
-`npm run build` runs `scripts/generate-build-info.js` before building renderer
-and Electron outputs. The app exposes build identity through the About/Build
-Info surface.
+`npm run build` runs
+[`scripts/generate-build-info.js`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/generate-build-info.js)
+before building renderer and Electron outputs. The app exposes build identity
+through the About/Build Info surface.
 
 ## Main Commands
 
@@ -40,10 +41,14 @@ local development when signing is not available.
 
 ## Staging Checks
 
-`scripts/stage-bundle.js` stages bundle assets. `scripts/verify-package-staging.js`
-and `scripts/verify-packaged-app.js` verify that required packaged artifacts are
-present. Packaged verification also checks the shipped `teleno_node --help`
-surface for expected native backup flags.
+[`scripts/stage-bundle.js`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/stage-bundle.js)
+stages bundle assets.
+[`scripts/verify-package-staging.js`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/verify-package-staging.js)
+and
+[`scripts/verify-packaged-app.js`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/verify-packaged-app.js)
+verify that required packaged artifacts are present. Packaged verification also
+checks the shipped `teleno_node --help` surface for expected native backup
+flags.
 
 The build command also runs the strict MkDocs build. If documentation navigation
 is broken, packaging should fail before an app artifact is produced.

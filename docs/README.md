@@ -41,6 +41,8 @@ are documented but not yet fully implemented or signed off.
   work.
 - `backlog/producer/` - producer wallet, distributed producer, and VHP workflow
   ideas.
+- `backlog/strategy/` - product strategy, positioning, and market-direction
+  ideas that are not yet current implementation.
 - `backlog/storage/` - storage migration and unified database follow-up work.
 
 ## Legacy And Compatibility

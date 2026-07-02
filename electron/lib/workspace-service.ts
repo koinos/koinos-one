@@ -5,6 +5,7 @@ import { KOINOS_GIT_CLONE_URL, isPackagedBuild, resolveKoinosConfigRoot } from '
 import { inspectBaseDirIdentity } from './basedir-identity'
 import type {
   TelenoNodeCloneRepoResult,
+  TelenoNodeBaseDirLocalCopy,
   TelenoNodeFileReadInput,
   TelenoNodeFileReadResult,
   TelenoNodeFileWriteInput,
@@ -31,6 +32,99 @@ type WorkspaceServiceDeps = {
 
 export function directoryHasEntries(dirPath: string): boolean {
   return fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory() && fs.readdirSync(dirPath).length > 0
+}
+
+const LOCAL_COPY_CANDIDATE_DIRS = [
+  'chain/blockchain',
+  'chain/db',
+  'block_store/db',
+  'db',
+  'state',
+  'contract_meta_store/db',
+  'transaction_store/db',
+  'account_history/db'
+]
+
+const LOCAL_COPY_SCAN_ENTRY_LIMIT = 50000
+
+function scanLocalCopyPath(targetPath: string, remainingEntries: number) {
+  let totalBytes = 0
+  let newestModifiedMs = 0
+  let scannedEntries = 0
+  let truncated = false
+  const pending = [targetPath]
+
+  while (pending.length > 0) {
+    if (scannedEntries >= remainingEntries) {
+      truncated = true
+      break
+    }
+
+    const currentPath = pending.pop()!
+    scannedEntries += 1
+
+    let stat: fs.Stats
+    try {
+      stat = fs.lstatSync(currentPath)
+    } catch {
+      continue
+    }
+
+    newestModifiedMs = Math.max(newestModifiedMs, stat.mtimeMs)
+    if (stat.isFile()) {
+      totalBytes += stat.size
+      continue
+    }
+
+    if (!stat.isDirectory()) continue
+
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(currentPath, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      pending.push(path.join(currentPath, entry.name))
+    }
+  }
+
+  return { totalBytes, newestModifiedMs, scannedEntries, truncated }
+}
+
+function inspectBaseDirLocalCopy(baseDir: string): TelenoNodeBaseDirLocalCopy {
+  const evidence: string[] = []
+  let totalBytes = 0
+  let newestModifiedMs = 0
+  let scannedEntries = 0
+  let truncated = false
+
+  for (const relativePath of LOCAL_COPY_CANDIDATE_DIRS) {
+    const targetPath = path.join(baseDir, relativePath)
+    if (!fs.existsSync(targetPath)) continue
+
+    evidence.push(relativePath)
+    const scan = scanLocalCopyPath(targetPath, Math.max(1, LOCAL_COPY_SCAN_ENTRY_LIMIT - scannedEntries))
+    totalBytes += scan.totalBytes
+    newestModifiedMs = Math.max(newestModifiedMs, scan.newestModifiedMs)
+    scannedEntries += scan.scannedEntries
+    truncated = truncated || scan.truncated
+
+    if (scannedEntries >= LOCAL_COPY_SCAN_ENTRY_LIMIT) {
+      truncated = true
+      break
+    }
+  }
+
+  return {
+    detected: evidence.length > 0,
+    evidence,
+    newestModifiedMs: newestModifiedMs > 0 ? Math.round(newestModifiedMs) : null,
+    totalBytes: evidence.length > 0 ? totalBytes : null,
+    scannedEntries,
+    truncated
+  }
 }
 
 export function createWorkspaceService(deps: WorkspaceServiceDeps) {
@@ -123,6 +217,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
   function validateNodeBaseDirAccess(input?: TelenoNodeSettingsInput): TelenoNodeValidateBaseDirResult {
     const settings = deps.normalizeNodeSettings(input)
     const restoreWorkspaceParent = deps.restoreWorkspaceParentPath(settings.baseDir)
+    const localCopy = inspectBaseDirLocalCopy(settings.baseDir)
 
     try {
       deps.verifyWritableDirectory(restoreWorkspaceParent)
@@ -133,6 +228,7 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
         baseDir: settings.baseDir,
         restoreWorkspaceParent,
         writable: false,
+        localCopy,
         output: `No se puede escribir en el volumen seleccionado para el restore temporal (${restoreWorkspaceParent}): ${detail}`
       }
     }
@@ -146,16 +242,22 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps) {
         baseDir: settings.baseDir,
         restoreWorkspaceParent,
         writable: false,
+        localCopy,
         output: `No se puede escribir en BASEDIR (${settings.baseDir}): ${detail}`
       }
     }
+
+    const localCopyNote = localCopy.detected
+      ? ` · existing local node data detected (${localCopy.evidence.join(', ')})`
+      : ''
 
     return {
       ok: true,
       baseDir: settings.baseDir,
       restoreWorkspaceParent,
       writable: true,
-      output: `BASEDIR listo: ${settings.baseDir} · restore temporal en ${restoreWorkspaceParent}`
+      localCopy,
+      output: `BASEDIR listo: ${settings.baseDir} · restore temporal en ${restoreWorkspaceParent}${localCopyNote}`
     }
   }
 

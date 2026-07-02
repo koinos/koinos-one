@@ -61,8 +61,8 @@ Koinos, Proof of Burn, RC, VHP, or how a node participates in the network.
 - Write in English.
 - Use MkDocs-compatible Markdown.
 - Use normal relative Markdown links for pages inside `docs/manual/`.
-- Reference docs outside `docs/manual/` as plain code paths unless they are
-  intentionally included in the MkDocs source tree.
+- Link source files, source folders, and Markdown files outside `docs/manual/`
+  to the official GitHub repository instead of leaving plain local paths.
 - Prefer plain language and short sections.
 - Use tables only when they make comparison easier.
 - Avoid implementation-heavy detail unless it helps the reader understand an

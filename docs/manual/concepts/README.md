@@ -24,7 +24,7 @@ peer protocol, and externally consumed RPC behavior.
 
 ## Deeper References
 
-- `docs/koinos/KOINOS_PROTOCOL.md`
-- `docs/current/monolith/ARCHITECTURE.md`
-- `docs/current/monolith/SERVICE_COVERAGE.md`
+- [Koinos Protocol Compatibility Reference](../developers/deeper-references/koinos-protocol.md)
+- [Current Monolithic Node Architecture](../developers/deeper-references/monolith-architecture.md)
+- [Monolith Service Coverage](../developers/deeper-references/monolith-service-coverage.md)
 - [Glossary](../reference/glossary.md)

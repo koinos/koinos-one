@@ -15,16 +15,25 @@ and process supervision.
 
 ## Main Files
 
-- `src/main.tsx` - React mount point.
-- `src/App.tsx` - app state orchestration, tab routing, polling, and bridge use.
-- `src/components/panels/` - major UI panels.
-- `src/app/` - renderer helpers, types, network data, producer helpers, chain
+- [`src/main.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/main.tsx)
+  - React mount point.
+- [`src/App.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/App.tsx)
+  - app state orchestration, tab routing, polling, and bridge use.
+- [`src/components/panels/`](https://github.com/pgarciagon/koinos-one/tree/main/src/components/panels)
+  - major UI panels.
+- [`src/app/`](https://github.com/pgarciagon/koinos-one/tree/main/src/app)
+  - renderer helpers, types, network data, producer helpers, chain
   sync helpers, and normalization logic.
-- `src/i18n.ts` - English and Spanish GUI strings.
-- `src/styles.css` - global visual system and panel styling.
-- `electron/preload.ts` - secure bridge exposed to the renderer.
-- `electron/main.ts` - Electron main process composition.
-- `electron/lib/ipc-handlers.ts` - IPC channel registration.
+- [`src/i18n.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts)
+  - English and Spanish GUI strings.
+- [`src/styles.css`](https://github.com/pgarciagon/koinos-one/blob/main/src/styles.css)
+  - global visual system and panel styling.
+- [`electron/preload.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/preload.ts)
+  - secure bridge exposed to the renderer.
+- [`electron/main.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/main.ts)
+  - Electron main process composition.
+- [`electron/lib/ipc-handlers.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/lib/ipc-handlers.ts)
+  - IPC channel registration.
 
 ## Development Rule Of Thumb
 
@@ -34,7 +43,9 @@ side-effects. Do not put privileged operations directly in the renderer.
 
 ## GUI Change Checklist
 
-- Keep visible text in `src/i18n.ts` for English and Spanish.
+- Keep visible text in
+  [`src/i18n.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts)
+  for English and Spanish.
 - Keep settings and operational screens visually consistent with surrounding
   panels.
 - Keep first-run setup packaged-runtime-only and observer-first.

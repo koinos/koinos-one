@@ -21,19 +21,21 @@ through direct calls and an internal event bus instead of GarageMQ/AMQP.
 
 ## Feature Flags
 
-`NodeConfig` in `core/config.hpp` includes feature flags for components. Core
-features such as chain, mempool, block store, P2P, JSON-RPC, contract metadata,
-and transaction store default to enabled. gRPC, block production, and account
-history default to disabled in the base config.
+`NodeConfig` in
+[`core/config.hpp`](https://github.com/pgarciagon/koinos-one/blob/main/node/teleno-node/src/core/config.hpp)
+includes feature flags for components. Core features such as chain, mempool,
+block store, P2P, JSON-RPC, contract metadata, and transaction store default to
+enabled. gRPC, block production, and account history default to disabled in the
+base config.
 
 Feature toggles are a runtime composition tool. They are not permission to
 change protocol behavior or hide incompatible behavior behind a default.
 
 ## Lifecycle
 
-`core/service_registry.hpp` starts components in registered order and stops them
-in reverse order. A failed component startup triggers stop of already-started
-components.
+[`core/service_registry.hpp`](https://github.com/pgarciagon/koinos-one/blob/main/node/teleno-node/src/core/service_registry.hpp)
+starts components in registered order and stops them in reverse order. A failed
+component startup triggers stop of already-started components.
 
 The main process composes dependencies in `main.cpp`: chain, block store,
 mempool, P2P, RPC servers, producer, stores, storage, and backup services are

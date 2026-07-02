@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { walletDefaultReceiverAddress } from '../../app/wallet-actions'
 import { WalletAccountBar } from './wallet/WalletAccountBar'
 import { WalletAccountsTab } from './wallet/WalletAccountsTab'
 import { WalletEmptyState } from './wallet/WalletEmptyState'
@@ -49,6 +50,7 @@ export function WalletPanel(props: WalletPanelProps) {
     walletImportSeedPassword,
     setWalletImportSeedPassword,
     importWalletAccount,
+    replaceWalletAccount,
     importWalletFromSeed,
     createWalletAccount,
     generateWalletDraft,
@@ -134,7 +136,7 @@ export function WalletPanel(props: WalletPanelProps) {
   const hasWallet = Boolean(walletOverview?.walletExists)
   const walletUnlocked = Boolean(walletOverview?.unlocked)
   const walletLocked = hasWallet && !walletUnlocked
-  const importWifReplacesVault = !hasWallet || walletLocked
+  const importWifReplacesVault = setupMode || !hasWallet || walletLocked
   const isBusy = walletLoading || walletActionLoading !== null
   const accounts = walletOverview?.accounts || []
   const showCreateModalError = createModalOpen && createAttempted && Boolean(walletError)
@@ -275,8 +277,13 @@ export function WalletPanel(props: WalletPanelProps) {
   }
 
   const openSendModal = (mode: 'send' | 'burn' = 'send') => {
-    if (mode === 'burn' && !walletBurnTargetAddressDraft.trim() && activeWalletAddress) {
-      setWalletBurnTargetAddressDraft(activeWalletAddress)
+    const defaultTargetAddress = walletDefaultReceiverAddress(activeWalletAddress)
+    if (defaultTargetAddress) {
+      if (mode === 'send') {
+        setWalletTransferAddressDraft(defaultTargetAddress)
+      } else {
+        setWalletBurnTargetAddressDraft(defaultTargetAddress)
+      }
     }
     setSendModalMode(mode)
     setSendModalOpen(true)
@@ -366,6 +373,23 @@ export function WalletPanel(props: WalletPanelProps) {
               <strong className="mono" title={activeWalletAddress || t('common.na')}>
                 {activeWalletAddress || t('common.na')}
               </strong>
+            </div>
+          </div>
+          <div className="wallet-setup-choice-row">
+            <div className="wallet-setup-keep-choice">
+              <strong>{t('firstRun.wallet.keepChoice')}</strong>
+              <span>{t('firstRun.wallet.keepDescription')}</span>
+            </div>
+            <div className="wallet-setup-replace-actions" aria-label={t('firstRun.wallet.replaceDescription')}>
+              <button type="button" className="ghost-button" onClick={openCreateModal} disabled={!hasWalletControls || isBusy}>
+                {t('firstRun.wallet.createReplacement')}
+              </button>
+              <button type="button" className="ghost-button" onClick={() => setImportModalOpen(true)} disabled={!hasWalletControls || isBusy}>
+                {t('firstRun.wallet.importExistingWif')}
+              </button>
+              <button type="button" className="ghost-button" onClick={() => setImportSeedModalOpen(true)} disabled={!hasWalletControls || isBusy}>
+                {t('firstRun.wallet.importExistingSeed')}
+              </button>
             </div>
           </div>
         </section>
@@ -463,9 +487,9 @@ export function WalletPanel(props: WalletPanelProps) {
                   {walletError}
                 </div>
               )}
-              {walletLocked && (
+              {(walletLocked || (setupMode && walletUnlocked)) && (
                 <div className="node-warning" role="note">
-                  {t('wallet.lockedReplaceWarning')}
+                  {walletLocked ? t('wallet.lockedReplaceWarning') : t('firstRun.wallet.replaceWarning')}
                 </div>
               )}
               {!importWifReplacesVault && (
@@ -515,7 +539,8 @@ export function WalletPanel(props: WalletPanelProps) {
                   type="button"
                   className="primary-button"
                   onClick={() => {
-                    void importWalletAccount(
+                    const importHandler = importWifReplacesVault && replaceWalletAccount ? replaceWalletAccount : importWalletAccount
+                    void importHandler(
                       walletImportPrivateKey,
                       walletImportPassword,
                       importPasswordConfirm,
@@ -563,9 +588,9 @@ export function WalletPanel(props: WalletPanelProps) {
                   {walletError}
                 </div>
               )}
-              {walletLocked && (
+              {(walletLocked || (setupMode && walletUnlocked)) && (
                 <div className="node-warning" role="note">
-                  {t('wallet.lockedReplaceWarning')}
+                  {walletLocked ? t('wallet.lockedReplaceWarning') : t('firstRun.wallet.replaceWarning')}
                 </div>
               )}
               <label>
@@ -648,9 +673,9 @@ export function WalletPanel(props: WalletPanelProps) {
                   {createSeedError}
                 </div>
               )}
-              {walletLocked && (
+              {(walletLocked || (setupMode && walletUnlocked)) && (
                 <div className="node-warning" role="note">
-                  {t('wallet.lockedReplaceWarning')}
+                  {walletLocked ? t('wallet.lockedReplaceWarning') : t('firstRun.wallet.replaceWarning')}
                 </div>
               )}
               <p className="wallet-modal-note">{t('wallet.createBackupNotice')}</p>
@@ -962,7 +987,7 @@ export function WalletPanel(props: WalletPanelProps) {
         }}
       />
 
-      {advancedMode && (walletResultData || walletLoading) && (!hasWallet || walletUnlocked) && (
+      {!setupMode && advancedMode && (walletResultData || walletLoading) && (!hasWallet || walletUnlocked) && (
         <div className="wallet-output">
           <div className="node-services-header">
             <h3>{walletResultTitle || t('wallet.outputTitle')}</h3>

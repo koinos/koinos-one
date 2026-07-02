@@ -92,6 +92,10 @@ declare global {
     filePath?: string
     completedAt?: string | null
     setup?: unknown
+    source?: 'file' | 'missing' | 'unreadable' | 'migrated-existing-setup' | 'reset'
+    migrated?: boolean
+    migrationReason?: string | null
+    installChangedSinceCompletion?: boolean
     install?: {
       appName?: string
       appVersion?: string
@@ -614,7 +618,17 @@ declare global {
     path: string
     restoreWorkspaceParent: string
     writable: boolean
+    localCopy?: TelenoNodeBaseDirLocalCopy
     output: string
+  }
+
+  type TelenoNodeBaseDirLocalCopy = {
+    detected: boolean
+    evidence: string[]
+    newestModifiedMs: number | null
+    totalBytes: number | null
+    scannedEntries: number
+    truncated: boolean
   }
 
   type TelenoNodeValidateBaseDirResult = {
@@ -622,6 +636,7 @@ declare global {
     baseDir: string
     restoreWorkspaceParent: string
     writable: boolean
+    localCopy?: TelenoNodeBaseDirLocalCopy
     output: string
   }
 

@@ -53,6 +53,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
     resetDefaults,
     settingsDirty,
     onBlockedSettingsNavigation,
+    onRunFirstRunSetup,
     appBuildInfo
   } = props
 
@@ -222,6 +223,24 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <span className="settings-inline-help">
                 {t('settings.menuBarHelp')}
               </span>
+            </div>
+
+            <div className="settings-assistant-row">
+              <div>
+                <strong>{t('settings.firstRunAssistantTitle')}</strong>
+                <span className="settings-inline-help">
+                  {t('settings.firstRunAssistantDescription')}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => onRunFirstRunSetup?.()}
+                disabled={settingsDirty}
+                title={settingsDirty ? t('settings.firstRunAssistantUnsavedTooltip') : t('settings.firstRunAssistantTooltip')}
+              >
+                {t('settings.firstRunAssistantRun')}
+              </button>
             </div>
 
             <label>

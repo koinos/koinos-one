@@ -45,6 +45,12 @@ starting a new feature or claiming full legacy parity.
 - `producer/DISTRIBUTED_PRODUCER_FLEET_AND_VHP_PLAN.md` - multi-producer fleet
   and VHP allocation product direction.
 
+## Strategy And Product Direction
+
+- `strategy/KOINOS_ONE_CLICK_NODE_AND_AGENT_STRATEGY.md` - market and product
+  strategy for Koinos One as a click-to-run node, producer onboarding surface,
+  and future agent trust layer.
+
 ## Storage Backlog
 
 - `storage/UNIFIED_ROCKSDB_IMPLEMENTATION_PLAN.md` - remaining migration,
@@ -55,6 +61,9 @@ starting a new feature or claiming full legacy parity.
 - `networking/P2P_PUBLIC_PEER_IDENTITY_PLAN.md` - deterministic P2P identity
   persistence, legacy `p2p.seed` compatibility, public multiaddr reporting, and
   public-peer validation.
+- `networking/LIBP2P_STREAM_EXCEPTION_HARDENING_PLAN.md` - plan to contain
+  cpp-libp2p stream exceptions, prevent P2P peer churn from aborting
+  `teleno_node`, and restore reliable scheduled public-backup publication.
 
 ## Additional Deferred Work
 
