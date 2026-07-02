@@ -421,7 +421,7 @@ async function openNodeBackups(page: Page) {
 async function openSettingsBackup(page: Page) {
   await page.goto('/')
   await page.locator('#tab-settings').click()
-  await page.getByRole('button', { name: 'Backup' }).click()
+  await page.getByRole('button', { name: 'Backup', exact: true }).click()
   await expect(page.locator('#panel-settings')).toBeVisible()
 }
 
