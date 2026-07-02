@@ -5,7 +5,8 @@ Electron main process.
 
 ## Renderer State
 
-`src/App.tsx` owns:
+[`src/App.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/App.tsx)
+owns:
 
 - active tab and subtab state;
 - language and settings drafts;
@@ -15,8 +16,10 @@ Electron main process.
 - wallet and producer view state;
 - error banners, modal state, and form validation state.
 
-Renderer helpers under `src/app/` normalize settings, parse config fields,
-format values, filter logs, inspect producer readiness, and resolve RPC URLs.
+Renderer helpers under
+[`src/app/`](https://github.com/pgarciagon/koinos-one/tree/main/src/app)
+normalize settings, parse config fields, format values, filter logs, inspect
+producer readiness, and resolve RPC URLs.
 
 ## Bridge Access
 
@@ -26,9 +29,10 @@ The renderer reaches native behavior through bridge helpers such as:
 - `getTelenoNodeBridge()`
 - `getWalletBridge()`
 
-These helpers read the `window.teleno` API exposed by `electron/preload.ts`.
-Vite/browser-only runs may not have Electron bridges available, so UI code must
-handle missing bridges gracefully.
+These helpers read the `window.teleno` API exposed by
+[`electron/preload.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/preload.ts).
+Vite/browser-only runs may not have Electron bridges available, so UI code
+must handle missing bridges gracefully.
 
 Missing bridges should degrade to disabled actions, explanatory status, or
 browser-safe fallbacks. They should not trigger first-run setup or native
@@ -36,14 +40,19 @@ side-effects during a plain Vite development run.
 
 ## IPC Registration
 
-`electron/lib/ipc-handlers.ts` registers the named IPC channels exposed by the
-preload bridge. Keep IPC names explicit and stable. Add types in
-`electron/lib/main-types.ts` and `src/teleno-electron.d.ts` when a new bridge
-contract is added.
+[`electron/lib/ipc-handlers.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/lib/ipc-handlers.ts)
+registers the named IPC channels exposed by the preload bridge. Keep IPC names
+explicit and stable. Add types in
+[`electron/lib/main-types.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/lib/main-types.ts)
+and
+[`src/teleno-electron.d.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/teleno-electron.d.ts)
+when a new bridge contract is added.
 
 ## Native Runtime Services
 
-Runtime logic belongs in `electron/lib/`, not in React components. Examples:
+Runtime logic belongs in
+[`electron/lib/`](https://github.com/pgarciagon/koinos-one/tree/main/electron/lib),
+not in React components. Examples:
 
 - `native-runtime-service.ts` starts, stops, restarts, and checks managed native
   services.
@@ -82,7 +91,8 @@ Before adding new top-level `App.tsx` state, check whether the data is:
 - purely presentational and can stay inside a panel;
 - shared renderer state that belongs in `App.tsx`;
 - persisted preference/config state that belongs behind Electron storage;
-- privileged runtime state that belongs in `electron/lib/`;
+- privileged runtime state that belongs in
+  [`electron/lib/`](https://github.com/pgarciagon/koinos-one/tree/main/electron/lib);
 - native state that belongs in `teleno_node`.
 
 Prefer the narrowest ownership that still keeps the workflow clear.

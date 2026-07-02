@@ -88,4 +88,5 @@ one monolithic binary, use direct in-process calls, use RocksDB internally, and
 be supervised by a desktop app. Those choices are allowed only because they do
 not change Koinos protocol behavior.
 
-For deeper detail, see `docs/koinos/KOINOS_PROTOCOL.md`.
+For deeper detail, see the
+[Koinos Protocol Compatibility Reference](../developers/deeper-references/koinos-protocol.md).

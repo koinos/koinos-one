@@ -1,6 +1,8 @@
 # i18n And GUI Copy
 
-All visible GUI text must live in `src/i18n.ts` for both English and Spanish.
+All visible GUI text must live in
+[`src/i18n.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts)
+for both English and Spanish.
 
 ## When To Add Strings
 
@@ -39,8 +41,9 @@ without user confirmation.
 
 The Documentation tab loads the built MkDocs site from
 `manual-site/index.html`. Text inside manual pages is authored as Markdown under
-`docs/manual/`; visible app shell text around the iframe still belongs in
-`src/i18n.ts`.
+the manual source tree; visible app shell text around the iframe still belongs
+in
+[`src/i18n.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts).
 
 When documentation changes describe a GUI feature, verify that the visible GUI
 labels and manual wording match the implemented behavior.
@@ -56,7 +59,8 @@ level of specificity in both locales.
 
 ## Development Checklist
 
-- Add English and Spanish strings in `src/i18n.ts`.
+- Add English and Spanish strings in
+  [`src/i18n.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts).
 - Use `t('key')` from panel props or the app translator.
 - Do not hardcode visible user-facing sentences in components.
 - Check that button text fits at normal desktop window sizes.

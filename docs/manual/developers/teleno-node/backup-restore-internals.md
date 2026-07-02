@@ -23,8 +23,8 @@ and admin API behavior.
 
 The native binary implements backup dry-run, create, list, delete, restore,
 public list/fetch/restore, JSON output, and backup ID selection flags. See
-`docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md` for the
-full current flag list.
+[`docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md)
+for the full current flag list.
 
 Common modes include:
 

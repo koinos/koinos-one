@@ -6,6 +6,8 @@ import {
   DEFAULT_SETTINGS,
   FIRST_RUN_SETUP_STORAGE_KEY,
   LANGUAGE_STORAGE_KEY,
+  LEGACY_NODE_SETTINGS_STORAGE_KEY,
+  LEGACY_SETTINGS_STORAGE_KEY,
   LOCAL_RPC_SOURCE,
   NODE_SETTINGS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
@@ -309,6 +311,19 @@ function createBackupProgressState(
     progressRangeEnd: patch.progressRangeEnd ?? null,
     sampleIntervalMs: patch.sampleIntervalMs ?? null
   }
+}
+
+function rendererHasExistingSetupStorage(): boolean {
+  try {
+    const storage = window.localStorage
+    if (storage.getItem(FIRST_RUN_SETUP_STORAGE_KEY) === 'complete') return true
+    if (storage.getItem(NODE_SETTINGS_STORAGE_KEY) || storage.getItem(LEGACY_NODE_SETTINGS_STORAGE_KEY)) return true
+    if (storage.getItem(SETTINGS_STORAGE_KEY) || storage.getItem(LEGACY_SETTINGS_STORAGE_KEY)) return true
+  } catch {
+    return false
+  }
+
+  return false
 }
 
 export function App() {
@@ -650,7 +665,27 @@ export function App() {
       try {
         const state = await window.teleno?.app?.firstRunSetupState?.()
         if (!disposed && state?.ok) {
-          setFirstRunSetupOpen(Boolean(state.install?.packaged) && !state.completed)
+          let completed = state.completed === true
+          const canMigrateRendererState =
+            Boolean(state.install?.packaged) &&
+            !completed &&
+            (state.source === 'missing' || state.source === 'unreadable') &&
+            rendererHasExistingSetupStorage()
+
+          if (canMigrateRendererState && window.teleno?.app?.completeFirstRunSetup) {
+            const migrated = await window.teleno.app.completeFirstRunSetup({
+              appVersion: pkg.version,
+              network: nodeSettings.network,
+              baseDir: nodeSettings.baseDir,
+              observerProfile: nodeSettings.profiles || defaultNodeProfilesForNetwork(nodeSettings.network),
+              completedFrom: 'existing-renderer-storage-migration'
+            })
+            completed = migrated?.completed === true
+          }
+
+          if (!disposed) {
+            setFirstRunSetupOpen(Boolean(state.install?.packaged) && !completed)
+          }
           return
         }
       } catch {
@@ -666,7 +701,7 @@ export function App() {
     return () => {
       disposed = true
     }
-  }, [])
+  }, [nodeSettings.baseDir, nodeSettings.network, nodeSettings.profiles])
 
   useEffect(() => {
     setDraftPublicRpcUrls(settings.publicRpcUrls.join('\n'))
@@ -1524,7 +1559,6 @@ export function App() {
   const nodeCurrentProfiles = parseProfilesCsv(nodeSettings.profiles)
   const selectedNodePreset =
     nodePresets.find((preset) => sameProfiles(preset.profiles, nodeCurrentProfiles)) ?? null
-  const activeNodePresetLabel = selectedNodePreset ? formatNodePresetLabel(selectedNodePreset) : t('node.presetCustomLabel')
   const nodeNativeBuildServices = nodeNativeBuilds?.services ?? []
   const nodeNativeSupportedCount = nodeNativeBuildServices.filter((service) => service.supported).length
   const nodeNativeBuiltCount = nodeNativeBuildServices.filter(
@@ -1716,6 +1750,22 @@ export function App() {
   const selectedNodePresetMatchesRunningState = selectedNodePreset
     ? presetMatchesNodeState(selectedNodePreset)
     : false
+  const runningNodePreset =
+    nodeRunningCount > 0
+      ? nodePresets.find((preset) => presetMatchesNodeState(preset)) ?? null
+      : null
+  const activeNodePresetLabel =
+    nodeRunningCount > 0
+      ? runningNodePreset
+        ? formatNodePresetLabel(runningNodePreset)
+        : t('node.presetCustomLabel')
+      : selectedNodePreset
+        ? formatNodePresetLabel(selectedNodePreset)
+        : t('node.presetCustomLabel')
+  const pendingNodePresetLabel =
+    selectedNodePreset && nodeRunningCount > 0 && !selectedNodePresetMatchesRunningState
+      ? formatNodePresetLabel(selectedNodePreset)
+      : ''
   const nodePresetSummaryText = selectedNodePreset
     ? t('node.presetSummarySelected', {
         label: formatNodePresetLabel(selectedNodePreset),
@@ -1757,6 +1807,7 @@ export function App() {
     reasons.find((reason): reason is string => Boolean(reason)) ?? fallback
   const nodeControlsUnavailableReason = !hasNodeControls ? t('node.actionDisabled.electronOnly') : null
   const nodeActionBusyReason = nodeBusy ? t('node.actionDisabled.busy', { state: nodeStateText }) : null
+  const nodeStartAlreadyRunningReason = nodeRunningCount > 0 ? t('node.actionDisabled.alreadyRunning') : null
   const nodePrimaryUnavailableReason = !nodePrimaryService ? t('node.actionDisabled.noPrimaryService') : null
   const nodePrimaryStatusUnavailableReason =
     nodePrimaryService && !nodePrimaryCapabilities ? t('node.actionDisabled.statusUnavailable') : null
@@ -1767,6 +1818,7 @@ export function App() {
   const nodeStartTooltip = nodeActionTooltip(
     t('node.actionTooltip.start'),
     nodeControlsUnavailableReason,
+    nodeStartAlreadyRunningReason,
     nodeActionBusyReason
   )
   const nodeLogsTooltip = nodeActionTooltip(
@@ -2522,34 +2574,34 @@ export function App() {
         presetId: preset.id
       })
 
-      const nextProfiles = preset.profiles.join(',')
-      const nextNetwork = preset.network ?? result.status.network ?? presetSettings.network
-      const nextSettings = {
-        ...presetSettings,
-        network: nextNetwork,
-        baseDir: result.status.baseDir || presetSettings.baseDir,
-        profiles: nextProfiles
-      }
-
-      setNodeSettings(nextSettings)
-      setDraftNodeNetwork(nextNetwork)
-      setDraftNodeBaseDir(nextSettings.baseDir)
-      setDraftNodeProfiles(nextProfiles)
-      if (nextNetwork !== nodeSettings.network) {
-        const nextPublicRpcUrls = publicRpcUrlsForActiveNetwork(nextNetwork, publicRpcUrlsByNetwork)
-        setDraftPublicRpcUrls(nextPublicRpcUrls.join('\n'))
-        setSettings((current) => ({
-          ...current,
-          publicRpcUrls: nextPublicRpcUrls,
-          rpcSource: current.rpcSource === LOCAL_RPC_SOURCE ? LOCAL_RPC_SOURCE : nextPublicRpcUrls[0] ?? current.rpcSource
-        }))
-      }
       setNodeStatus(result.status)
       setNodeOutput(result.output || result.status.output || '')
 
       if (!result.ok || !result.status.ok) {
         setNodeError(result.output || result.status.output || t('node.unableApplyProfile', { label: formatNodePresetLabel(preset) }))
       } else {
+        const nextProfiles = preset.profiles.join(',')
+        const nextNetwork = preset.network ?? result.status.network ?? presetSettings.network
+        const nextSettings = {
+          ...presetSettings,
+          network: nextNetwork,
+          baseDir: result.status.baseDir || presetSettings.baseDir,
+          profiles: nextProfiles
+        }
+
+        setNodeSettings(nextSettings)
+        setDraftNodeNetwork(nextNetwork)
+        setDraftNodeBaseDir(nextSettings.baseDir)
+        setDraftNodeProfiles(nextProfiles)
+        if (nextNetwork !== nodeSettings.network) {
+          const nextPublicRpcUrls = publicRpcUrlsForActiveNetwork(nextNetwork, publicRpcUrlsByNetwork)
+          setDraftPublicRpcUrls(nextPublicRpcUrls.join('\n'))
+          setSettings((current) => ({
+            ...current,
+            publicRpcUrls: nextPublicRpcUrls,
+            rpcSource: current.rpcSource === LOCAL_RPC_SOURCE ? LOCAL_RPC_SOURCE : nextPublicRpcUrls[0] ?? current.rpcSource
+          }))
+        }
         setNodeError(null)
       }
 
@@ -5315,6 +5367,24 @@ export function App() {
     setFirstRunSetupOpen(false)
   }
 
+  const runFirstRunSetupAgain = () => {
+    if (settingsDirty) {
+      setSettingsUnsavedDialogOpen(true)
+      return
+    }
+    if (window.teleno?.app?.resetFirstRunSetup) {
+      void window.teleno.app.resetFirstRunSetup()
+    }
+    try {
+      window.localStorage.removeItem(FIRST_RUN_SETUP_STORAGE_KEY)
+    } catch {
+      // The Electron marker is the source of truth for packaged installs.
+    }
+    setFirstRunPublicBootstrapUsed(false)
+    setNodeBaseDirChangeDialog(null)
+    setFirstRunSetupOpen(true)
+  }
+
   const quitUnfinishedFirstRunSetup = () => {
     if (window.teleno?.app?.resetFirstRunSetup) {
       void window.teleno.app.resetFirstRunSetup()
@@ -5579,6 +5649,7 @@ export function App() {
           resetDefaults={resetDefaults}
           settingsDirty={settingsDirty}
           onBlockedSettingsNavigation={() => setSettingsUnsavedDialogOpen(true)}
+          onRunFirstRunSetup={runFirstRunSetupAgain}
           appBuildInfo={appBuildInfo}
         />
       )}
@@ -5678,6 +5749,11 @@ export function App() {
             <span className="node-active-preset">
               {t('node.activePreset', { label: activeNodePresetLabel })}
             </span>
+            {pendingNodePresetLabel && (
+              <span className="node-pending-preset">
+                {t('node.pendingPreset', { label: pendingNodePresetLabel })}
+              </span>
+            )}
             <span className="node-action-tooltip-wrap" title={nodePresetsTooltip}>
               <button
                 type="button"
@@ -5695,7 +5771,7 @@ export function App() {
                 onClick={() => {
                   void runNodeAction('start')
                 }}
-                disabled={!hasNodeControls || nodeBusy}
+                disabled={!hasNodeControls || nodeBusy || nodeRunningCount > 0}
               >
                 {nodeActionLoading === 'start' ? t('common.starting') : t('node.startNode')}
               </button>
@@ -5784,7 +5860,10 @@ export function App() {
                     <div className="node-runtime-cards">
                       <article>
                         <span>{t('node.detailPreset')}</span>
-                        <strong>{selectedNodePreset ? formatNodePresetLabel(selectedNodePreset) : t('node.presetCustomLabel')}</strong>
+                        <strong>{activeNodePresetLabel}</strong>
+                        {pendingNodePresetLabel && (
+                          <small>{t('node.pendingPreset', { label: pendingNodePresetLabel })}</small>
+                        )}
                       </article>
                       <article>
                         <span>{t('common.version')}</span>

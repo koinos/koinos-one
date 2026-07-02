@@ -54,14 +54,14 @@ npm run test:ui:electron
 
 Use scripts for broader behavior:
 
-- `scripts/smoke-native-backup-restore.sh`
-- `scripts/smoke-public-bootstrap-promotion.sh`
-- `scripts/compare-jsonrpc-parity.py`
-- `scripts/compare-grpc-parity.sh`
-- `scripts/validate-grpc-client-compatibility.sh`
-- `scripts/run-koinos-integration-compat.sh`
-- `scripts/smoke-monolith-p2p-local.sh`
-- `scripts/smoke-gossip-interop.sh`
+- [`scripts/smoke-native-backup-restore.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/smoke-native-backup-restore.sh)
+- [`scripts/smoke-public-bootstrap-promotion.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/smoke-public-bootstrap-promotion.sh)
+- [`scripts/compare-jsonrpc-parity.py`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/compare-jsonrpc-parity.py)
+- [`scripts/compare-grpc-parity.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/compare-grpc-parity.sh)
+- [`scripts/validate-grpc-client-compatibility.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/validate-grpc-client-compatibility.sh)
+- [`scripts/run-koinos-integration-compat.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/run-koinos-integration-compat.sh)
+- [`scripts/smoke-monolith-p2p-local.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/smoke-monolith-p2p-local.sh)
+- [`scripts/smoke-gossip-interop.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/smoke-gossip-interop.sh)
 
 ## Packaging And Manual Validation
 
@@ -80,9 +80,12 @@ files under `manual-site/`.
 
 ## Evidence Boundaries
 
-Historical validation reports remain under `docs/roadmap/`. Current behavior is
-summarized under `docs/current/`. Missing or incomplete validation belongs in
-`docs/backlog/`.
+Historical validation reports remain under
+[`docs/roadmap/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/roadmap).
+Current behavior is summarized under
+[`docs/current/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/current).
+Missing or incomplete validation belongs in
+[`docs/backlog/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/backlog).
 
 Do not claim full mainnet, account-history, historical index, or producer
 signoff unless current docs and fresh evidence support that claim.

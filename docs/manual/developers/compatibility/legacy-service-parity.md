@@ -34,8 +34,11 @@ The main remaining parity gaps are:
 - signed prodnet public bootstrap publication and governance;
 - gRPC ACL enforcement.
 
-Check `docs/current/monolith/SERVICE_COVERAGE.md` and
-`docs/backlog/README.md` before claiming complete legacy service coverage.
+Check the
+[Monolith Service Coverage](../deeper-references/monolith-service-coverage.md)
+reference and
+[`docs/backlog/README.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/backlog/README.md)
+before claiming complete legacy service coverage.
 
 ## Removed Legacy Surfaces
 

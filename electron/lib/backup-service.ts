@@ -2490,6 +2490,16 @@ export function createBackupService(deps: BackupServiceDeps) {
     }
     if (!response.ok || payload.ok === false) {
       const error = typeof payload.error === 'string' ? payload.error : response.statusText
+      if (response.status === 401 || /unauthorized|forbidden/i.test(error)) {
+        throw new Error(
+          [
+            "The running node rejected Koinos One's local Backup Admin token.",
+            'This usually means the node was started with an older backup-admin configuration.',
+            'Stop and start the node from Koinos One so it loads the current local token, then try again.',
+            'If this folder already has newer local node data, keep the local copy instead of restoring the public backup.'
+          ].join(' ')
+        )
+      }
       throw new Error(`Backup admin ${method} ${route} failed: ${error}`)
     }
     return payload

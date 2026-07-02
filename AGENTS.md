@@ -76,10 +76,11 @@ iframe. Static documentation links must resolve to concrete HTML files such as
 `concepts/index.html` or `concepts/what-is-koinos.html`.
 
 Keep `docs/manual/` readable both in GitHub and in MkDocs. Use normal Markdown
-links for pages inside `docs/manual/`. When referencing deeper engineering docs
-outside the manual tree, prefer plain code paths such as
-`docs/current/monolith/ARCHITECTURE.md` unless those files are intentionally
-added to the MkDocs source tree.
+links for pages inside `docs/manual/`. When a manual page points to another
+manual page, use a relative MkDocs link so it opens inside the Documentation
+tab. When a manual page points to source code, repository folders, or Markdown
+files outside `docs/manual/`, link to the corresponding file or folder in the
+official GitHub repository instead of leaving a plain local path.
 
 ## GUI Copy Consistency Guardrail
 
@@ -111,6 +112,21 @@ Before considering a GUI change complete, inspect the affected screen in the
 running app or with a screenshot and verify that text remains readable, labels
 and values do not clash, the layout works at the expected window size, and the
 new UI does not draw more attention than the feature warrants.
+
+### First-Run Assistant Visual Direction
+
+The first-run setup assistant is the preferred color and visual reference for
+the rest of the Koinos One application. When redesigning or touching existing
+screens, gradually move the app toward that look and feel: light neutral
+surfaces, soft lavender/purple accents, restrained blue-gray text, subtle
+borders, gentle shadows, clear progress/status treatments, and quiet rounded
+controls that feel operational rather than decorative.
+
+Do not introduce unrelated palettes that fight the assistant direction. New or
+refreshed Node, Settings, Backup, Wallet, Producer, Dashboard, and
+Documentation surfaces should feel like they belong to the same product family
+as the assistant. Preserve usability and density for operational screens, but
+use the assistant's calmer color rhythm as the default visual target.
 
 ## GUI Box Model And Spacing Guardrail
 
@@ -146,6 +162,11 @@ The first-run installation assistant must not open during normal development
 runs, Vite browser runs, or Electron dev runs. It should open only when the app
 is running as a packaged installation, such as the macOS DMG-installed app, and
 Electron reports an incomplete first-run setup state for that packaged install.
+
+First-run completion is setup-scoped, not package-install scoped. A DMG
+reinstall, app replacement, app path change, or product version update must not
+reopen the assistant after setup has completed. Provide an explicit Settings
+action for users or QA to run the setup assistant again.
 
 Do not use browser `localStorage` alone as a fallback trigger to launch the
 assistant. If the Electron first-run bridge is unavailable, fails, or reports a

@@ -88,8 +88,8 @@ native node, backup/restore, storage, networking, tests, or release workflow.
 - Write in English.
 - Use MkDocs-compatible Markdown.
 - Use normal relative Markdown links for pages inside `docs/manual/`.
-- Reference docs outside `docs/manual/` as plain code paths unless they are
-  intentionally included in the MkDocs source tree.
+- Link source files, source folders, and Markdown files outside `docs/manual/`
+  to the official GitHub repository instead of leaving plain local paths.
 - Use links to current implementation docs for deep detail.
 - Keep architecture pages high-level and readable.
 - Use file paths and command examples where they help contributors act.

@@ -2,18 +2,24 @@
 
 This manual is the user-facing documentation entrypoint for Koinos One and
 Teleno Node. It is organized by audience and task, while the existing
-`docs/current/`, `docs/backlog/`, `docs/legacy/`, and `docs/archive/`
-directories remain the engineering source of truth for implementation state,
-future work, compatibility evidence, and historical material.
+[current implementation docs](https://github.com/pgarciagon/koinos-one/tree/main/docs/current),
+[backlog docs](https://github.com/pgarciagon/koinos-one/tree/main/docs/backlog),
+[legacy docs](https://github.com/pgarciagon/koinos-one/tree/main/docs/legacy),
+and [archive docs](https://github.com/pgarciagon/koinos-one/tree/main/docs/archive)
+remain the engineering source of truth for implementation state, future work,
+compatibility evidence, and historical material.
 
 ## Sections
 
-- `concepts/` - basic Koinos blockchain concepts for users and operators.
-- `koinos-one/` - desktop app user guide.
-- `teleno-node/` - command-line guide for the native `teleno_node` binary.
-- `developers/` - contributor documentation for the GUI and native node.
-- `reference/` - glossary, ports, paths, config, and security reference.
-- `prompts/` - reusable authoring prompts for expanding each manual section.
+- [concepts/](concepts/README.md) - basic Koinos blockchain concepts for users
+  and operators.
+- [koinos-one/](koinos-one/README.md) - desktop app user guide.
+- [teleno-node/](teleno-node/README.md) - command-line guide for the native
+  `teleno_node` binary.
+- [developers/](developers/README.md) - contributor documentation for the GUI
+  and native node.
+- [reference/](reference/README.md) - glossary, ports, paths, config, and
+  security reference.
 
 ## Static Site
 

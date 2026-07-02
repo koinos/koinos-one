@@ -52,6 +52,6 @@ rewrite. Migration tooling should produce reviewable output, preserve rollback
 paths where possible, and validate the resulting node before claiming success.
 
 Current storage details live in
-`docs/current/storage/UNIFIED_ROCKSDB_CURRENT_IMPLEMENTATION.md`; remaining
-storage rollout work lives in
-`docs/backlog/storage/UNIFIED_ROCKSDB_IMPLEMENTATION_PLAN.md`.
+[`docs/current/storage/UNIFIED_ROCKSDB_CURRENT_IMPLEMENTATION.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/storage/UNIFIED_ROCKSDB_CURRENT_IMPLEMENTATION.md);
+remaining storage rollout work lives in
+[`docs/backlog/storage/UNIFIED_ROCKSDB_IMPLEMENTATION_PLAN.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/backlog/storage/UNIFIED_ROCKSDB_IMPLEMENTATION_PLAN.md).

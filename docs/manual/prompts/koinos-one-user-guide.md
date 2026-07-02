@@ -76,8 +76,8 @@ operation.
 - Write in English.
 - Use MkDocs-compatible Markdown.
 - Use normal relative Markdown links for pages inside `docs/manual/`.
-- Reference docs outside `docs/manual/` as plain code paths unless they are
-  intentionally included in the MkDocs source tree.
+- Link source files, source folders, and Markdown files outside `docs/manual/`
+  to the official GitHub repository instead of leaving plain local paths.
 - Prefer task-oriented pages with these sections where useful: "When to use
   this", "Before you start", "Steps", "How to verify it worked",
   "Troubleshooting", and "Related pages".

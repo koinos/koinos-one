@@ -5,6 +5,8 @@ docs_dir: docs/manual
 site_dir: build/docs/manual-site
 strict: true
 use_directory_urls: false
+exclude_docs: |
+  prompts/**
 
 theme:
   name: readthedocs
@@ -78,6 +80,10 @@ nav:
           - Koinos Protocol Boundary: developers/compatibility/koinos-protocol-boundary.md
           - Legacy Service Parity: developers/compatibility/legacy-service-parity.md
           - Mainnet Safety: developers/compatibility/mainnet-safety.md
+      - Deeper References:
+          - Koinos Protocol Compatibility Reference: developers/deeper-references/koinos-protocol.md
+          - Current Monolithic Node Architecture: developers/deeper-references/monolith-architecture.md
+          - Monolith Service Coverage: developers/deeper-references/monolith-service-coverage.md
   - Reference:
       - Overview: reference/README.md
       - Glossary: reference/glossary.md
@@ -87,10 +93,3 @@ nav:
       - Security Model: reference/security-model.md
       - Release Channels: reference/release-channels.md
       - Changelog: reference/changelog.md
-  - Authoring Prompts:
-      - Overview: prompts/README.md
-      - Concepts: prompts/concepts.md
-      - Koinos One User Guide: prompts/koinos-one-user-guide.md
-      - Teleno Node CLI Guide: prompts/teleno-node-cli-guide.md
-      - Developer Documentation: prompts/developer-documentation.md
-      - Reference: prompts/reference.md

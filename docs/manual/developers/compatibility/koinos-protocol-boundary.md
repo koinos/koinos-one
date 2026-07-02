@@ -40,7 +40,8 @@ RPC semantics, treat it as protocol-sensitive.
 If a change only affects how Koinos One stores data, starts processes, schedules
 work, or displays state, it is usually an implementation change.
 
-For full details, read `docs/koinos/KOINOS_PROTOCOL.md`.
+For full details, read the
+[Koinos Protocol Compatibility Reference](../deeper-references/koinos-protocol.md).
 
 ## Contributor Checklist
 

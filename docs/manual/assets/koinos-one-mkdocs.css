@@ -1,10 +1,121 @@
+html {
+  --ko-doc-ink: #121212;
+  --ko-doc-ink-soft: #24313c;
+  --ko-doc-muted: #536b7e;
+  --ko-doc-purple: #5d00b3;
+  --ko-doc-purple-2: #8c3ff0;
+  --ko-doc-line: rgba(93, 0, 179, 0.14);
+  --ko-doc-line-strong: rgba(93, 0, 179, 0.28);
+  --ko-doc-surface: #fbfcfe;
+  --ko-doc-surface-2: #f7f8fb;
+  --ko-doc-shadow: 0 10px 28px rgba(18, 18, 18, 0.06);
+}
+
 html,
 body {
-  background: #eef3f6;
+  background: var(--ko-doc-surface-2);
+  color: var(--ko-doc-ink);
+}
+
+.wy-body-for-nav {
+  background:
+    linear-gradient(140deg, rgba(93, 0, 179, 0.06), transparent 36%),
+    linear-gradient(320deg, rgba(140, 63, 240, 0.04), transparent 42%),
+    var(--ko-doc-surface-2);
+}
+
+.wy-nav-side {
+  background: rgba(255, 255, 255, 0.94);
+  border-right: 1px solid var(--ko-doc-line);
+  box-shadow: 8px 0 24px rgba(18, 18, 18, 0.04);
+}
+
+.wy-side-scroll {
+  background: transparent;
+}
+
+.wy-side-nav-search {
+  background: #ffffff;
+  border-bottom: 1px solid var(--ko-doc-line);
+  color: var(--ko-doc-ink);
+}
+
+.wy-side-nav-search > a,
+.wy-side-nav-search .wy-dropdown > a {
+  color: var(--ko-doc-ink);
+}
+
+.wy-side-nav-search > a:hover,
+.wy-side-nav-search .wy-dropdown > a:hover {
+  background: rgba(93, 0, 179, 0.06);
+}
+
+.wy-side-nav-search input[type='text'] {
+  border: 1px solid var(--ko-doc-line);
+  border-radius: 8px;
+  box-shadow: none;
+  color: var(--ko-doc-ink);
+}
+
+.wy-menu-vertical {
+  color: var(--ko-doc-muted);
+}
+
+.wy-menu-vertical p.caption {
+  color: var(--ko-doc-purple);
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.wy-menu-vertical a {
+  color: var(--ko-doc-ink-soft);
+  border-radius: 6px;
+  margin: 1px 8px;
+}
+
+.wy-menu-vertical a:hover {
+  background: rgba(93, 0, 179, 0.08);
+  color: var(--ko-doc-ink);
+}
+
+.wy-menu-vertical li.current {
+  background: transparent;
+}
+
+.wy-menu-vertical li.current > a,
+.wy-menu-vertical li.on a {
+  background: rgba(93, 0, 179, 0.1);
+  border: 1px solid rgba(93, 0, 179, 0.16);
+  color: var(--ko-doc-ink);
+  font-weight: 700;
+}
+
+.wy-menu-vertical li.current a {
+  border-right: 0;
+}
+
+.wy-menu-vertical li.current a:hover {
+  background: rgba(93, 0, 179, 0.12);
+}
+
+.wy-menu-vertical li.current ul {
+  background: rgba(247, 248, 251, 0.78);
+}
+
+.wy-menu-vertical li.current ul a {
+  background: transparent;
+  border: 0;
+  color: var(--ko-doc-ink-soft);
+}
+
+.wy-menu-vertical li.current ul a:hover,
+.wy-menu-vertical li.current ul li.current > a {
+  background: rgba(93, 0, 179, 0.08);
+  color: var(--ko-doc-ink);
 }
 
 .wy-nav-content-wrap {
-  background: #f3f6f8;
+  background: transparent;
 }
 
 .wy-nav-content {
@@ -12,7 +123,7 @@ body {
   max-width: none;
   min-height: 100vh;
   padding: 30px clamp(28px, 4vw, 72px);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .rst-content {
@@ -31,9 +142,79 @@ body {
   line-height: 1.62;
 }
 
+.rst-content h1,
+.rst-content h2,
+.rst-content h3,
+.rst-content h4 {
+  color: #3a3a3a;
+}
+
+.rst-content a,
+.rst-content a:visited {
+  color: var(--ko-doc-purple);
+}
+
+.rst-content code,
+.rst-content tt,
+code {
+  color: #8f1f18;
+  background: rgba(93, 0, 179, 0.05);
+  border: 1px solid rgba(93, 0, 179, 0.08);
+}
+
 .rst-content pre,
 .rst-content div[class^='highlight'] {
   max-width: 100%;
+  border-color: var(--ko-doc-line);
+  background: var(--ko-doc-surface-2);
+}
+
+.rst-content pre {
+  color: var(--ko-doc-ink-soft);
+}
+
+.wy-breadcrumbs,
+.wy-breadcrumbs li,
+.wy-breadcrumbs li a,
+.wy-breadcrumbs li.wy-breadcrumbs-aside a {
+  color: var(--ko-doc-muted);
+}
+
+.wy-breadcrumbs li a:hover,
+.wy-breadcrumbs li.wy-breadcrumbs-aside a:hover {
+  color: var(--ko-doc-purple);
+}
+
+.wy-nav-top {
+  background: #ffffff;
+  border-bottom: 1px solid var(--ko-doc-line);
+  color: var(--ko-doc-ink);
+}
+
+.wy-nav-top a {
+  color: var(--ko-doc-purple);
+}
+
+.rst-versions {
+  background: #ffffff !important;
+  border-top: 1px solid var(--ko-doc-line);
+  color: var(--ko-doc-ink-soft) !important;
+}
+
+.rst-versions .rst-current-version {
+  background: #ffffff !important;
+  color: var(--ko-doc-ink-soft) !important;
+}
+
+.rst-versions .rst-current-version .fa,
+.rst-versions .rst-current-version .icon,
+.rst-versions a {
+  color: var(--ko-doc-purple) !important;
+}
+
+.rst-versions .rst-other-versions {
+  color: var(--ko-doc-ink-soft) !important;
+  background: #ffffff !important;
 }
 
 .koinos-one-overview-illustration {

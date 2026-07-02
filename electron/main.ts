@@ -47,6 +47,18 @@ import {
 import { createAppLifecycleService } from './lib/app-lifecycle-service'
 import { createMenuBarService } from './lib/menu-bar-service'
 import { createTelenoStorage } from './lib/teleno-storage'
+import {
+  FIRST_RUN_SETUP_STATE_FILE,
+  completeFirstRunSetupState,
+  readOrMigrateFirstRunSetupState,
+  resetFirstRunSetupState,
+  type FirstRunExistingSetupEvidence
+} from './lib/first-run-setup'
+import {
+  buildProfilePresets,
+  monolithFeaturePlanForSettings,
+  presetToFeatureFlags
+} from './lib/monolith-profile-plan'
 import { createBackupService, writeNativeBackupConfig } from './lib/backup-service'
 import { deriveMonolithComponentHealth } from './lib/component-health'
 import { isTelenoNodeBackupUtilityCommand } from './lib/process-detection'
@@ -68,11 +80,8 @@ import {
   verifyWritableDirectory
 } from './lib/node-paths'
 import {
-  MAINNET_PEER_ADDRESSES,
-  TESTNET_PEER_ADDRESSES,
   normalizeKoinosNetworkId,
   primaryPublicRpcUrlForNetwork,
-  resolveNetworkProfile,
   type KoinosNetworkId
 } from './lib/network-profiles'
 import {
@@ -259,7 +268,6 @@ function setMacDockIconVisible(visible: boolean): void {
   }
 }
 const telenoStorage = createTelenoStorage(app.getPath('userData'))
-const FIRST_RUN_SETUP_STATE_FILE = 'first-run-setup-state.v1.json'
 
 const LOGS_FOLLOW_EVENT_CHANNEL = 'teleno:node:logs-follow:event'
 const BACKUP_PROGRESS_EVENT_CHANNEL = 'teleno:node:backup-progress:event'
@@ -285,6 +293,29 @@ function nativeServiceLogFilePath(serviceId: string): string {
 
 function firstRunSetupStateFilePath(): string {
   return path.join(app.getPath('userData'), FIRST_RUN_SETUP_STATE_FILE)
+}
+
+function existingFirstRunSetupEvidence(): FirstRunExistingSetupEvidence | null {
+  const evidence: Array<{ path: string; reason: string }> = [
+    { path: telenoStorage.appPreferencesFilePath(), reason: 'app-preferences' },
+    { path: telenoStorage.producerWalletFilePath('mainnet'), reason: 'wallet-mainnet' },
+    { path: telenoStorage.producerWalletFilePath('testnet'), reason: 'wallet-testnet' },
+    { path: telenoStorage.producerWalletFilePath('custom'), reason: 'wallet-custom' },
+    { path: nativeServiceLogFilePath('teleno-node'), reason: 'managed-node-log' }
+  ]
+
+  for (const item of evidence) {
+    try {
+      const stats = fs.statSync(item.path)
+      if (stats.isFile() && stats.size > 0) {
+        return { detected: true, reason: item.reason }
+      }
+    } catch {
+      // Absence is expected for a clean first install.
+    }
+  }
+
+  return null
 }
 
 function currentInstallDescriptor() {
@@ -316,64 +347,28 @@ function currentInstallDescriptor() {
 function readFirstRunSetupState() {
   const filePath = firstRunSetupStateFilePath()
   const install = currentInstallDescriptor()
-
-  try {
-    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as {
-      completed?: boolean
-      completedAt?: string
-      install?: ReturnType<typeof currentInstallDescriptor>
-      setup?: unknown
-    }
-    const stateInstall = raw.install || null
-    const installMatches = stateInstall
-      ? (
-      stateInstall.appName === install.appName &&
-      stateInstall.appVersion === install.appVersion &&
-      stateInstall.appPath === install.appPath
-        )
-      : false
-
-    return {
-      ok: true,
-      completed: raw.completed === true && installMatches,
-      filePath,
-      install,
-      completedAt: raw.completedAt || null,
-      setup: raw.setup || null
-    }
-  } catch {
-    return {
-      ok: true,
-      completed: false,
-      filePath,
-      install,
-      completedAt: null,
-      setup: null
-    }
-  }
+  return readOrMigrateFirstRunSetupState({
+    filePath,
+    install,
+    existingSetupEvidence: existingFirstRunSetupEvidence()
+  })
 }
 
 function completeFirstRunSetup(input?: unknown) {
   const filePath = firstRunSetupStateFilePath()
-  const payload = {
-    completed: true,
-    completedAt: new Date().toISOString(),
+  return completeFirstRunSetupState({
+    filePath,
     install: currentInstallDescriptor(),
-    setup: input && typeof input === 'object' ? input : null
-  }
-  fs.mkdirSync(path.dirname(filePath), { recursive: true })
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 0o600 })
-  return readFirstRunSetupState()
+    setup: input
+  })
 }
 
 function resetFirstRunSetup() {
   const filePath = firstRunSetupStateFilePath()
-  try {
-    fs.rmSync(filePath, { force: true })
-  } catch {
-    // Best effort; the next read reports whatever remains on disk.
-  }
-  return readFirstRunSetupState()
+  return resetFirstRunSetupState({
+    filePath,
+    install: currentInstallDescriptor()
+  })
 }
 
 function saveBackupPasswordFile(input?: TelenoNodeBackupPasswordFileInput): TelenoNodeBackupPasswordFileResult {
@@ -425,41 +420,6 @@ function isMonolithAvailable(): boolean {
 let monolithProcessState: NativeServiceProcessState | null = null
 let monolithDisabledFeatures = new Set<string>(MONOLITH_DEFAULT_DISABLED_FEATURES)
 let monolithFallbackReason: string | null = null
-
-const MONOLITH_OBSERVER_FEATURES: Record<string, boolean> = {
-  chain: true,
-  mempool: true,
-  block_store: true,
-  p2p: true,
-  jsonrpc: true,
-  grpc: false,
-  block_producer: false,
-  contract_meta_store: false,
-  transaction_store: false,
-  account_history: false
-}
-
-const MONOLITH_PRODUCER_FEATURES: Record<string, boolean> = {
-  ...MONOLITH_OBSERVER_FEATURES,
-  block_producer: true,
-  contract_meta_store: true
-}
-
-const MONOLITH_FULL_NODE_FEATURES: Record<string, boolean> = {
-  ...MONOLITH_OBSERVER_FEATURES,
-  grpc: true,
-  contract_meta_store: true,
-  transaction_store: true,
-  account_history: true
-}
-
-const MONOLITH_CUSTOM_ADVANCED_FEATURES: Record<string, boolean> = {
-  ...MONOLITH_OBSERVER_FEATURES,
-  grpc: true,
-  contract_meta_store: true,
-  transaction_store: true,
-  account_history: true
-}
 
 function shouldUseMonolithMode(): boolean {
   return true
@@ -545,7 +505,8 @@ function ensureMonolithProducerRuntimeConfig(
       ok: false,
       output: [
         'Block production is enabled, but block_producer.producer is missing.',
-        `Set the producer address in ${configPath} or finish Producer setup before starting ${TELENO_NODE_BINARY_NAME}.`
+        'Open the Producer tab and finish Producer setup before starting the Mainnet Producer profile.',
+        `Koinos One will not infer a mainnet producer address from the wallet alone. Runtime config: ${configPath}`
       ].join('\n')
     }
   }
@@ -564,12 +525,13 @@ function ensureMonolithProducerRuntimeConfig(
     }
   }
 
-  if (settings.network === 'mainnet') {
+  if (settings.network === 'mainnet' && candidate.source !== 'profile') {
     return {
       ok: false,
       output: [
         'Mainnet block production requires an explicit block_producer.producer entry in runtime config.',
-        `Write the intended producer address to ${configPath} from the Producer setup flow before starting ${TELENO_NODE_BINARY_NAME}.`
+        'Open the Producer tab and finish Producer setup before starting the Mainnet Producer profile.',
+        `Runtime config: ${configPath}`
       ].join('\n')
     }
   }
@@ -804,54 +766,6 @@ function parseMonolithComponentHealth(settings?: TelenoNodeSettings): ComponentH
   })
 }
 
-/** Build feature flags for a preset in monolith mode. */
-function presetToFeatureFlags(presetId: string): Record<string, boolean> {
-  if (presetId.includes('mainnet_observer') || presetId.includes('testnet_observer')) {
-    return { ...MONOLITH_OBSERVER_FEATURES }
-  }
-  if (presetId.includes('full_node')) {
-    return { ...MONOLITH_FULL_NODE_FEATURES }
-  }
-  if (presetId.includes('block_producer') || presetId.includes('testnet_producer') || presetId.includes('producer')) {
-    return { ...MONOLITH_PRODUCER_FEATURES }
-  }
-  if (presetId.includes('custom_advanced')) {
-    return { ...MONOLITH_CUSTOM_ADVANCED_FEATURES }
-  }
-
-  const flags: Record<string, boolean> = {}
-
-  // Core components default on, including cpp-libp2p now that Gate D is closed.
-  for (const comp of MONOLITH_CORE_COMPONENTS) flags[comp] = true
-
-  // Optional components default off
-  for (const comp of MONOLITH_OPTIONAL_COMPONENTS) flags[comp] = false
-
-  // Enable based on preset
-  if (presetId.includes('block_producer')) {
-    flags.block_producer = true
-    flags.jsonrpc = true
-    flags.contract_meta_store = true
-  }
-  if (presetId.includes('jsonrpc')) {
-    flags.jsonrpc = true
-  }
-  if (presetId.includes('grpc')) {
-    flags.grpc = true
-  }
-  if (presetId.includes('transaction_store')) {
-    flags.transaction_store = true
-  }
-  if (presetId.includes('contract_meta_store')) {
-    flags.contract_meta_store = true
-  }
-  if (presetId.includes('account_history')) {
-    flags.account_history = true
-  }
-
-  return flags
-}
-
 function monolithFeatureCliArgs(featureFlags: Record<string, boolean>): { enabled: string[]; disabled: string[] } {
   const enabled: string[] = []
   const disabled: string[] = []
@@ -911,6 +825,39 @@ function writeMonolithFeatureConfig(
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
   fs.writeFileSync(configPath, doc.toString(), 'utf-8')
   return configPath
+}
+
+function prepareMonolithStartProfileConfig(settings: TelenoNodeSettings): {
+  ok: boolean
+  output: string
+  enabled: string[]
+  disabled: string[]
+} {
+  const plan = monolithFeaturePlanForSettings(settings)
+  const blockProducerEnabled = plan.featureFlags.block_producer === true
+  const producerPreflight = ensureMonolithProducerRuntimeConfig(settings, blockProducerEnabled)
+  if (!producerPreflight.ok) {
+    return {
+      ok: false,
+      output: producerPreflight.output || 'Block producer config preflight failed',
+      enabled: [],
+      disabled: []
+    }
+  }
+
+  const configPath = writeMonolithFeatureConfig(settings, plan.featureFlags, plan.configPatch)
+  const { enabled, disabled } = monolithFeatureCliArgs(plan.featureFlags)
+  const profileLabel = plan.preset?.label || settings.profiles.join(', ') || 'custom profile'
+
+  return {
+    ok: true,
+    output: [
+      producerPreflight.output,
+      `Applied selected profile ${profileLabel} to ${configPath}`
+    ].filter(Boolean).join('\n'),
+    enabled,
+    disabled
+  }
 }
 const BLOCKCHAIN_BACKUP_REQUIRED_DIRS = ['chain', 'block_store'] as const
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
@@ -2029,148 +1976,6 @@ function clearProducerRuntimeConfig(settings: TelenoNodeSettings): { configPath:
 
 function assertRepoReady(settings: TelenoNodeSettings): void {
   workspaceService.assertRepoReady(settings)
-}
-
-function buildProfilePresets(settings: TelenoNodeSettings): TelenoNodePreset[] {
-  const mainnet = resolveNetworkProfile('mainnet')
-  const testnet = resolveNetworkProfile('testnet')
-  const presets: TelenoNodePreset[] = [
-    {
-      id: 'profile:mainnet_observer',
-      label: 'Mainnet Seed',
-      network: 'mainnet',
-      source: 'features',
-      profiles: ['mainnet_observer'],
-      services: ['teleno-node'],
-      featureFlags: { ...MONOLITH_OBSERVER_FEATURES },
-      configPatch: {
-        set: [
-          { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
-          { path: ['p2p', 'listen'], value: mainnet.p2pListen },
-          { path: ['p2p', 'seed-reconnect-interval-seconds'], value: 60 },
-          { path: ['p2p', 'peer-discovery'], value: true },
-          { path: ['p2p', 'target-peer-count'], value: 20 },
-          { path: ['p2p', 'max-peer-candidates'], value: 200 },
-          { path: ['p2p', 'max-candidate-dials-per-cycle'], value: 3 },
-          { path: ['p2p', 'peer-acquisition-interval-seconds'], value: 5 },
-          { path: ['p2p', 'candidate-redial-interval-seconds'], value: 60 },
-          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
-          { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
-        ]
-      },
-      description: 'Mainnet seed with P2P and local JSON-RPC enabled; block production disabled.'
-    },
-    {
-      id: 'profile:testnet_observer',
-      label: 'Testnet Seed',
-      network: 'testnet',
-      source: 'features',
-      profiles: ['testnet_observer'],
-      services: ['teleno-node'],
-      featureFlags: { ...MONOLITH_OBSERVER_FEATURES },
-      configPatch: {
-        set: [
-          { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
-          { path: ['p2p', 'listen'], value: testnet.p2pListen },
-          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
-          { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
-        ]
-      },
-      description: 'Public testnet seed using the Koinos Foundation testnet peer and local testnet ports.'
-    },
-    {
-      id: 'profile:mainnet_full_node',
-      label: 'Mainnet Full Node',
-      network: 'mainnet',
-      source: 'features',
-      profiles: ['mainnet_full_node'],
-      services: ['teleno-node'],
-      featureFlags: { ...MONOLITH_FULL_NODE_FEATURES },
-      configPatch: {
-        set: [
-          { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
-          { path: ['p2p', 'listen'], value: mainnet.p2pListen },
-          { path: ['p2p', 'seed-reconnect-interval-seconds'], value: 60 },
-          { path: ['p2p', 'peer-discovery'], value: true },
-          { path: ['p2p', 'target-peer-count'], value: 20 },
-          { path: ['p2p', 'max-peer-candidates'], value: 200 },
-          { path: ['p2p', 'max-candidate-dials-per-cycle'], value: 3 },
-          { path: ['p2p', 'peer-acquisition-interval-seconds'], value: 5 },
-          { path: ['p2p', 'candidate-redial-interval-seconds'], value: 60 },
-          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
-          { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
-        ]
-      },
-      description: 'Mainnet full node with JSON-RPC, gRPC, contract metadata, transaction store, and account history enabled; block production disabled.'
-    },
-    {
-      id: 'profile:testnet_full_node',
-      label: 'Testnet Full Node',
-      network: 'testnet',
-      source: 'features',
-      profiles: ['testnet_full_node'],
-      services: ['teleno-node'],
-      featureFlags: { ...MONOLITH_FULL_NODE_FEATURES },
-      configPatch: {
-        set: [
-          { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
-          { path: ['p2p', 'listen'], value: testnet.p2pListen },
-          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
-          { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
-        ]
-      },
-      description: 'Testnet full node with JSON-RPC, gRPC, contract metadata, transaction store, and account history enabled; block production disabled.'
-    },
-    {
-      id: 'profile:block_producer',
-      label: 'Mainnet Producer',
-      network: 'mainnet',
-      source: 'features',
-      profiles: ['block_producer'],
-      services: ['teleno-node'],
-      featureFlags: { ...MONOLITH_PRODUCER_FEATURES },
-      configPatch: {
-        set: [
-          { path: ['p2p', 'peer'], value: MAINNET_PEER_ADDRESSES },
-          { path: ['p2p', 'listen'], value: mainnet.p2pListen },
-          { path: ['p2p', 'seed-reconnect-interval-seconds'], value: 60 },
-          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
-          { path: ['jsonrpc', 'listen'], value: mainnet.jsonrpcListen }
-        ]
-      },
-      description: 'Mainnet producer mode. Producer address and key material are managed from the Producer tab.'
-    },
-    {
-      id: 'profile:testnet_producer',
-      label: 'Testnet Producer',
-      network: 'testnet',
-      source: 'features',
-      profiles: ['testnet_producer'],
-      services: ['teleno-node'],
-      featureFlags: { ...MONOLITH_PRODUCER_FEATURES },
-      configPatch: {
-        set: [
-          { path: ['p2p', 'peer'], value: TESTNET_PEER_ADDRESSES },
-          { path: ['p2p', 'listen'], value: testnet.p2pListen },
-          { path: ['p2p', 'peer-log-interval-seconds'], value: 60 },
-          { path: ['jsonrpc', 'listen'], value: testnet.jsonrpcListen }
-        ]
-      },
-      description: 'Public testnet producer mode using the Koinos Foundation seed and testnet local ports.'
-    },
-    {
-      id: 'profile:custom_advanced',
-      label: 'Custom Advanced',
-      network: 'custom',
-      source: 'features',
-      profiles: ['custom_advanced'],
-      services: ['teleno-node'],
-      featureFlags: { ...MONOLITH_CUSTOM_ADVANCED_FEATURES },
-      description: 'Advanced operator preset with optional query/index services enabled and block production disabled.'
-    }
-  ]
-
-  return presets.filter((preset) => preset.network === settings.network)
 }
 
 function ensureKoinosConfigFiles(settings: TelenoNodeSettings): { configReady: boolean; output: string } {
@@ -4158,15 +3963,33 @@ async function telenoNodeAction(
   // Use monolith mode when the binary is available and not disabled by a startup fallback.
   if (shouldUseMonolithMode()) {
     assertRepoReady(settings)
-    const result =
-      action === 'start'
-        ? await startMonolithProcess(settings, [], [])
-        : await stopMonolithProcess()
+    let profileOutput = ''
+    let result: { ok: boolean; output: string }
+    if (action === 'start') {
+      const profileConfig = prepareMonolithStartProfileConfig(settings)
+      if (!profileConfig.ok) {
+        return {
+          ok: false,
+          action,
+          output: profileConfig.output,
+          status: await nativeComposeStatus(settings)
+        }
+      }
+      profileOutput = profileConfig.output
+      result = await startMonolithProcess(settings, profileConfig.enabled, profileConfig.disabled)
+    } else {
+      result = await stopMonolithProcess()
+    }
     if (action === 'start' && !result.ok) {
       monolithFallbackReason = result.output
     }
     const status = await nativeComposeStatus(settings)
-    return { ok: result.ok, action, output: result.output, status }
+    return {
+      ok: result.ok,
+      action,
+      output: [profileOutput, result.output].filter(Boolean).join('\n'),
+      status
+    }
   }
 
   return nativeComposeAction(action, settings)
@@ -4191,14 +4014,26 @@ async function telenoNodeServiceAction(
       }
     }
 
+    const startWithSelectedProfile = async (): Promise<{ ok: boolean; output: string }> => {
+      const profileConfig = prepareMonolithStartProfileConfig(settings)
+      if (!profileConfig.ok) {
+        return { ok: false, output: profileConfig.output }
+      }
+      const startResult = await startMonolithProcess(settings, profileConfig.enabled, profileConfig.disabled)
+      return {
+        ok: startResult.ok,
+        output: [profileConfig.output, startResult.output].filter(Boolean).join('\n')
+      }
+    }
+
     let result: { ok: boolean; output: string }
     if (action === 'start') {
-      result = await startMonolithProcess(settings, [], [])
+      result = await startWithSelectedProfile()
     } else if (action === 'stop') {
       result = await stopMonolithProcess()
     } else if (action === 'restart') {
       const stopResult = await stopMonolithProcess()
-      const startResult = await startMonolithProcess(settings, [], [])
+      const startResult = await startWithSelectedProfile()
       result = {
         ok: stopResult.ok && startResult.ok,
         output: [stopResult.output, startResult.output].filter(Boolean).join('\n')

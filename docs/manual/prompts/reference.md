@@ -69,8 +69,8 @@ environment variables, release identity, and security boundaries.
 - Write in English.
 - Use MkDocs-compatible Markdown.
 - Use normal relative Markdown links for pages inside `docs/manual/`.
-- Reference docs outside `docs/manual/` as plain code paths unless they are
-  intentionally included in the MkDocs source tree.
+- Link source files, source folders, and Markdown files outside `docs/manual/`
+  to the official GitHub repository instead of leaving plain local paths.
 - Prefer tables for lookup values.
 - Keep each page short and link to detailed guide pages.
 - Use "Unknown" or "Not documented yet" only when the current implementation

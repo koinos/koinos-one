@@ -28,9 +28,9 @@ goal or task.
   side-navigation click and confirm the iframe stays on `/manual-site/...html`
   without rendering Koinos One recursively inside itself.
 - Use normal relative Markdown links for pages inside `docs/manual/`.
-- When referencing deeper engineering docs outside `docs/manual/`, prefer plain
-  code paths such as `docs/current/monolith/ARCHITECTURE.md` unless those files
-  are intentionally added to the MkDocs source tree.
+- When referencing source files, source folders, or Markdown files outside
+  `docs/manual/`, link to the corresponding path in the official GitHub
+  repository instead of leaving a plain local path.
 - Run `mkdocs build --strict` before finishing; the generated static site is
   written to `build/docs/manual-site/`.
 - Keep user-facing docs practical and accurate.

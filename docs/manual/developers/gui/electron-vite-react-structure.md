@@ -4,34 +4,43 @@ The desktop app has three JavaScript/TypeScript layers:
 
 | Layer | Main files | Responsibility |
 | --- | --- | --- |
-| Renderer | `src/main.tsx`, `src/App.tsx`, `src/components/` | React UI, local UI state, polling, display formatting, and user interactions. |
-| Preload | `electron/preload.ts` | Exposes a controlled `window.teleno` API to the renderer. |
-| Main process | `electron/main.ts`, `electron/lib/` | Filesystem access, subprocesses, native node control, wallet actions, backup calls, and IPC handlers. |
+| Renderer | [`src/main.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/main.tsx), [`src/App.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/App.tsx), [`src/components/`](https://github.com/pgarciagon/koinos-one/tree/main/src/components) | React UI, local UI state, polling, display formatting, and user interactions. |
+| Preload | [`electron/preload.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/preload.ts) | Exposes a controlled `window.teleno` API to the renderer. |
+| Main process | [`electron/main.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/main.ts), [`electron/lib/`](https://github.com/pgarciagon/koinos-one/tree/main/electron/lib) | Filesystem access, subprocesses, native node control, wallet actions, backup calls, and IPC handlers. |
 
 ## Renderer
 
-`src/main.tsx` mounts `<App />` and imports `src/styles.css`. `src/App.tsx`
-contains the top-level app state and routes between major tabs such as Explorer,
-Dashboard, Node, Producer, Wallet, Documentation, and Settings.
+[`src/main.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/main.tsx)
+mounts `<App />` and imports
+[`src/styles.css`](https://github.com/pgarciagon/koinos-one/blob/main/src/styles.css).
+[`src/App.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/App.tsx)
+contains the top-level app state and routes between major tabs such as
+Explorer, Dashboard, Node, Producer, Wallet, Documentation, and Settings.
 
-Panel components live under `src/components/panels/`. Keep new screens in that
-area unless they are shared helpers. Utility code for normalization, network
-data, producer readiness, log filtering, chain sync, public bootstrap defaults,
-and settings conversion belongs under `src/app/`.
+Panel components live under
+[`src/components/panels/`](https://github.com/pgarciagon/koinos-one/tree/main/src/components/panels).
+Keep new screens in that area unless they are shared helpers. Utility code for
+normalization, network data, producer readiness, log filtering, chain sync,
+public bootstrap defaults, and settings conversion belongs under
+[`src/app/`](https://github.com/pgarciagon/koinos-one/tree/main/src/app).
 
 ## Preload Bridge
 
-`electron/preload.ts` exposes `window.teleno` through Electron
-`contextBridge`. It wraps IPC calls for app lifecycle, app config, remote nodes,
-native node actions, logs, backup progress, and wallet actions.
+[`electron/preload.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/preload.ts)
+exposes `window.teleno` through Electron `contextBridge`. It wraps IPC calls
+for app lifecycle, app config, remote nodes, native node actions, logs, backup
+progress, and wallet actions.
 
-The renderer should call the bridge through helper functions in `src/app/utils`
+The renderer should call the bridge through helper functions in
+[`src/app/utils.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/app/utils.tsx)
 instead of directly depending on Electron APIs.
 
 ## Main Process
 
-`electron/main.ts` composes services from `electron/lib/` and registers IPC
-handlers through `registerTelenoIpcHandlers`.
+[`electron/main.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/main.ts)
+composes services from
+[`electron/lib/`](https://github.com/pgarciagon/koinos-one/tree/main/electron/lib)
+and registers IPC handlers through `registerTelenoIpcHandlers`.
 
 Important service areas include:
 
@@ -53,13 +62,20 @@ before invoking Electron Builder.
 
 When a new UI action needs privileged behavior:
 
-1. Add or reuse a typed bridge contract in `src/teleno-electron.d.ts` and
-   `electron/lib/main-types.ts`.
-2. Expose the call in `electron/preload.ts`.
-3. Register an explicit IPC handler in `electron/lib/ipc-handlers.ts`.
-4. Implement privileged work in an `electron/lib/` service.
+1. Add or reuse a typed bridge contract in
+   [`src/teleno-electron.d.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/teleno-electron.d.ts)
+   and
+   [`electron/lib/main-types.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/lib/main-types.ts).
+2. Expose the call in
+   [`electron/preload.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/preload.ts).
+3. Register an explicit IPC handler in
+   [`electron/lib/ipc-handlers.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/lib/ipc-handlers.ts).
+4. Implement privileged work in an
+   [`electron/lib/`](https://github.com/pgarciagon/koinos-one/tree/main/electron/lib)
+   service.
 5. Call the bridge from renderer helpers or panel code.
-6. Add English and Spanish copy in `src/i18n.ts`.
+6. Add English and Spanish copy in
+   [`src/i18n.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts).
 7. Add tests at the lowest layer that can catch the behavior.
 
 Keep bridge names stable once UI code and tests depend on them.

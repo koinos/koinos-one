@@ -39,8 +39,9 @@ and visual presentation. It must not perform privileged filesystem, subprocess,
 wallet, or native node operations directly.
 
 The Electron preload bridge exposes the restricted `window.teleno` API. The
-renderer uses bridge helpers in `src/app/` so browser-only development runs can
-handle missing Electron bridges gracefully.
+renderer uses bridge helpers in
+[`src/app/`](https://github.com/pgarciagon/koinos-one/tree/main/src/app) so
+browser-only development runs can handle missing Electron bridges gracefully.
 
 The Electron main process owns IPC handlers, local storage, native process
 supervision, backup CLI/admin calls, wallet operations, and packaged app
@@ -67,7 +68,9 @@ transaction and contract metadata.
 Partial or gated areas include full account-history parity, historical
 transaction/contract metadata backfill, longer mainnet/prodnet validation,
 signed prodnet public bootstrap publication, and gRPC ACL enforcement. Check
-`docs/current/monolith/SERVICE_COVERAGE.md` and `docs/backlog/README.md`
+the [Monolith Service Coverage](deeper-references/monolith-service-coverage.md)
+reference and
+[`docs/backlog/README.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/backlog/README.md)
 before describing those areas as complete.
 
 ## What Can Change Locally
@@ -82,7 +85,8 @@ The node must preserve Koinos protocol behavior: chain ID, genesis, protobuf
 wire data, transaction IDs, block IDs, merkle roots, deterministic execution,
 fork choice, P2P Peer RPC behavior, gossip payloads, and public RPC envelopes.
 
-For protocol details, see `docs/koinos/KOINOS_PROTOCOL.md`.
+For protocol details, see the
+[Koinos Protocol Compatibility Reference](deeper-references/koinos-protocol.md).
 
 ## Safety Defaults
 

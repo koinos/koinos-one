@@ -110,8 +110,20 @@ function isPublicBootstrapUnavailableOutput(message: string) {
   )
 }
 
+function isBackupAdminUnauthorizedOutput(message: string) {
+  const value = message.toLowerCase()
+  return (
+    value.includes("running node rejected koinos one's local backup admin token") ||
+    value.includes('backup admin post /admin/backup/public/fetch failed: unauthorized') ||
+    (value.includes('backup admin') && value.includes('unauthorized'))
+  )
+}
+
 function friendlySetupError(message: string | null, step: FirstRunSetupStep, t: Translate) {
   if (!message) return null
+  if (step === 'restore' && isBackupAdminUnauthorizedOutput(message)) {
+    return t('firstRun.restore.adminUnauthorizedMessage')
+  }
   if (step === 'restore' && isPublicBootstrapUnavailableOutput(message)) {
     return publicBootstrapUnavailableMessage(t)
   }

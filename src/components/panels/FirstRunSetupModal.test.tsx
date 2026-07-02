@@ -130,6 +130,24 @@ describe('FirstRunSetupModal', () => {
     expect(html).not.toContain('address setup')
   })
 
+  it('shows backup admin authorization failures as actionable restore guidance', () => {
+    const html = renderSetup({
+      initialStep: 'restore',
+      nodeError: 'Backup admin POST /admin/backup/public/fetch failed: unauthorized',
+      publicBootstrapList: {
+        ok: true,
+        latestBackupId: '20260620T120000Z-public',
+        source: 'public',
+        snapshots: [{ backupId: '20260620T120000Z-public' }]
+      }
+    })
+
+    expect(html).toContain('The running node rejected the local backup control token.')
+    expect(html).toContain('Stop and start the node from Koinos One')
+    expect(html).not.toContain('/admin/backup/public/fetch')
+    expect(html).not.toContain('unauthorized')
+  })
+
   it('offers public backup restore and seed-peer sync when a public backup is available', () => {
     const html = renderSetup({
       initialStep: 'restore',

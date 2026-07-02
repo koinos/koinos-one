@@ -75,8 +75,8 @@ Koinos One GUI.
 - Write in English.
 - Use MkDocs-compatible Markdown.
 - Use normal relative Markdown links for pages inside `docs/manual/`.
-- Reference docs outside `docs/manual/` as plain code paths unless they are
-  intentionally included in the MkDocs source tree.
+- Link source files, source folders, and Markdown files outside `docs/manual/`
+  to the official GitHub repository instead of leaving plain local paths.
 - Use command blocks for commands, but keep explanations concise.
 - Separate observer and producer workflows clearly.
 - Prefer repeatable checklists for CLI operations.

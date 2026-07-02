@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
-## [1.0.3] - In progress
+## [1.0.3] - 2026-07-02
 
 ### Changed
 
@@ -25,6 +25,26 @@ All notable changes to this project are documented in this file.
 - Improved the assistant wallet step so returning after wallet creation asks
   whether to keep the current wallet, create a new one, or import an existing
   wallet.
+- Improved Node preset reporting so the active preset reflects the running
+  monolith feature flags and a selected-but-not-applied producer preset is shown
+  as pending instead of active.
+- Changed first-run setup detection so completed setup survives DMG reinstalls
+  and app updates, with a Settings action to intentionally run the assistant
+  again.
+- Updated node startup so the selected monolith preset is applied before
+  launch; selecting Mainnet Producer now attempts producer features instead of
+  silently reusing stale observer feature flags.
+- Updated the app and embedded manual visual style toward the first-run
+  assistant palette, with lighter operational surfaces, calmer purple accents,
+  and more consistent Documentation tab styling.
+- Expanded the rendered MkDocs manual with Koinos protocol, monolith
+  architecture, and service-coverage deeper reference pages.
+- Removed the Authoring Prompts section from the public manual while keeping
+  the internal prompt files excluded from the generated static site.
+- Converted manual references to other manual pages into MkDocs links and
+  converted repository source references to official GitHub links.
+- Documented the one-click local node and agent strategy as backlog product
+  planning material.
 
 ### Fixed
 
@@ -34,6 +54,20 @@ All notable changes to this project are documented in this file.
 - Hid raw wallet action output from the assistant wallet step after wallet
   creation so the setup flow remains simple.
 - Added regression coverage for wallet action receiver defaults.
+- Fixed failed preset apply attempts so they no longer persist the requested
+  profile when the runtime preflight rejects the change.
+- Fixed first-run assistant detection so replacing the packaged app no longer
+  looks like a clean first install when local setup was already completed.
+- Fixed the Node Start button so it is disabled while a node is already
+  running and directs mode changes through Presets > Apply.
+- Fixed running-node public restore failures caused by stale local Backup Admin
+  tokens by showing a user-facing recovery message instead of leaking the raw
+  unauthorized admin route.
+- Hardened native libp2p stream, host, gossip, and disconnect callbacks so
+  peer transport exceptions are converted into peer-level errors instead of
+  aborting `teleno_node`.
+- Added stable P2P identity key handling and regression coverage for generated
+  and configured libp2p identities.
 
 ## [1.0.2] - 2026-07-01
 

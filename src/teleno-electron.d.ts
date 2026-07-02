@@ -92,6 +92,10 @@ declare global {
     filePath?: string
     completedAt?: string | null
     setup?: unknown
+    source?: 'file' | 'missing' | 'unreadable' | 'migrated-existing-setup' | 'reset'
+    migrated?: boolean
+    migrationReason?: string | null
+    installChangedSinceCompletion?: boolean
     install?: {
       appName?: string
       appVersion?: string

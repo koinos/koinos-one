@@ -1037,6 +1037,54 @@ foo
     ])
   })
 
+  it('explains running-node public restore when backup admin rejects the local token', async () => {
+    const root = makeTempDir()
+    const tokenFile = path.join(root, 'admin.token')
+    fs.writeFileSync(tokenFile, 'secret-token\n')
+    const settings = nodeSettings({
+      backup: backupSettings({
+        adminEnabled: true,
+        adminListen: '127.0.0.1:18088',
+        adminTokenFile: tokenFile
+      })
+    })
+    const sender = { send: vi.fn() }
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      text: async () => JSON.stringify({ ok: false, error: 'unauthorized' })
+    })))
+
+    const service = createBackupService({
+      normalizeNodeSettings: () => settings,
+      assertRepoReady: () => {},
+      telenoNodeStatus: async () => ({
+        services: [{ managedByTeleno: true, state: 'running', status: 'running' }]
+      }),
+      runCommand: vi.fn()
+    } as any)
+
+    const result = await service.restoreNativeBackup(
+      { ...settings, backupId: 'public-backup-1', backupSource: 'public' } as any,
+      sender as any
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.output).toContain("The running node rejected Koinos One's local Backup Admin token.")
+    expect(result.output).toContain('Stop and start the node from Koinos One')
+    expect(result.output).not.toContain('/admin/backup/public/fetch')
+    expect(result.output).not.toContain('unauthorized')
+    expect(sender.send).toHaveBeenCalledWith(
+      'teleno:node:backup-progress:event',
+      expect.objectContaining({
+        action: 'restore-backup',
+        phase: 'error',
+        message: expect.stringContaining('local Backup Admin token')
+      })
+    )
+  })
+
   it('continues running-node restore when long staging hits a headers timeout', async () => {
     const root = makeTempDir()
     const tokenFile = path.join(root, 'admin.token')
