@@ -8,7 +8,7 @@ Release identity must make every packaged Koinos One build traceable.
 | --- | --- |
 | Product name | `KoinosOne` in [`electron-builder.yml`](https://github.com/pgarciagon/koinos-one/blob/main/electron-builder.yml). |
 | App ID | `io.koinosone.desktop` in [`electron-builder.yml`](https://github.com/pgarciagon/koinos-one/blob/main/electron-builder.yml). |
-| Product version | `1.0.2` in [`package.json`](https://github.com/pgarciagon/koinos-one/blob/main/package.json). |
+| Product version | `1.0.3` in [`package.json`](https://github.com/pgarciagon/koinos-one/blob/main/package.json). |
 | Native binary | `teleno_node`. |
 | Package artifacts | `${productName}-${version}-${arch}.${ext}` for macOS DMG and Windows NSIS outputs. |
 | Static manual site | `build/docs/manual-site/` from `mkdocs build --strict`. |
