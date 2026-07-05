@@ -15,6 +15,8 @@ All notable changes to this project are documented in this file.
 - Fixed external source-code links in the Documentation tab so they open in the
   system browser instead of navigating the embedded manual iframe to a blank
   page.
+- Hardened RocksDB state DB commits so object deletes, tombstones, and metadata
+  write through the same synced batch as object puts.
 
 ## [1.0.3] - 2026-07-02
 
