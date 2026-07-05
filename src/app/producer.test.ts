@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  getProducerOperationalNotice,
   getProducerPublicKeyRegistrationState,
   getProducerSetupBlockReason,
   hasRuntimeProducerIdentity,
@@ -110,6 +111,36 @@ describe('producer setup helpers', () => {
       localPublicKey: 'AjyLocal',
       registeredPublicKey: 'AjyOther'
     })).toBe('mismatch')
+  })
+
+  it('surfaces active producer address activity that is not yet local to this installation', () => {
+    expect(getProducerOperationalNotice({
+      configuredAddress: '1Producer',
+      localPublicKey: '',
+      registeredPublicKey: 'AjyRegistered',
+      recentBlocksCount: 3
+    })).toBe('external-active-missing-local-key')
+
+    expect(getProducerOperationalNotice({
+      configuredAddress: '1Producer',
+      localPublicKey: 'AjyLocal',
+      registeredPublicKey: 'AjyRegistered',
+      recentBlocksCount: 2
+    })).toBe('external-active-key-mismatch')
+
+    expect(getProducerOperationalNotice({
+      configuredAddress: '1Producer',
+      localPublicKey: 'AjyRegistered',
+      registeredPublicKey: 'AjyRegistered',
+      recentBlocksCount: 4
+    })).toBeNull()
+
+    expect(getProducerOperationalNotice({
+      configuredAddress: '1Producer',
+      localPublicKey: '',
+      registeredPublicKey: 'AjyRegistered',
+      recentBlocksCount: 0
+    })).toBeNull()
   })
 
   it('detects setup completion from profile data', () => {

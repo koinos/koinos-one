@@ -8,6 +8,12 @@ All notable changes to this project are documented in this file.
 <a id="unreleased"></a>
 ## Unreleased
 
+### Changed
+
+- Added a Producer tab notice when recent blocks show the configured producer
+  address is active on-chain but the local installation has not created or
+  registered the matching producer key yet.
+
 ### Fixed
 
 - Fixed external source-code links in the Documentation tab so they open in the

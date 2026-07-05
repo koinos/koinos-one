@@ -3630,6 +3630,25 @@ body {
   flex: 0 0 auto;
 }
 
+.producer-operational-notice {
+  margin: 0 16px 12px;
+  line-height: 1.45;
+}
+
+.producer-config-launch .producer-operational-notice {
+  margin: 0;
+}
+
+.producer-operational-notice strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.producer-operational-notice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .producer-details {
   display: grid;
   gap: 1px;

@@ -20,14 +20,13 @@ export function ProducerPanel(props: ProducerPanelProps) {
     producerSetupComplete,
     signingWalletAddress,
     producerLocalPublicKey,
-    producerVaultExists,
-    producerVaultUnlocked,
     producerRegisterDisabled,
     producerConfiguredWalletMismatch,
     producerReconfigureDisabled,
     producerRegisterHintClass,
     producerRegisterHintText,
     producerRegisterActionText,
+    producerOperationalNotice,
     nodeProducerActionLoading,
     registerNodeProducer,
     openWalletTab,
@@ -55,6 +54,17 @@ export function ProducerPanel(props: ProducerPanelProps) {
       : producerRegisterHintText
   const incompleteProducerHintClass =
     runtimeProducerVisible && !signingWalletAddress ? '' : producerRegisterHintClass
+  const producerOperationalNoticeText = producerOperationalNotice === 'external-active-key-mismatch'
+    ? t('producer.externalActiveKeyMismatchDescription')
+    : producerOperationalNotice === 'external-active-missing-local-key'
+      ? t('producer.externalActiveMissingLocalKeyDescription')
+      : ''
+  const producerOperationalNoticeNode = producerOperationalNotice ? (
+    <div className="node-warning producer-operational-notice" role="note">
+      <strong>{t('producer.externalActiveNoticeTitle')}</strong>
+      <p>{producerOperationalNoticeText}</p>
+    </div>
+  ) : null
   const producerBlocksSection = (
     <section className="producer-minimal-card">
       <div className="node-services-header producer-header">
@@ -164,6 +174,8 @@ export function ProducerPanel(props: ProducerPanelProps) {
               )}
             </div>
 
+            {producerOperationalNoticeNode}
+
             <div className="producer-actions">
               {signingWalletAddress ? (
                 <button
@@ -197,6 +209,8 @@ export function ProducerPanel(props: ProducerPanelProps) {
         </>
       ) : (
         <>
+          {producerOperationalNoticeNode}
+
           {producerRecentBlocksError && (
             <div className="error-banner node-error-banner" role="alert">
               <span>{producerRecentBlocksError}</span>

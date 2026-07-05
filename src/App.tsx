@@ -37,6 +37,7 @@ import type {
   NodeServiceContextMenuState
 } from './app/types'
 import {
+  getProducerOperationalNotice,
   getProducerPublicKeyRegistrationState,
   getProducerSetupBlockReason,
   isProducerActivelyProducingFromLogs,
@@ -1940,6 +1941,12 @@ export function App() {
   const producerRegisterActionText = producerPublicKeyRegisteredWithAnotherKey
       ? t('producer.replaceRegisteredKeyAction')
       : t('producer.createAction')
+  const producerOperationalNotice = getProducerOperationalNotice({
+    configuredAddress: producerConfiguredAddress,
+    localPublicKey: producerLocalPublicKey,
+    registeredPublicKey: producerRegisteredPublicKey,
+    recentBlocksCount: producerRecentBlocks.length
+  })
   const producerRegisterDisabled =
     !hasNodeControls ||
     nodeProducerActionLoading !== null ||
@@ -2820,8 +2827,8 @@ export function App() {
               refreshProducerRegisteredPublicKeyPreview(nextSigningWalletAddress),
               refreshProducerSigningWalletBalance(nextSigningWalletAddress, activeWalletAccountId || undefined)
             )
-          } else if (runtimeProducerAddress) {
-            requests.push(refreshProducerRegisteredPublicKeyPreview(runtimeProducerAddress, nodeNetworkPublicRpcUrl))
+          } else if (configuredRuntimeProducerAddress) {
+            requests.push(refreshProducerRegisteredPublicKeyPreview(configuredRuntimeProducerAddress, nodeNetworkPublicRpcUrl))
             setProducerSigningWalletBalance(null)
             setProducerSigningWalletBalanceNetwork(null)
             setProducerSigningWalletBalanceError(null)
@@ -6355,8 +6362,6 @@ export function App() {
           producerAdvancedMode={producerAdvancedMode}
           nodeProducerAddressDraft={nodeProducerAddressDraft}
           signingWalletAddress={signingWalletAddress}
-          producerVaultExists={producerVaultExists}
-          producerVaultUnlocked={producerVaultUnlocked}
           refreshWalletOverview={refreshWalletOverview}
           refreshProducerSigningWalletBalance={refreshProducerSigningWalletBalance}
           hasNodeControls={hasNodeControls}
@@ -6389,6 +6394,7 @@ export function App() {
           producerRegisterHintClass={producerRegisterHintClass}
           producerRegisterHintText={producerRegisterHintText}
           producerRegisterActionText={producerRegisterActionText}
+          producerOperationalNotice={producerOperationalNotice}
           setNodeProducerAddressDraft={setNodeProducerAddressDraft}
           producerSigningWalletBalanceError={producerSigningWalletBalanceError}
           producerSetupComplete={producerSetupComplete}
