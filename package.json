@@ -2,6 +2,7 @@
   "name": "koinos-one",
   "version": "1.0.3",
   "private": true,
+  "license": "UNLICENSED",
   "description": "Koinos One desktop app powered by the native monolithic Koinos node (Electron + React + TypeScript)",
   "author": "pgarciagon",
   "main": "dist-electron/main.js",

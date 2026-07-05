@@ -1,4 +1,4 @@
-# Teleno Documentation
+# Koinos One Documentation
 
 This directory is organized by document lifecycle, not by the order in which the
 work originally happened.
@@ -19,8 +19,8 @@ and intended for users, operators, and contributors.
 
 ## Current Implementation
 
-Use `current/` for behavior that exists in the active Koinos One / Teleno
-codebase.
+Use `current/` for behavior that exists in the active Koinos One codebase and
+the `teleno_node` runtime.
 
 - `current/README.md` - current implementation index.
 - `current/monolith/` - monolithic node architecture, status, and service
@@ -48,8 +48,8 @@ are documented but not yet fully implemented or signed off.
 ## Legacy And Compatibility
 
 Use `legacy/` for legacy Koinos microservice references that are still useful as
-compatibility evidence. Legacy service docs are not the active Teleno operator
-surface.
+compatibility evidence. Legacy service docs are not the active Koinos One
+operator surface.
 
 - `legacy/README.md` - legacy boundary and retained topics.
 - `legacy/compatibility/README.md` - retained compatibility evidence map.

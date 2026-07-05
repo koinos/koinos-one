@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest a focused improvement for Koinos One or teleno_node.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop app
+        - First-run setup
+        - Backup and restore
+        - Wallet and producer
+        - teleno_node runtime
+        - Packaging and release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      placeholder: What user or operator problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: Describe the smallest useful version of the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and compatibility notes
+      placeholder: Mention mainnet, producer, wallet, backup, restore, protocol, or legacy compatibility impact.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Scope check
+      options:
+        - label: This request is scoped to Koinos One or the active teleno_node runtime.
+          required: true

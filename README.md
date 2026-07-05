@@ -114,6 +114,13 @@ npm run test
 
 Use `npm run dev` to run the complete Electron development app. Open the renderer-only build at `http://localhost:5173` when you only need the frontend.
 
+## Contributing And Security
+
+See `CONTRIBUTING.md` for pull request expectations, validation guidance, and
+mainnet safety rules. Report vulnerabilities privately through the repository
+Security tab as described in `SECURITY.md`; do not open public issues for
+secrets or exploitable security reports.
+
 ## Architecture
 
 ```text

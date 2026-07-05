@@ -1,0 +1,11 @@
+# Default repository owner.
+* @pgarciagon
+
+# High-risk project areas stay explicitly owned.
+/.github/ @pgarciagon
+/config/ @pgarciagon
+/docs/ @pgarciagon
+/electron/ @pgarciagon
+/node/teleno-node/ @pgarciagon
+/scripts/ @pgarciagon
+/src/ @pgarciagon

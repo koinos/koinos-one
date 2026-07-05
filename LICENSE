@@ -1,0 +1,12 @@
+Copyright (c) 2026 Koinos Foundation and contributors.
+
+All rights reserved.
+
+This repository and its source files are not licensed for copying,
+modification, distribution, sublicensing, or commercial use unless you have
+written permission from the copyright holder or a separate license applies.
+
+Third-party and upstream components kept under directories such as `vendor/`,
+`compat/`, or called out in source headers retain their own license terms. Those
+license notices apply only to their respective files and do not extend to the
+rest of this repository.

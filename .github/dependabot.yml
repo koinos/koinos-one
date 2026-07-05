@@ -1,0 +1,47 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      app-dependencies:
+        patterns:
+          - better-sqlite3
+          - ethers
+          - express
+          - koilib
+          - yaml
+      frontend-and-tooling:
+        patterns:
+          - "@playwright/*"
+          - "@types/*"
+          - "@vitejs/*"
+          - concurrently
+          - cross-env
+          - electron
+          - electron-builder
+          - react
+          - react-dom
+          - sharp
+          - typescript
+          - vite
+          - vitest
+          - wait-on
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps

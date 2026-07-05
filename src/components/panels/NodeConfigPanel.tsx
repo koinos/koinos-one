@@ -15,14 +15,14 @@ import {
 import { getTelenoNodeBridge, toNodeApiSettings } from '../../app/utils'
 import type { NodeManagerSettings } from '../../app/types'
 
-type MicroservicesConfigPanelProps = {
+type NodeConfigPanelProps = {
   t: (key: string) => string
   hasNodeControls: boolean
   nodeSettings: NodeManagerSettings
   advancedMode?: boolean
 }
 
-export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, advancedMode = false }: MicroservicesConfigPanelProps) {
+export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, advancedMode = false }: NodeConfigPanelProps) {
   const [configDoc, setConfigDoc] = useState<Document | null>(null)
   const [draftValues, setDraftValues] = useState<KoinosConfigValues>({
     global: {}, block_producer: {}, chain: {}, jsonrpc: {}, grpc: {}, mempool: {}, p2p: {}
@@ -271,7 +271,7 @@ export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, advancedMode
   }
 
   return (
-    <div className="microservices-config-panel">
+    <div className="node-config-panel">
       <div className="settings-subheader">
         <h3>{t('config.title')}</h3>
         <p>{advancedMode ? t('config.subtitleAdvanced') : t('config.subtitleSimple')}</p>

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  app-docs-and-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MkDocs
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install mkdocs
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Verify package metadata
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('package-lock.json', 'utf8'))"
+
+      - name: Build documentation
+        run: npm run docs:build
+
+      - name: Check committed manual changelog sync
+        run: git diff --exit-code -- CHANGELOG.md docs/manual/reference/changelog.md
+
+      - name: Run unit tests
+        run: npm run test
+
+      - name: Run backend tests
+        run: npm run test:backend
+
+      - name: Build app
+        run: npm run build

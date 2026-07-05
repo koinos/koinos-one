@@ -1295,7 +1295,7 @@ body {
 }
 
 /* Node config panel */
-.microservices-config-panel {
+.node-config-panel {
   margin-top: 0;
   padding: 16px;
 }
@@ -6222,7 +6222,7 @@ tbody tr.is-fresh {
 .config-section,
 .config-restart-banner,
 .config-legacy-banner,
-.microservices-config-panel,
+.node-config-panel,
 .wallet-panel,
 .wallet-card,
 .wallet-empty-state,

@@ -1,0 +1,44 @@
+name: Documentation issue
+description: Report missing, stale, or unclear documentation.
+title: "[Docs]: "
+labels:
+  - documentation
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page or file
+      placeholder: docs/manual/koinos-one/backup-and-restore.md
+    validations:
+      required: true
+  - type: dropdown
+    id: docs_area
+    attributes:
+      label: Documentation area
+      options:
+        - User guide
+        - Teleno Node CLI guide
+        - Developer documentation
+        - Current implementation docs
+        - Backlog
+        - Legacy compatibility
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is wrong or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: This report does not include private infrastructure details, secrets, or protected producer addresses.
+          required: true

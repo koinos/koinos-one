@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { normalizeAppLanguage } from '../../i18n'
 import { KOINOS_NETWORK_OPTIONS, normalizeKoinosNetworkId } from '../../app/network'
 import { remoteBackupDefaults, syncLocalBackupPathsToBaseDir } from '../../app/utils'
-import { NodeConfigPanel } from './MicroservicesConfigPanel'
+import { NodeConfigPanel } from './NodeConfigPanel'
 type SettingsPanelProps = any
 
 type SettingsTab = 'general' | 'explorer' | 'dashboard' | 'backup' | 'node'

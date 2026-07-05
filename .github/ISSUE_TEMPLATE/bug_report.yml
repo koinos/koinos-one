@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible problem in Koinos One or teleno_node.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include wallet keys, seed phrases, passwords, admin tokens, private hostnames, IPs, SSH users, or protected producer addresses.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop app
+        - First-run setup
+        - Backup and restore
+        - Wallet and producer
+        - teleno_node runtime
+        - Packaging and release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v1.0.3, commit SHA, or local branch
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: macOS 15.5 arm64, Windows 11, Ubuntu 24.04, etc.
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - Not network-specific
+        - Mainnet observer
+        - Mainnet producer
+        - Public testnet
+        - Private testnet
+        - Custom network
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: List the exact steps that trigger the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Redact secrets and private infrastructure details before pasting logs.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I have redacted secrets, private infrastructure details, and protected producer addresses.
+          required: true

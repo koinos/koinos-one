@@ -1,6 +1,9 @@
-# Teleno Scripts
+# Koinos One Scripts
 
-This directory is for the monolithic Teleno node, desktop packaging, validation, and compatibility evidence. Legacy microservice build/start scripts are intentionally not part of the active command surface.
+This directory is for the Koinos One desktop app, monolithic `teleno_node`
+runtime, packaging, validation, and compatibility evidence. Legacy
+microservice build/start scripts are intentionally not part of the active
+command surface.
 
 ## Build And Package
 
