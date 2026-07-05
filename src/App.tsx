@@ -330,6 +330,7 @@ export function App() {
   const [indexerBlocksPerSec, setIndexerBlocksPerSec] = useState<number | null>(null)
   const prevIndexerRef = useRef<{ height: number; time: number } | null>(null)
   const [selectedBlock, setSelectedBlock] = useState<any>(null)
+  const [selectedBlockRpcUrl, setSelectedBlockRpcUrl] = useState<string | null>(null)
   const selectedBlockRef = useRef<any>(null)
   const prevChainHeadRef = useRef<{ height: number; time: number } | null>(null)
   const autoRestartStateRef = useRef<AutoRestartState>(createAutoRestartState())
@@ -5266,6 +5267,22 @@ export function App() {
     setActiveTab(nextTab)
   }
 
+  const openBlockInExplorer = (block: BlockRow) => {
+    const existingBlock = rowsRef.current.find((row) => row.blockId === block.blockId)
+    const nextSelectedBlock = existingBlock ?? block
+
+    if (!existingBlock) {
+      const nextRows = [...rowsRef.current, block].sort((a, b) => b.height - a.height)
+      rowsRef.current = nextRows
+      setRows(nextRows)
+    }
+
+    selectedBlockRef.current = nextSelectedBlock
+    setSelectedBlockRpcUrl(producerRpcUrl)
+    setSelectedBlock(nextSelectedBlock)
+    requestActiveTab('explorer')
+  }
+
   return (
     <div className={`app-shell ${firstRunSetupOpen ? 'is-first-run-locked' : ''}`.trim()}>
       <div className="app-background" aria-hidden="true" />
@@ -6223,6 +6240,7 @@ export function App() {
           producerProfile={producerProfile}
           clearProducerSetup={clearProducerSetup}
           openWalletTab={() => requestActiveTab('wallet')}
+          onProducerBlockClick={openBlockInExplorer}
         />
       )}
 
@@ -6320,9 +6338,10 @@ export function App() {
           onBlockClick={(block: any) => {
             const next = selectedBlock?.blockId === block.blockId ? null : block
             selectedBlockRef.current = next
+            setSelectedBlockRpcUrl(next ? effectiveExplorerRpcUrl : null)
             setSelectedBlock(next)
           }}
-          rpcUrl={effectiveExplorerRpcUrl}
+          rpcUrl={selectedBlockRpcUrl ?? effectiveExplorerRpcUrl}
         />
       )}
 

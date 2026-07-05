@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { hasRuntimeProducerIdentity, resolveProducerDisplayAddress } from '../../app/producer'
-import { formatDateTime, formatDecimalValue, shortHash } from '../../app/utils'
+import { formatDateTime, formatDecimalValue } from '../../app/utils'
+import type { BlockRow } from '../../app/types'
 
 type ProducerPanelProps = any
 
@@ -31,6 +32,7 @@ export function ProducerPanel(props: ProducerPanelProps) {
     nodeProducerActionLoading,
     registerNodeProducer,
     openWalletTab,
+    onProducerBlockClick,
     locale
   } = props
 
@@ -86,10 +88,19 @@ export function ProducerPanel(props: ProducerPanelProps) {
                 </td>
               </tr>
             ) : (
-              producerRecentBlocks.map((row: { height: number; blockId: string; timestampMs: number }) => (
+              producerRecentBlocks.map((row: BlockRow) => (
                 <tr key={row.blockId}>
                   <td>{formatDecimalValue(row.height, locale, 0, t('common.na'))}</td>
-                  <td className="mono" title={row.blockId}>{shortHash(row.blockId, 16, 12)}</td>
+                  <td className="mono producer-block-id-cell">
+                    <button
+                      type="button"
+                      className="producer-block-id-button"
+                      title={row.blockId}
+                      onClick={() => onProducerBlockClick?.(row)}
+                    >
+                      {row.blockId}
+                    </button>
+                  </td>
                   <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>
                 </tr>
               ))
