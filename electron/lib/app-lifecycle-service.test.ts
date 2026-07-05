@@ -263,13 +263,13 @@ describe('app lifecycle service menu bar behavior', () => {
     service.createWindow()
 
     const event = {
-      url: 'https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts',
+      url: 'https://github.com/koinos/koinos-one/blob/main/src/i18n.ts',
       preventDefault: vi.fn()
     }
     win.webContentsHandlers.get('will-frame-navigate')?.(event)
 
     expect(event.preventDefault).toHaveBeenCalledTimes(1)
-    expect(deps.openExternalUrl).toHaveBeenCalledWith('https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts')
+    expect(deps.openExternalUrl).toHaveBeenCalledWith('https://github.com/koinos/koinos-one/blob/main/src/i18n.ts')
   })
 
   it('keeps documentation iframe navigation inside the app for local manual pages', () => {
@@ -300,10 +300,10 @@ describe('app lifecycle service menu bar behavior', () => {
     service.createWindow()
 
     const response = win.getWindowOpenHandler()?.({
-      url: 'https://github.com/pgarciagon/koinos-one'
+      url: 'https://github.com/koinos/koinos-one'
     })
 
     expect(response).toEqual({ action: 'deny' })
-    expect(deps.openExternalUrl).toHaveBeenCalledWith('https://github.com/pgarciagon/koinos-one')
+    expect(deps.openExternalUrl).toHaveBeenCalledWith('https://github.com/koinos/koinos-one')
   })
 })

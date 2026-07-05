@@ -21,13 +21,13 @@ addresses, wallet secrets, tokens, SSH users, or private hostnames.
 | File | Purpose |
 | --- | --- |
 | `<BASEDIR>/config.yml` | Runtime config loaded by `teleno_node` when `--config` is omitted. |
-| [`config/mainnet-observer.yml`](https://github.com/pgarciagon/koinos-one/blob/main/config/mainnet-observer.yml) | Mainnet observer example config. |
-| [`config/testnet-public-bootstrap-observer.yml`](https://github.com/pgarciagon/koinos-one/blob/main/config/testnet-public-bootstrap-observer.yml) | Testnet observer config with public bootstrap restore source enabled. |
-| [`config/testnet-public-bootstrap-observer.container.yml`](https://github.com/pgarciagon/koinos-one/blob/main/config/testnet-public-bootstrap-observer.container.yml) | Container-oriented testnet public bootstrap observer config. |
-| [`config/mainnet-public-bootstrap-observer.yml`](https://github.com/pgarciagon/koinos-one/blob/main/config/mainnet-public-bootstrap-observer.yml) | Mainnet observer config with public bootstrap restore source enabled. |
-| [`config/mainnet-public-backup-observer.yml`](https://github.com/pgarciagon/koinos-one/blob/main/config/mainnet-public-backup-observer.yml) | Maintainer-oriented public backup publication config. It includes private-backup and public-publish settings and is not normal operator config. |
-| [`config/prodnet-docker-producer.yml`](https://github.com/pgarciagon/koinos-one/blob/main/config/prodnet-docker-producer.yml) | Docker producer config template with `block_producer` enabled. Use placeholders for producer addresses. |
-| [`config/public-bootstrap/testnet-ed25519.pub`](https://github.com/pgarciagon/koinos-one/blob/main/config/public-bootstrap/testnet-ed25519.pub) | Bundled testnet public bootstrap metadata verification key. |
+| [`config/mainnet-observer.yml`](https://github.com/koinos/koinos-one/blob/main/config/mainnet-observer.yml) | Mainnet observer example config. |
+| [`config/testnet-public-bootstrap-observer.yml`](https://github.com/koinos/koinos-one/blob/main/config/testnet-public-bootstrap-observer.yml) | Testnet observer config with public bootstrap restore source enabled. |
+| [`config/testnet-public-bootstrap-observer.container.yml`](https://github.com/koinos/koinos-one/blob/main/config/testnet-public-bootstrap-observer.container.yml) | Container-oriented testnet public bootstrap observer config. |
+| [`config/mainnet-public-bootstrap-observer.yml`](https://github.com/koinos/koinos-one/blob/main/config/mainnet-public-bootstrap-observer.yml) | Mainnet observer config with public bootstrap restore source enabled. |
+| [`config/mainnet-public-backup-observer.yml`](https://github.com/koinos/koinos-one/blob/main/config/mainnet-public-backup-observer.yml) | Maintainer-oriented public backup publication config. It includes private-backup and public-publish settings and is not normal operator config. |
+| [`config/prodnet-docker-producer.yml`](https://github.com/koinos/koinos-one/blob/main/config/prodnet-docker-producer.yml) | Docker producer config template with `block_producer` enabled. Use placeholders for producer addresses. |
+| [`config/public-bootstrap/testnet-ed25519.pub`](https://github.com/koinos/koinos-one/blob/main/config/public-bootstrap/testnet-ed25519.pub) | Bundled testnet public bootstrap metadata verification key. |
 
 Mainnet public bootstrap restore is currently documented as relying on HTTPS
 origin validation plus per-object SHA-256 verification until prodnet signature

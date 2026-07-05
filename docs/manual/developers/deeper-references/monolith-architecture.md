@@ -1,7 +1,7 @@
 # Current Monolithic Node Architecture
 
 This page is the rendered manual version of
-[`docs/current/monolith/ARCHITECTURE.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/monolith/ARCHITECTURE.md).
+[`docs/current/monolith/ARCHITECTURE.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/monolith/ARCHITECTURE.md).
 
 Koinos One manages one native `teleno_node` process. The node embeds the Koinos
 runtime components that were historically separate microservices and connects
@@ -43,10 +43,10 @@ Koinos One Electron UI
 ## Current Validation Sources
 
 - Detailed current status:
-  [`docs/current/monolith/CURRENT_MONOLITH_STATUS.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/monolith/CURRENT_MONOLITH_STATUS.md).
+  [`docs/current/monolith/CURRENT_MONOLITH_STATUS.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/monolith/CURRENT_MONOLITH_STATUS.md).
 - Service coverage:
   [Monolith Service Coverage](monolith-service-coverage.md).
 - Historical validation reports remain under
-  [`docs/roadmap/monolith/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/roadmap/monolith).
+  [`docs/roadmap/monolith/`](https://github.com/koinos/koinos-one/tree/main/docs/roadmap/monolith).
 - Legacy compatibility evidence lives under
-  [`docs/legacy/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/legacy).
+  [`docs/legacy/`](https://github.com/koinos/koinos-one/tree/main/docs/legacy).

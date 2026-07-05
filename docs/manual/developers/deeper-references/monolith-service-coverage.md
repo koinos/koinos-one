@@ -1,7 +1,7 @@
 # Monolith Service Coverage
 
 This page is the rendered manual version of
-[`docs/current/monolith/SERVICE_COVERAGE.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/monolith/SERVICE_COVERAGE.md).
+[`docs/current/monolith/SERVICE_COVERAGE.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/monolith/SERVICE_COVERAGE.md).
 
 This document separates the current monolithic implementation from legacy
 microservice compatibility evidence.
@@ -31,6 +31,6 @@ microservice compatibility evidence.
 ## Main Remaining Parity Work
 
 The missing work is tracked in
-[`docs/backlog/README.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/backlog/README.md).
+[`docs/backlog/README.md`](https://github.com/koinos/koinos-one/blob/main/docs/backlog/README.md).
 The highest-risk legacy-service gap is full account history parity, followed by
 historical backfill/import for transaction and contract metadata indexes.

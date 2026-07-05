@@ -37,7 +37,7 @@ Every packaged release should expose:
 - native node binary hash and metadata.
 
 Use
-[`scripts/generate-build-info.js`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/generate-build-info.js)
+[`scripts/generate-build-info.js`](https://github.com/koinos/koinos-one/blob/main/scripts/generate-build-info.js)
 as the build identity source for the app surface.
 
 ## Release Safety

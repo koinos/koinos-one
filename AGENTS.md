@@ -15,7 +15,7 @@ docs/archive/AGENTS_FULL_20260621.md
 ## Active Project Boundary
 
 - Active repository: `/Users/pgarcgo/code/koinos-one`
-- Active remote: `https://github.com/pgarciagon/koinos-one.git`
+- Active remote: `https://github.com/koinos/koinos-one.git`
 - Active branch for the current release track: `main`
 - Product name: Koinos One.
 - Native runtime: `teleno_node`.

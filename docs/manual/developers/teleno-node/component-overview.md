@@ -22,7 +22,7 @@ through direct calls and an internal event bus instead of GarageMQ/AMQP.
 ## Feature Flags
 
 `NodeConfig` in
-[`core/config.hpp`](https://github.com/pgarciagon/koinos-one/blob/main/node/teleno-node/src/core/config.hpp)
+[`core/config.hpp`](https://github.com/koinos/koinos-one/blob/main/node/teleno-node/src/core/config.hpp)
 includes feature flags for components. Core features such as chain, mempool,
 block store, P2P, JSON-RPC, contract metadata, and transaction store default to
 enabled. gRPC, block production, and account history default to disabled in the
@@ -33,7 +33,7 @@ change protocol behavior or hide incompatible behavior behind a default.
 
 ## Lifecycle
 
-[`core/service_registry.hpp`](https://github.com/pgarciagon/koinos-one/blob/main/node/teleno-node/src/core/service_registry.hpp)
+[`core/service_registry.hpp`](https://github.com/koinos/koinos-one/blob/main/node/teleno-node/src/core/service_registry.hpp)
 starts components in registered order and stops them in reverse order. A failed
 component startup triggers stop of already-started components.
 

@@ -40,7 +40,7 @@ wallet, or native node operations directly.
 
 The Electron preload bridge exposes the restricted `window.teleno` API. The
 renderer uses bridge helpers in
-[`src/app/`](https://github.com/pgarciagon/koinos-one/tree/main/src/app) so
+[`src/app/`](https://github.com/koinos/koinos-one/tree/main/src/app) so
 browser-only development runs can handle missing Electron bridges gracefully.
 
 The Electron main process owns IPC handlers, local storage, native process
@@ -70,7 +70,7 @@ transaction/contract metadata backfill, longer mainnet/prodnet validation,
 signed prodnet public bootstrap publication, and gRPC ACL enforcement. Check
 the [Monolith Service Coverage](deeper-references/monolith-service-coverage.md)
 reference and
-[`docs/backlog/README.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/backlog/README.md)
+[`docs/backlog/README.md`](https://github.com/koinos/koinos-one/blob/main/docs/backlog/README.md)
 before describing those areas as complete.
 
 ## What Can Change Locally

@@ -37,7 +37,7 @@ The main remaining parity gaps are:
 Check the
 [Monolith Service Coverage](../deeper-references/monolith-service-coverage.md)
 reference and
-[`docs/backlog/README.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/backlog/README.md)
+[`docs/backlog/README.md`](https://github.com/koinos/koinos-one/blob/main/docs/backlog/README.md)
 before claiming complete legacy service coverage.
 
 ## Removed Legacy Surfaces

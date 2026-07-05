@@ -5,7 +5,7 @@ Electron main process.
 
 ## Renderer State
 
-[`src/App.tsx`](https://github.com/pgarciagon/koinos-one/blob/main/src/App.tsx)
+[`src/App.tsx`](https://github.com/koinos/koinos-one/blob/main/src/App.tsx)
 owns:
 
 - active tab and subtab state;
@@ -17,7 +17,7 @@ owns:
 - error banners, modal state, and form validation state.
 
 Renderer helpers under
-[`src/app/`](https://github.com/pgarciagon/koinos-one/tree/main/src/app)
+[`src/app/`](https://github.com/koinos/koinos-one/tree/main/src/app)
 normalize settings, parse config fields, format values, filter logs, inspect
 producer readiness, and resolve RPC URLs.
 
@@ -30,7 +30,7 @@ The renderer reaches native behavior through bridge helpers such as:
 - `getWalletBridge()`
 
 These helpers read the `window.teleno` API exposed by
-[`electron/preload.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/preload.ts).
+[`electron/preload.ts`](https://github.com/koinos/koinos-one/blob/main/electron/preload.ts).
 Vite/browser-only runs may not have Electron bridges available, so UI code
 must handle missing bridges gracefully.
 
@@ -40,18 +40,18 @@ side-effects during a plain Vite development run.
 
 ## IPC Registration
 
-[`electron/lib/ipc-handlers.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/lib/ipc-handlers.ts)
+[`electron/lib/ipc-handlers.ts`](https://github.com/koinos/koinos-one/blob/main/electron/lib/ipc-handlers.ts)
 registers the named IPC channels exposed by the preload bridge. Keep IPC names
 explicit and stable. Add types in
-[`electron/lib/main-types.ts`](https://github.com/pgarciagon/koinos-one/blob/main/electron/lib/main-types.ts)
+[`electron/lib/main-types.ts`](https://github.com/koinos/koinos-one/blob/main/electron/lib/main-types.ts)
 and
-[`src/teleno-electron.d.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/teleno-electron.d.ts)
+[`src/teleno-electron.d.ts`](https://github.com/koinos/koinos-one/blob/main/src/teleno-electron.d.ts)
 when a new bridge contract is added.
 
 ## Native Runtime Services
 
 Runtime logic belongs in
-[`electron/lib/`](https://github.com/pgarciagon/koinos-one/tree/main/electron/lib),
+[`electron/lib/`](https://github.com/koinos/koinos-one/tree/main/electron/lib),
 not in React components. Examples:
 
 - `native-runtime-service.ts` starts, stops, restarts, and checks managed native
@@ -92,7 +92,7 @@ Before adding new top-level `App.tsx` state, check whether the data is:
 - shared renderer state that belongs in `App.tsx`;
 - persisted preference/config state that belongs behind Electron storage;
 - privileged runtime state that belongs in
-  [`electron/lib/`](https://github.com/pgarciagon/koinos-one/tree/main/electron/lib);
+  [`electron/lib/`](https://github.com/koinos/koinos-one/tree/main/electron/lib);
 - native state that belongs in `teleno_node`.
 
 Prefer the narrowest ownership that still keeps the workflow clear.

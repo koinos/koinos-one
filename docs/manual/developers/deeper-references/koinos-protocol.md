@@ -1,7 +1,7 @@
 # Koinos Protocol Compatibility Reference
 
 This page is the rendered manual version of
-[`docs/koinos/KOINOS_PROTOCOL.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/koinos/KOINOS_PROTOCOL.md).
+[`docs/koinos/KOINOS_PROTOCOL.md`](https://github.com/koinos/koinos-one/blob/main/docs/koinos/KOINOS_PROTOCOL.md).
 It explains the parts of Koinos that must remain compatible across all network
 clients, regardless of implementation language, process layout, database
 engine, or user interface.

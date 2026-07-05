@@ -1,6 +1,6 @@
 site_name: Koinos One Documentation
 site_description: User, operator, and developer documentation for Koinos One and Teleno Node.
-repo_url: https://github.com/pgarciagon/koinos-one
+repo_url: https://github.com/koinos/koinos-one
 docs_dir: docs/manual
 site_dir: build/docs/manual-site
 strict: true

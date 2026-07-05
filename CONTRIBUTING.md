@@ -18,7 +18,7 @@ maintainer explicitly asks for legacy or external work.
 ## Development Setup
 
 ```bash
-git clone --recurse-submodules git@github.com:pgarciagon/koinos-one.git
+git clone --recurse-submodules git@github.com:koinos/koinos-one.git
 cd koinos-one
 npm ci
 npm run dev

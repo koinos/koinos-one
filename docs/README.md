@@ -3,6 +3,19 @@
 This directory is organized by document lifecycle, not by the order in which the
 work originally happened.
 
+## Start Here
+
+- **Users:** read `manual/koinos-one/README.md` first, then the install, first-run,
+  backup, wallet, and producer pages that match the task.
+- **Node operators:** read `manual/teleno-node/README.md` for the CLI flow and
+  `operations/START_TELENO_NODE.md` or `operations/TELENO_NODE_CONTAINER.md`
+  for direct runtime startup.
+- **Contributors:** read `manual/developers/repository-tour.md` and
+  `manual/developers/local-development.md` before changing code or docs.
+- **Maintainers:** use `current/README.md` for implemented behavior,
+  `backlog/README.md` for missing work, and `roadmap/README.md` or `archive/`
+  only for historical evidence.
+
 ## User-Facing Manual
 
 Use `manual/` for the documentation that is exposed through the Koinos One app

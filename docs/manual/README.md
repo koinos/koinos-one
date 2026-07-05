@@ -2,12 +2,24 @@
 
 This manual is the user-facing documentation entrypoint for Koinos One and
 Teleno Node. It is organized by audience and task, while the existing
-[current implementation docs](https://github.com/pgarciagon/koinos-one/tree/main/docs/current),
-[backlog docs](https://github.com/pgarciagon/koinos-one/tree/main/docs/backlog),
-[legacy docs](https://github.com/pgarciagon/koinos-one/tree/main/docs/legacy),
-and [archive docs](https://github.com/pgarciagon/koinos-one/tree/main/docs/archive)
+[current implementation docs](https://github.com/koinos/koinos-one/tree/main/docs/current),
+[backlog docs](https://github.com/koinos/koinos-one/tree/main/docs/backlog),
+[legacy docs](https://github.com/koinos/koinos-one/tree/main/docs/legacy),
+and [archive docs](https://github.com/koinos/koinos-one/tree/main/docs/archive)
 remain the engineering source of truth for implementation state, future work,
 compatibility evidence, and historical material.
+
+## Start Here
+
+- **New to Koinos:** start with [Koinos Concepts](concepts/README.md).
+- **Installing or using the desktop app:** start with
+  [Koinos One User Guide](koinos-one/README.md).
+- **Running `teleno_node` directly:** start with
+  [Teleno Node CLI Guide](teleno-node/README.md).
+- **Contributing to the app or node:** start with
+  [Developer Documentation](developers/README.md).
+- **Looking up ports, paths, environment variables, security, or releases:**
+  start with [Reference](reference/README.md).
 
 ## Sections
 

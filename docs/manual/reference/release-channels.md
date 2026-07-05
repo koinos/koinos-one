@@ -6,9 +6,9 @@ Release identity must make every packaged Koinos One build traceable.
 
 | Field | Current source |
 | --- | --- |
-| Product name | `KoinosOne` in [`electron-builder.yml`](https://github.com/pgarciagon/koinos-one/blob/main/electron-builder.yml). |
-| App ID | `io.koinosone.desktop` in [`electron-builder.yml`](https://github.com/pgarciagon/koinos-one/blob/main/electron-builder.yml). |
-| Product version | `1.0.3` in [`package.json`](https://github.com/pgarciagon/koinos-one/blob/main/package.json). |
+| Product name | `KoinosOne` in [`electron-builder.yml`](https://github.com/koinos/koinos-one/blob/main/electron-builder.yml). |
+| App ID | `io.koinosone.desktop` in [`electron-builder.yml`](https://github.com/koinos/koinos-one/blob/main/electron-builder.yml). |
+| Product version | `1.0.3` in [`package.json`](https://github.com/koinos/koinos-one/blob/main/package.json). |
 | Native binary | `teleno_node`. |
 | Package artifacts | `${productName}-${version}-${arch}.${ext}` for macOS DMG and Windows NSIS outputs. |
 | Static manual site | `build/docs/manual-site/` from `mkdocs build --strict`. |
@@ -16,9 +16,9 @@ Release identity must make every packaged Koinos One build traceable.
 ## Build Info File
 
 `npm run build` runs
-[`scripts/generate-build-info.js`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/generate-build-info.js),
+[`scripts/generate-build-info.js`](https://github.com/koinos/koinos-one/blob/main/scripts/generate-build-info.js),
 and
-[`electron-builder.yml`](https://github.com/pgarciagon/koinos-one/blob/main/electron-builder.yml)
+[`electron-builder.yml`](https://github.com/koinos/koinos-one/blob/main/electron-builder.yml)
 includes the generated file as packaged `build-info.json`.
 
 The generated schema currently includes:
@@ -26,7 +26,7 @@ The generated schema currently includes:
 | Field | Meaning |
 | --- | --- |
 | `schemaVersion` | Build-info schema version. |
-| `productVersion` | Version read from [`package.json`](https://github.com/pgarciagon/koinos-one/blob/main/package.json). |
+| `productVersion` | Version read from [`package.json`](https://github.com/koinos/koinos-one/blob/main/package.json). |
 | `releaseChannel` | Explicit env override, prerelease-derived channel, or `dev`. |
 | `buildTimestamp` | ISO timestamp generated at build time. |
 | `gitCommit` | Full Git commit hash. |
@@ -45,7 +45,7 @@ The generated schema currently includes:
 | --- | --- |
 | `KOINOS_ONE_RELEASE_CHANNEL` set | Uses that value. |
 | `TELENO_RELEASE_CHANNEL` set and `KOINOS_ONE_RELEASE_CHANNEL` unset | Uses that value. |
-| [`package.json`](https://github.com/pgarciagon/koinos-one/blob/main/package.json) version has a prerelease segment, such as `1.2.3-beta.1` | Uses the first prerelease token, such as `beta`. |
+| [`package.json`](https://github.com/koinos/koinos-one/blob/main/package.json) version has a prerelease segment, such as `1.2.3-beta.1` | Uses the first prerelease token, such as `beta`. |
 | No explicit channel and no prerelease segment | Uses `dev`. |
 
 Use SemVer product versions. Canary, beta, and stable packaged builds should

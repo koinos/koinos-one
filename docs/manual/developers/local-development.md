@@ -9,7 +9,7 @@ producer, storage, or protocol-sensitive behavior.
 
 - Node.js and npm for the renderer and Electron build.
 - A CMake toolchain for
-  [`node/teleno-node`](https://github.com/pgarciagon/koinos-one/tree/main/node/teleno-node).
+  [`node/teleno-node`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node).
 - Native dependencies required by the Koinos/Teleno C++ build.
 - Submodules initialized when native or protocol code is needed.
 
@@ -44,7 +44,7 @@ npm run build
 ```
 
 The build command runs `npm run docs:build`,
-[`scripts/generate-build-info.js`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/generate-build-info.js),
+[`scripts/generate-build-info.js`](https://github.com/koinos/koinos-one/blob/main/scripts/generate-build-info.js),
 the Vite build, and the Electron TypeScript build.
 
 Build only the manual site:
@@ -140,7 +140,7 @@ scripts/verify-packaged-app.js
 ## Documentation Development
 
 The manual is built by MkDocs from
-[`docs/manual/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/manual)
+[`docs/manual/`](https://github.com/koinos/koinos-one/tree/main/docs/manual)
 with `use_directory_urls: false`. Keep this setting so the in-app
 Documentation iframe loads concrete HTML files under `/manual-site/...html`
 rather than falling back to app routes.
@@ -148,7 +148,7 @@ rather than falling back to app routes.
 After adding, removing, or renaming manual pages:
 
 1. Update
-   [`mkdocs.yml`](https://github.com/pgarciagon/koinos-one/blob/main/mkdocs.yml).
+   [`mkdocs.yml`](https://github.com/koinos/koinos-one/blob/main/mkdocs.yml).
 2. Use relative Markdown links for pages inside the manual.
 3. Link source files, source folders, and Markdown files outside the manual to
    the official GitHub repository.
@@ -180,7 +180,7 @@ user request and a reviewed plan.
 - The first-run assistant must not open during normal Vite or Electron
   development runs.
 - GUI copy changes must update
-  [`src/i18n.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts)
+  [`src/i18n.ts`](https://github.com/koinos/koinos-one/blob/main/src/i18n.ts)
   for English and Spanish.
 - GUI layout changes must be inspected visually and checked for box overflow.
 - Restore and producer workflows must remain observer-first unless explicitly

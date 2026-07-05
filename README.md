@@ -21,6 +21,20 @@ Koinos One is the Koinos Foundation desktop app for running, restoring, backing 
 - Node and Wallet controls explain disabled states through tooltips, including unavailable logs, restart/stop actions, wallet registration, and account actions.
 - Settings treats the selected Base Data Folder as the default root for local native backup paths.
 
+## Start Here
+
+- **Users:** start with the [Koinos One user guide](docs/manual/koinos-one/README.md)
+  and [Install On macOS](docs/manual/koinos-one/install-macos.md).
+- **Node operators:** use the [Teleno Node CLI guide](docs/manual/teleno-node/README.md),
+  [command-line startup guide](docs/operations/START_TELENO_NODE.md), and
+  [container guide](docs/operations/TELENO_NODE_CONTAINER.md).
+- **Contributors:** read the [repository tour](docs/manual/developers/repository-tour.md),
+  [local development guide](docs/manual/developers/local-development.md), and
+  [contributing guide](CONTRIBUTING.md).
+- **Maintainers:** check [current implementation docs](docs/current/README.md),
+  [backlog](docs/backlog/README.md), and [release notes](CHANGELOG.md) before
+  planning broad changes.
+
 ## Repository Layout
 
 The active node code and UX live in this repository. Legacy Koinos material remains only where it is needed for protocol compatibility evidence, migrations, or upstream references.
@@ -45,7 +59,7 @@ vendor/                 Upstream Koinos references retained for compatibility
 ## Quick Start
 
 ```bash
-git clone --recurse-submodules git@github.com:pgarciagon/koinos-one.git
+git clone --recurse-submodules git@github.com:koinos/koinos-one.git
 cd koinos-one
 npm install
 npm run dev

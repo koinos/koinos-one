@@ -69,21 +69,21 @@ Use these rendered manual pages when the summary documentation is not enough:
 
 The deeper reference pages are manual copies of these repository sources:
 
-- [`docs/current/README.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/README.md)
-- [`docs/current/monolith/ARCHITECTURE.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/monolith/ARCHITECTURE.md)
-- [`docs/current/monolith/CURRENT_MONOLITH_STATUS.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/monolith/CURRENT_MONOLITH_STATUS.md)
-- [`docs/current/monolith/SERVICE_COVERAGE.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/monolith/SERVICE_COVERAGE.md)
-- [`docs/current/storage/UNIFIED_ROCKSDB_CURRENT_IMPLEMENTATION.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/storage/UNIFIED_ROCKSDB_CURRENT_IMPLEMENTATION.md)
-- [`docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md)
-- [`docs/koinos/KOINOS_PROTOCOL.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/koinos/KOINOS_PROTOCOL.md)
-- [`docs/backlog/README.md`](https://github.com/pgarciagon/koinos-one/blob/main/docs/backlog/README.md)
+- [`docs/current/README.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/README.md)
+- [`docs/current/monolith/ARCHITECTURE.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/monolith/ARCHITECTURE.md)
+- [`docs/current/monolith/CURRENT_MONOLITH_STATUS.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/monolith/CURRENT_MONOLITH_STATUS.md)
+- [`docs/current/monolith/SERVICE_COVERAGE.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/monolith/SERVICE_COVERAGE.md)
+- [`docs/current/storage/UNIFIED_ROCKSDB_CURRENT_IMPLEMENTATION.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/storage/UNIFIED_ROCKSDB_CURRENT_IMPLEMENTATION.md)
+- [`docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md)
+- [`docs/koinos/KOINOS_PROTOCOL.md`](https://github.com/koinos/koinos-one/blob/main/docs/koinos/KOINOS_PROTOCOL.md)
+- [`docs/backlog/README.md`](https://github.com/koinos/koinos-one/blob/main/docs/backlog/README.md)
 
 Keep this section high level. Deep validation transcripts, long benchmark
 results, and future implementation plans belong in the existing
-[`docs/current/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/current),
-[`docs/roadmap/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/roadmap),
-[`docs/backlog/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/backlog),
-and [`docs/archive/`](https://github.com/pgarciagon/koinos-one/tree/main/docs/archive)
+[`docs/current/`](https://github.com/koinos/koinos-one/tree/main/docs/current),
+[`docs/roadmap/`](https://github.com/koinos/koinos-one/tree/main/docs/roadmap),
+[`docs/backlog/`](https://github.com/koinos/koinos-one/tree/main/docs/backlog),
+and [`docs/archive/`](https://github.com/koinos/koinos-one/tree/main/docs/archive)
 areas.
 
 ## Contributor Rules Of Thumb
@@ -95,7 +95,7 @@ areas.
 - Keep all public docs free of protected producer addresses, private hostnames,
   private IPs, SSH users, secrets, wallet material, and local-only inventory.
 - Update GUI copy and
-  [`src/i18n.ts`](https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts)
+  [`src/i18n.ts`](https://github.com/koinos/koinos-one/blob/main/src/i18n.ts)
   together for every user-facing GUI change.
 - Validate with tests or scripts that match the risk and blast radius of the
   change.

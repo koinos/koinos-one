@@ -52,8 +52,8 @@ connection cadence, and peer scoring can be tuned only when observable protocol
 behavior remains compatible.
 
 Use
-[`scripts/compare-jsonrpc-parity.py`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/compare-jsonrpc-parity.py),
-[`scripts/compare-grpc-parity.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/compare-grpc-parity.sh),
+[`scripts/compare-jsonrpc-parity.py`](https://github.com/koinos/koinos-one/blob/main/scripts/compare-jsonrpc-parity.py),
+[`scripts/compare-grpc-parity.sh`](https://github.com/koinos/koinos-one/blob/main/scripts/compare-grpc-parity.sh),
 and
-[`scripts/validate-grpc-client-compatibility.sh`](https://github.com/pgarciagon/koinos-one/blob/main/scripts/validate-grpc-client-compatibility.sh)
+[`scripts/validate-grpc-client-compatibility.sh`](https://github.com/koinos/koinos-one/blob/main/scripts/validate-grpc-client-compatibility.sh)
 when a change touches public API behavior.
