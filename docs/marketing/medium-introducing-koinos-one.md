@@ -170,6 +170,24 @@ We want local node operation to become more realistic for more people.
 
 We built Koinos One around that direction.
 
+## Performance And Unified Storage
+
+The monolithic direction is also a performance direction.
+
+The legacy Koinos node architecture is based on several services coordinated through internal RPC, message routing, and separate process boundaries. That model is modular, but it also introduces overhead. Internal calls may require serialization, broker routing, process scheduling, deserialization, and separate storage access before the result returns to the caller.
+
+In a monolithic implementation, many of those internal paths can become direct in-process calls or typed internal events. That does not change the protocol rules, but it changes the cost of moving data through the node. Less internal message passing means less coordination overhead, fewer duplicate buffers, fewer independent logs and health surfaces, and a smaller runtime surface to tune.
+
+The unified RocksDB direction is part of the same idea.
+
+Instead of treating each historical service store as a separate operational concern, Koinos One is moving node data toward a shared RocksDB layout with dedicated column families for blocks, metadata, indexes, account history, and chain state. That gives the node a single storage layer that can be tuned as one system: cache sizes, write buffers, compaction jobs, compression, checkpointing, and restore behavior can be reasoned about together.
+
+The practical benefits are not only about raw speed. Unified storage can simplify backups, reduce duplicated storage work, make restore behavior more predictable, and give operators a clearer view of what the node is actually storing. It also creates a better foundation for performance work because bottlenecks can be measured inside one process and one storage engine instead of across many services.
+
+This should create room for higher throughput work over time, including transaction-per-second optimization. The important point is not to publish an unsupported tx/sec number before the benchmark work is complete. Throughput depends on hardware, database layout, validation settings, network conditions, transaction mix, indexing requirements, and producer configuration.
+
+The engineering goal is to create more headroom on the same class of hardware: lower internal latency, faster indexing paths, better cache behavior, fewer process hops, and a storage layout that can be benchmarked and tuned directly. Any public tx/sec claim should come from reproducible tests comparing the legacy microservices stack and `teleno_node` on the same data, hardware, and workload.
+
 ## A Full Rewrite, Not A New Network
 
 Koinos One is not a thin wrapper around the existing microservices-based Koinos node implementation. It is a complete rewrite of that software into a monolithic node architecture.
