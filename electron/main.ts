@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type MessageBoxOptions, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, type MessageBoxOptions, type OpenDialogOptions } from 'electron'
 import { createCipheriv, createHash, createDecipheriv, pbkdf2Sync, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import { Socket } from 'node:net'
@@ -1121,6 +1121,7 @@ const appLifecycleService = createAppLifecycleService({
   onWindowShown: () => {
     void menuBarService?.refresh()
   },
+  openExternalUrl: (url) => shell.openExternal(url),
   quitApp: () => app.quit()
 })
 

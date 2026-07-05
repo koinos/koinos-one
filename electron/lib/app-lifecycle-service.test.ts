@@ -19,8 +19,12 @@ import type { NativeServiceProcessState, TelenoNodeStatus } from './main-types'
 
 function createFakeWindow() {
   const handlers = new Map<string, (...args: any[]) => void>()
+  const webContentsHandlers = new Map<string, (...args: any[]) => void>()
+  let windowOpenHandler: ((details: { url: string }) => unknown) | null = null
   return {
     handlers,
+    webContentsHandlers,
+    getWindowOpenHandler: () => windowOpenHandler,
     loadURL: vi.fn(),
     loadFile: vi.fn(),
     on: vi.fn((event: string, handler: (...args: any[]) => void) => {
@@ -38,6 +42,13 @@ function createFakeWindow() {
     setProgressBar: vi.fn(),
     webContents: {
       isDestroyed: vi.fn(() => false),
+      on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+        webContentsHandlers.set(event, handler)
+        return undefined
+      }),
+      setWindowOpenHandler: vi.fn((handler: (details: { url: string }) => unknown) => {
+        windowOpenHandler = handler
+      }),
       executeJavaScript: vi.fn(async () => ({
         nodeSettings: { network: 'mainnet', baseDir: '/private/basedir' },
         language: 'en'
@@ -128,6 +139,7 @@ function createDeps(overrides: Partial<Parameters<typeof createAppLifecycleServi
     setDockIconVisible: vi.fn(),
     onWindowHiddenToMenuBar: vi.fn(),
     onWindowShown: vi.fn(),
+    openExternalUrl: vi.fn(),
     quitApp: vi.fn(),
     ...overrides
   }
@@ -238,5 +250,60 @@ describe('app lifecycle service menu bar behavior', () => {
 
     expect(deps.telenoNodeAction).toHaveBeenCalledWith('stop', { network: 'mainnet', baseDir: '/private/basedir' })
     expect(deps.quitApp).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens external documentation frame links outside the app', () => {
+    const win = createFakeWindow()
+    electronMock.nextWindow = win
+    const deps = createDeps({
+      isDev: true,
+      viteDevServerUrl: 'http://localhost:5173/'
+    })
+    const service = createAppLifecycleService(deps)
+    service.createWindow()
+
+    const event = {
+      url: 'https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts',
+      preventDefault: vi.fn()
+    }
+    win.webContentsHandlers.get('will-frame-navigate')?.(event)
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(deps.openExternalUrl).toHaveBeenCalledWith('https://github.com/pgarciagon/koinos-one/blob/main/src/i18n.ts')
+  })
+
+  it('keeps documentation iframe navigation inside the app for local manual pages', () => {
+    const win = createFakeWindow()
+    electronMock.nextWindow = win
+    const deps = createDeps({
+      isDev: true,
+      viteDevServerUrl: 'http://localhost:5173/'
+    })
+    const service = createAppLifecycleService(deps)
+    service.createWindow()
+
+    const event = {
+      url: 'http://localhost:5173/manual-site/developers/gui/i18n-and-gui-copy.html',
+      preventDefault: vi.fn()
+    }
+    win.webContentsHandlers.get('will-frame-navigate')?.(event)
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(deps.openExternalUrl).not.toHaveBeenCalled()
+  })
+
+  it('denies new in-app windows for external URLs after opening them externally', () => {
+    const win = createFakeWindow()
+    electronMock.nextWindow = win
+    const deps = createDeps()
+    const service = createAppLifecycleService(deps)
+    service.createWindow()
+
+    const response = win.getWindowOpenHandler()?.({
+      url: 'https://github.com/pgarciagon/koinos-one'
+    })
+
+    expect(response).toEqual({ action: 'deny' })
+    expect(deps.openExternalUrl).toHaveBeenCalledWith('https://github.com/pgarciagon/koinos-one')
   })
 })

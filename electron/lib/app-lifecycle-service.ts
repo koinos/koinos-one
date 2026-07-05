@@ -36,7 +36,26 @@ type AppLifecycleServiceDeps = {
   setDockIconVisible?: (visible: boolean) => void
   onWindowHiddenToMenuBar?: () => void
   onWindowShown?: () => void
+  openExternalUrl?: (url: string) => Promise<unknown> | unknown
   quitApp: () => void
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function isSameOriginUrl(value: string, originValue: string | undefined): boolean {
+  if (!originValue) return false
+  try {
+    return new URL(value).origin === new URL(originValue).origin
+  } catch {
+    return false
+  }
 }
 
 function localizedShutdownCopy(language: string | null | undefined): {
@@ -455,6 +474,24 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
       }
     })
     deps.setMainWindow(win)
+
+    const openExternalNavigation = (url: string): boolean => {
+      if (!isHttpUrl(url)) return false
+      if (deps.isDev && isSameOriginUrl(url, deps.viteDevServerUrl)) return false
+
+      void deps.openExternalUrl?.(url)
+      return true
+    }
+
+    win.webContents.on('will-frame-navigate', (event) => {
+      if (!openExternalNavigation(event.url)) return
+      event.preventDefault()
+    })
+
+    win.webContents.setWindowOpenHandler((details) => {
+      if (!openExternalNavigation(details.url)) return { action: 'allow' }
+      return { action: 'deny' }
+    })
 
     if (deps.isDev && deps.viteDevServerUrl) {
       void win.loadURL(deps.viteDevServerUrl)

@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed external source-code links in the Documentation tab so they open in the
+  system browser instead of navigating the embedded manual iframe to a blank
+  page.
+
 ## [1.0.3] - 2026-07-02
 
 ### Changed
