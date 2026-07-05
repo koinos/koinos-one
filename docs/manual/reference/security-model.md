@@ -89,4 +89,6 @@ pass.
 
 For persistent state merkle mismatches, preserve the existing state DB. Do not
 clear chain data, start from an empty state DB, or force a fresh full resync as
-the first recovery action.
+the first recovery action. State commits are written as a single synced RocksDB
+batch, but recovery should still start from preserving and inspecting the
+existing DB.
