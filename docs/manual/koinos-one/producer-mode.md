@@ -46,6 +46,11 @@ If the local producer key is missing, Koinos One may ask you to start the
 `block_producer` component once so `BASEDIR/block_producer/private.key` and
 `BASEDIR/block_producer/public.key` can be created.
 
+If recent blocks appear while the local key is missing or differs from the
+registered public key, those blocks are from the producer address and the
+currently registered key, not yet from this Koinos One installation. Registering
+the local key replaces the on-chain producer key for that address.
+
 ## High-Level Setup Flow
 
 1. Start and monitor the node as an observer.
@@ -68,8 +73,9 @@ If the local producer key is missing, Koinos One may ask you to start the
 - `Registered public key` matches the local public key after registration.
 - The producer wallet has enough VHP and mana.
 - The node remains connected and synced.
-- After production is intentionally enabled, `Latest produced blocks` shows
-  blocks from this producer when the producer wins slots.
+- After production is intentionally enabled and the registered key matches the
+  local key, `Latest produced blocks` shows blocks from this installation when
+  the producer wins slots.
 
 ## Stop And Ask Before Continuing
 

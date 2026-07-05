@@ -59,6 +59,7 @@ type ProducerPublicKeyRegistrationInput = {
 }
 
 export type ProducerPublicKeyRegistrationState = 'unknown' | 'unregistered' | 'match' | 'mismatch'
+export type ProducerOperationalNotice = 'external-active-missing-local-key' | 'external-active-key-mismatch'
 
 export function hasRuntimeProducerIdentity(input: RuntimeProducerIdentityInput): boolean {
   return Boolean(
@@ -77,6 +78,27 @@ export function getProducerPublicKeyRegistrationState(
   if (!localPublicKey) return 'unknown'
   if (!registeredPublicKey) return 'unregistered'
   return registeredPublicKey === localPublicKey ? 'match' : 'mismatch'
+}
+
+type ProducerOperationalNoticeInput = {
+  configuredAddress?: string | null
+  localPublicKey?: string | null
+  registeredPublicKey?: string | null
+  recentBlocksCount?: number | null
+}
+
+export function getProducerOperationalNotice(
+  input: ProducerOperationalNoticeInput
+): ProducerOperationalNotice | null {
+  const configuredAddress = `${input.configuredAddress || ''}`.trim()
+  const localPublicKey = `${input.localPublicKey || ''}`.trim()
+  const registeredPublicKey = `${input.registeredPublicKey || ''}`.trim()
+  const recentBlocksCount = input.recentBlocksCount ?? 0
+
+  if (!configuredAddress || !registeredPublicKey || recentBlocksCount <= 0) return null
+  if (!localPublicKey) return 'external-active-missing-local-key'
+  if (registeredPublicKey !== localPublicKey) return 'external-active-key-mismatch'
+  return null
 }
 
 export function isProducerSetupComplete(profile: TelenoNodeProducerProfileResult | null | undefined): boolean {
