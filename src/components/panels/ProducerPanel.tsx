@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { hasRuntimeProducerIdentity, resolveProducerDisplayAddress } from '../../app/producer'
-import { formatDateTime, formatDecimalValue, shortHash } from '../../app/utils'
+import { formatDateTime, formatDecimalValue } from '../../app/utils'
+import type { BlockRow } from '../../app/types'
 
 type ProducerPanelProps = any
 
@@ -20,17 +21,17 @@ export function ProducerPanel(props: ProducerPanelProps) {
     producerSetupComplete,
     signingWalletAddress,
     producerLocalPublicKey,
-    producerVaultExists,
-    producerVaultUnlocked,
     producerRegisterDisabled,
     producerConfiguredWalletMismatch,
     producerReconfigureDisabled,
     producerRegisterHintClass,
     producerRegisterHintText,
     producerRegisterActionText,
+    producerOperationalNotice,
     nodeProducerActionLoading,
     registerNodeProducer,
     openWalletTab,
+    onProducerBlockClick,
     locale
   } = props
 
@@ -55,6 +56,17 @@ export function ProducerPanel(props: ProducerPanelProps) {
       : producerRegisterHintText
   const incompleteProducerHintClass =
     runtimeProducerVisible && !signingWalletAddress ? '' : producerRegisterHintClass
+  const producerOperationalNoticeText = producerOperationalNotice === 'external-active-key-mismatch'
+    ? t('producer.externalActiveKeyMismatchDescription')
+    : producerOperationalNotice === 'external-active-missing-local-key'
+      ? t('producer.externalActiveMissingLocalKeyDescription')
+      : ''
+  const producerOperationalNoticeNode = producerOperationalNotice ? (
+    <div className="node-warning producer-operational-notice" role="note">
+      <strong>{t('producer.externalActiveNoticeTitle')}</strong>
+      <p>{producerOperationalNoticeText}</p>
+    </div>
+  ) : null
   const producerBlocksSection = (
     <section className="producer-minimal-card">
       <div className="node-services-header producer-header">
@@ -86,10 +98,19 @@ export function ProducerPanel(props: ProducerPanelProps) {
                 </td>
               </tr>
             ) : (
-              producerRecentBlocks.map((row: { height: number; blockId: string; timestampMs: number }) => (
+              producerRecentBlocks.map((row: BlockRow) => (
                 <tr key={row.blockId}>
                   <td>{formatDecimalValue(row.height, locale, 0, t('common.na'))}</td>
-                  <td className="mono" title={row.blockId}>{shortHash(row.blockId, 16, 12)}</td>
+                  <td className="mono producer-block-id-cell">
+                    <button
+                      type="button"
+                      className="producer-block-id-button"
+                      title={row.blockId}
+                      onClick={() => onProducerBlockClick?.(row)}
+                    >
+                      {row.blockId}
+                    </button>
+                  </td>
                   <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>
                 </tr>
               ))
@@ -164,6 +185,8 @@ export function ProducerPanel(props: ProducerPanelProps) {
               )}
             </div>
 
+            {producerOperationalNoticeNode}
+
             <div className="producer-actions">
               {signingWalletAddress ? (
                 <button
@@ -197,6 +220,8 @@ export function ProducerPanel(props: ProducerPanelProps) {
         </>
       ) : (
         <>
+          {producerOperationalNoticeNode}
+
           {producerRecentBlocksError && (
             <div className="error-banner node-error-banner" role="alert">
               <span>{producerRecentBlocksError}</span>

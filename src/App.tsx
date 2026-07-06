@@ -37,6 +37,7 @@ import type {
   NodeServiceContextMenuState
 } from './app/types'
 import {
+  getProducerOperationalNotice,
   getProducerPublicKeyRegistrationState,
   getProducerSetupBlockReason,
   isProducerActivelyProducingFromLogs,
@@ -293,6 +294,7 @@ export function App() {
   const [indexerBlocksPerSec, setIndexerBlocksPerSec] = useState<number | null>(null)
   const prevIndexerRef = useRef<{ height: number; time: number } | null>(null)
   const [selectedBlock, setSelectedBlock] = useState<any>(null)
+  const [selectedBlockRpcUrl, setSelectedBlockRpcUrl] = useState<string | null>(null)
   const selectedBlockRef = useRef<any>(null)
   const prevChainHeadRef = useRef<{ height: number; time: number } | null>(null)
   const autoRestartStateRef = useRef<AutoRestartState>(createAutoRestartState())
@@ -1940,6 +1942,12 @@ export function App() {
   const producerRegisterActionText = producerPublicKeyRegisteredWithAnotherKey
       ? t('producer.replaceRegisteredKeyAction')
       : t('producer.createAction')
+  const producerOperationalNotice = getProducerOperationalNotice({
+    configuredAddress: producerConfiguredAddress,
+    localPublicKey: producerLocalPublicKey,
+    registeredPublicKey: producerRegisteredPublicKey,
+    recentBlocksCount: producerRecentBlocks.length
+  })
   const producerRegisterDisabled =
     !hasNodeControls ||
     nodeProducerActionLoading !== null ||
@@ -2820,8 +2828,8 @@ export function App() {
               refreshProducerRegisteredPublicKeyPreview(nextSigningWalletAddress),
               refreshProducerSigningWalletBalance(nextSigningWalletAddress, activeWalletAccountId || undefined)
             )
-          } else if (runtimeProducerAddress) {
-            requests.push(refreshProducerRegisteredPublicKeyPreview(runtimeProducerAddress, nodeNetworkPublicRpcUrl))
+          } else if (configuredRuntimeProducerAddress) {
+            requests.push(refreshProducerRegisteredPublicKeyPreview(configuredRuntimeProducerAddress, nodeNetworkPublicRpcUrl))
             setProducerSigningWalletBalance(null)
             setProducerSigningWalletBalanceNetwork(null)
             setProducerSigningWalletBalanceError(null)
@@ -5421,6 +5429,22 @@ export function App() {
     />
   )
 
+  const openBlockInExplorer = (block: BlockRow) => {
+    const existingBlock = rowsRef.current.find((row) => row.blockId === block.blockId)
+    const nextSelectedBlock = existingBlock ?? block
+
+    if (!existingBlock) {
+      const nextRows = [...rowsRef.current, block].sort((a, b) => b.height - a.height)
+      rowsRef.current = nextRows
+      setRows(nextRows)
+    }
+
+    selectedBlockRef.current = nextSelectedBlock
+    setSelectedBlockRpcUrl(producerRpcUrl)
+    setSelectedBlock(nextSelectedBlock)
+    requestActiveTab('explorer')
+  }
+
   return (
     <div className={`app-shell ${firstRunSetupOpen ? 'is-first-run-locked' : ''}`.trim()}>
       <div className="app-background" aria-hidden="true" />
@@ -6355,8 +6379,6 @@ export function App() {
           producerAdvancedMode={producerAdvancedMode}
           nodeProducerAddressDraft={nodeProducerAddressDraft}
           signingWalletAddress={signingWalletAddress}
-          producerVaultExists={producerVaultExists}
-          producerVaultUnlocked={producerVaultUnlocked}
           refreshWalletOverview={refreshWalletOverview}
           refreshProducerSigningWalletBalance={refreshProducerSigningWalletBalance}
           hasNodeControls={hasNodeControls}
@@ -6389,6 +6411,7 @@ export function App() {
           producerRegisterHintClass={producerRegisterHintClass}
           producerRegisterHintText={producerRegisterHintText}
           producerRegisterActionText={producerRegisterActionText}
+          producerOperationalNotice={producerOperationalNotice}
           setNodeProducerAddressDraft={setNodeProducerAddressDraft}
           producerSigningWalletBalanceError={producerSigningWalletBalanceError}
           producerSetupComplete={producerSetupComplete}
@@ -6400,6 +6423,7 @@ export function App() {
           producerProfile={producerProfile}
           clearProducerSetup={clearProducerSetup}
           openWalletTab={() => requestActiveTab('wallet')}
+          onProducerBlockClick={openBlockInExplorer}
         />
       )}
 
@@ -6436,9 +6460,10 @@ export function App() {
           onBlockClick={(block: any) => {
             const next = selectedBlock?.blockId === block.blockId ? null : block
             selectedBlockRef.current = next
+            setSelectedBlockRpcUrl(next ? effectiveExplorerRpcUrl : null)
             setSelectedBlock(next)
           }}
-          rpcUrl={effectiveExplorerRpcUrl}
+          rpcUrl={selectedBlockRpcUrl ?? effectiveExplorerRpcUrl}
         />
       )}
 

@@ -8,11 +8,19 @@ All notable changes to this project are documented in this file.
 <a id="unreleased"></a>
 ## Unreleased
 
+### Changed
+
+- Added a Producer tab notice when recent blocks show the configured producer
+  address is active on-chain but the local installation has not created or
+  registered the matching producer key yet.
+
 ### Fixed
 
 - Fixed external source-code links in the Documentation tab so they open in the
   system browser instead of navigating the embedded manual iframe to a blank
   page.
+- Hardened RocksDB state DB commits so object deletes, tombstones, and metadata
+  write through the same synced batch as object puts.
 
 
 <a id="version-1.0.3"></a>
