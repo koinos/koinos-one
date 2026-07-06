@@ -206,6 +206,19 @@ product version, build timestamp, Git commit, release channel, and native node
 build identity. Use SemVer for product versions and unique build metadata for
 every packaged canary, beta, or stable build.
 
+`teleno_node` has its own independent SemVer stream. The native runtime version
+source of truth is `node/teleno-node/VERSION`; do not infer the native runtime
+version from `package.json`. Native builds report `teleno_node
+<native-version>+<git-commit>[-dirty]`, and independent native release tags use
+`teleno-node-v<version>`.
+
+Keep `CHANGELOG.md` as the single canonical changelog for the repository. When
+both app and native runtime changes are present, organize entries by component
+inside the same version or unreleased section, such as `Koinos One`,
+`teleno_node`, `Docker / Linux image`, and `Docs / Packaging`. Keep
+`docs/manual/reference/changelog.md` generated from `CHANGELOG.md`; do not
+maintain a second hand-written changelog for the native runtime.
+
 When changing user-facing functionality, update changelog or release notes as
 appropriate, and ensure the GUI About/Build Info surface can show the exact
 version and commit included in the build.
@@ -222,6 +235,32 @@ as required release work, not optional cleanup:
   verification before tagging or publishing;
 - only create/push a release tag and GitHub release after the version,
   changelog, manual changelog, and package artifacts match.
+
+When the user asks to release the native runtime independently, treat it as a
+separate `teleno_node` release workflow:
+
+- update `node/teleno-node/VERSION` only when the native runtime SemVer should
+  change;
+- keep the native release notes in `CHANGELOG.md` under `teleno_node` and, when
+  applicable, `Docker / Linux image`;
+- run `npm run teleno-node:version` and
+  `npm run generate:teleno-node-build-info`;
+- build the native target and verify `teleno_node --version` starts with the
+  version from `node/teleno-node/VERSION`;
+- for Linux/container releases, build or verify the Docker image with
+  `TELENO_NODE_VERSION` set from `node/teleno-node/VERSION`, confirm
+  `org.opencontainers.image.version`, and smoke-test `docker run --rm
+  <image> --version`;
+- publish native/runtime artifacts with tags such as `teleno-node-v0.1.0` and
+  Docker tags such as `0.1.0` and `teleno-node-v0.1.0`.
+
+When the user asks to release Koinos One, include the bundled `teleno_node`
+semantic version, build version, and binary identity in the release checks and
+release notes. A Koinos One release does not automatically require a
+`teleno_node` SemVer bump unless the native runtime changed in a way that should
+be released independently; a native runtime release does not automatically
+require a Koinos One `package.json` version bump unless the desktop app is also
+being released.
 
 After a release has been created, start the next user-facing feature track on a
 feature branch instead of continuing directly on `main`. Pick the next intended
