@@ -5,20 +5,30 @@ This image packages the Linux `teleno_node` runtime so an operator can run or bo
 The GitHub Actions workflow publishes to GitHub Container Registry:
 
 ```text
-ghcr.io/pgarciagon/teleno-node
+ghcr.io/koinos/teleno-node
 ```
 
 The default rolling test image tag is:
 
 ```bash
-docker pull ghcr.io/pgarciagon/teleno-node:beta
+docker pull ghcr.io/koinos/teleno-node:beta
+```
+
+Independent runtime releases also publish native-version tags such as:
+
+```bash
+docker pull ghcr.io/koinos/teleno-node:0.1.0
+docker pull ghcr.io/koinos/teleno-node:teleno-node-v0.1.0
 ```
 
 ## Build Locally
 
 ```bash
-docker build -t teleno-node:local .
-docker run --rm teleno-node:local --version
+TELENO_NODE_VERSION="$(tr -d '[:space:]' < node/teleno-node/VERSION)"
+docker build \
+  --build-arg TELENO_NODE_VERSION="$TELENO_NODE_VERSION" \
+  -t "teleno-node:${TELENO_NODE_VERSION}" .
+docker run --rm "teleno-node:${TELENO_NODE_VERSION}" --version
 ```
 
 The Docker build uses `scripts/build-cpp-libp2p-koinos.sh`, so the container binary is built through the same Linux native path as the manual Ubuntu build.
@@ -38,7 +48,7 @@ docker run --rm --name teleno-testnet \
   -v "$HOME/teleno-testnet/basedir:/data" \
   -p 127.0.0.1:18122:18122 \
   -p 18888:18888 \
-  ghcr.io/pgarciagon/teleno-node:beta \
+  ghcr.io/koinos/teleno-node:beta \
   --basedir /data \
   --config /data/config.yml \
   --jsonrpc-listen 0.0.0.0:18122 \
@@ -62,7 +72,7 @@ Restore the current signed public testnet snapshot into an empty basedir:
 ```bash
 docker run --rm --entrypoint /bin/sh \
   -v "$HOME/teleno-testnet/basedir:/data" \
-  ghcr.io/pgarciagon/teleno-node:beta \
+  ghcr.io/koinos/teleno-node:beta \
   -lc 'test -f /data/config.yml || cp /usr/local/share/teleno/config/testnet-public-bootstrap-observer.container.yml /data/config.yml
        exec teleno_node --basedir /data --config /data/config.yml \
          --backup-public-restore \
@@ -80,7 +90,7 @@ Do not bake SSH private keys, password files, or public-bootstrap signing privat
 docker run --rm \
   -v "$HOME/teleno-testnet/basedir:/data" \
   -v "$HOME/.ssh:/keys:ro" \
-  ghcr.io/pgarciagon/teleno-node:beta \
+  ghcr.io/koinos/teleno-node:beta \
   --basedir /data \
   --config /data/config.yml \
   --backup-list-remote
@@ -115,7 +125,7 @@ docker run -d --name teleno-prod-producer \
   -p 127.0.0.1:8080:8080 \
   -p 8888:8888 \
   --entrypoint teleno-prod-producer \
-  ghcr.io/pgarciagon/teleno-node:beta
+  ghcr.io/koinos/teleno-node:beta
 ```
 
 Check the node from the Linux host:
@@ -145,9 +155,9 @@ The helper writes `/data/config.yml` from the bundled prodnet template when no c
 The workflow `.github/workflows/teleno-node-container.yml` builds and smoke-tests the image on Ubuntu 24.04. It publishes package tags to GitHub Container Registry on:
 
 - pushes to `main` that touch the container or native-node build inputs;
-- tags matching `v*` or `node-v*`;
+- tags matching `v*`, `node-v*`, or `teleno-node-v*`;
 - manual workflow dispatch when `push_image` is enabled.
 
-The workflow always publishes a commit tag like `sha-<shortsha>`. On `main` and manual dispatch it also publishes `beta`; manual dispatch can add another tag through the `image_tag` input.
+The workflow always publishes a commit tag like `sha-<shortsha>`. On `main` and manual dispatch it also publishes `beta`. Manual dispatch or native release tags publish version tags from `node/teleno-node/VERSION`; manual dispatch can add another tag through the `image_tag` input.
 
 The package may need to be made public once in GitHub Packages if operators should pull it without authenticating.

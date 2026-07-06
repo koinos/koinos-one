@@ -373,7 +373,7 @@ Restore a prodnet observer with Docker:
 ```bash
 docker run --rm \
   -v "$HOME/teleno-prodnet-observer/basedir:/data" \
-  ghcr.io/pgarciagon/teleno-node:beta \
+  ghcr.io/koinos/teleno-node:beta \
   --basedir /data \
   --config /data/config.yml \
   --backup-public-restore \
@@ -390,7 +390,7 @@ docker run -d --name teleno-prodnet-observer \
   -v "$HOME/teleno-prodnet-observer/basedir:/data" \
   -p 127.0.0.1:18080:18080 \
   -p 18889:18889 \
-  ghcr.io/pgarciagon/teleno-node:beta \
+  ghcr.io/koinos/teleno-node:beta \
   --basedir /data \
   --config /data/config.yml \
   --disable block_producer grpc contract_meta_store transaction_store account_history
@@ -474,7 +474,7 @@ Real public testnet validation:
   - preflight passed with enough disk space on the 150 GB root filesystem;
   - restored 455 objects into `<VPS1_PRODNET_OBSERVER_BASEDIR>`;
   - restore activation completed with `ok: true` and `start_as_observer_first: true`;
-  - started `ghcr.io/pgarciagon/teleno-node:beta` as container `teleno-prodnet-observer` with restart policy `unless-stopped`;
+  - started `ghcr.io/koinos/teleno-node:beta` as container `teleno-prodnet-observer` with restart policy `unless-stopped`;
   - opened RocksDB with 9 column families, reached `[node] teleno_node ready`, connected to prodnet peers, and began catch-up from the restored head;
   - JSON-RPC `chain.get_head_info` returned head height `36976616` during catch-up, confirming the restored observer is serving local RPC while syncing.
 

@@ -229,7 +229,7 @@ export type RemoteProviderImportOptions = {
   existingInventory?: RemoteFleetInventory
 }
 
-const DEFAULT_IMAGE = 'ghcr.io/pgarciagon/teleno-node:beta'
+const DEFAULT_IMAGE = 'ghcr.io/koinos/teleno-node:beta'
 const DEFAULT_VERSION = '<teleno_node-version-or-commit>'
 const PRODNET_BOOTSTRAP_POLICY_ID = 'prodnet-public-bootstrap-v1'
 const PRODNET_BOOTSTRAP_POLICY_DIGEST = 'sha256:70726f646e65742d7075626c69632d626f6f7473747261702d76310000000000'

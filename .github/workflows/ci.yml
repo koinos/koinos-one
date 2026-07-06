@@ -49,6 +49,7 @@ jobs:
         run: |
           node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('package-lock.json', 'utf8'))"
+          npm run teleno-node:version
 
       - name: Build documentation
         run: npm run docs:build

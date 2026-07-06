@@ -402,7 +402,7 @@ fleet:
       connection_ref: ssh-prodnet-a
       runtime:
         kind: docker
-        image: ghcr.io/pgarciagon/teleno-node:beta
+        image: ghcr.io/koinos/teleno-node:beta
         expected_version: "<teleno_node-version-or-commit>"
       paths:
         basedir: "<remote-basedir>"

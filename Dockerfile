@@ -7,6 +7,7 @@ FROM ubuntu:${UBUNTU_VERSION} AS build
 ARG JOBS=4
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
+ARG TELENO_NODE_VERSION=unknown
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -47,18 +48,26 @@ RUN --mount=type=cache,target=/opt/teleno-deps,sharing=locked \
     scripts/build-zstd-static.sh \
     scripts/build-gmp-static.sh \
     scripts/build-libssh-static.sh \
+    && source_version="$(tr -d '[:space:]' < node/teleno-node/VERSION)" \
+    && if [[ "${TELENO_NODE_VERSION}" != "unknown" && "${TELENO_NODE_VERSION}" != "${source_version}" ]]; then \
+         echo "TELENO_NODE_VERSION=${TELENO_NODE_VERSION} does not match node/teleno-node/VERSION=${source_version}" >&2; \
+         exit 1; \
+       fi \
     && JOBS="${JOBS}" ./scripts/build-cpp-libp2p-koinos.sh \
     && install -Dm755 "${KOINOS_NODE_BUILD_DIR}/teleno_node" /out/teleno_node \
-    && /out/teleno_node --version
+    && /out/teleno_node --version | tee /out/teleno_node.version \
+    && grep -Eq "^teleno_node ${source_version}(\\+|$)" /out/teleno_node.version
 
 FROM ubuntu:${UBUNTU_VERSION} AS runtime
 
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
+ARG TELENO_NODE_VERSION=unknown
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+    LC_ALL=C.UTF-8 \
+    TELENO_NODE_VERSION="${TELENO_NODE_VERSION}"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -72,6 +81,7 @@ RUN apt-get update \
     && mkdir -p /data /usr/local/share/teleno/config /usr/local/share/teleno/public-bootstrap
 
 COPY --from=build /out/teleno_node /usr/local/bin/teleno_node
+COPY --from=build /out/teleno_node.version /usr/local/share/teleno/teleno_node.version
 COPY config/testnet-public-bootstrap-observer.yml /usr/local/share/teleno/config/testnet-public-bootstrap-observer.yml
 COPY config/testnet-public-bootstrap-observer.container.yml /usr/local/share/teleno/config/testnet-public-bootstrap-observer.container.yml
 COPY config/prodnet-docker-producer.yml /usr/local/share/teleno/config/prodnet-docker-producer.yml
@@ -82,6 +92,7 @@ RUN chmod +x /usr/local/bin/teleno-prod-producer
 LABEL org.opencontainers.image.title="Teleno Node" \
       org.opencontainers.image.description="Linux container image for the monolithic teleno_node runtime" \
       org.opencontainers.image.source="https://github.com/koinos/koinos-one" \
+      org.opencontainers.image.version="${TELENO_NODE_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_DATE}"
 

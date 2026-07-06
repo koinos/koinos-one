@@ -18,6 +18,7 @@ on:
     tags:
       - 'v*'
       - 'node-v*'
+      - 'teleno-node-v*'
     paths:
       - Dockerfile
       - .dockerignore
@@ -77,6 +78,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Resolve teleno_node version
+        id: node-version
+        run: |
+          version="$(tr -d '[:space:]' < node/teleno-node/VERSION)"
+          echo "value=${version}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=teleno-node-v${version}" >> "$GITHUB_OUTPUT"
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -84,6 +92,8 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=beta,enable=${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ steps.node-version.outputs.value }},enable=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/teleno-node-v') || startsWith(github.ref, 'refs/tags/node-v') }}
+            type=raw,value=${{ steps.node-version.outputs.release_tag }},enable=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/teleno-node-v') || startsWith(github.ref, 'refs/tags/node-v') }}
             type=raw,value=${{ github.event.inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '' }}
             type=ref,event=branch
             type=ref,event=tag
@@ -105,13 +115,16 @@ jobs:
           build-args: |
             VCS_REF=${{ github.sha }}
             BUILD_DATE=${{ steps.build-date.outputs.value }}
+            TELENO_NODE_VERSION=${{ steps.node-version.outputs.value }}
             JOBS=4
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Smoke test image
         run: |
-          docker run --rm teleno-node:ci --version
+          docker run --rm teleno-node:ci --version | tee /tmp/teleno-node-version.txt
+          grep -Eq "^teleno_node ${{ steps.node-version.outputs.value }}(\\+|$)" /tmp/teleno-node-version.txt
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' teleno-node:ci)" = "${{ steps.node-version.outputs.value }}"
           docker run --rm teleno-node:ci --help >/tmp/teleno-node-help.txt
           grep -q -- "--backup-public-list" /tmp/teleno-node-help.txt
           docker run --rm --entrypoint teleno-prod-producer teleno-node:ci 2>/tmp/teleno-prod-producer-guard.txt && exit 1 || true

@@ -9,6 +9,9 @@ All notable changes to this project are documented in this file.
 - Added a Producer tab notice when recent blocks show the configured producer
   address is active on-chain but the local installation has not created or
   registered the matching producer key yet.
+- Added independent `teleno_node` version metadata and Docker release tags so
+  the native runtime can be released, installed, and audited separately from the
+  Koinos One desktop app version.
 
 ### Fixed
 

@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { telenoNodeIdentity } = require('./lib/teleno-node-identity');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT, 'build', 'generated');
 const OUTPUT_FILE = path.join(OUTPUT_DIR, 'build-info.json');
 const PACKAGE_JSON = path.join(ROOT, 'package.json');
 const isWindows = process.platform === 'win32';
-const ext = isWindows ? '.exe' : '';
 
 function readPackageVersion() {
   try {
@@ -32,29 +31,11 @@ function git(args) {
   }
 }
 
-function sha256File(filePath) {
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return null;
-  const hash = crypto.createHash('sha256');
-  hash.update(fs.readFileSync(filePath));
-  return hash.digest('hex');
-}
-
 function nativeNodeIdentity() {
-  const candidates = [
-    path.join(ROOT, 'node', 'teleno-node', isWindows ? 'build-win' : 'build', `teleno_node${ext}`),
-    path.join(ROOT, 'node', 'teleno-node', isWindows ? 'build-win' : 'build', 'src', `teleno_node${ext}`),
-  ];
-  const binaryPath = candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
-  const stat = fs.existsSync(binaryPath) ? fs.statSync(binaryPath) : null;
-  const sha256 = sha256File(binaryPath);
-
-  return {
-    binaryName: `teleno_node${ext}`,
-    sha256,
-    shortSha256: sha256 ? sha256.slice(0, 12) : null,
-    sizeBytes: stat ? stat.size : null,
-    mtime: stat ? stat.mtime.toISOString() : null,
-  };
+  return telenoNodeIdentity({
+    root: ROOT,
+    targetPlatform: isWindows ? 'win32' : process.platform,
+  });
 }
 
 function releaseChannel(version) {

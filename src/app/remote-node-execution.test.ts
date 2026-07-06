@@ -243,7 +243,7 @@ describe('remote node execution gates', () => {
         connectionRef: 'ssh-prodnet-trusted-a',
         runtime: {
           kind: 'docker',
-          image: `ghcr.io/pgarciagon/teleno-node@${trustedDigest}`,
+          image: `ghcr.io/koinos/teleno-node@${trustedDigest}`,
           expectedVersion: 'prodnet-reviewed-build',
           serviceName: ''
         },
@@ -280,7 +280,7 @@ describe('remote node execution gates', () => {
           connectionRef: 'ssh-prodnet-trusted-a',
           runtime: {
             kind: 'docker',
-            image: `ghcr.io/pgarciagon/teleno-node@${trustedDigest}`,
+            image: `ghcr.io/koinos/teleno-node@${trustedDigest}`,
             expectedVersion: 'prodnet-reviewed-build',
             serviceName: ''
           },

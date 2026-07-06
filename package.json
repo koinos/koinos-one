@@ -17,6 +17,8 @@
     "build:icon:mac": "node scripts/build-mac-icon.js",
     "notarize:preflight": "node scripts/check-notarize-credentials.js",
     "generate:build-info": "node scripts/generate-build-info.js",
+    "generate:teleno-node-build-info": "node scripts/generate-teleno-node-build-info.js",
+    "teleno-node:version": "node scripts/verify-teleno-node-version.js",
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "package:mac": "npm run notarize:preflight && npm run build:icon:mac && npm run build && npm run stage && npm run test:package-staging && electron-builder --mac dmg && npm run test:packaged",
