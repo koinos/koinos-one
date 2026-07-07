@@ -29,6 +29,20 @@ All notable changes to this project are documented in this file.
 - Added a Producer tab notice when recent blocks show the configured producer
   address is active on-chain but the local installation has not created or
   registered the matching producer key yet.
+- Parallelized the state delta replay auditor's default journal replay: record
+  decoding and per-block delta Merkle hashing now run on all CPU cores one
+  journal bucket at a time, with only the cheap parent-root chain validation
+  kept sequential. Journaled receipts are also pruned to the fields the audit
+  consumes (id, height, state Merkle root, and state delta entries), shrinking
+  the journal and speeding up bucket loads.
+- Pipelined the state delta replay auditor's journal build: a reader thread
+  streams the source block store with 16 MiB readahead while parser threads
+  decode and encode records in parallel and the main thread writes bucket
+  files, instead of doing scan, parse, encode, and write serially on one core.
+- Progress rate and ETA for the auditor now use an exponentially smoothed
+  recent-window throughput instead of the cumulative average, so ETA no longer
+  grows without bound when early progress was faster than steady-state disk
+  throughput.
 
 ### Fixed
 
@@ -37,6 +51,35 @@ All notable changes to this project are documented in this file.
   page.
 - Hardened RocksDB state DB commits so object deletes, tombstones, and metadata
   write through the same synced batch as object puts.
+- Fixed a state delta replay auditor journal build bug where `--to-height`
+  prefix audits could stop the source scan as soon as every height had one
+  candidate. Because the scan is in block id order, that early stop could drop
+  the canonical block for a height that a fork candidate had already covered,
+  causing replay to fail with a spurious missing-parent error. New journals
+  record a full-source-scan marker, and prefix journals built by earlier
+  versions (which may be missing candidates) are detected and rebuilt
+  automatically instead of being reused.
+- Fixed state delta replay auditor canonical block selection at forks. Forward
+  greedy parent chaining could follow an orphan when fork siblings share a
+  parent (mainnet history holds ~4.2M fork candidates) and abort one height
+  later with a spurious missing-parent error. Replay now resolves the canonical
+  chain backward from the known head block id, where each parent pointer
+  uniquely selects the block below, and validates the state root chain against
+  a genesis zero-hash anchor.
+- The state delta replay auditor now inventories historical state-root
+  anomalies instead of aborting on the first one. Blocks produced under the
+  old normal-remove semantics committed state roots that exclude some recorded
+  entries (transient tombstones, observed on mainnet at height 32,789,377, and
+  no-op puts); the auditor searches recorded-entry subsets for the exact
+  omission that reproduces the consensus root and counts matches in
+  `legacy_dropped_tombstone_blocks`/`legacy_dropped_tombstones`/
+  `legacy_dropped_puts`. Mismatches no subset explains (observed at height
+  30,504,202, likely a receipt that lost an entry consensus included) are
+  logged with full forensics and counted in `unexplained_mismatch_blocks`; the
+  audit completes the full inventory and exits with status 2 and a
+  "completed with unexplained mismatches" verdict instead of "ok". Direct
+  journal replay also supports `--from-height` above genesis now, since the
+  backward walk anchors on the audit tip rather than on genesis.
 
 ## [1.0.3] - 2026-07-02
 

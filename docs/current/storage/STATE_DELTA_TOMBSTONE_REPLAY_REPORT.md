@@ -461,7 +461,7 @@ restored or copied block-store database:
 ```bash
 cmake --build node/teleno-node/build --target koinos_state_delta_replay_audit --parallel
 
-node/teleno-node/build/src/koinos_state_delta_replay_audit \
+node/teleno-node/build/koinos_state_delta_replay_audit \
   --source-basedir /path/to/restored/basedir \
   --scratch-state-dir /path/to/state-delta-audit-scratch \
   --reset-scratch \
@@ -492,7 +492,17 @@ SCRATCH_STATE_DIR.delta-journal
 
 The journal is built with a sequential scan of the source block-store column
 family and stores only the block id, block header, and receipt needed for audit
-replay. It is append-only and split into height-range bucket files, so replay
+replay. Journaled receipts are pruned to the fields the audit consumes (id,
+height, `state_merkle_root`, `state_delta_entries`); events, transaction
+receipts, and logs are dropped, which substantially shrinks the journal and
+speeds up bucket loads. The journal build always scans the full source column
+family, because the scan is in block id order and a fork candidate for an
+already-covered height can appear arbitrarily late in the scan. New journals
+record a `full_source_scan` marker in their metadata; a `--to-height` prefix
+journal built by an earlier auditor version (which could stop the scan early
+and drop canonical candidates) lacks the marker and is rebuilt automatically
+instead of being reused. The journal is
+append-only and split into height-range bucket files, so replay
 can validate blocks in chain order without performing one random source RocksDB
 lookup per block id, without one random seek per journal record, and without
 using RocksDB for the journal itself. This avoids LSM compaction stalls while
@@ -519,6 +529,48 @@ then chains those computed roots through each next block's
 for proving that historical receipt state deltas reproduce the expected parent
 state roots and `block_receipt.state_merkle_root` values.
 
+Because each block's delta Merkle root depends only on that block's own receipt
+entries, the default replay decodes journal records and computes their roots on
+all available CPU cores, one journal bucket at a time. Only the id/root chain
+validation is sequential, and it is a cheap string comparison per block, so
+replay throughput scales close to linearly with core count.
+
+Canonical block selection walks the chain backward from the audit tip. Fork
+siblings can share a parent block (mainnet history retains roughly 4.2M fork
+candidates alongside 37.3M canonical blocks), so forward greedy parent chaining
+can follow an orphan and abort one height later with a spurious missing-parent
+error. Walking backward avoids the ambiguity: the tip block is known — the
+source head id for full audits, or the stored candidate for `--to-height`
+prefix audits — and each block's `previous` pointer then uniquely selects the
+canonical block below it. The walk also validates each block's computed delta
+root against the block above's `previous_state_merkle_root`, and terminates at
+genesis against the zero-hash anchor for both the parent id and the parent
+state root. Because the walk anchors on the tip rather than genesis,
+`--from-height` above 1 is supported for the direct replay path; the genesis
+anchor is only checked when the walk reaches height 1.
+
+### Legacy tombstone-drop blocks
+
+Full-history replay on a mainnet copy surfaced confirmed on-chain instances of
+the old normal-remove semantics. At height 32,789,377 (block id
+`0x1220a97d7b0567ad55e3b04446a2bef447335cfd676668b069544b04a4719146d586`), the
+recorded receipt holds 12 delta entries including 2 removes, but the state root
+committed by consensus (the next block's `previous_state_merkle_root`) matches
+the Merkle computation only when exactly one of the removes — a transient
+tombstone for a key absent from the parent — is dropped. This is precisely the
+`erase()` behavior described above: `if( find( k ) || preserve_tombstone )`
+records a remove of an existing key but silently drops a remove of an absent
+key from the era's delta Merkle computation, while the receipt records both.
+
+The auditor treats these blocks as a documented, quantified legacy class
+rather than corruption. When a block's preserve-tombstone root does not match
+the consensus root, it searches remove-entry subsets (up to 16 removes per
+block) for one whose omission reproduces the consensus root exactly. A match
+increments `legacy_dropped_tombstone_blocks` and `legacy_dropped_tombstones`
+in the final statistics and logs a `legacy_tombstone_drop` line with the
+height, block id, and dropped-entry count. A mismatch that no remove subset
+explains still aborts the audit as a genuine inconsistency.
+
 For deeper diagnostics, `--state-db-replay` switches back to the older
 height-index/source-DB replay path. That path builds or reuses a local height
 index:
@@ -536,6 +588,14 @@ is therefore much slower than the default journal path.
 
 Use `--height-index-dir /path/to/index` to choose another state DB replay index
 location, or `--rebuild-height-index` to force a fresh index rebuild.
+
+Known `--state-db-replay` limitation: the height index keeps one block id per
+height, chosen as the first record seen in the block-id-ordered source scan. If
+the source block store retains an applied-then-reverted fork block at some
+height, the index can map that height to the fork block and the replay aborts
+with a parent mismatch. The default journal replay path does not have this
+limitation because it stores every candidate per height and resolves the
+canonical block by walking the chain backward from the known audit tip.
 
 When `--state-db-replay` is used, the scratch state DB uses asynchronous RocksDB
 writes by default because it is a rebuildable audit artifact and a full fsync for
