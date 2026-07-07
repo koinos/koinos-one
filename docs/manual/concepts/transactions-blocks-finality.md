@@ -73,7 +73,7 @@ optimize the execution engine only if the observable result stays the same.
 Sometimes nodes may see competing blocks or forks. The configured fork-choice
 rules determine which valid chain becomes canonical.
 
-The current chain service supports configured fork algorithms including:
+The chain service supports these configurable fork algorithms:
 
 | Algorithm | Meaning |
 | --- | --- |
@@ -81,13 +81,17 @@ The current chain service supports configured fork algorithms including:
 | `block-time` | Earliest timestamp wins. |
 | `pob` | Highest Proof-of-Burn score wins. |
 
-Production-style Koinos behavior uses Proof of Burn and VHP semantics. Private
-or controlled tests may use other configurations to validate mechanics, but
-those tests are not a substitute for production Proof-of-Burn compatibility.
+The default — and the setting Koinos mainnet requires — is `pob`, which
+follows Proof of Burn and VHP semantics. Private or controlled tests may use
+the other algorithms to validate mechanics, but they are not a substitute for
+production Proof-of-Burn compatibility.
 
-Finality is the point at which a block is considered settled according to the
-network rules and fork-choice behavior. Operators should still treat local
-sync, peer health, and node configuration as part of operational confidence.
+Finality is the point at which a block is considered settled. Koinos nodes
+track a last irreversible block: blocks at or below that height are final and
+can no longer be replaced by a competing fork, while blocks above it are
+recent enough that fork choice still applies. Operators should still treat
+local sync, peer health, and node configuration as part of operational
+confidence.
 
 ## Restore And Validation Note
 
