@@ -78,7 +78,7 @@ mana for the operation.
 - The transaction result matches the target account, asset, and amount you
   intended.
 
-## Stop And Ask Before Continuing
+## Think Twice Before These Actions
 
 Stop before disabling `Dry run`, sending funds, burning KOIN into VHP, or using
 a wallet to register or replace a producer key on mainnet. Confirm the network,
