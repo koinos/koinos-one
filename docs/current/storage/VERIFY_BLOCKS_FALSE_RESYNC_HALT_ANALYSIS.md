@@ -351,59 +351,90 @@ Estimated size: ~40 lines of product code + tests.
 
 ### 3.2 Legacy official microservices (koinos-chain / koinos-block-store / AMQP stack)
 
-**Key difference discovered while grounding this plan:** the official
-microservices (pinned here as `vendor/koinos/koinos` v1.1.0 plus
-`compat/legacy-services/koinos-p2p`) have **no receipt-delta replay path at
-all** — `apply_block_delta` does not exist there; the official
-`koinos-chain` indexer always re-executes every block (`submit_block`).
-Option A therefore cannot be "added" to legacy in isolation: the fast-replay
-feature and its fallback must be ported **together**, as one upstream
-contribution. (Corollary: legacy today never halts at the two blocks — it is
-merely slow everywhere; the port brings the speed *and* the safety in one
-motion.)
+**State of upstream, verified against the official `koinos/koinos-chain`
+sources** (an earlier revision of this section wrongly claimed the feature
+was absent — that grep ran against the docker-compose orchestration repo,
+which carries no chain source):
+
+1. **The fast replay exists upstream.** Official `koinos-chain` has the
+   `verify-blocks` option (`src/koinos_chain.cpp:75`), the same indexer
+   branch (`src/koinos/chain/indexer.cpp:234-241`), and
+   `controller::apply_block_delta` (`src/koinos/chain/controller.cpp:634`).
+   Teleno inherited this path; it did not invent it.
+2. **Upstream still has the tombstone bug.** The official delta apply uses
+   plain `block_node->remove_object( space, key )` — no
+   `remove_object_preserve_tombstone`. Removes of parent-absent keys are
+   silently dropped from the replayed delta.
+3. **Upstream replay verifies nothing.** The official `apply_block_delta`
+   has no `previous_state_merkle_root` check and no receipt-root check — it
+   applies deltas blindly. A wrong replayed root therefore surfaces only
+   later, when the node transitions to live sync and the first executed
+   block's header check fails far from the causal block. That distance
+   between cause and symptom is exactly how the KFS chain-halt incident
+   manifested on the legacy stack.
+4. **Upstream already ships a per-block rectification mechanism.**
+   `maybe_rectify_state` (`src/koinos/chain/rectify.cpp`, invoked from the
+   execution path at `controller.cpp:421`) hardcodes receipt/state
+   corrections for specific historical blocks (height 9,180,357 and an
+   Oct-2025 window). This is upstream's accepted precedent for option-D
+   style fixes — but none of the anomaly heights in this report are covered.
+
+**Predicted legacy behavior at the audited anomalies (current upstream
+semantics):** the three common-subclass incident blocks (30,488,259 /
+32,770,789 / 32,900,350 — consensus *includes* the tombstone) replay with a
+silently wrong root and blow up later at the live-sync boundary; block
+32,789,377 (consensus *excludes* it) happens to replay "correctly" under the
+old semantics; 30,504,202 diverges under any semantics. The legacy failure
+mode is strictly worse than Teleno's: same halts, but delayed and detached
+from the causal height.
 
 **Port plan, in dependency order:**
 
-1. **`koinos/state_db` (inside the koinos-chain repository)** — port the
-   tombstone-preserving mutation API from Teleno:
-   `state_delta::erase( key, bool preserve_tombstone )` and the
-   `state_node::remove_object_preserve_tombstone()` wrapper. This is the
-   protocol-parity-critical piece; it must match Teleno byte-for-byte (both
-   were audited against 37.28M mainnet blocks here).
-2. **`koinos-chain` controller** — port `apply_block_delta()` (the
-   receipt-delta application with the two Merkle asserts) and add the same
-   `discard_block_state()` helper as §3.1.
-3. **`koinos-chain` indexer** — port the `verify_blocks` constructor flag,
-   the per-block branch (`submit_block` vs `apply_block_delta`), the
-   one-block lookbehind, and the identical catch-and-re-execute fallback.
-   The official indexer already pulls `block_store::block_item` batches from
-   the block-store microservice over AMQP, so the data shape matches.
-4. **`koinos-block-store`** — verify `get_blocks_by_height` requests set
-   `return_receipt = true` on the indexer's fetch path (receipts are already
-   stored; the flag already exists in the block-store RPC protos). No
-   service-side change expected.
-5. **AMQP sizing** — receipts (even pruned ones) enlarge block-item
-   responses; check RabbitMQ max message size and the indexer's batch size
-   against blocks with large delta sets before enabling by default.
-6. **Configuration** — `verify-blocks: false` under the `chain:` section of
-   the microservice YAML, defaulting to `true` (today's behavior) so the
-   port is opt-in for legacy operators.
+1. **`koinos_state_db` (separate upstream package, consumed via
+   `koinos_add_package( koinos_state_db )`)** — port Teleno's
+   tombstone-preserving mutation API:
+   `state_delta::erase( key, bool preserve_tombstone )` and
+   `state_node::remove_object_preserve_tombstone()`. Protocol-parity
+   critical; must match Teleno byte-for-byte (Teleno's version is the one
+   audited against 37.28M mainnet blocks). This is its own repository and
+   release, so it goes first.
+2. **`koinos-chain` controller** — switch `apply_block_delta` to the
+   preserve-tombstone call and **add the two replay-time Merkle asserts**
+   from Teleno (parent `previous_state_merkle_root` before applying,
+   receipt root after). Without these, a fallback has nothing to catch —
+   fail-fast at the causal block is the prerequisite for self-repair, and
+   it eliminates the misleading far-from-cause halts on its own.
+3. **`koinos-chain` indexer** — the same one-block lookbehind and
+   catch-and-re-execute fallback as §3.1, plus the thin
+   `discard_block_state()` helper. The official indexer already pulls
+   `block_store::block_item` (block + receipt) batches over AMQP, so no
+   data-shape changes.
+4. **`koinos-block-store` / AMQP** — no service change expected
+   (receipts already stored and returned); sanity-check `return_receipt`
+   on the indexer's fetch path and RabbitMQ message sizing for blocks with
+   large delta sets.
+5. **Alternative accepted-by-upstream shape**: if the fallback is deemed too
+   invasive for legacy, the minimal upstream-idiomatic fix is extending
+   `maybe_rectify_state` with the audited heights (option D) — precedent
+   exists, but it hardcodes data and does not generalize; prefer the
+   fallback.
 
 **Testing / release gating:**
 
-- Reuse the Teleno unit tests (state_db and controller tests port with the
-  code — same repositories' test layout).
+- Port the Teleno unit tests alongside each PR (state_db, controller,
+  indexer).
 - *Cross-implementation parity gate*: sync the same mainnet block-store copy
   through (a) Teleno with the §3.1 fix and (b) patched koinos-chain; require
-  identical head state Merkle roots and identical fallback heights. This is
-  precisely the class of legacy validation the compatibility policy calls
-  for (protocol parity / migration safety).
+  identical head state Merkle roots and identical fallback heights
+  (30,504,202 and 32,789,377). This is precisely the class of legacy
+  validation the compatibility policy calls for (protocol parity /
+  migration safety).
 - The offline audit tool remains the independent referee for both stacks.
 
 **Sequencing recommendation:** land §3.1 in `teleno_node` first and validate
 against mainnet (production evidence on the real anomaly heights), then
-upstream the legacy port as three PRs matching steps 1–3 (state_db API →
-controller → indexer/config), each carrying its tests.
+upstream as three PRs matching steps 1–3 (state_db API → controller
+semantics + asserts → indexer fallback/config), each carrying its tests.
 
 ### Related documents
 
