@@ -21,12 +21,20 @@ recompute the fingerprint from the recorded changes and it matches, the
 recorded history is provably intact; if it doesn't, something is wrong with
 either the record or the software that wrote it.
 
-Years ago, node software had a subtle bug in how it handled one specific kind
-of database change: deleting a record that didn't exist yet at the start of
-the block (it was created and deleted within the same block). The current
-software fixes this, but a question remained: **how much of the existing
-chain history was actually touched by the old bug, and does the full history
-still check out under the corrected rules?**
+This audit exists because of a real production incident. Koinos nodes that
+were syncing the chain by replaying recorded changes (instead of re-executing
+every transaction) crashed and halted near a handful of specific heights. The
+common factor was activity from the **Koinos Fund System (KFS)** — the
+community funding application (contract
+`1A5BmMqV5jN5zBrdkhQumAfDZBzXLPBeN9`) where people submit projects, vote with
+KOIN/VHP, and funding is paid out monthly. KFS voting creates exactly the
+data shape that tripped an old node-software bug: a record created and
+deleted within the same block. The old software silently mishandled that
+"delete of a record that didn't exist at the start of the block", the
+replayed fingerprint stopped matching, and the node refused the next block —
+a halt. The current software fixes this, but a question remained: **how much
+of the existing chain history was actually touched by the old bug, and does
+the full history still check out under the corrected rules?**
 
 Until now nobody knew, because checking all 37 million blocks took days and
 the checking tool itself had bugs that stopped it partway. Both problems were
@@ -36,12 +44,13 @@ fixed, and the complete check has now been run for the first time.
 
 **37,280,004 blocks checked. 37,280,002 are perfect. 2 are anomalous.**
 
-- **Block 32,789,377** is a confirmed example of the old bug. Its record
-  contains a delete of a record that never existed outside that block, and
-  the old software silently left that delete out of the fingerprint math. The
-  audit identified the exact affected entry. The chain data is not corrupt —
-  the old software just computed the fingerprint slightly differently, and we
-  can now prove precisely how.
+- **Block 32,789,377** is a confirmed example of the old bug — and it is one
+  of the very blocks behind the chain-halt incident. Its record contains a
+  KFS vote entry that was created and deleted within the block, and the
+  fingerprint the network committed provably excludes that one delete. The
+  audit identified the exact affected entry (a KFS vote key). The chain data
+  is not corrupt — the old software just computed the fingerprint slightly
+  differently, and we can now prove precisely how, down to the single key.
 - **Block 30,504,202** doesn't match and can't be fully explained from this
   machine's data alone. The most likely cause is that this particular copy of
   the history is missing one small entry for that block (the reverse side of
@@ -135,23 +144,64 @@ final_block_id:        0x12205fd14f5c2d504646bf69e88ef2e8d8db41e60b4ff6c087430a8
 final_state_merkle_root: 0x1220b674199c1c179e1446691324b10bfbb27181b03f621da23b45474c80427007a6
 ```
 
-### Anomaly 1 — legacy tombstone drop (height 32,789,377)
+### Anomaly 1 — legacy tombstone drop (height 32,789,377, KFS)
 
 - Block id
-  `0x1220a97d7b0567ad55e3b04446a2bef447335cfd676668b069544b04a4719146d586`.
-- Receipt records 12 delta entries, 2 of them removes. The consensus root
-  (child's `previous_state_merkle_root`) is reproduced exactly when entry #8
-  — a remove with key
-  `0x3032303736343330323334323533303630393939393936` — is omitted from the
-  Merkle computation; the other remove must be kept.
+  `0x1220a97d7b0567ad55e3b04446a2bef447335cfd676668b069544b04a4719146d586` —
+  the causal block behind reported node failure height 32,789,378 in the
+  chain-halt incident (see the KFS section below).
+- Receipt records 12 delta entries including removes. The consensus root
+  (child's `previous_state_merkle_root`) is reproduced exactly when one
+  remove entry — key
+  `0x3032303736343330323334323533303630393939393936`, ASCII
+  `02076430234253060999996` — is omitted from the Merkle computation; the
+  remaining removes must be kept. That key is one of the three KFS
+  remove-only vote keys independently identified for this block in
+  `STATE_DELTA_TOMBSTONE_REPLAY_REPORT.md` (KFS contract
+  `1A5BmMqV5jN5zBrdkhQumAfDZBzXLPBeN9`, object-space id 2).
 - This matches the documented legacy semantics bit-for-bit:
   `state_delta::erase()` under `preserve_tombstone=false` records a remove of
   an existing key but silently drops a remove of a parent-absent key
-  (transient tombstone) from the delta, while the receipt records both. See
-  `STATE_DELTA_TOMBSTONE_REPLAY_REPORT.md` for the code-level analysis.
-- Interpretation: the receipt is the more complete record; the era's
-  consensus root under-counted one transient tombstone. Data is internally
-  consistent with the known bug; nothing is corrupt.
+  (transient tombstone) from the delta, while the receipt records both.
+- Interpretation — and a refinement of the earlier report's conclusion: for
+  this block the **consensus-committed root itself** excludes the transient
+  tombstone. The signed child header proves the network agreed on the
+  11-entry root, so the drop happened in the production/validation root
+  computation of that era, not merely in the offline replay path. The receipt
+  is the more complete record; nothing is corrupt.
+
+### Relationship to the KFS chain-halt incident
+
+The production incident that motivated this whole effort was nodes syncing
+with `verify-blocks=false` (receipt-delta replay) aborting with
+`block previous state merkle mismatch` near reported heights 30,488,260,
+32,770,790, 32,789,378, and 32,900,351 — all one block above causal blocks
+carrying Koinos Fund System remove-only vote entries (created-and-removed
+within the block). `STATE_DELTA_TOMBSTONE_REPLAY_REPORT.md` attributed the
+failures to the replay path dropping those tombstones and rejecting the next
+block; the affected node halts.
+
+This audit adds an independent, full-history cross-check of those four
+causal blocks:
+
+| Causal block | Audit result |
+|---|---|
+| 30,488,259 | validates cleanly under preserve-tombstone |
+| 32,770,789 | validates cleanly under preserve-tombstone |
+| **32,789,377** | **consensus root excludes one KFS tombstone** (Anomaly 1) |
+| 32,900,350 | validates cleanly under preserve-tombstone |
+
+Three of the four incident blocks have consensus roots that already include
+their tombstones — for them the halt was purely a replay-side bug, exactly as
+the earlier report concluded. Block 32,789,377 is the exception: its
+consensus root provably excludes one tombstone, so any correct
+preserve-tombstone implementation recomputing that block's root will disagree
+with consensus by exactly that entry. Auditors and replay implementations
+must treat it (and any block like it) as a known legacy class, which is what
+the auditor's `legacy_dropped_tombstone_blocks` accounting now does. The
+unexplained anomaly at height 30,504,202 was not part of the reported
+incident set, though it falls in the same activity era as the 30,488,260
+window.
 
 ### Anomaly 2 — unexplained mismatch (height 30,504,202)
 
