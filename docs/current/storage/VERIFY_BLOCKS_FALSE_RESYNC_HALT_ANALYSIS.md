@@ -60,14 +60,15 @@ use. → The node stops there too.
 
 ### The fixes, in plain terms
 
-1. **Teach the node the known exception** (recommended): when a signature
-   doesn't match, also try "would it match if I ignore that one odd
-   delete-of-nothing entry, the way the old software did?". If yes, it is the
-   known legacy case → accept and continue. This is exactly what the audit
-   tool already does; the same logic needs porting to the node's replay path.
-2. **For the page with the lost entry**: fetch a good copy of that page from
-   another node, or cross just that one block in slow mode (re-executing it
-   for real), or bootstrap from a snapshot taken after that height.
+The best one turns out to be simple: the node already stores the **full
+blocks**, not just the page summaries. So when a page's signature doesn't
+match, the node can **redo that one page for real** — re-execute the block
+the slow, fully-verified way — and then continue in fast mode. Redoing 2
+pages out of 37 million costs nothing, it fixes both problem pages, and it
+automatically handles any similar surprise that might exist in other copies
+of the history. Other options (patching the two pages in the data files
+once, keeping a small "known exceptions" list, or starting from a snapshot
+taken after the problem area) are described in Part 2.
 
 ---
 
@@ -164,14 +165,104 @@ done is an end-to-end run of the node's real `apply_block_delta` crossing
 those two heights. That empirical confirmation is cheap to set up and
 recommended before any launch decision.
 
-### Mitigation options
+### Solution proposals
 
-| Option | Fixes 32,789,377 | Fixes 30,504,202 | Notes |
-|---|---|---|---|
-| Port the audit's legacy-subset tolerance into `apply_block_delta`: on parent-root mismatch, retry with remove-entry subsets omitted; accept if a subset reproduces the signed header root | ✅ | ❌ | Mirrors `legacy_dropped_tombstone_blocks` accounting in the audit tool; bounded (≤ 20 entries) and only runs on mismatch |
-| Obtain a correct receipt for 30,504,202 from an independent block-store copy | — | ✅ | Also settles the degradation hypothesis |
-| Cross the affected heights with `verify-blocks=true` (hybrid sync) | ✅ | ✅ | Re-executes only a handful of blocks; simple operationally |
-| Bootstrap from a snapshot/checkpoint taken above 32,789,378 | ✅ | ✅ | Trades verification for trust in the snapshot provider |
+#### A. Per-block re-execution fallback (recommended)
+
+The block store holds full blocks, not just receipts, so the node has a
+perfect plan B available at all times: when the fast replay's root check
+fails, **re-execute that single block through the full verification path**
+(`submit_block`, the same code `verify-blocks=true` uses) and continue in
+fast mode.
+
+Why it fixes both anomalies:
+
+- **32,789,377**: current execution semantics treat a remove of a
+  never-existing key as a no-op — the same decision the original validators
+  made — so the re-executed root matches the consensus root.
+- **30,504,202**: re-execution does not depend on the (damaged) receipt at
+  all; it rebuilds the true delta from the block's transactions.
+- **Any future unknown anomaly** in other block-store copies is handled the
+  same way, with no heuristics and no hardcoded heights. Ground truth wins.
+
+Design sketch:
+
+1. The indexer retains the previous `block_item` (one-block lookbehind — the
+   mismatch over block H is detected while applying block H+1, after H has
+   been consumed from the queue).
+2. On `state_merkle_mismatch_exception` in `indexer::process_block`, instead
+   of aborting: log a warning, `discard_node(id_H)` (API already exists,
+   used in `apply_block_delta`), re-execute block H via
+   `controller::submit_block`, then retry `apply_block_delta(H+1)`.
+3. Loop guard: if the mismatch persists at the same height after one repair,
+   it is a genuine error — halt as today.
+
+Cost: zero in the clean case (only runs on mismatch); re-executes 2 blocks
+out of 37.28M on the current mainnet copy. Assumption to validate
+empirically: historical re-execution is deterministic under current code —
+the same premise `verify-blocks=true` from genesis already rests on.
+
+#### B'. Bounded legacy-root tolerance (partial)
+
+On mismatch, recompute the parent root with subsets of its remove entries
+omitted, and accept if one reproduces the signed header root. Unlike the
+audit tool, the node has the parent state, so the search can be restricted
+to removes of **parent-absent** keys — the only possible legacy-drop
+candidates (the two bug subclasses are indistinguishable at replay time
+because the receipt is a compacted net delta, so a deterministic
+recomputation is impossible and a bounded search is required). Fixes
+32,789,377 only; cannot fix 30,504,202 (missing data). Reasonable as a fast
+path in front of option A, unnecessary given A's negligible cost.
+
+#### C. Repair the data instead of the code (offline migration)
+
+- **C1 — regenerate receipts by re-execution**: a one-time migration tool
+  syncs to each anomalous height, re-executes the block, and rewrites the
+  stored receipt with the true delta. Vanilla replay then works forever;
+  runtime code stays untouched. Fixes both blocks.
+- **C2 — import correct receipts from an independent block-store copy**: for
+  30,504,202 specifically, this also settles the local-degradation
+  hypothesis.
+
+Trade-off: mutates historical data (needs careful tooling plus a post-repair
+audit run), and every operator holding an old copy must run the migration.
+
+#### D. Known-exceptions list (checkpoint-style)
+
+Ship a small list of heights (32,789,377 / 30,504,202) where, on mismatch,
+the node accepts the consensus-signed header root and continues. Ten lines,
+trivially auditable, zero risk outside the listed heights — but it does not
+generalize (a third anomaly means another release), and for 30,504,202 the
+resulting state may silently lack one entry (almost certainly a no-net-effect
+tombstone, but unproven).
+
+#### E. Snapshot bootstrap above the anomaly range
+
+Publish an audit-verified snapshot above height 32,789,378 and support fast
+sync only from there. No code changes, but genesis-to-head trustless
+reconstruction in fast mode is given up.
+
+#### F. Trust the signed root on any mismatch — rejected
+
+Silently accepting every mismatch destroys the verification value of the
+root check: any receipt corruption would pass unnoticed. Acceptable only
+when bounded to an explicit list, which is option D.
+
+#### Comparison and recommendation
+
+| Option | Fixes 32,789,377 | Fixes 30,504,202 | Generalizes | Risk | Effort |
+|---|---|---|---|---|---|
+| **A. Re-execution fallback** | ✅ | ✅ | ✅ | low | medium |
+| B'. Bounded legacy tolerance | ✅ | ❌ | partial | low | low |
+| C1. Offline receipt repair | ✅ | ✅ | ✅ (re-runnable) | medium (mutates data) | medium |
+| D. Exception list | ✅ | ✅* | ❌ | low | minimal |
+| E. Snapshot bootstrap | ✅ | ✅ | — | trust in provider | minimal |
+
+Recommended combination: **A** as the permanent node mechanism
+(self-healing, ground truth always wins), optionally **C1** as an operator
+tool for cleaning existing block stores in place. **D** works as an express
+patch if a launch cannot wait. The subset search stays where it belongs — in
+the audit tool, as a forensic diagnostic.
 
 ### Related documents
 
