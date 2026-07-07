@@ -8,6 +8,26 @@ All notable changes to this project are documented in this file.
 <a id="unreleased"></a>
 ## Unreleased
 
+### Added
+
+- Added `koinos_state_delta_replay_audit`, an offline native binary that opens a
+  restored unified block store read-only and validates historical receipt state
+  delta Merkle roots without using peers or node services. The auditor now reports a live terminal
+  progress bar with percentage, height, throughput, and ETA, and writes a
+  persistent audit log file by default under the scratch state directory. It
+  also builds a reusable local height index so full-history audits do not depend
+  on expensive head-anchored block range traversal before visible replay
+  progress starts. The auditor uses asynchronous writes for the rebuildable
+  scratch state DB by default, avoiding a full disk sync per replayed block, and
+  still offers `--sync-scratch-writes` for conservative durability testing. For
+  the default replay path, it now builds a bucketed append-only flat-file
+  header/receipt journal and computes each receipt delta Merkle root directly
+  from the serialized entries, avoiding per-block random reads from the source
+  block store, per-block random reads inside the journal, RocksDB journal
+  compaction stalls, and a full scratch state DB rebuild while preserving
+  parent-root and receipt-root validation. The older height-index/source-DB
+  replay path remains available with `--state-db-replay`.
+
 ### Changed
 
 - Added a Producer tab notice when recent blocks show the configured producer
