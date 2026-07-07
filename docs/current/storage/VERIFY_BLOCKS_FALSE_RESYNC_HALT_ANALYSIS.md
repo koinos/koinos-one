@@ -287,44 +287,53 @@ codebase, so the change is small and localized to two files.
   `controller&`, so both the previous block and `submit_block` are reachable
   from the repair site.
 
+**Design-safety constraint that rules out the naive shape.** The obvious
+design — catch the mismatch while applying H+1, discard block H's node,
+re-execute H — is **not implementable**: by then H is the head node, and
+`state_db` explicitly refuses to discard it
+(`src/koinos/state_db/state_db.cpp:824`,
+`cannot_discard: "cannot discard a node that would result in discarding of
+head"`). The repair must therefore happen **before H is finalized**, while
+its node is still writable. The indexer enables exactly that: it consumes
+blocks in canonical height order, so when it holds H+1 it already knows the
+consensus-signed expectation for H's root
+(`H+1.header().previous_state_merkle_root()`). The design is a one-block
+**lookahead**, not a lookbehind.
+
 **Changes:**
 
-1. **`indexer.hpp`** — two members:
-   `std::optional< block_store::block_item > _previous_item;` (one-block
-   lookbehind; the mismatch over H is detected after H has been consumed)
-   and `uint64_t _repaired_height = 0;` (loop guard).
-2. **`indexer.cpp` — `process_block()`**: keep the existing flow, but wrap
-   the non-verify branch:
+1. **`indexer.hpp`** — one member:
+   `std::optional< block_store::block_item > _pending_item;` (the block
+   whose application is deferred one step so its expected root is known).
+2. **`indexer.cpp` — `process_block()`** (non-verify branch): pull item
+   H+1; if `_pending_item` holds H, apply H with its expected root:
 
    ```
-   try {
-     _controller.apply_block_delta( item.block(), item.receipt(), target );
-   } catch( const state_merkle_mismatch_exception& ) {
-     if( _verify_blocks || !_previous_item
-         || _repaired_height == prev_height )  // guard
-       throw;                                   // → handle_error as today
-     LOG(warning) << "delta_replay_fallback height=" << prev_height
-                  << " re-executing block through full verification";
-     _controller.discard_block_state( _previous_item->block().id() );
-     rpc::chain::submit_block_request req;
-     *req.mutable_block() = _previous_item->block();
-     _controller.submit_block( req, target );    // ground truth for H
-     _repaired_height = prev_height;
-     _controller.apply_block_delta( item.block(), item.receipt(), target );
-   }
-   _previous_item = item;
+   _controller.apply_block_delta_checked(
+     _pending_item->block(), _pending_item->receipt(),
+     item.block().header().previous_state_merkle_root(),  // expected root of H
+     _target_head.height() );
+   _pending_item = item;
    ```
 
-3. **`controller.hpp/.cpp`** — one thin new method,
-   `void discard_block_state( const std::string& block_id )`: takes the
-   shared DB lock and calls `_db.discard_node()` for that id (same call
-   `apply_block_delta` already makes at controller.cpp:678 for pre-existing
-   nodes). Defensive assert: the node must be above the current LIB (a block
-   applied one step ago always is).
-4. **Call-site audit**: `verify_blocks` is also referenced in
-   `src/p2p/p2p_node.cpp`. If the live-sync path applies receipt deltas
-   anywhere outside the indexer, apply the same catch-and-re-execute wrapper
-   there; otherwise no change.
+   On completion of the stream, the final pending item (the target head)
+   has no successor: apply it with the plain `apply_block_delta` (its root
+   is cross-checked by the first live block, exactly as today).
+3. **`controller.hpp/.cpp`** — `apply_block_delta_checked( block, receipt,
+   expected_root, index_to )`: identical to `apply_block_delta`, plus, after
+   applying the delta entries and **before finalizing the node**, compare
+   `block_node->pending_merkle_root()` (the same accessor the existing
+   receipt-root check uses at controller.cpp:716) against `expected_root`.
+   On mismatch: log the `delta_replay_fallback` warning, discard the
+   **writable, not-yet-head** node (legal — the head-discard prohibition
+   does not apply), and re-execute the block through the existing
+   `apply_block` path (the `submit_block` internals), which rebuilds the
+   node from ground truth. If re-execution itself fails, propagate — that
+   is a genuine error and must halt as today. No retry loop, so no loop
+   guard is needed.
+4. **Call-site audit — done**: the live-sync path
+   (`src/p2p/p2p_node.cpp`) only uses `submit_block` (full execution); no
+   receipt deltas are applied outside the indexer. No change needed there.
 5. **No new config**. The fallback only runs on a mismatch that today is
    fatal, so it cannot regress the clean path. Optionally add
    `--strict-delta-replay` to restore hard-halt behavior for forensic runs.
@@ -335,10 +344,12 @@ codebase, so the change is small and localized to two files.
 **Testing:**
 
 - *Unit* (`tests/chain/controller_delta_test.cpp` pattern): build a parent
-  state, apply a crafted receipt containing a parent-absent remove, and a
-  child whose header root was computed without that entry — assert the
-  fallback re-executes and the sync continues; assert the loop guard still
-  hard-fails on a receipt that re-execution cannot reconcile.
+  state; apply a crafted receipt containing a parent-absent remove with an
+  `expected_root` computed without that entry — assert
+  `apply_block_delta_checked` discards the delta node, re-executes, and the
+  resulting node's root equals `expected_root`; assert a receipt that
+  re-execution cannot reconcile still fails hard; assert the clean path is
+  byte-identical to `apply_block_delta`.
 - *Empirical gate*: full mainnet resync with `verify-blocks=false` over the
   existing restored copy. Expected outcome: exactly two
   `delta_replay_fallback` warnings (heights 30,504,202 and 32,789,377),
@@ -347,7 +358,7 @@ codebase, so the change is small and localized to two files.
   `0x1220b674199c1c179e1446691324b10bfbb27181b03f621da23b45474c80427007a6`.
   This simultaneously validates the re-execution determinism assumption.
 
-Estimated size: ~40 lines of product code + tests.
+Estimated size: ~60–80 lines of product code + tests.
 
 ### 3.2 Legacy official microservices (koinos-chain / koinos-block-store / AMQP stack)
 
@@ -404,9 +415,12 @@ from the causal height.
    receipt root after). Without these, a fallback has nothing to catch —
    fail-fast at the causal block is the prerequisite for self-repair, and
    it eliminates the misleading far-from-cause halts on its own.
-3. **`koinos-chain` indexer** — the same one-block lookbehind and
-   catch-and-re-execute fallback as §3.1, plus the thin
-   `discard_block_state()` helper. The official indexer already pulls
+3. **`koinos-chain` indexer** — the same one-block **lookahead** design as
+   §3.1 (`apply_block_delta_checked` with the successor header's
+   `previous_state_merkle_root` as the expected root; pre-finalize check,
+   discard-and-re-execute on mismatch). The head-discard prohibition exists
+   in the upstream `state_db` package as well, so the lookbehind shape is
+   equally non-implementable there. The official indexer already pulls
    `block_store::block_item` (block + receipt) batches over AMQP, so no
    data-shape changes.
 4. **`koinos-block-store` / AMQP** — no service change expected
