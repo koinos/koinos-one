@@ -453,6 +453,121 @@ It then replays the same serialized receipt entries twice:
 
 That proves the failure mode and the fix without depending on mainnet data, timing, RocksDB, peer sync, or any external API.
 
+## Offline Full-History Auditor
+
+A separate native binary is available for final offline validation against a
+restored or copied block-store database:
+
+```bash
+cmake --build node/teleno-node/build --target koinos_state_delta_replay_audit --parallel
+
+node/teleno-node/build/src/koinos_state_delta_replay_audit \
+  --source-basedir /path/to/restored/basedir \
+  --scratch-state-dir /path/to/state-delta-audit-scratch \
+  --reset-scratch \
+  --progress-every 10000
+```
+
+When stderr is attached to a terminal, `--progress-every` renders a live
+progress bar with percentage, current height, checked block count, throughput,
+and ETA. When stderr is redirected, the same interval emits line-oriented
+progress records. Use `--progress-every 0` to disable progress output.
+
+The auditor also appends persistent run, progress, completion, and failure
+records to:
+
+```text
+SCRATCH_STATE_DIR/state-delta-replay-audit.log
+```
+
+Use `--log-file /path/to/audit.log` to choose another path, or
+`--no-log-file` to disable file logging.
+
+By default, before replay starts, the auditor builds or reuses a local bucketed
+flat-file replay journal:
+
+```text
+SCRATCH_STATE_DIR.delta-journal
+```
+
+The journal is built with a sequential scan of the source block-store column
+family and stores only the block id, block header, and receipt needed for audit
+replay. It is append-only and split into height-range bucket files, so replay
+can validate blocks in chain order without performing one random source RocksDB
+lookup per block id, without one random seek per journal record, and without
+using RocksDB for the journal itself. This avoids LSM compaction stalls while
+preserving support for multiple block candidates at the same height. A full
+default audit therefore has two visible phases:
+
+1. `journal`: build, upgrade, or verify the local bucketed header/receipt
+   journal;
+2. `replay`: compute each receipt state-delta Merkle root directly from the
+   serialized receipt entries, validate it against the next block's
+   `previous_state_merkle_root`, and compare it with the stored receipt root
+   when that root is present.
+
+Use `--journal-dir /path/to/journal` to choose another journal location, or
+`--rebuild-journal` to force a fresh journal rebuild. The journal is derived
+from the read-only source database and can be deleted at any time; it is only an
+audit acceleration artifact.
+
+The default replay path does not rebuild the full state DB. It applies the same
+state-delta Merkle hashing rules as the corrected node path to the serialized
+receipt entries, including preserved tombstones for receipt remove entries. It
+then chains those computed roots through each next block's
+`previous_state_merkle_root`. This is the practical full-history validation path
+for proving that historical receipt state deltas reproduce the expected parent
+state roots and `block_receipt.state_merkle_root` values.
+
+For deeper diagnostics, `--state-db-replay` switches back to the older
+height-index/source-DB replay path. That path builds or reuses a local height
+index:
+
+```text
+SCRATCH_STATE_DIR.height-index
+```
+
+The index maps block heights to source block ids using a sequential scan of the
+source block-store column family. State DB replay still reads the original block
+records from the read-only source database by id. This avoids repeatedly walking
+from the current head through the block-store skip-list for early mainnet
+heights, but it still performs random source block-store reads during replay and
+is therefore much slower than the default journal path.
+
+Use `--height-index-dir /path/to/index` to choose another state DB replay index
+location, or `--rebuild-height-index` to force a fresh index rebuild.
+
+When `--state-db-replay` is used, the scratch state DB uses asynchronous RocksDB
+writes by default because it is a rebuildable audit artifact and a full fsync for
+every replayed block makes full-history validation impractically slow on many
+disks. Use `--sync-scratch-writes` to force a durable fsync on every scratch
+state commit when testing the slow conservative mode.
+
+The auditor opens the source unified RocksDB block store read-only, reads local
+block headers and receipts, and writes only local audit artifacts under the
+scratch, journal, or index paths. It does not start P2P, JSON-RPC, gRPC,
+mempool, producer, transaction-store, contract-meta-store, account-history, or
+any other runtime service.
+
+For each block in the default journal replay path, the auditor:
+
+1. verifies the local parent state root against
+   `block.header.previous_state_merkle_root`;
+2. applies `block_receipt.state_delta_entries` in order;
+3. applies receipt remove entries with preserved tombstone semantics;
+4. computes the receipt state-delta Merkle root directly from the serialized
+   entries;
+5. verifies the computed root against the next block's parent root and against
+   `block_receipt.state_merkle_root` when that root is present.
+
+The default direct replay is not resumable because it does not write state; it
+is fast enough to restart from height `1` using the reusable journal. The
+`--state-db-replay` scratch state DB is resumable. If it already contains a
+replay through height `N`, the next state DB replay starts at `N + 1`. Use
+`--reset-scratch` to restart from genesis. Passing `--normal-removes` with
+`--state-db-replay` intentionally uses the old remove semantics and is useful
+only for reproducing the historical failure mode.
+
 ## Verification
 
 Commands run:
