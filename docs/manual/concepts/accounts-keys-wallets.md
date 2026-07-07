@@ -11,16 +11,12 @@ changes. Treat it as sensitive local material.
 
 An account is represented by an address. The address is the public identity
 that can hold tokens, control contract actions, or be registered as a producer
-address.
+address. Addresses are visible on chain to everyone; sharing an address is
+normal — for example, to receive a transfer.
 
-Example placeholder:
-
-```text
-<YOUR_MAINNET_PRODUCER_ADDRESS>
-```
-
-Use placeholders like this in documentation and examples. Do not publish real
-local producer addresses or private wallet material.
+What must stay secret is the private key behind the address, and any wallet
+files or recovery material that contain it. Never share those, and be careful
+where screenshots, logs, or support requests might expose them.
 
 ## Private Keys And Signatures
 
@@ -38,29 +34,27 @@ that reason:
 ## Wallets In Koinos One
 
 Koinos One can store wallet accounts locally so the app can help with actions
-such as transfers, burns, or producer registration. The app should not treat
-chain-mutating actions as background automation.
-
-Actions that sign or submit transactions require explicit user intent. This is
-especially important on mainnet.
+such as transfers, burns, or producer registration. The app never signs or
+submits a transaction in the background: every action that signs or submits
+requires your explicit confirmation. This is especially important on mainnet.
 
 ## KOIN
 
-KOIN is the native token commonly used with Koinos accounts. Users may hold
-KOIN in an account and use it in workflows that depend on balances, resource
+KOIN is the native token of the Koinos blockchain. Users may hold KOIN in an
+account and use it in workflows that depend on balances, resource
 availability, or producer setup.
 
-Koinos One should present balances and account state as information for the
-selected network. A balance on one network is not a balance on another network.
+Koinos One presents balances and account state for the currently selected
+network. A balance on one network is not a balance on another network.
 
 ## RC
 
 RC means Resource Credits. RC is the resource accounting mechanism used by
 Koinos transactions.
 
-Instead of thinking only in terms of a simple transaction fee, Koinos users
-should understand that each transaction consumes resources. The same valid
-transaction on the same state must consume resources deterministically.
+Instead of paying a simple transaction fee, each Koinos transaction consumes
+resources from the signing account. Resource consumption is deterministic:
+the same transaction on the same state always costs the same.
 
 For operators, the practical point is simple: a transaction may fail or be
 unavailable if the signing account does not have enough usable resources for
@@ -68,8 +62,9 @@ the operation.
 
 ## VHP
 
-VHP means Virtual Hash Power. In production-style Proof of Burn behavior, VHP
-is part of producer weight and block production economics.
+VHP means Virtual Hash Power. In Koinos Proof of Burn consensus, VHP is the
+producer weight: it determines how often a producer can produce blocks and is
+central to block production economics.
 
 VHP matters when configuring a producer. A node should not be treated as ready
 for mainnet production just because it is running. Production should be enabled
@@ -82,9 +77,9 @@ A producer setup involves more than a normal wallet balance. The runtime node
 has local producer key material, and the producer address must be aligned with
 the on-chain registration expected by the network.
 
-Registering or replacing a producer key is a chain-mutating action. It must be
-treated as high risk on mainnet and should require a fresh explicit request,
-network and address confirmation, and a dry-run or reviewable plan.
+Registering or replacing a producer key is a chain-mutating action. Treat it
+as high risk on mainnet: double-check the selected network, the producer
+address, and the key you are registering before confirming.
 
 ## Safety Checklist
 
