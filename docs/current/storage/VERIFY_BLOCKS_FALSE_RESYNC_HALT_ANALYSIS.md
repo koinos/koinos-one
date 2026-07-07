@@ -264,6 +264,147 @@ tool for cleaning existing block stores in place. **D** works as an express
 patch if a launch cannot wait. The subset search stays where it belongs — in
 the audit tool, as a forensic diagnostic.
 
+---
+
+## Part 3 — Implementation plan for option A
+
+### 3.1 Monolithic node (`teleno_node`)
+
+The fast-replay path and every integration point already exist in this
+codebase, so the change is small and localized to two files.
+
+**Grounding facts (verified in source):**
+
+- The mismatch over block H surfaces while applying block H+1: the assert at
+  `src/koinos/chain/controller.cpp:698` throws
+  `state_merkle_mismatch_exception`
+  (`src/koinos/chain/exceptions.hpp:51`).
+- `apply_block_delta` already discards its own partially-created node on
+  failure (its `catch` calls `_db.discard_node( block_node->id() )`), so the
+  H+1 node needs no extra cleanup.
+- The indexer consumes `block_store::block_item` values (block + receipt)
+  from `_block_queue` (`src/koinos/chain/indexer.hpp:46`) and already holds a
+  `controller&`, so both the previous block and `submit_block` are reachable
+  from the repair site.
+
+**Changes:**
+
+1. **`indexer.hpp`** — two members:
+   `std::optional< block_store::block_item > _previous_item;` (one-block
+   lookbehind; the mismatch over H is detected after H has been consumed)
+   and `uint64_t _repaired_height = 0;` (loop guard).
+2. **`indexer.cpp` — `process_block()`**: keep the existing flow, but wrap
+   the non-verify branch:
+
+   ```
+   try {
+     _controller.apply_block_delta( item.block(), item.receipt(), target );
+   } catch( const state_merkle_mismatch_exception& ) {
+     if( _verify_blocks || !_previous_item
+         || _repaired_height == prev_height )  // guard
+       throw;                                   // → handle_error as today
+     LOG(warning) << "delta_replay_fallback height=" << prev_height
+                  << " re-executing block through full verification";
+     _controller.discard_block_state( _previous_item->block().id() );
+     rpc::chain::submit_block_request req;
+     *req.mutable_block() = _previous_item->block();
+     _controller.submit_block( req, target );    // ground truth for H
+     _repaired_height = prev_height;
+     _controller.apply_block_delta( item.block(), item.receipt(), target );
+   }
+   _previous_item = item;
+   ```
+
+3. **`controller.hpp/.cpp`** — one thin new method,
+   `void discard_block_state( const std::string& block_id )`: takes the
+   shared DB lock and calls `_db.discard_node()` for that id (same call
+   `apply_block_delta` already makes at controller.cpp:678 for pre-existing
+   nodes). Defensive assert: the node must be above the current LIB (a block
+   applied one step ago always is).
+4. **Call-site audit**: `verify_blocks` is also referenced in
+   `src/p2p/p2p_node.cpp`. If the live-sync path applies receipt deltas
+   anywhere outside the indexer, apply the same catch-and-re-execute wrapper
+   there; otherwise no change.
+5. **No new config**. The fallback only runs on a mismatch that today is
+   fatal, so it cannot regress the clean path. Optionally add
+   `--strict-delta-replay` to restore hard-halt behavior for forensic runs.
+6. **Observability**: the `delta_replay_fallback` warning line (height,
+   block id, reason) plus a counter surfaced in the indexer's completion log,
+   mirroring the audit tool's `legacy_dropped_tombstone_blocks` accounting.
+
+**Testing:**
+
+- *Unit* (`tests/chain/controller_delta_test.cpp` pattern): build a parent
+  state, apply a crafted receipt containing a parent-absent remove, and a
+  child whose header root was computed without that entry — assert the
+  fallback re-executes and the sync continues; assert the loop guard still
+  hard-fails on a receipt that re-execution cannot reconcile.
+- *Empirical gate*: full mainnet resync with `verify-blocks=false` over the
+  existing restored copy. Expected outcome: exactly two
+  `delta_replay_fallback` warnings (heights 30,504,202 and 32,789,377),
+  completion at head 37,280,004, and the final state Merkle root equal to
+  the audit's
+  `0x1220b674199c1c179e1446691324b10bfbb27181b03f621da23b45474c80427007a6`.
+  This simultaneously validates the re-execution determinism assumption.
+
+Estimated size: ~40 lines of product code + tests.
+
+### 3.2 Legacy official microservices (koinos-chain / koinos-block-store / AMQP stack)
+
+**Key difference discovered while grounding this plan:** the official
+microservices (pinned here as `vendor/koinos/koinos` v1.1.0 plus
+`compat/legacy-services/koinos-p2p`) have **no receipt-delta replay path at
+all** — `apply_block_delta` does not exist there; the official
+`koinos-chain` indexer always re-executes every block (`submit_block`).
+Option A therefore cannot be "added" to legacy in isolation: the fast-replay
+feature and its fallback must be ported **together**, as one upstream
+contribution. (Corollary: legacy today never halts at the two blocks — it is
+merely slow everywhere; the port brings the speed *and* the safety in one
+motion.)
+
+**Port plan, in dependency order:**
+
+1. **`koinos/state_db` (inside the koinos-chain repository)** — port the
+   tombstone-preserving mutation API from Teleno:
+   `state_delta::erase( key, bool preserve_tombstone )` and the
+   `state_node::remove_object_preserve_tombstone()` wrapper. This is the
+   protocol-parity-critical piece; it must match Teleno byte-for-byte (both
+   were audited against 37.28M mainnet blocks here).
+2. **`koinos-chain` controller** — port `apply_block_delta()` (the
+   receipt-delta application with the two Merkle asserts) and add the same
+   `discard_block_state()` helper as §3.1.
+3. **`koinos-chain` indexer** — port the `verify_blocks` constructor flag,
+   the per-block branch (`submit_block` vs `apply_block_delta`), the
+   one-block lookbehind, and the identical catch-and-re-execute fallback.
+   The official indexer already pulls `block_store::block_item` batches from
+   the block-store microservice over AMQP, so the data shape matches.
+4. **`koinos-block-store`** — verify `get_blocks_by_height` requests set
+   `return_receipt = true` on the indexer's fetch path (receipts are already
+   stored; the flag already exists in the block-store RPC protos). No
+   service-side change expected.
+5. **AMQP sizing** — receipts (even pruned ones) enlarge block-item
+   responses; check RabbitMQ max message size and the indexer's batch size
+   against blocks with large delta sets before enabling by default.
+6. **Configuration** — `verify-blocks: false` under the `chain:` section of
+   the microservice YAML, defaulting to `true` (today's behavior) so the
+   port is opt-in for legacy operators.
+
+**Testing / release gating:**
+
+- Reuse the Teleno unit tests (state_db and controller tests port with the
+  code — same repositories' test layout).
+- *Cross-implementation parity gate*: sync the same mainnet block-store copy
+  through (a) Teleno with the §3.1 fix and (b) patched koinos-chain; require
+  identical head state Merkle roots and identical fallback heights. This is
+  precisely the class of legacy validation the compatibility policy calls
+  for (protocol parity / migration safety).
+- The offline audit tool remains the independent referee for both stacks.
+
+**Sequencing recommendation:** land §3.1 in `teleno_node` first and validate
+against mainnet (production evidence on the real anomaly heights), then
+upstream the legacy port as three PRs matching steps 1–3 (state_db API →
+controller → indexer/config), each carrying its tests.
+
 ### Related documents
 
 - `FULL_HISTORY_STATE_DELTA_AUDIT_2026-07-07.md` — the audit that located and
