@@ -70,16 +70,20 @@ All notable changes to this project are documented in this file.
   chain backward from the known head block id, where each parent pointer
   uniquely selects the block below, and validates the state root chain against
   a genesis zero-hash anchor.
-- The state delta replay auditor now recognizes historical legacy
-  tombstone-drop blocks instead of aborting on them. Blocks produced under the
-  old normal-remove semantics committed state roots that exclude removes of
-  keys absent from the parent (transient tombstones) even though the receipt
-  records them; the auditor detects the exact dropped-remove subset that
-  reproduces the consensus root, counts these blocks in new
-  `legacy_dropped_tombstone_blocks`/`legacy_dropped_tombstones` statistics, and
-  logs each height. A mismatch that no remove subset explains still aborts the
-  audit. Direct journal replay also supports `--from-height` above genesis now,
-  since the backward walk anchors on the audit tip rather than on genesis.
+- The state delta replay auditor now inventories historical state-root
+  anomalies instead of aborting on the first one. Blocks produced under the
+  old normal-remove semantics committed state roots that exclude some recorded
+  entries (transient tombstones, observed on mainnet at height 32,789,377, and
+  no-op puts); the auditor searches recorded-entry subsets for the exact
+  omission that reproduces the consensus root and counts matches in
+  `legacy_dropped_tombstone_blocks`/`legacy_dropped_tombstones`/
+  `legacy_dropped_puts`. Mismatches no subset explains (observed at height
+  30,504,202, likely a receipt that lost an entry consensus included) are
+  logged with full forensics and counted in `unexplained_mismatch_blocks`; the
+  audit completes the full inventory and exits with status 2 and a
+  "completed with unexplained mismatches" verdict instead of "ok". Direct
+  journal replay also supports `--from-height` above genesis now, since the
+  backward walk anchors on the audit tip rather than on genesis.
 
 
 <a id="version-1.0.3"></a>
