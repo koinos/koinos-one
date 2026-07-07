@@ -59,6 +59,27 @@ near the end of this page.
 - [Mainnet Safety](compatibility/mainnet-safety.md) - private material,
   protected addresses, and chain-mutating operation rules for developers.
 
+## Manual Authoring
+
+The manual is authored as MkDocs-compatible Markdown under `docs/manual/`.
+Build the static site from the repository root:
+
+```bash
+mkdocs build --strict
+```
+
+The generated HTML is written to `build/docs/manual-site/` and is what the
+desktop app's Documentation tab displays.
+
+Authoring principles:
+
+- Start with practical workflows before low-level internals.
+- Keep mainnet safety visible anywhere producer, wallet, backup, restore, or
+  signing behavior is discussed.
+- Keep GUI documentation aligned with the visible app behavior and i18n copy.
+- Link to current implementation docs for deeper technical details instead of
+  duplicating long validation history.
+
 ## Source References
 
 Use these rendered manual pages when the summary documentation is not enough:

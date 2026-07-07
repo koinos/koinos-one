@@ -1,54 +1,42 @@
 # Koinos One Manual
 
-This manual is the user-facing documentation entrypoint for Koinos One and
-Teleno Node. It is organized by audience and task, while the existing
-[current implementation docs](https://github.com/koinos/koinos-one/tree/main/docs/current),
-[backlog docs](https://github.com/koinos/koinos-one/tree/main/docs/backlog),
-[legacy docs](https://github.com/koinos/koinos-one/tree/main/docs/legacy),
-and [archive docs](https://github.com/koinos/koinos-one/tree/main/docs/archive)
-remain the engineering source of truth for implementation state, future work,
-compatibility evidence, and historical material.
+Koinos One is a desktop app that runs a full Koinos mainnet node on your own
+computer — sync the blockchain, manage accounts and balances, produce blocks,
+and keep verified backups, all from one window. This manual covers the desktop
+app, the underlying `teleno_node` runtime, and the Koinos concepts behind
+them.
 
-## Start Here
+## Common Tasks
+
+- [Install on macOS](koinos-one/install-macos.md) and
+  [set up your node for the first time](koinos-one/first-run-setup.md).
+- [Sync your node with mainnet](koinos-one/syncing-a-node.md).
+- [Back up your node and wallet](koinos-one/backup-and-restore.md).
+- [Start producing blocks](koinos-one/producer-mode.md).
+- [Fix a problem](koinos-one/troubleshooting.md).
+- [See what changed in each release](reference/changelog.md).
+
+## Start Here By Audience
 
 - **New to Koinos:** start with [Koinos Concepts](concepts/README.md).
-- **Installing or using the desktop app:** start with
+- **Installing or using the desktop app:** start with the
   [Koinos One User Guide](koinos-one/README.md).
-- **Running `teleno_node` directly:** start with
+- **Running `teleno_node` directly from the command line:** start with the
   [Teleno Node CLI Guide](teleno-node/README.md).
-- **Contributing to the app or node:** start with
+- **Contributing to the app or node:** start with the
   [Developer Documentation](developers/README.md).
-- **Looking up ports, paths, environment variables, security, or releases:**
-  start with [Reference](reference/README.md).
+- **Looking up ports, file paths, configuration, security, or releases:**
+  start with the [Reference](reference/README.md).
 
 ## Sections
 
-- [concepts/](concepts/README.md) - basic Koinos blockchain concepts for users
-  and operators.
-- [koinos-one/](koinos-one/README.md) - desktop app user guide.
-- [teleno-node/](teleno-node/README.md) - command-line guide for the native
-  `teleno_node` binary.
-- [developers/](developers/README.md) - contributor documentation for the GUI
-  and native node.
-- [reference/](reference/README.md) - glossary, ports, paths, config, and
-  security reference.
-
-## Static Site
-
-The manual is authored as MkDocs-compatible Markdown. Build the static site
-from the repository root:
-
-```bash
-mkdocs build --strict
-```
-
-The generated HTML is written to `build/docs/manual-site/`.
-
-## Documentation Principles
-
-- Start with practical workflows before low-level internals.
-- Keep mainnet safety visible anywhere producer, wallet, backup, restore, or
-  signing behavior is discussed.
-- Keep GUI documentation aligned with the visible app behavior and i18n copy.
-- Link to current implementation docs for deeper technical details instead of
-  duplicating long validation history.
+- [Koinos Concepts](concepts/README.md) - the blockchain basics behind the
+  app: accounts, keys, transactions, blocks, and what running a node means.
+- [Koinos One User Guide](koinos-one/README.md) - installing and using the
+  desktop app.
+- [Teleno Node CLI Guide](teleno-node/README.md) - running the native
+  `teleno_node` binary without the desktop app.
+- [Developer Documentation](developers/README.md) - contributor documentation
+  for the GUI and native node, including how this manual is built.
+- [Reference](reference/README.md) - glossary, ports, paths, configuration
+  files, security model, and the changelog.
