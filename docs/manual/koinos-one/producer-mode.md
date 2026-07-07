@@ -77,7 +77,7 @@ the local key replaces the on-chain producer key for that address.
   local key, `Latest produced blocks` shows blocks from this installation when
   the producer wins slots.
 
-## Stop And Ask Before Continuing
+## Think Twice Before These Actions
 
 Stop before any of these actions:
 
