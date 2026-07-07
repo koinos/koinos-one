@@ -49,17 +49,19 @@ the network without producing blocks. Block production, transaction signing, VHP
 burns, mainnet producer registration, and producer-affecting config changes are
 separate explicit actions.
 
-!!! warning "Stop and ask before continuing"
-    Pause before any action that signs a transaction, burns KOIN into VHP,
-    registers or replaces a producer key on mainnet, enables block production,
-    changes the producer address, or exposes JSON-RPC/gRPC/admin endpoints
-    outside localhost.
+!!! warning "Think twice before these actions"
+    Pause and re-check the selected network and addresses before any action
+    that signs a transaction, burns KOIN into VHP, registers or replaces a
+    producer key on mainnet, enables block production, changes the producer
+    address, or exposes JSON-RPC/gRPC/admin endpoints outside localhost.
 
 ## Main App Areas
 
 - `Explorer` reads recent blocks from the selected RPC source.
 - `Dashboard` shows producer, peer, and performance information.
 - `Node` starts, stops, restarts, restores, and inspects the local node.
+- `Remote` manages remote observer nodes over SSH: add a server, restore the
+  public backup, and start a safe remote observer.
 - `Producer` inspects and configures producer identity after observer checks.
 - `Wallet` manages local wallet accounts and signing actions.
 - `Documentation` renders this MkDocs manual inside the app.
