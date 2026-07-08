@@ -7,6 +7,7 @@ export type ExplorerSettings = {
   koinscanUrl: string
   pollMs: number
   rowLimit: number
+  explorer3dQuality: 'off' | 'low' | 'medium' | 'high'
   producerAdvancedMode: boolean
   nodeAdvancedMode: boolean
   dashboardProducerWindowBlocks: number
@@ -149,6 +150,7 @@ export type BlockRow = {
   previousId: string
   signer: string
   timestampMs: number
+  txIds?: string[]
 }
 
 export type HeadSnapshot = {

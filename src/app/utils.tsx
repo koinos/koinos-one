@@ -437,6 +437,9 @@ export function loadInitialSettings(): ExplorerSettings {
       koinscanUrl: normalizeExternalHttpsUrl(typeof parsed.koinscanUrl === 'string' ? parsed.koinscanUrl : DEFAULT_SETTINGS.koinscanUrl),
       pollMs: clamp(typeof parsed.pollMs === 'number' ? parsed.pollMs : DEFAULT_SETTINGS.pollMs, 1000, 30000),
       rowLimit: clamp(typeof parsed.rowLimit === 'number' ? parsed.rowLimit : DEFAULT_SETTINGS.rowLimit, 5, 50),
+      explorer3dQuality: ['off', 'low', 'medium', 'high'].includes(`${(parsed as { explorer3dQuality?: unknown }).explorer3dQuality}`)
+        ? ((parsed as { explorer3dQuality?: unknown }).explorer3dQuality as ExplorerSettings['explorer3dQuality'])
+        : DEFAULT_SETTINGS.explorer3dQuality,
       producerAdvancedMode: parsed.producerAdvancedMode === true,
       nodeAdvancedMode: parsed.nodeAdvancedMode === true,
       dashboardProducerWindowBlocks: normalizeDashboardProducerWindowBlocks(parsed.dashboardProducerWindowBlocks),
@@ -1228,7 +1231,11 @@ export function mapBlockItem(item: BlockStoreItem): BlockRow | null {
   const timestampMs = safeParseInt(header?.timestamp, 0)
 
   if (!height || !blockId) return null
-  return { height, blockId, previousId, signer, timestampMs }
+  const transactions = (item.block as { transactions?: Array<{ id?: string }> } | undefined)?.transactions
+  const txIds = Array.isArray(transactions)
+    ? transactions.map((tx) => `${tx?.id ?? ''}`).filter(Boolean)
+    : []
+  return { height, blockId, previousId, signer, timestampMs, txIds }
 }
 
 export function filterBlocksByProducer(rows: BlockRow[], producerAddress: string): BlockRow[] {
