@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Experimental 3D Explorer (phase 2): the preview placeholder is replaced by
+  the real static scene - an API gate portal, an instanced mempool cluster
+  where each pending transaction occupies a stable orbital slot, and a chain
+  track built from the most recent real blocks with your own producer's
+  blocks accented in purple. Camera supports drag-rotate and zoom with a slow
+  auto-orbit that respects reduced-motion.
+
 - Experimental 3D Explorer (phase 1): the 3D view now tracks real data - a
   transaction lifecycle store fed by a 2-second mempool poll (pending,
   included, dropped) and the Explorer block feed, with live counts in the

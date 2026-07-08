@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   applyBlock,
+  hash01,
+  mempoolSlot,
   applyMempoolSnapshot,
   createExplorer3DState,
   explorer3DCounts,
@@ -122,5 +124,26 @@ describe('explorer3d data layer', () => {
         ]
       })
     ).toEqual([{ id: 'tx1', payer: 'alice', opCount: 2 }])
+  })
+})
+
+describe('explorer3d layout helpers', () => {
+  it('hash01 is deterministic and within [0, 1)', () => {
+    expect(hash01('tx1', 1)).toBe(hash01('tx1', 1))
+    expect(hash01('tx1', 1)).not.toBe(hash01('tx1', 2))
+    for (const seed of ['a', 'b', 'longer-seed-value']) {
+      const value = hash01(seed, 7)
+      expect(value).toBeGreaterThanOrEqual(0)
+      expect(value).toBeLessThan(1)
+    }
+  })
+
+  it('mempoolSlot yields stable slots within the cluster bounds', () => {
+    const slot = mempoolSlot('tx1')
+    expect(mempoolSlot('tx1')).toEqual(slot)
+    const radius = Math.hypot(slot.x - -2.5, slot.z - 0)
+    expect(radius).toBeGreaterThanOrEqual(1.1)
+    expect(radius).toBeLessThanOrEqual(2.7)
+    expect(Math.abs(slot.y - 1.6)).toBeLessThanOrEqual(0.8)
   })
 })
