@@ -50,11 +50,28 @@ function nativeNodeIdentity() {
 
   return {
     binaryName: `teleno_node${ext}`,
+    version: nativeNodeVersion(binaryPath),
     sha256,
     shortSha256: sha256 ? sha256.slice(0, 12) : null,
     sizeBytes: stat ? stat.size : null,
     mtime: stat ? stat.mtime.toISOString() : null,
   };
+}
+
+function nativeNodeVersion(binaryPath) {
+  if (!fs.existsSync(binaryPath)) return null;
+  try {
+    const out = execFileSync(binaryPath, ['--version'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    // Output shape: "teleno_node <version>+<commit>[-dirty]"
+    const match = out.match(/teleno_node\s+(\S+)/i);
+    return match ? match[1] : out || null;
+  } catch {
+    return null;
+  }
 }
 
 function releaseChannel(version) {

@@ -352,6 +352,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <span className="settings-build-info-label">{t('settings.buildInfoSourceState')}</span>
                 <strong className="settings-build-info-value">{buildSourceState}</strong>
               </div>
+              <div className="settings-build-info-item">
+                <span className="settings-build-info-label">{t('settings.buildInfoNativeNodeVersion')}</span>
+                <strong className="settings-build-info-value mono">{buildInfoValue(appBuildInfo?.nativeNode?.version)}</strong>
+              </div>
               <div className="settings-build-info-item settings-build-info-item-wide">
                 <span className="settings-build-info-label">{t('settings.buildInfoNativeNode')}</span>
                 <strong className="settings-build-info-value mono" title={nativeNodeHashTitle}>{nativeNodeLabel}</strong>
