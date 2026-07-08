@@ -75,6 +75,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Node Settings config editor: removed the "Ignored legacy settings" banner
+  (legacy keys such as `global.amqp` are still preserved untouched on save),
+  and all config sections now start collapsed, including `global`.
 - Renamed the Wallet account action "Set Producer" to "Set as producer". When
   the active account is already the configured producer address, the button is
   replaced by a passive "Producer" badge instead of offering a redundant

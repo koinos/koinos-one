@@ -6,10 +6,8 @@ import {
   CONFIG_SECTION_DESC_KEYS,
   getFieldsForSection,
   extractConfigValues,
-  findIgnoredLegacyConfigEntries,
   type KoinosConfigValues,
   type ConfigFieldMeta,
-  type IgnoredLegacyConfigEntry,
   type ConfigSection
 } from '../../app/koinos-config-schema'
 import { getTelenoNodeBridge, toNodeApiSettings } from '../../app/utils'
@@ -31,9 +29,8 @@ export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, advancedMode
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedBanner, setSavedBanner] = useState(false)
-  const [ignoredLegacyEntries, setIgnoredLegacyEntries] = useState<IgnoredLegacyConfigEntry[]>([])
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
-    () => new Set(CONFIG_SECTIONS.filter((s) => s !== 'global'))
+    () => new Set(CONFIG_SECTIONS)
   )
   const bannerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -49,11 +46,9 @@ export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, advancedMode
         setConfigDoc(doc)
         const parsed = doc.toJSON() || {}
         setDraftValues(extractConfigValues(parsed))
-        setIgnoredLegacyEntries(findIgnoredLegacyConfigEntries(parsed))
       } else {
         setConfigDoc(null)
         setDraftValues({ global: {}, block_producer: {}, chain: {}, jsonrpc: {}, grpc: {}, mempool: {}, p2p: {} })
-        setIgnoredLegacyEntries([])
         if (!result.ok) setError(result.output || t('config.loadError'))
       }
     } catch (e) {
@@ -288,21 +283,6 @@ export function NodeConfigPanel({ t, hasNodeControls, nodeSettings, advancedMode
       {!advancedMode && (
         <div className="config-simple-banner">
           {t('config.simpleBanner')}
-        </div>
-      )}
-
-      {advancedMode && ignoredLegacyEntries.length > 0 && (
-        <div className="config-legacy-banner">
-          <strong>{t('config.ignoredLegacyTitle')}</strong>
-          <p>{t('config.ignoredLegacyDescription')}</p>
-          <ul>
-            {ignoredLegacyEntries.map((entry) => (
-              <li key={entry.path}>
-                <code>{entry.path}</code>
-                <span>{t(entry.reasonKey)}</span>
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 
