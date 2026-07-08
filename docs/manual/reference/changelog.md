@@ -5,8 +5,9 @@
 All notable changes to this project are documented in this file.
 
 
-<a id="unreleased"></a>
-## Unreleased
+<a id="version-1.1.0-dev.0"></a>
+<a id="v1.1.0-dev.0"></a>
+## [1.1.0-dev.0] - Unreleased
 
 ### Added
 
