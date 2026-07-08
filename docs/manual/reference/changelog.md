@@ -11,6 +11,13 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Experimental 3D Explorer (phase 3): the scene is now alive - transactions
+  spawn at the API gate when first seen in the mempool, orbit the pool while
+  pending, and fly into the newest block the moment it seals; blocks flash
+  and pop on arrival and slide smoothly down the chain track, with a stronger
+  pulse when your own producer signed them. Everything freezes cleanly under
+  reduced motion or when the window is hidden.
+
 - Experimental 3D Explorer (phase 2): the preview placeholder is replaced by
   the real static scene - an API gate portal, an instanced mempool cluster
   where each pending transaction occupies a stable orbital slot, and a chain
