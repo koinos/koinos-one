@@ -11,6 +11,14 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Backup and restore progress is now visible from anywhere in the app: the
+  footer status pill shows the operation (restoring, verifying or creating a
+  backup) with percentage, transfer speed, ETA and a progress bar while it
+  runs, instead of showing "Stopped". The Node tab also shows an explanatory
+  banner while a backup operation is running, since node controls, presets and
+  data actions stay locked until it finishes, and preset cards are now visibly
+  dimmed while locked.
+
 - Settings > Build information now shows the native `teleno_node` version. The
   packaged build identity captures the binary's reported version (parsed from
   `teleno_node --version`) alongside its name and SHA-256.
