@@ -17,7 +17,8 @@ This page collects recovery-first actions for common Koinos One issues.
 
 Open `Node` and choose `Start`. If `Start` is disabled, check for:
 
-- Electron-only controls unavailable in a browser renderer;
+- running the browser preview instead of the desktop app (node controls
+  only work in the desktop app);
 - an active operation still running;
 - node status not ready yet;
 - another native process using the same `BASEDIR`.
@@ -52,8 +53,8 @@ Instead:
 2. Preserve the existing `BASEDIR`.
 3. Save logs and the exact error.
 4. Restart once if the failure is not persistent.
-5. If the mismatch repeats, ask for a recovery plan before moving or deleting
-   state.
+5. If the mismatch repeats, keep the data intact and check the project
+   support channels or release notes before moving or deleting state.
 
 ## RPC Errors
 
@@ -61,8 +62,8 @@ If `Explorer` works with a public RPC but not with the local node, the app is
 running but the local node may be stopped, still starting, or unable to bind its
 local JSON-RPC port.
 
-If JSON-RPC or gRPC is bound to `0.0.0.0`, configure an explicit ACL before
-exposing the endpoint outside localhost.
+If JSON-RPC or gRPC is bound to `0.0.0.0`, configure an explicit RPC
+`whitelist` before exposing the endpoint outside localhost.
 
 ## Wallet Problems
 
@@ -83,7 +84,7 @@ If the registered public key does not match the local public key, replacing it
 is an on-chain transaction. Stop and verify the network, signer, producer
 address, and key before continuing.
 
-## Stop And Ask Before Continuing
+## Think Twice Before These Actions
 
 Stop before mainnet producer setup, transaction signing, VHP burn, mainnet
 registration, producer-key replacement, or config changes affecting block

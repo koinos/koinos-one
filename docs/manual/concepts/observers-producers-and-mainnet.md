@@ -40,8 +40,9 @@ an operator should verify:
 
 Producer setup changes, VHP burns, producer registration, default-account
 changes, config writes targeting a producer, and transaction signing or
-submission are high-risk mainnet actions. They require explicit user intent,
-network and address confirmation, and a dry-run or reviewable plan.
+submission are high-risk mainnet actions. The app always asks for your
+explicit confirmation before performing them — take that moment to re-check
+the selected network and every address involved.
 
 ## Mainnet, Testnet, And Private Networks
 

@@ -66,8 +66,9 @@ docs, tests, screenshots, logs, or committed examples.
 
 ## Mainnet Mutation Rule
 
-These actions require a fresh explicit user request, target network/address
-confirmation, and a dry-run or reviewable plan first:
+Koinos One treats these actions as high-risk: the app asks for explicit
+confirmation before performing them, and the operator should re-check the
+target network and every address involved before confirming:
 
 - producer registration;
 - VHP burns;

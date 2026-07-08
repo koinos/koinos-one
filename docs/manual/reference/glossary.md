@@ -6,7 +6,7 @@ This glossary defines common terms used across the Koinos One manual.
 | --- | --- |
 | Account | An on-chain identity represented by an address and controlled through cryptographic authority. |
 | Account history | Account-oriented history indexing. In the current monolith this is partially implemented and not full legacy parity. |
-| Backup admin API | The local administrative surface used by Koinos One and Teleno Node tooling for native backup and restore operations. It must remain local-admin scoped unless a future design explicitly changes that boundary. |
+| Backup admin API | The local administrative surface used by Koinos One and Teleno Node tooling for native backup and restore operations. It is local-only and bearer-token protected. |
 | BASEDIR | The node data directory passed to `teleno_node --basedir`. Koinos One uses network-specific defaults; the native CLI falls back to `~/.koinos` when no basedir is provided. |
 | Block | A signed unit of chain history containing an ordered set of transactions and a header that links to the previous block. |
 | Block producer | The node component that signs and produces blocks when production is enabled and correctly configured. |
@@ -20,14 +20,14 @@ This glossary defines common terms used across the Koinos One manual.
 | Ed25519 | The signature scheme used by signed public bootstrap metadata where a verification key is configured. |
 | Electron main process | The privileged Electron process that owns native integration, windows, IPC handlers, and lifecycle control for the desktop app. |
 | Finality | The point at which a block is considered settled according to the network's fork-choice and finality behavior. |
-| First-run setup | The packaged-installation setup assistant. It is observer-only and should not open during normal development runs. |
-| GarageMQ/AMQP | The legacy Koinos microservice message bus pattern. Koinos One must preserve compatible external behavior without reintroducing GarageMQ as an active runtime dependency. |
+| First-run setup | The setup assistant shown on first launch. It prepares an observer node only; block production is never enabled by it. |
+| GarageMQ/AMQP | The message bus used by the legacy Koinos microservices. Teleno Node preserves compatible external behavior without using it as a runtime dependency. |
 | Genesis | The initial data that defines a network's starting state and chain identity. |
 | GossipSub | The libp2p gossip protocol used to propagate blocks and transactions between peers. |
 | gRPC | A typed protobuf-based RPC surface exposed for compatible clients where configured. |
 | IPC | Inter-process communication between the Electron renderer, preload bridge, and main process. |
 | JSON-RPC | A common external RPC surface used by wallets, explorers, CLIs, and tools. |
-| KOIN | The native token commonly used with Koinos accounts. |
+| KOIN | The native token of the Koinos blockchain. |
 | Koinos | The blockchain protocol and network family that Koinos One follows. |
 | Koinos One | The desktop app that supervises and operates a native Teleno Node. |
 | Local repository | The native backup repository on local disk, usually under `<BASEDIR>/.teleno-native-backups/repository`. |
@@ -45,7 +45,7 @@ This glossary defines common terms used across the Koinos One manual.
 | Producer | A node configured to sign and produce blocks for a registered producer address. |
 | Producer address | The on-chain address associated with block production identity and registration. |
 | Producer hot key | The local producer signing key used by the node process when block production is enabled. It is not included in native backups. |
-| Proof of Burn | The production-style fork-choice and producer-weight behavior that uses VHP semantics. |
+| Proof of Burn | The Koinos consensus mechanism: producers burn KOIN into VHP, and VHP determines producer weight and fork choice. |
 | Protocol boundary | The set of externally observable rules all compatible Koinos clients must preserve. |
 | Public bootstrap restore | Restore from a public read-only backup source before continuing normal sync. |
 | Public publish | The maintainer workflow that promotes a sanitized native backup to a public read-only bootstrap repository. It is not normal operator administration. |

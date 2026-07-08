@@ -50,7 +50,7 @@ normal block or peer activity, and the UI should avoid repeated RPC failures.
 - Disk free space remains comfortably above the restore and database growth
   needs for the selected network.
 
-## Stop And Ask Before Continuing
+## Think Twice Before These Actions
 
 Stop before changing advanced P2P, JSON-RPC, gRPC, chain verification, producer,
 or block production settings on a mainnet node. Advanced config changes can

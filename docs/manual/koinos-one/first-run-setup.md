@@ -1,7 +1,7 @@
 # First-Run Setup
 
-The first-run assistant prepares a safe local observer node. In the current app
-flow, first-run setup targets the public Koinos mainnet observer path.
+The first-run assistant prepares a safe local observer node on a public Koinos
+network of your choice (Mainnet or Testnet).
 
 ## When To Use This
 
@@ -14,22 +14,24 @@ sequence.
 The assistant walks through these steps:
 
 1. `Welcome`
-2. `Folder`
-3. `Wallet`
-4. `Restore`
-5. `Start`
-6. `Done`
+2. `Network`
+3. `Folder`
+4. `Wallet`
+5. `Restore`
+6. `Start`
+7. `Done`
 
-It selects mainnet observer setup, asks for a data folder, optionally lets you
-prepare a wallet, checks the public backup source, restores the public backup
-when available, and starts the node as an observer.
+It asks which public network the observer should follow (`Mainnet` or
+`Testnet`), asks for a data folder, optionally lets you prepare a wallet,
+checks the public backup source, restores the public backup when available,
+and starts the node as an observer.
 
 Block production is not enabled automatically.
 
 ## Network Choice
 
-The packaged first-run assistant currently keeps the first observer setup on
-`Mainnet`. For `Testnet` or `Custom` operation, complete or skip first-run setup,
+The first-run assistant offers the two public networks: `Mainnet` and
+`Testnet`. For `Custom` network operation, complete or skip first-run setup,
 then open `Settings`, choose the network, confirm the `Base Data Folder`, and
 save. When a saved network change replaces an active local runtime, Koinos One
 stops the previous node context before switching.
@@ -71,7 +73,7 @@ managing a custom layout.
 - The footer status changes from `Stopped` to a live or syncing state when the
   observer starts.
 
-## Stop And Ask Before Continuing
+## Think Twice Before These Actions
 
 Stop before enabling producer mode, registering a producer key, burning KOIN,
 signing a transaction, or changing configuration that affects block production.

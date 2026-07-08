@@ -15,7 +15,8 @@ mounts `<App />` and imports
 [`src/styles.css`](https://github.com/koinos/koinos-one/blob/main/src/styles.css).
 [`src/App.tsx`](https://github.com/koinos/koinos-one/blob/main/src/App.tsx)
 contains the top-level app state and routes between major tabs such as
-Explorer, Dashboard, Node, Producer, Wallet, Documentation, and Settings.
+Explorer, Dashboard, Node, Remote, Producer, Wallet, Documentation, and
+Settings.
 
 Panel components live under
 [`src/components/panels/`](https://github.com/koinos/koinos-one/tree/main/src/components/panels).

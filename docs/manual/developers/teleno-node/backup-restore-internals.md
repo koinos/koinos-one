@@ -68,7 +68,7 @@ remaining completed snapshot references.
 
 ## UX Boundary
 
-Settings > Backup is configuration-oriented. Node > Backups owns operation
+Settings > Backup is configuration-oriented. Node > Restore Backup owns operation
 controls such as restore, verify, create, list, and purge. The UI can use the
 admin API when a managed node is running and fall back to CLI commands when it
 is not.
