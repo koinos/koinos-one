@@ -1421,7 +1421,6 @@ export function App() {
 
     const tick = async (initial: boolean) => {
       if (disposed || inFlight) return
-      if (!initial && selectedBlockRef.current) return // Pause polling while block detail is open
       inFlight = true
       controller = new AbortController()
 
@@ -1440,6 +1439,14 @@ export function App() {
 
         clearRevealTimers()
         rowsRef.current = snapshot.rows
+        if (
+          selectedBlockRef.current &&
+          !snapshot.rows.some((row) => row.blockId === selectedBlockRef.current?.blockId)
+        ) {
+          selectedBlockRef.current = null
+          setSelectedBlock(null)
+          setSelectedBlockRpcUrl(null)
+        }
         setHead(snapshot.head)
         setLastSuccessAt(Date.now())
         setErrorMessage(null)

@@ -72,7 +72,10 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
               rows={rows}
               ownProducerAddress={ownProducerAddress}
               quality={settings.explorer3dQuality}
-              onBlockClick={onBlockClick}
+              onBlockClick={(row: any) => {
+                setExplorerView('list')
+                onBlockClick?.(row)
+              }}
             />
           </Suspense>
         )}
