@@ -39,6 +39,7 @@ export function WalletPanel(props: WalletPanelProps) {
     walletLoading,
     walletActionLoading,
     walletError,
+    producerConfiguredAddress,
     nativeTokenSymbol,
     walletBalance,
     walletImportPrivateKey,
@@ -403,6 +404,7 @@ export function WalletPanel(props: WalletPanelProps) {
             activeAccountId={activeWalletAccountId}
             activeWalletCanSign={activeWalletCanSign}
             canCreateDerivedAccount={canCreateDerivedAccount}
+            producerConfiguredAddress={producerConfiguredAddress}
             onSetActiveAccount={(accountId: string) => {
               void setWalletActiveAccount(accountId)
             }}

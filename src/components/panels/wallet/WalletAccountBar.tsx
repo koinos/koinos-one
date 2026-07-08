@@ -8,6 +8,7 @@ type WalletAccountBarProps = {
   activeAccountId: string
   activeWalletCanSign: boolean
   canCreateDerivedAccount: boolean
+  producerConfiguredAddress?: string | null
   activeView: 'tokens' | 'security'
   onSetActiveAccount: (accountId: string) => void
   onOpenCreateAccount: () => void
@@ -30,6 +31,7 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
     activeAccountId,
     activeWalletCanSign,
     canCreateDerivedAccount,
+    producerConfiguredAddress,
     activeView,
     onSetActiveAccount,
     onOpenCreateAccount,
@@ -46,6 +48,11 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
   const isBusy = walletActionLoading !== null
   const [copied, setCopied] = useState(false)
   const activeAddress = accounts.find((a) => a.id === activeAccountId)?.address ?? ''
+  const activeAccountIsProducer = Boolean(
+    activeAddress &&
+    producerConfiguredAddress &&
+    activeAddress.toLowerCase() === `${producerConfiguredAddress}`.trim().toLowerCase()
+  )
   const disabledTitle = (reason?: string) => reason || undefined
   const controlsDisabledReason = !hasWalletControls
     ? t('wallet.disabledTooltip.electronOnly')
@@ -113,15 +120,24 @@ export function WalletAccountBar(props: WalletAccountBarProps) {
             </svg>
           )}
         </button>
-        <button
-          type="button"
-          className="ghost-button"
-          onClick={onSetAsProducer}
-          disabled={!hasWalletControls || isBusy || !activeWalletCanSign}
-          title={setProducerTitle}
-        >
-          {t('wallet.setAsProducerAction')}
-        </button>
+        {activeAccountIsProducer ? (
+          <span
+            className="wallet-account-producer-badge"
+            title={t('wallet.activeAccountIsProducerTitle')}
+          >
+            {t('wallet.activeAccountIsProducer')}
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={onSetAsProducer}
+            disabled={!hasWalletControls || isBusy || !activeWalletCanSign}
+            title={setProducerTitle}
+          >
+            {t('wallet.setAsProducerAction')}
+          </button>
+        )}
         <button
           type="button"
           className="ghost-button"
