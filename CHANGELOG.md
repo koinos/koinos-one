@@ -76,6 +76,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- When one Explorer refresh brings several new blocks at once, they are now
+  revealed one at a time (oldest first, evenly spaced within the poll window)
+  so the list ticks like a live feed instead of jumping by two or three rows.
+
 - New blocks in the Explorer now slide in smoothly: fresh rows grow into place
   with a short ease-out animation on top of the existing highlight flash,
   instead of appearing instantly. The animation is disabled when the OS
