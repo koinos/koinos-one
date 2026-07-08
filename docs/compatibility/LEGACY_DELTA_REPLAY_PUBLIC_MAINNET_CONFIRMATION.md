@@ -104,3 +104,61 @@ Planned validation: unit test reproducing the block shape (12-entry receipt,
 rectified root equals the 11-entry value) and the full mainnet gate resync
 passing this height with exactly one `delta_replay_fallback` at 32,789,377
 plus one at 30,504,202.
+
+---
+
+## Q&A: Would the tombstone fix have prevented January? Do the new findings discard earlier conclusions?
+
+Asked by the blockchain engineer after reviewing the confirmation above.
+
+### Would the preserve-tombstone fix have prevented the January incident?
+
+For **three of the four reported halt heights** (30,488,260 / 32,770,790 /
+32,900,351): **yes, unambiguously.** Those were the pure replay bug:
+`verify-blocks=false` nodes dropped transient tombstones, silently computed
+wrong roots, and failed far from the cause. The full-history audit proves
+preserve-tombstone replay reproduces the consensus roots of those causal
+blocks exactly. With the fix those nodes would neither have crashed nor
+needed a resync.
+
+For the fourth (32,789,378, the scar): **very likely yes, with an elegant
+detail.** The signed 11-entry root is exactly the bug's signature (the
+12-entry root minus one dropped tombstone). If the recovery node reached its
+head by replaying 32,789,377's receipt with the old code, the remove was
+dropped and the root came out as 11. Preserve-tombstone replay computes the
+12-entry root **regardless of whether the key exists in the replaying node's
+local state** — the tombstone is preserved unconditionally — so block
+32,789,378 would have been produced with the correct anchor and the scar
+would not exist. Additionally, the fix's new per-block root verification
+would have surfaced any divergence AT the causal block instead of letting a
+wrong root be signed into the chain.
+
+Honest caveat: the exact path the recovery node took is not proven (buggy
+replay, or execution on a state missing the key for another reason — partial
+restore, crash-time corruption). What is proven bit-exactly is that the
+signed root has precisely the bug's shape. If the state was already divergent
+for another cause, the tombstone fix alone would not repair that divergence —
+but the new verification would have detected and halted it before it reached
+a signed header.
+
+### Do the new findings discard the earlier conclusions?
+
+No — one sub-conclusion is corrected and the rest comes out stronger:
+
+- **Unchanged:** everything about bug #860 — mechanism, deterministic tests,
+  the state-db and chain fixes, the three transient-tombstone causal blocks,
+  the audit method and totals.
+- **Unchanged:** the 30,504,202 anomaly (Oct-31-2025 KFS hardfork + receipt
+  persistence bug #858), verified bit-exact.
+- **Unchanged:** no single fixed replay semantics passes the whole chain;
+  per-block verification is required.
+- **Corrected:** only the INTERPRETATION of block 32,789,377 — from "era
+  no-op remove, the receipt over-records" to "the 12-entry receipt is honest;
+  the 11-entry signed root is a scar of the January recovery." Mechanically
+  even the auditor's handling was already right (subset-drop; same totals);
+  what changed is the WHY, and with it the chosen remedy (the rectify.cpp
+  section plus the `discard_removal_record` state-db API).
+
+The finding in fact **strengthens** the case for upstreaming the fix: the bug
+did not merely strand nodes — it wrote an incorrect root into the chain's
+consensus history.
