@@ -44,13 +44,19 @@ function ApiGate({ animate }: { animate: boolean }) {
  * keep a persistent purple accent and a stronger arrival pulse.
  */
 function BlockCube({
+  block,
   index,
   isOwn,
-  animate
+  animate,
+  onClick,
+  onHover
 }: {
+  block: Block3D
   index: number
   isOwn: boolean
   animate: boolean
+  onClick?: (block: Block3D) => void
+  onHover?: (block: Block3D | null) => void
 }) {
   const meshRef = useRef<Mesh>(null)
   const spawnedAt = useRef<number | null>(null)
@@ -85,7 +91,23 @@ function BlockCube({
   })
 
   return (
-    <mesh ref={meshRef} position={[targetX, y, 0]}>
+    <mesh
+      ref={meshRef}
+      position={[targetX, y, 0]}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick?.(block)
+      }}
+      onPointerOver={(event) => {
+        event.stopPropagation()
+        document.body.style.cursor = 'pointer'
+        onHover?.(block)
+      }}
+      onPointerOut={() => {
+        document.body.style.cursor = ''
+        onHover?.(null)
+      }}
+    >
       <boxGeometry args={[size, size, size]} />
       <meshStandardMaterial
         color={isOwn ? SCENE_COLORS.blockOwn : SCENE_COLORS.block}
@@ -101,11 +123,15 @@ function BlockCube({
 function ChainTrack({
   blocks,
   ownProducerAddress,
-  animate
+  animate,
+  onBlockClick,
+  onHoverBlock
 }: {
   blocks: Block3D[]
   ownProducerAddress: string
   animate: boolean
+  onBlockClick?: (block: Block3D) => void
+  onHoverBlock?: (block: Block3D | null) => void
 }) {
   const normalizedOwn = ownProducerAddress.trim().toLowerCase()
 
@@ -118,9 +144,12 @@ function ChainTrack({
       {blocks.map((block, index) => (
         <BlockCube
           key={block.id}
+          block={block}
           index={index}
           isOwn={Boolean(normalizedOwn && block.signer.toLowerCase() === normalizedOwn)}
           animate={animate}
+          onClick={onBlockClick}
+          onHover={onHoverBlock}
         />
       ))}
     </group>
@@ -133,9 +162,23 @@ export type Scene3DProps = {
   lastEvents: Explorer3DEvent[]
   ownProducerAddress: string
   animate: boolean
+  maxParticles?: number
+  onHoverTx?: (id: string | null) => void
+  onBlockClick?: (block: Block3D) => void
+  onHoverBlock?: (block: Block3D | null) => void
 }
 
-export default function Scene3D({ state, revision, lastEvents, ownProducerAddress, animate }: Scene3DProps) {
+export default function Scene3D({
+  state,
+  revision,
+  lastEvents,
+  ownProducerAddress,
+  animate,
+  maxParticles,
+  onHoverTx,
+  onBlockClick,
+  onHoverBlock
+}: Scene3DProps) {
   return (
     <>
       <color attach="background" args={[SCENE_COLORS.background]} />
@@ -145,8 +188,21 @@ export default function Scene3D({ state, revision, lastEvents, ownProducerAddres
       <directionalLight position={[6, 9, 4]} intensity={0.65} />
 
       <ApiGate animate={animate} />
-      <TxParticles state={state} revision={revision} lastEvents={lastEvents} animate={animate} />
-      <ChainTrack blocks={state.blocks} ownProducerAddress={ownProducerAddress} animate={animate} />
+      <TxParticles
+        state={state}
+        revision={revision}
+        lastEvents={lastEvents}
+        animate={animate}
+        maxParticles={maxParticles}
+        onHoverTx={onHoverTx}
+      />
+      <ChainTrack
+        blocks={state.blocks}
+        ownProducerAddress={ownProducerAddress}
+        animate={animate}
+        onBlockClick={onBlockClick}
+        onHoverBlock={onHoverBlock}
+      />
 
       <OrbitControls
         enableDamping

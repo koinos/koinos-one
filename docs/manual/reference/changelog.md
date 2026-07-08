@@ -11,6 +11,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Experimental 3D Explorer (phase 4): the scene is now interactive - hover a
+  transaction particle or a block to see its details in a tooltip, click a
+  block to open the regular block detail dialog, and pick a quality preset in
+  Settings (Off hides the 3D view entirely; Low reduces particles and
+  disables antialiasing for modest hardware).
+
 - Experimental 3D Explorer (phase 3): the scene is now alive - transactions
   spawn at the API gate when first seen in the mempool, orbit the pool while
   pending, and fly into the newest block the moment it seals; blocks flash

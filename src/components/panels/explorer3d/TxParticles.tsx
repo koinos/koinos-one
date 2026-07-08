@@ -61,16 +61,21 @@ export function TxParticles({
   state,
   revision,
   lastEvents,
-  animate
+  animate,
+  maxParticles = MAX_RENDERED_PENDING_TX,
+  onHoverTx
 }: {
   state: Explorer3DState
   revision: number
   lastEvents: Explorer3DEvent[]
   animate: boolean
+  maxParticles?: number
+  onHoverTx?: (id: string | null) => void
 }) {
   const meshRef = useRef<InstancedMesh>(null)
   const particlesRef = useRef<Map<string, Particle>>(new Map())
   const clockRef = useRef(0)
+  const indexToIdRef = useRef<string[]>([])
 
   const matrix = useMemo(() => new Matrix4(), [])
   const quaternion = useMemo(() => new Quaternion(), [])
@@ -83,7 +88,7 @@ export function TxParticles({
     const now = clockRef.current
     for (const event of lastEvents) {
       if (event.type === 'tx-seen') {
-        if (!particles.has(event.id) && particles.size < MAX_RENDERED_PENDING_TX) {
+        if (!particles.has(event.id) && particles.size < maxParticles) {
           particles.set(event.id, makeParticle(event.id, now, animate))
         }
       } else if (event.type === 'tx-included') {
@@ -109,11 +114,11 @@ export function TxParticles({
     // Reconcile against the store in case events were missed (cache rebuilds,
     // first mount with existing pending transactions).
     for (const tx of state.txs.values()) {
-      if (tx.stage === 'pending' && !particles.has(tx.id) && particles.size < MAX_RENDERED_PENDING_TX) {
+      if (tx.stage === 'pending' && !particles.has(tx.id) && particles.size < maxParticles) {
         particles.set(tx.id, makeParticle(tx.id, now, false))
       }
     }
-  }, [revision, lastEvents, state, animate])
+  }, [revision, lastEvents, state, animate, maxParticles])
 
   useFrame((_frameState, delta) => {
     const mesh = meshRef.current
@@ -123,9 +128,11 @@ export function TxParticles({
     const now = clockRef.current
     const particles = particlesRef.current
 
+    const indexToId = indexToIdRef.current
+    indexToId.length = 0
     let index = 0
     for (const particle of particles.values()) {
-      if (index >= MAX_RENDERED_PENDING_TX) break
+      if (index >= maxParticles) break
       let scale = 1
       const elapsed = now - particle.phaseStart
 
@@ -167,6 +174,7 @@ export function TxParticles({
       scaleVec.setScalar(Math.max(0.001, scale))
       matrix.compose(positionVec, quaternion, scaleVec)
       mesh.setMatrixAt(index, matrix)
+      indexToId[index] = particle.id
       index += 1
     }
 
@@ -175,7 +183,17 @@ export function TxParticles({
   })
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, MAX_RENDERED_PENDING_TX]} frustumCulled={false}>
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, MAX_RENDERED_PENDING_TX]}
+      frustumCulled={false}
+      onPointerMove={(event) => {
+        event.stopPropagation()
+        const id = event.instanceId !== undefined ? indexToIdRef.current[event.instanceId] ?? null : null
+        onHoverTx?.(id)
+      }}
+      onPointerOut={() => onHoverTx?.(null)}
+    >
       <sphereGeometry args={[0.09, 12, 12]} />
       <meshStandardMaterial
         color={SCENE_COLORS.pendingTx}

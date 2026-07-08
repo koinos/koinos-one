@@ -6840,6 +6840,20 @@ thead th,
   padding: 2px 8px;
 }
 
+.explorer3d-tooltip {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
 .explorer3d-fallback {
   display: grid;
   gap: 6px;
