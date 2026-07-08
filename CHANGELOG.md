@@ -76,6 +76,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- New blocks in the Explorer now slide in smoothly: fresh rows grow into place
+  with a short ease-out animation on top of the existing highlight flash,
+  instead of appearing instantly. The animation is disabled when the OS
+  requests reduced motion.
+
 - Node Settings config editor: removed the "Ignored legacy settings" banner
   (legacy keys such as `global.amqp` are still preserved untouched on save),
   and all config sections now start collapsed, including `global`.
