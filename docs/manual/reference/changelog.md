@@ -11,6 +11,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Explorer rows for blocks produced by your configured producer address are
+  now highlighted with an accent border and a "My producer" badge, so your own
+  blocks stand out while watching the chain.
+
 - Backup and restore progress is now visible from anywhere in the app: the
   footer status pill shows the operation (restoring, verifying or creating a
   backup) with percentage, transfer speed, ETA and a progress bar while it
@@ -47,6 +51,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- When the selected profile enables mainnet block production but no producer
+  address is configured, the Node tab now disables Start and Restart up front
+  and shows a persistent notice explaining why, with a shortcut to the
+  Producer tab. Previously Start appeared clickable, failed its preflight, and
+  the error message could disappear on the next action.
+
 - Made the Producer tab much faster to activate. The producer overview used to
   page through roughly a full day of blocks (~28,800) over RPC on every
   refresh to compute 24h producer activity, which could take around ten
@@ -74,6 +84,15 @@ All notable changes to this project are documented in this file.
   palette, system success/danger colors, soft shadows).
 
 ### Changed
+
+- When one Explorer refresh brings several new blocks at once, they are now
+  revealed one at a time (oldest first, evenly spaced within the poll window)
+  so the list ticks like a live feed instead of jumping by two or three rows.
+
+- New blocks in the Explorer now slide in smoothly: fresh rows grow into place
+  with a short ease-out animation on top of the existing highlight flash,
+  instead of appearing instantly. The animation is disabled when the OS
+  requests reduced motion.
 
 - Node Settings config editor: removed the "Ignored legacy settings" banner
   (legacy keys such as `global.amqp` are still preserved untouched on save),

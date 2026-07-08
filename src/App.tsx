@@ -1408,6 +1408,12 @@ export function App() {
     let inFlight = false
     let pollTimer: number | null = null
     let controller: AbortController | null = null
+    let revealTimers: number[] = []
+
+    const clearRevealTimers = () => {
+      revealTimers.forEach((id) => window.clearTimeout(id))
+      revealTimers = []
+    }
 
     const tick = async (initial: boolean) => {
       if (disposed || inFlight) return
@@ -1423,16 +1429,41 @@ export function App() {
         if (disposed) return
 
         const previousIds = new Set(rowsRef.current.map((row) => row.blockId))
+        const hadPreviousRows = previousIds.size > 0
         const incomingFresh = snapshot.rows
           .filter((row) => !previousIds.has(row.blockId))
           .map((row) => row.blockId)
 
+        clearRevealTimers()
         rowsRef.current = snapshot.rows
-        setRows(snapshot.rows)
         setHead(snapshot.head)
         setLastSuccessAt(Date.now())
         setErrorMessage(null)
-        setFreshBlockIds(incomingFresh.slice(0, 3))
+
+        if (!hadPreviousRows || incomingFresh.length <= 1) {
+          setRows(snapshot.rows)
+          setFreshBlockIds(hadPreviousRows ? incomingFresh.slice(0, 3) : [])
+        } else {
+          // Several blocks arrived in one poll: reveal them one at a time
+          // (oldest first) so the list ticks like a live feed instead of
+          // jumping by two or three rows at once.
+          const revealOrder = [...incomingFresh].reverse()
+          const stepMs = Math.max(
+            250,
+            Math.min(650, Math.floor((settings.pollMs || 3000) / (revealOrder.length + 1)))
+          )
+          const hidden = new Set(incomingFresh)
+          const revealNext = (index: number) => {
+            if (disposed) return
+            hidden.delete(revealOrder[index])
+            setRows(rowsRef.current.filter((row) => !hidden.has(row.blockId)))
+            setFreshBlockIds([revealOrder[index]])
+          }
+          revealNext(0)
+          for (let i = 1; i < revealOrder.length; i++) {
+            revealTimers.push(window.setTimeout(() => revealNext(i), stepMs * i))
+          }
+        }
       } catch (error) {
         if (disposed) return
         if (error instanceof DOMException && error.name === 'AbortError') return
@@ -1453,6 +1484,7 @@ export function App() {
 
     return () => {
       disposed = true
+      clearRevealTimers()
       controller?.abort()
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
@@ -1738,6 +1770,14 @@ export function App() {
   const nodeControlsUnavailableReason = !hasNodeControls ? t('node.actionDisabled.electronOnly') : null
   const nodeActionBusyReason = nodeBusy ? t('node.actionDisabled.busy', { state: nodeStateText }) : null
   const nodeStartAlreadyRunningReason = nodeRunningCount > 0 ? t('node.actionDisabled.alreadyRunning') : null
+  const producerStartBlockedReason =
+    nodeSettings.network === 'mainnet' &&
+    nodeCurrentProfiles.some((profile) => profile.toLowerCase().includes('producer')) &&
+    nodeProducerOverview !== null &&
+    !nodeProducerOverview.configHasProducer &&
+    !isProducerSetupComplete(producerProfile)
+      ? t('node.actionDisabled.producerSetupIncomplete')
+      : null
   const nodePrimaryUnavailableReason = !nodePrimaryService ? t('node.actionDisabled.noPrimaryService') : null
   const nodePrimaryStatusUnavailableReason =
     nodePrimaryService && !nodePrimaryCapabilities ? t('node.actionDisabled.statusUnavailable') : null
@@ -1748,6 +1788,7 @@ export function App() {
   const nodeStartTooltip = nodeActionTooltip(
     t('node.actionTooltip.start'),
     nodeControlsUnavailableReason,
+    producerStartBlockedReason,
     nodeStartAlreadyRunningReason,
     nodeActionBusyReason
   )
@@ -5662,6 +5703,20 @@ export function App() {
           </div>
         )}
 
+        {producerStartBlockedReason && (
+          <div className="node-warning node-busy-banner" role="alert">
+            <strong>{t('node.startBlockedTitle')}</strong>
+            <span>{t('node.startBlockedProducerSetup')}</span>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setActiveTab('producer')}
+            >
+              {t('node.openProducerTab')}
+            </button>
+          </div>
+        )}
+
         {(activeBackupProgress || nodeRestoreBackupLoading || nodeRestoreNativeBackupLoading || nodeCreateBackupLoading) && (
           <div className="node-warning node-busy-banner" role="status">
             <strong>{activeBackupActionLabel || t('status.restoringBackup')}</strong>
@@ -5721,7 +5776,7 @@ export function App() {
                 onClick={() => {
                   void runNodeAction('start')
                 }}
-                disabled={!hasNodeControls || nodeBusy || nodeRunningCount > 0}
+                disabled={!hasNodeControls || nodeBusy || nodeRunningCount > 0 || producerStartBlockedReason !== null}
               >
                 {nodeActionLoading === 'start' ? t('common.starting') : t('node.startNode')}
               </button>
@@ -5749,6 +5804,7 @@ export function App() {
                   !hasNodeControls ||
                   nodeBusy ||
                   !nodePrimaryService ||
+                  producerStartBlockedReason !== null ||
                   nodePrimaryCapabilities?.restartBlockedReason !== null
                 }
               >
@@ -6431,6 +6487,7 @@ export function App() {
       {activeTab === 'explorer' && (
         <ExplorerPanel
           t={t}
+          ownProducerAddress={producerConfiguredAddress}
           effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
           settings={settings}
           language={language}
