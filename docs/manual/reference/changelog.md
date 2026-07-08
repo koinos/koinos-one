@@ -11,6 +11,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Explorer rows for blocks produced by your configured producer address are
+  now highlighted with an accent border and a "My producer" badge, so your own
+  blocks stand out while watching the chain.
+
 - Backup and restore progress is now visible from anywhere in the app: the
   footer status pill shows the operation (restoring, verifying or creating a
   backup) with percentage, transfer speed, ETA and a progress bar while it

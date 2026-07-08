@@ -6455,6 +6455,7 @@ export function App() {
       {activeTab === 'explorer' && (
         <ExplorerPanel
           t={t}
+          ownProducerAddress={producerConfiguredAddress}
           effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
           settings={settings}
           language={language}
