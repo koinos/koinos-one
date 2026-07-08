@@ -90,6 +90,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The block detail now shows block-level receipt events (producer reward
+  mint, burn accounting and similar). Most Koinos mainnet blocks carry no
+  transactions, so the detail previously looked completely empty even though
+  every block emits events in its receipt.
+
 - When the selected profile enables mainnet block production but no producer
   address is configured, the Node tab now disables Start and Restart up front
   and shows a persistent notice explaining why, with a shortcut to the
