@@ -20,9 +20,9 @@ type Explorer3DViewProps = {
 }
 
 const QUALITY_PRESETS = {
-  low: { dpr: [1, 1] as [number, number], maxParticles: 200, antialias: false, autoOrbit: false },
-  medium: { dpr: [1, 1.75] as [number, number], maxParticles: 500, antialias: true, autoOrbit: true },
-  high: { dpr: [1, 2] as [number, number], maxParticles: 500, antialias: true, autoOrbit: true }
+  low: { dpr: [1, 1] as [number, number], maxParticles: 200, antialias: false },
+  medium: { dpr: [1, 1.75] as [number, number], maxParticles: 500, antialias: true },
+  high: { dpr: [1, 2] as [number, number], maxParticles: 500, antialias: true }
 } as const
 
 function supportsWebGl2(): boolean {
@@ -126,7 +126,7 @@ export default function Explorer3DView({
           revision={feed.revision}
           lastEvents={feed.lastEvents}
           ownProducerAddress={`${ownProducerAddress ?? ''}`}
-          animate={animate && preset.autoOrbit}
+          animate={animate}
           maxParticles={preset.maxParticles}
           onHoverTx={setHoveredTxId}
           onBlockClick={handleBlockClick}
