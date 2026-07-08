@@ -418,7 +418,8 @@ describe('block and ansi parsing helpers', () => {
       blockId: '0xabc',
       previousId: '0xprev',
       signer: '1A2B3C',
-      timestampMs: 1700000000000
+      timestampMs: 1700000000000,
+      txIds: []
     })
   })
 

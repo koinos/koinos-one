@@ -3,8 +3,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import type { Group } from 'three'
 
+import { useExplorer3DFeed } from './useExplorer3DFeed'
+import type { BlockRow } from '../../../app/types'
+import type { AppLanguage } from '../../../i18n'
+
 type Explorer3DViewProps = {
   t: (key: string, values?: Record<string, string | number>) => string
+  language: AppLanguage
+  rpcUrl: string
+  rows: BlockRow[]
 }
 
 function supportsWebGl2(): boolean {
@@ -77,8 +84,9 @@ function FpsProbe({ onSample }: { onSample: (fps: number) => void }) {
   return null
 }
 
-export default function Explorer3DView({ t }: Explorer3DViewProps) {
+export default function Explorer3DView({ t, language, rpcUrl, rows }: Explorer3DViewProps) {
   const [webGlOk] = useState(supportsWebGl2)
+  const feed = useExplorer3DFeed({ language, rpcUrl, rows })
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden')
   const [fps, setFps] = useState<number | null>(null)
   const reducedMotion = prefersReducedMotion()
@@ -113,7 +121,14 @@ export default function Explorer3DView({ t }: Explorer3DViewProps) {
       </Canvas>
       <div className="explorer3d-hud">
         <span className="explorer3d-badge">{t('explorer3d.experimentalBadge')}</span>
-        <span className="explorer3d-hint">{t('explorer3d.phase0Hint')}</span>
+        <span className="explorer3d-hint">
+          {feed.mempoolAvailable
+            ? t('explorer3d.feedCounts', {
+                pending: feed.counts.pending,
+                blocks: feed.counts.blocks
+              })
+            : t('explorer3d.blocksOnlyMode')}
+        </span>
         {import.meta.env.DEV && fps !== null && (
           <span className="explorer3d-fps mono">{fps} fps</span>
         )}
