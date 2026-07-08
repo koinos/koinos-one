@@ -39,6 +39,15 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed a circular deadlock that could make a mainnet producer impossible to
+  start: the start gate requires `block_producer.producer` in the runtime
+  config, but the Producer tab told the user to start the node once to create
+  the local producer key. The Producer tab now offers a "Create local producer
+  key" action that writes the same WIF key file the node would create,
+  unblocking registration and producer startup without starting the node
+  first. Also fixed the Producer overview mislabeling a manually selected
+  address as "runtime config" when the config did not actually contain it.
+
 - Fixed several look-and-feel inconsistencies left over from an earlier dark
   theme: primary and danger buttons, Settings/Wallet form labels, wallet
   activity badges, error pills, and inline error text used light-on-light

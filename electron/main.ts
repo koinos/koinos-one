@@ -237,7 +237,9 @@ import type {
 } from './lib/main-types'
 import { createNativeVersionResolver } from './lib/native-versions'
 import { createProducerService } from './lib/producer-service'
-import { producerAddressFromRuntimeConfig, resolveLocalProducerPublicKey } from './lib/producer-keys'
+import { producerAddressFromRuntimeConfig, resolveLocalProducerPublicKey,
+  createLocalProducerKeyFile
+} from './lib/producer-keys'
 import { createCachedContractLoader } from './lib/contract-loader'
 import { resolveCoreContractAbi } from './lib/core-contract-abis'
 import { registerTelenoIpcHandlers } from './lib/ipc-handlers'
@@ -4358,6 +4360,13 @@ async function telenoNodeProducerDelete(
   return producerService.telenoNodeProducerDelete(input)
 }
 
+async function telenoNodeProducerCreateLocalKey(
+  input?: TelenoNodeSettingsInput
+): Promise<ReturnType<typeof createLocalProducerKeyFile>> {
+  const settings = normalizeNodeSettings(input)
+  return createLocalProducerKeyFile(settings)
+}
+
 async function telenoNodeProducerRegister(
   input?: TelenoNodeProducerRegisterInput
 ): Promise<TelenoNodeProducerRegisterResult> {
@@ -4541,6 +4550,7 @@ function registerIpcHandlers() {
     telenoNodeProducerOverview,
     telenoNodeProducerRegisteredKey,
     telenoNodeProducerLocalInfo,
+    telenoNodeProducerCreateLocalKey,
     telenoNodeProducerRegister,
     telenoNodeProducerProfileGet,
     telenoNodeProducerProfileClear,

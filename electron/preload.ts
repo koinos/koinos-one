@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld('teleno', {
     producerOverview: (settings?: unknown) => ipcRenderer.invoke('teleno:node:producer-overview', settings),
     producerRegisteredKey: (settings?: unknown) => ipcRenderer.invoke('teleno:node:producer-registered-key', settings),
     producerLocalInfo: (settings?: unknown) => ipcRenderer.invoke('teleno:node:producer-local-info', settings),
+    producerCreateLocalKey: (settings?: unknown) => ipcRenderer.invoke('teleno:node:producer-create-local-key', settings),
     producerRegister: (params?: unknown) => ipcRenderer.invoke('teleno:node:producer-register', params),
     producerProfileGet: () => ipcRenderer.invoke('teleno:node:producer-profile-get'),
     producerProfileClear: () => ipcRenderer.invoke('teleno:node:producer-profile-clear'),

@@ -300,7 +300,16 @@ declare global {
     }
   }
 
-  type TelenoNodeProducerAddressSource = 'config' | 'vault' | 'none'
+  type TelenoNodeProducerCreateLocalKeyResult = {
+    ok: boolean
+    created: boolean
+    output: string
+    publicKey: string | null
+    publicKeyPath: string | null
+    privateKeyPath: string | null
+  }
+
+  type TelenoNodeProducerAddressSource = 'config' | 'vault' | 'manual' | 'none'
 
   type TelenoNodeProducerRegistrationStatus =
     | 'missing-address'
@@ -1237,6 +1246,9 @@ declare global {
       producerOverview: (
         settings?: TelenoNodeProducerOverviewParams
       ) => Promise<TelenoNodeProducerOverviewResult>
+      producerCreateLocalKey: (
+        settings?: TelenoNodeSettings
+      ) => Promise<TelenoNodeProducerCreateLocalKeyResult>
       producerRegister: (
         params: TelenoNodeProducerRegisterParams
       ) => Promise<TelenoNodeProducerRegisterResult>

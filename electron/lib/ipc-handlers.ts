@@ -101,6 +101,7 @@ type IpcHandlerDeps = {
   telenoNodeProducerOverview: (input?: TelenoNodeProducerOverviewInput) => Awaitable<unknown>
   telenoNodeProducerRegisteredKey: (input?: TelenoNodeProducerRegisteredKeyInput) => Awaitable<unknown>
   telenoNodeProducerLocalInfo: (input?: TelenoNodeSettingsInput) => Awaitable<unknown>
+  telenoNodeProducerCreateLocalKey: (input?: TelenoNodeSettingsInput) => Awaitable<unknown>
   telenoNodeProducerRegister: (input?: TelenoNodeProducerRegisterInput) => Awaitable<unknown>
   telenoNodeProducerProfileGet: () => Awaitable<unknown>
   telenoNodeProducerProfileClear: () => Awaitable<unknown>
@@ -196,6 +197,7 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
     'teleno:node:producer-overview',
     'teleno:node:producer-registered-key',
     'teleno:node:producer-local-info',
+    'teleno:node:producer-create-local-key',
     'teleno:node:producer-register',
     'teleno:node:producer-profile-get',
     'teleno:node:producer-profile-clear',
@@ -372,6 +374,7 @@ export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps
   ipcMain.handle('teleno:node:producer-overview', async (_event, input?: TelenoNodeProducerOverviewInput) => deps.telenoNodeProducerOverview(input))
   ipcMain.handle('teleno:node:producer-registered-key', async (_event, input?: TelenoNodeProducerRegisteredKeyInput) => deps.telenoNodeProducerRegisteredKey(input))
   ipcMain.handle('teleno:node:producer-local-info', async (_event, input?: TelenoNodeSettingsInput) => deps.telenoNodeProducerLocalInfo(input))
+  ipcMain.handle('teleno:node:producer-create-local-key', async (_event, input?: TelenoNodeSettingsInput) => deps.telenoNodeProducerCreateLocalKey(input))
   ipcMain.handle('teleno:node:producer-register', async (_event, input?: TelenoNodeProducerRegisterInput) => deps.telenoNodeProducerRegister(input))
   ipcMain.handle('teleno:node:producer-profile-get', async () => deps.telenoNodeProducerProfileGet())
   ipcMain.handle('teleno:node:producer-profile-clear', async () => deps.telenoNodeProducerProfileClear())
