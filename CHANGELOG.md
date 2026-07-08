@@ -85,6 +85,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed the Explorer freezing: opening a block's detail (in the list or by
+  clicking a block in the 3D view) paused the whole block feed, so new blocks
+  stopped advancing everywhere. The feed now keeps polling with a detail
+  open; the selection clears automatically when its block scrolls out of the
+  visible window, and clicking a block in the 3D view now jumps to the list
+  view where the detail actually renders.
+
 - When the selected profile enables mainnet block production but no producer
   address is configured, the Node tab now disables Start and Restart up front
   and shows a persistent notice explaining why, with a shortcut to the
