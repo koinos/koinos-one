@@ -3771,6 +3771,15 @@ body {
   backdrop-filter: blur(10px);
 }
 
+.node-busy-banner {
+  display: grid;
+  gap: 4px;
+}
+
+.node-preset-card.is-disabled {
+  opacity: 0.55;
+}
+
 .node-preset-card {
   display: grid;
   gap: var(--ui-gap-tight);

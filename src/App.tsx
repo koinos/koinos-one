@@ -89,6 +89,7 @@ import {
   remoteBackupDefaults,
   resolveNodeBaseDirForNetwork,
   resolveExplorerRpcUrl,
+  formatBytes,
   resolveLocalNodeRpcUrl,
   resolveProducerRpcUrl,
   resolveNodeFileDisplayPath,
@@ -1983,12 +1984,39 @@ export function App() {
       : chainSyncPercent >= 90
         ? chainSyncPercent.toFixed(1)
         : chainSyncPercent.toFixed(0)
-  const footerStatusClass = !hasNodeControls
+  const activeBackupProgress =
+    nodeBackupProgress && !TERMINAL_BACKUP_PHASES.has(nodeBackupProgress.phase) ? nodeBackupProgress : null
+  const activeBackupActionLabel = activeBackupProgress
+    ? activeBackupProgress.action === 'create-backup'
+      ? t('status.creatingBackup')
+      : activeBackupProgress.action === 'restore-backup-verify'
+        ? t('status.verifyingBackup')
+        : t('status.restoringBackup')
+    : ''
+  const activeBackupPercent = activeBackupProgress
+    ? Math.max(0, Math.min(100, Math.round(activeBackupProgress.displayProgress)))
+    : null
+  const activeBackupMeta = activeBackupProgress
+    ? [
+        activeBackupPercent !== null ? `${activeBackupPercent}%` : '',
+        activeBackupProgress.bytesPerSecond && activeBackupProgress.bytesPerSecond > 0
+          ? `${formatBytes(activeBackupProgress.bytesPerSecond, locale)}/s`
+          : '',
+        activeBackupProgress.etaSeconds && activeBackupProgress.etaSeconds > 0
+          ? t('status.syncEta', { eta: formatDurationSeconds(activeBackupProgress.etaSeconds) })
+          : ''
+      ].filter(Boolean).join(' · ')
+    : ''
+  const footerStatusClass = activeBackupProgress
+    ? 'is-live'
+    : !hasNodeControls
     ? errorMessage
       ? 'is-error'
       : 'is-idle'
     : nodeStatusClass
-  const footerStatusText = !hasNodeControls
+  const footerStatusText = activeBackupProgress
+    ? activeBackupActionLabel
+    : !hasNodeControls
     ? localNodeNotRunning && errorMessage
       ? t('status.startServicesToExplore')
       : statusText
@@ -2023,7 +2051,9 @@ export function App() {
   const indexerBlkSecLabel = showIndexerProgress && indexerBlocksPerSec !== null && indexerBlocksPerSec > 0
     ? ` · ${indexerBlocksPerSec} blk/s`
     : ''
-  const footerStatusMeta = showIndexerProgress
+  const footerStatusMeta = activeBackupProgress
+    ? activeBackupMeta || null
+    : showIndexerProgress
     ? t('status.indexProgress', {
         height: indexerProgress!.height.toLocaleString(locale),
         percent: indexerPercentLabel
@@ -5631,6 +5661,16 @@ export function App() {
           </div>
         )}
 
+        {(activeBackupProgress || nodeRestoreBackupLoading || nodeRestoreNativeBackupLoading || nodeCreateBackupLoading) && (
+          <div className="node-warning node-busy-banner" role="status">
+            <strong>{activeBackupActionLabel || t('status.restoringBackup')}</strong>
+            <span>
+              {t('node.busyBackupNotice')}
+              {activeBackupMeta ? ` · ${activeBackupMeta}` : ''}
+            </span>
+          </div>
+        )}
+
         <div className="node-subtabs settings-tabs" role="tablist" aria-label="Node views">
           <button
             type="button"
@@ -5956,7 +5996,7 @@ export function App() {
                       return (
                         <article
                           key={preset.id}
-                          className={`node-preset-card ${selected ? 'is-selected' : ''}`.trim()}
+                          className={`node-preset-card ${selected ? 'is-selected' : ''} ${nodeBusy ? 'is-disabled' : ''}`.trim()}
                           title={presetDescription}
                         >
                           <span className="node-preset-label">{presetLabel}</span>
@@ -6509,8 +6549,8 @@ export function App() {
         footerStatusText={footerStatusText}
         footerStatusMeta={footerStatusMeta}
         footerRpcUrl={footerRpcUrl}
-        showChainSyncProgress={showChainSyncProgress}
-        chainSyncPercent={chainSyncPercent}
+        showChainSyncProgress={activeBackupProgress ? activeBackupPercent !== null : showChainSyncProgress}
+        chainSyncPercent={activeBackupProgress ? activeBackupPercent : chainSyncPercent}
         t={t}
         appVersion={appVersion}
         openVersionChangelog={openVersionChangelog}
