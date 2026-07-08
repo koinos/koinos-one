@@ -17,14 +17,16 @@ Koinos is the blockchain protocol and network family. Koinos One is a desktop
 app that helps operate a Koinos-compatible node. Teleno Node is the native
 `teleno_node` binary managed by Koinos One or run directly by operators.
 
-The most important boundary is protocol compatibility: Koinos nodes can use
-different user interfaces, process layouts, storage engines, or local tooling,
+The most important boundary is protocol compatibility: Koinos nodes can differ
+in user interface, internal architecture, storage engine, or local tooling,
 but they must agree on the same chain ID, blocks, transactions, state roots,
 peer protocol, and externally consumed RPC behavior.
 
 ## Deeper References
 
-- [Koinos Protocol Compatibility Reference](../developers/deeper-references/koinos-protocol.md)
-- [Current Monolithic Node Architecture](../developers/deeper-references/monolith-architecture.md)
-- [Monolith Service Coverage](../developers/deeper-references/monolith-service-coverage.md)
-- [Glossary](../reference/glossary.md)
+- [Glossary](../reference/glossary.md) - quick definitions of the terms used
+  throughout this manual.
+- For developers: the
+  [Koinos Protocol Compatibility Reference](../developers/deeper-references/koinos-protocol.md),
+  [Current Monolithic Node Architecture](../developers/deeper-references/monolith-architecture.md),
+  and [Monolith Service Coverage](../developers/deeper-references/monolith-service-coverage.md).

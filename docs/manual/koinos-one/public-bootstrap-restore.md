@@ -24,7 +24,7 @@ Koinos JSON-RPC exposes no backup or restore methods.
 
 Koinos One currently knows standard public bootstrap URLs for:
 
-- mainnet: official read-only prodnet public backups for new mainnet observers;
+- mainnet: official read-only public backups for new mainnet observers;
 - testnet: read-only signed testnet public backups.
 
 Custom networks keep public restore disabled unless explicitly configured.
@@ -77,7 +77,7 @@ Koinos One and `teleno_node`:
 - Logs show the node opening the database and becoming ready.
 - `Explorer` or JSON-RPC head data advances as the observer catches up.
 
-## Stop And Ask Before Continuing
+## Think Twice Before These Actions
 
 Stop before using a restored public bootstrap database as a producer. A restored
 node should run as an observer first. Re-enable block production only after

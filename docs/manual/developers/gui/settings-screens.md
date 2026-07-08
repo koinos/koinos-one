@@ -30,8 +30,8 @@ near the left and right borders.
 
 - Settings should keep configuration controls grouped and avoid surprise runtime
   side effects.
-- Node > Backups owns backup and restore operations. Settings > Backup is
-  configuration-oriented.
+- Node > Restore Backup owns backup and restore operations. Settings > Backup
+  is configuration-oriented.
 - Wallet and Producer screens must keep signing, burn, transfer, and producer
   registration states explicit.
 - First-run setup is packaged-runtime-only and observer-first.

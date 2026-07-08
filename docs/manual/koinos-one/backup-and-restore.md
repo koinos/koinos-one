@@ -93,7 +93,7 @@ bootstrap restore.
 - `Node` shows the intended `BASEDIR`.
 - `Explorer` or logs show the restored observer serving or syncing chain data.
 
-## Stop And Ask Before Continuing
+## Think Twice Before These Actions
 
 Stop before restoring over data from a mainnet producer, before re-enabling
 block production after restore, or before moving restored state into a producer

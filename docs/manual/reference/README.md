@@ -22,6 +22,6 @@ operational detail stays in the user, operator, and developer guides.
 
 - Public bootstrap restore means a public read-only backup source. It does not
   mean public administrative control.
-- Use placeholders such as `<YOUR_MAINNET_PRODUCER_ADDRESS>` in public examples.
-- Do not put private hostnames, IPs, users, wallet secrets, tokens, or key
-  material in manual pages.
+- When sharing configs, logs, or examples publicly, replace real values with
+  placeholders such as `<YOUR_MAINNET_PRODUCER_ADDRESS>`, and never include
+  private hostnames, IPs, users, wallet secrets, tokens, or key material.

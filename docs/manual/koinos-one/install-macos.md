@@ -42,8 +42,8 @@ includes that metadata.
 ## How To Verify It Worked
 
 - The window title and header show `Koinos One`.
-- The main tabs are visible: `Explorer`, `Dashboard`, `Node`, `Producer`,
-  `Wallet`, `Documentation`, and `Settings`.
+- The main tabs are visible: `Explorer`, `Dashboard`, `Node`, `Remote`,
+  `Producer`, `Wallet`, `Documentation`, and `Settings`.
 - `Documentation` opens this manual.
 - `Settings > Build information` shows the package identity available for the
   build.
