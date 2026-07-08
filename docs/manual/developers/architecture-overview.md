@@ -4,7 +4,9 @@ Koinos One is a desktop operator app around one native `teleno_node` process.
 The native node embeds the Koinos runtime components that used to be separate
 services and connects them with direct calls and an internal event bus. The
 product goal is an optimized monolithic Koinos node that remains compatible
-with Koinos protocol behavior.
+with Koinos protocol behavior. This is a community-driven implementation: the
+official reference Koinos node remains the microservices-based stack, and
+compatibility with it is the standard Teleno is measured against.
 
 ## Runtime Shape
 

@@ -7,6 +7,10 @@ Koinos One manages one native `teleno_node` process. The node embeds the Koinos
 runtime components that were historically separate microservices and connects
 them with direct in-process calls plus an internal event bus.
 
+This is a community-driven implementation. The official reference Koinos node
+remains the microservices-based stack; the monolith must stay
+protocol-compatible with it.
+
 ## Runtime Model
 
 ```text
