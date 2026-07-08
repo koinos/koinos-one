@@ -2,9 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## [1.1.0-dev.0] - Unreleased
 
 ### Added
+
+- Settings > Build information now shows the native `teleno_node` version. The
+  packaged build identity captures the binary's reported version (parsed from
+  `teleno_node --version`) alongside its name and SHA-256.
+
+- Aligned the native `teleno_node` semantic version with the app development
+  track (0.1.0 -> 1.1.0). Native build identity remains
+  `<version>+<git-commit>[-dirty]`.
 
 - Added `koinos_state_delta_replay_audit`, an offline native binary that opens a
   restored unified block store read-only and validates historical receipt state

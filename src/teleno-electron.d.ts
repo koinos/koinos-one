@@ -1144,6 +1144,7 @@ declare global {
 
   type TelenoBuildInfoNativeNode = {
     binaryName: string
+    version: string | null
     sha256: string | null
     shortSha256: string | null
     sizeBytes: number | null
