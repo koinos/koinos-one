@@ -67,6 +67,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Renamed the Wallet account action "Set Producer" to "Set as producer". When
+  the active account is already the configured producer address, the button is
+  replaced by a passive "Producer" badge instead of offering a redundant
+  action.
+
 - Simplified the Node presets section to a single Apply action. Apply now only
   pre-activates the preset (network, base directory, profiles and component
   selection) without starting or reconciling the node; use Start node when
