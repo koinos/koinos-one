@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Aligned the native `teleno_node` semantic version with the app development
+  track (0.1.0 -> 1.1.0). Native build identity remains
+  `<version>+<git-commit>[-dirty]`.
+
 - Added `koinos_state_delta_replay_audit`, an offline native binary that opens a
   restored unified block store read-only and validates historical receipt state
   delta Merkle roots without using peers or node services. The auditor now reports a live terminal
