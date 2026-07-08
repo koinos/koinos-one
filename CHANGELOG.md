@@ -76,6 +76,14 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The Explorer now polls every second by default (previously every three
+  seconds), so new blocks appear in near real time. Polling became much
+  cheaper at the same time: each tick only fetches the chain head, and block
+  bodies are downloaded just for heights newer than the rows already shown
+  (with a full refetch on gaps or reorgs). Stored settings still using the old
+  3-second default are migrated to the new default; the interval remains
+  configurable in Settings.
+
 - New blocks in the Explorer now slide in smoothly: fresh rows grow into place
   with a short ease-out animation on top of the existing highlight flash,
   instead of appearing instantly. The animation is disabled when the OS

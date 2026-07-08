@@ -58,6 +58,7 @@ import {
   expandNodeProfiles,
   fetchHeadSnapshot,
   fetchLatestBlocks,
+  fetchLatestBlocksDelta,
   filterBlocksByProducer,
   defaultNodeProfilesForNetwork,
   formatDateTime,
@@ -1419,7 +1420,7 @@ export function App() {
       else setIsRefreshing(true)
 
       try {
-        const snapshot = await fetchLatestBlocks(language, effectiveExplorerRpcUrl, settings.rowLimit, controller.signal)
+        const snapshot = await fetchLatestBlocksDelta(language, effectiveExplorerRpcUrl, settings.rowLimit, rowsRef.current, controller.signal)
         if (disposed) return
 
         const previousIds = new Set(rowsRef.current.map((row) => row.blockId))
