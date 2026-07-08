@@ -1,4 +1,6 @@
-import React from 'react'
+import React, { Suspense, lazy, useState } from 'react'
+
+const Explorer3DView = lazy(() => import('./explorer3d/Explorer3DView'))
 import { LOCAL_RPC_SOURCE } from '../../app/constants'
 import { formatDateTime, formatRelativeAge, formatRpcDisplayUrl, normalizeExplorerRpcSource, shortHash } from '../../app/utils'
 import { BlockInlineDetail } from './BlockInlineDetail'
@@ -20,14 +22,63 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
     errorMessage,
     rows,
     freshBlockIds,
+    ownProducerAddress,
     nowMs,
     onBlockClick,
     selectedBlockId,
     rpcUrl
   } = props
 
+  const [explorerView, setExplorerView] = useState<'list' | '3d'>('list')
+
   return (
       <>
+        <div className="settings-tabs explorer-view-tabs" role="tablist" aria-label={t('explorer.viewTabsAria')}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={explorerView === 'list'}
+            className={`settings-tab-button ${explorerView === 'list' ? 'is-active' : ''}`}
+            onClick={() => setExplorerView('list')}
+          >
+            {t('explorer.viewList')}
+          </button>
+          {settings.explorer3dQuality !== 'off' && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={explorerView === '3d'}
+              className={`settings-tab-button ${explorerView === '3d' ? 'is-active' : ''}`}
+              onClick={() => setExplorerView('3d')}
+            >
+              {t('explorer.view3d')}
+              <span className="explorer3d-badge-inline">{t('explorer3d.experimentalBadge')}</span>
+            </button>
+          )}
+        </div>
+
+        {explorerView === '3d' && settings.explorer3dQuality !== 'off' && (
+          <Suspense
+            fallback={
+              <div className="explorer3d-fallback" role="status">
+                {t('explorer3d.loading')}
+              </div>
+            }
+          >
+            <Explorer3DView
+              t={t}
+              language={language}
+              rpcUrl={rpcUrl}
+              rows={rows}
+              ownProducerAddress={ownProducerAddress}
+              quality={settings.explorer3dQuality}
+              onBlockClick={onBlockClick}
+            />
+          </Suspense>
+        )}
+
+        {explorerView === 'list' && (
+        <>
 	      <section id="panel-explorer" className="overview-grid" aria-label={t('explorer.panelAria')} role="tabpanel" aria-labelledby="tab-explorer">
 	        <article className="stat-card">
           <span className="stat-label">{t('explorer.headLabel')}</span>
@@ -91,10 +142,15 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
             <tbody>
               {rows.map((row: any) => {
                 const isSelected = selectedBlockId === row.blockId
+                const isOwnProducer = Boolean(
+                  ownProducerAddress &&
+                  row.signer &&
+                  `${row.signer}`.toLowerCase() === `${ownProducerAddress}`.trim().toLowerCase()
+                )
                 return (
                   <React.Fragment key={row.blockId}>
                     <tr
-                      className={`explorer-row ${freshBlockIds.includes(row.blockId) ? 'is-fresh' : ''} ${isSelected ? 'is-selected' : ''}`}
+                      className={`explorer-row ${freshBlockIds.includes(row.blockId) ? 'is-fresh' : ''} ${isSelected ? 'is-selected' : ''} ${isOwnProducer ? 'is-own-producer' : ''}`}
                       onClick={() => onBlockClick?.(row)}
                       style={{ cursor: 'pointer' }}
                     >
@@ -104,6 +160,11 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
                       </td>
                       <td className="mono" title={row.signer || t('common.na')}>
                         {row.signer || t('common.na')}
+                        {isOwnProducer && (
+                          <span className="explorer-own-producer-badge" title={t('explorer.ownProducerBadgeTitle')}>
+                            {t('explorer.ownProducerBadge')}
+                          </span>
+                        )}
                       </td>
                       <td>{formatRelativeAge(row.timestampMs, nowMs)}</td>
                       <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>
@@ -145,6 +206,8 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
           </table>
         </div>
       </main>
+        </>
+        )}
       </>
   )
 }
