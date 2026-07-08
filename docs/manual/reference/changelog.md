@@ -11,6 +11,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Experimental 3D Explorer (phase 5, final): continuous camera auto-rotation
+  removed (the camera only moves when you drag it), quality presets
+  simplified, and the manual gains a dedicated "3D Explorer (Experimental)"
+  page in the Koinos One User Guide describing the scene, interactions,
+  quality presets, and the view's data-honesty limitations.
+
 - Experimental 3D Explorer (phase 4): the scene is now interactive - hover a
   transaction particle or a block to see its details in a tooltip, click a
   block to open the regular block detail dialog, and pick a quality preset in

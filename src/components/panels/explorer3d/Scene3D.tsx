@@ -211,8 +211,7 @@ export default function Scene3D({
         minDistance={6}
         maxDistance={26}
         maxPolarAngle={Math.PI * 0.52}
-        autoRotate={animate}
-        autoRotateSpeed={0.3}
+        autoRotate={false}
       />
     </>
   )
