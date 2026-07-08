@@ -126,6 +126,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The Explorer and Dashboard now highlight the active producer address (as
+  shown in the Producer tab), not only the address already saved in the
+  runtime config, and the Dashboard producers ranking marks your row with the
+  same persistent accent and "My producer" badge.
+
 - When one Explorer refresh brings several new blocks at once, they are now
   revealed one at a time (oldest first, evenly spaced within the poll window)
   so the list ticks like a live feed instead of jumping by two or three rows.

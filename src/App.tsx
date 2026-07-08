@@ -5667,6 +5667,7 @@ export function App() {
           dashboardPerformanceLoading={dashboardPerformanceLoading}
           dashboardPerformanceError={dashboardPerformanceError}
           nodeProducerOverview={nodeProducerOverview}
+          ownProducerAddress={nodeProducerOverview?.producerAddress || producerConfiguredAddress}
           nodeProducerLoading={nodeProducerLoading}
           nodeProducerError={nodeProducerError}
         />
@@ -6501,7 +6502,7 @@ export function App() {
       {activeTab === 'explorer' && (
         <ExplorerPanel
           t={t}
-          ownProducerAddress={producerConfiguredAddress}
+          ownProducerAddress={nodeProducerOverview?.producerAddress || producerConfiguredAddress}
           effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
           settings={settings}
           language={language}
