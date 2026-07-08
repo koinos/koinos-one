@@ -261,3 +261,80 @@ behavior for genuine corruption.
 
 Empirical validation in progress: the mainnet gate resync must log exactly two
 `delta_replay_fallback` lines, at these two heights and no others.
+
+
+---
+
+# Addendum (2026-07-08): analytic verification results
+
+## Anomaly 2: CLOSED — bit-exact match
+
+`scripts/recompute-anomaly2-rectified-root.py` (run against the bucketed
+replay journal of the 2026-07-07 full audit) recomputed the delta merkle
+root of height 30,504,202 from the 8 stored receipt entries PLUS the two
+entries `maybe_rectify_state()` appends (KFS bytecode + contract metadata,
+values taken verbatim from rectify.cpp):
+
+```
+selfcheck height=30504200: OK   (reimplementation reproduces signed roots)
+selfcheck height=30504201: OK
+root(stored 8):             0x12207fb526273e706238cef899350facfd1ddcfa5e19ae352284be53e68d5c516f45
+root(stored 8 + rectify 2): 0x12209d2d9592ddf831e892a5d4d38e93324f6834e255f84509b5e1c907ccfaa685e6
+consensus (signed) root:    0x12209d2d9592ddf831e892a5d4d38e93324f6834e255f84509b5e1c907ccfaa685e6  MATCH
+```
+
+Additional confirmation: the block's timestamp is 1761911881080 =
+2025-10-31T11:58:01.080Z — the first block inside rectify's
+11:58:00–12:00:00 window. Anomaly 2 is therefore **fully explained** by the
+#858 receipt-persistence bug: the stored receipt is missing exactly the two
+rectification entries, nothing else.
+
+## Anomaly 1: hypotheses narrowed, mechanism still open
+
+New hard facts established:
+
+1. **Not a migration artifact.** The original badger block store
+   (koinos-legacy) returns the identical 12-entry receipt for
+   32,789,377 — including the phantom `remove("02076430234253060999996")`
+   (entry 8) — via `block_store.get_blocks_by_id`. The teleno unified DB
+   copy matches. Provenance hypothesis (3) is eliminated.
+
+2. **Receipts are always locally generated.** koinos-p2p transfers blocks
+   only — no receipt fields anywhere in its protocol code. Every receipt in
+   this store was produced by this node's own execution.
+
+3. **The same execution that recorded 12 entries computed the 11-leaf
+   root.** chain v1.4.1's `apply_block` already asserts
+   `previous_state_merkle_root == parent merkle root` (controller.cpp:392
+   at v1.4.1), and the node synced through 32,789,378 by execution;
+   moreover the full-history audit validates every block after 32,789,377
+   against the signed headers, which requires this node's state effect at
+   that height to have matched consensus (k8 absent). So within one
+   execution: state/root = 11 keys, receipt = 12 entries.
+
+4. **No code-level divergence found in inspected versions.**
+   `generate_receipt` is byte-identical v1.4.1 → HEAD (block receipt
+   entries come from the block node's `get_delta_entries()`), and
+   `get_delta_entries()` / `merkle_root()` have read the same two sources
+   (`_backend` + `_removed_objects`) in every state-db version since the
+   feature landed (2023). `squash()` has inserted child removes into the
+   parent's `_removed_objects` unconditionally since 2022 — which would put
+   the phantom into the ROOT too, contradicting fact 3.
+
+Remaining live hypotheses (both require the exact era build to test):
+
+- The era binary carried a state-db or chain patch not visible in the
+  repositories inspected here (the node predates the knodel repo; its exact
+  build lineage in Jan 2026 is unrecorded).
+- A timing window between `generate_receipt` (pre-finalize) and the root
+  read (post-finalize) mutated `_removed_objects` — no such mutation site
+  was found in current sources, but era sources may differ.
+
+**Decisive pending test:** the running mainnet gate resync will re-execute
+32,789,377 through the fallback on its true prestate. If modern re-execution
+reproduces the signed 11-leaf root (expected, per fact 3 — modern code
+matched consensus semantics when this store was synced), the fix design
+holds regardless of the receipt's exact provenance. If instead re-execution
+reproduces the 12-entry semantics, the fallback's post-re-execution assert
+halts the sync at the causal block — the correct fail-safe — and the
+mechanism hunt continues with a live reproduction to debug.
