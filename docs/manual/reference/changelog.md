@@ -11,6 +11,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Experimental 3D Explorer (phase 1): the 3D view now tracks real data - a
+  transaction lifecycle store fed by a 2-second mempool poll (pending,
+  included, dropped) and the Explorer block feed, with live counts in the
+  scene HUD. Polling runs only while the 3D view is open and degrades to
+  blocks-only mode when the RPC source does not expose the mempool.
+
 - Experimental 3D Explorer (phase 0): the Explorer tab gains a "3D Explorer"
   sub-view with an Experimental badge that lazy-loads a GPU-accelerated
   preview scene (three.js). The 3D engine is only downloaded when the

@@ -1228,7 +1228,11 @@ export function mapBlockItem(item: BlockStoreItem): BlockRow | null {
   const timestampMs = safeParseInt(header?.timestamp, 0)
 
   if (!height || !blockId) return null
-  return { height, blockId, previousId, signer, timestampMs }
+  const transactions = (item.block as { transactions?: Array<{ id?: string }> } | undefined)?.transactions
+  const txIds = Array.isArray(transactions)
+    ? transactions.map((tx) => `${tx?.id ?? ''}`).filter(Boolean)
+    : []
+  return { height, blockId, previousId, signer, timestampMs, txIds }
 }
 
 export function filterBlocksByProducer(rows: BlockRow[], producerAddress: string): BlockRow[] {

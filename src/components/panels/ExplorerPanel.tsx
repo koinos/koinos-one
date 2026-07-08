@@ -63,7 +63,7 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
               </div>
             }
           >
-            <Explorer3DView t={t} />
+            <Explorer3DView t={t} language={language} rpcUrl={rpcUrl} rows={rows} />
           </Suspense>
         )}
 

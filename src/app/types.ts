@@ -149,6 +149,7 @@ export type BlockRow = {
   previousId: string
   signer: string
   timestampMs: number
+  txIds?: string[]
 }
 
 export type HeadSnapshot = {
