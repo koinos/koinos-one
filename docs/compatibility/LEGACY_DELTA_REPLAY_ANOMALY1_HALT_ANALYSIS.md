@@ -168,3 +168,7 @@ The 30,504,202 (#858) analysis is unaffected and remains verified bit-exact.
   12-entry receipt.
 - Audit run `state-delta-audit-full` (2026-07-07): one `legacy_tombstone_drop`
   block (32,789,377), one unexplained block (30,504,202) out of 37.28 M.
+- Public-mainnet reproduction with koilib against api.koinos.io — same
+  12-entry receipt, same 11-entry signed root, bit-exact. See
+  `LEGACY_DELTA_REPLAY_PUBLIC_MAINNET_CONFIRMATION.md` and
+  `scripts/verify-block-32789377-root.js`.
