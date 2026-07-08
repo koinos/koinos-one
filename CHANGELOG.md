@@ -34,6 +34,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made the Producer tab much faster to activate. The producer overview used to
+  page through roughly a full day of blocks (~28,800) over RPC on every
+  refresh to compute 24h producer activity, which could take around ten
+  seconds. The scan result is now cached: reused as-is for two minutes,
+  extended incrementally (only newly produced blocks) for up to thirty
+  minutes, and fully rescanned after that. External KOIN price lookups now
+  carry five-second timeouts and a sixty-second cache.
+
 - Fixed a circular deadlock that could make a mainnet producer impossible to
   start: the start gate requires `block_producer.producer` in the runtime
   config, but the Producer tab told the user to start the node once to create
