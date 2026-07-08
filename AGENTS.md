@@ -210,6 +210,27 @@ When changing user-facing functionality, update changelog or release notes as
 appropriate, and ensure the GUI About/Build Info surface can show the exact
 version and commit included in the build.
 
+### Development Version Rule
+
+Immediately after a release, the working tree must identify itself as a
+development version, not the released version:
+
+- `package.json`/`package-lock.json` carry the next intended SemVer with a
+  `-dev` prerelease segment (example: `1.1.0-dev.0`), so the release channel
+  derives to `dev` and Settings > Build information shows the tree is ahead of
+  the last release.
+- The `CHANGELOG.md` unreleased section is headed with that same version
+  (example: `## [1.1.0-dev.0] - Unreleased`) and the manual changelog is kept
+  in sync.
+- The native `teleno_node` CMake project version is aligned with the same
+  major.minor.patch (CMake versions cannot carry a prerelease suffix; dev state
+  is conveyed by the `+<git-commit>[-dirty]` build-version suffix).
+
+This development version stays in place until the next release is actually
+made. At release time, drop the `-dev` segment, date the changelog section, and
+follow the release workflow above. Do not revert the version to the previous
+release, and do not remove the `-dev` segment outside a release.
+
 When the user asks to create a new release, treat versioning and release notes
 as required release work, not optional cleanup:
 
