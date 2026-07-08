@@ -376,7 +376,7 @@ export function App() {
   const [nodePresets, setNodePresets] = useState<TelenoNodePreset[]>([])
   const [nodePresetsLoading, setNodePresetsLoading] = useState(false)
   const [nodePresetsError, setNodePresetsError] = useState<string | null>(null)
-  const [nodePresetActionLoading, setNodePresetActionLoading] = useState<string | null>(null)
+  const [nodePresetActionLoading] = useState<string | null>(null)
   const [nodeNativeBuilds, setNodeNativeBuilds] = useState<TelenoNodeNativeBuildsResult | null>(null)
   const [nodeNativeBuildsLoading, setNodeNativeBuildsLoading] = useState(false)
   const [nodeNativeBuildsError, setNodeNativeBuildsError] = useState<string | null>(null)
@@ -2494,70 +2494,6 @@ export function App() {
       })
     )
     void refreshNodeStatus(nextSettings)
-  }
-
-  const reconcileNodePreset = async (preset: TelenoNodePreset) => {
-    const bridge = getTelenoNodeBridge()
-    if (!bridge?.presetReconcile) return
-
-    setNodePresetActionLoading(preset.id)
-    setNodeServiceContextMenu(null)
-    setNodeError(null)
-
-    try {
-      const presetSettings = resolveNodeSettingsForPreset(preset)
-      const result = await bridge.presetReconcile({
-        ...toNodeApiSettings(presetSettings),
-        presetId: preset.id
-      })
-
-      setNodeStatus(result.status)
-      setNodeOutput(result.output || result.status.output || '')
-
-      if (!result.ok || !result.status.ok) {
-        setNodeError(result.output || result.status.output || t('node.unableApplyProfile', { label: formatNodePresetLabel(preset) }))
-      } else {
-        const nextProfiles = preset.profiles.join(',')
-        const nextNetwork = preset.network ?? result.status.network ?? presetSettings.network
-        const nextSettings = {
-          ...presetSettings,
-          network: nextNetwork,
-          baseDir: result.status.baseDir || presetSettings.baseDir,
-          profiles: nextProfiles
-        }
-
-        setNodeSettings(nextSettings)
-        setDraftNodeNetwork(nextNetwork)
-        setDraftNodeBaseDir(nextSettings.baseDir)
-        setDraftNodeProfiles(nextProfiles)
-        if (nextNetwork !== nodeSettings.network) {
-          const nextPublicRpcUrls = publicRpcUrlsForActiveNetwork(nextNetwork, publicRpcUrlsByNetwork)
-          setDraftPublicRpcUrls(nextPublicRpcUrls.join('\n'))
-          setSettings((current) => ({
-            ...current,
-            publicRpcUrls: nextPublicRpcUrls,
-            rpcSource: current.rpcSource === LOCAL_RPC_SOURCE ? LOCAL_RPC_SOURCE : nextPublicRpcUrls[0] ?? current.rpcSource
-          }))
-        }
-        setNodeError(null)
-      }
-
-      if (nodeLogsModalOpen && nodeLogsService) {
-        const logsServiceStillRunning =
-          result.status.services.some((service) => service.id === nodeLogsService && isNodeServiceRunning(service)) ||
-          result.status.components.some((component) => component.name === nodeLogsService && component.enabled)
-
-        if (logsServiceStillRunning) {
-          void refreshNodeLogs(nodeLogsService)
-        } else {
-          setNodeLogsModalOpen(false)
-        }
-      }
-    } catch (error) {
-      setNodeError(error instanceof Error ? error.message : t('node.errorApplyingProfile', { label: formatNodePresetLabel(preset) }))
-    } finally {
-      setNodePresetActionLoading(null)
-    }
   }
 
   const cloneKoinosRepo = async (targetRepoPath: string) => {
@@ -6033,21 +5969,11 @@ export function App() {
                           <div className="node-preset-actions">
                             <button
                               type="button"
-                              className="ghost-button node-preset-button"
+                              className="primary-button node-preset-button"
                               onClick={() => applyNodePreset(preset)}
                               disabled={!hasNodeControls || nodeBusy}
                             >
-                              {selected ? t('common.selected') : t('node.useProfile')}
-                            </button>
-                            <button
-                              type="button"
-                              className="primary-button node-preset-button"
-                              onClick={() => {
-                                void reconcileNodePreset(preset)
-                              }}
-                              disabled={!hasNodeControls || nodeBusy}
-                            >
-                              {nodePresetActionLoading === preset.id ? t('common.applying') : t('common.apply')}
+                              {selected ? t('common.selected') : t('common.apply')}
                             </button>
                           </div>
                         </article>

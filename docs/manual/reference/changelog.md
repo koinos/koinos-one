@@ -59,6 +59,12 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Simplified the Node presets section to a single Apply action. Apply now only
+  pre-activates the preset (network, base directory, profiles and component
+  selection) without starting or reconciling the node; use Start node when
+  ready. The previous two-button Use profile / Apply split started services
+  immediately and could collide with the producer start gate.
+
 - Added a Producer tab notice when recent blocks show the configured producer
   address is active on-chain but the local installation has not created or
   registered the matching producer key yet.
