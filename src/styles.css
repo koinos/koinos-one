@@ -1835,6 +1835,19 @@ body {
   flex-wrap: wrap;
 }
 
+.wallet-account-producer-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .wallet-account-picker {
   display: grid;
   gap: 6px;

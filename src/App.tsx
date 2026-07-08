@@ -5351,6 +5351,7 @@ export function App() {
       walletLoading={walletLoading}
       walletActionLoading={walletActionLoading}
       walletError={walletError}
+      producerConfiguredAddress={producerConfiguredAddress}
       network={nodeSettings.network}
       nativeTokenSymbol={nativeTokenSymbol}
       walletBalance={walletDisplayBalance}

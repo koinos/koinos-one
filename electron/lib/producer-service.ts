@@ -837,13 +837,51 @@ async function fetchGeckoTerminalVkoinPriceUsd(): Promise<number | null> {
   }
 }
 
+type ProducerActivityCacheEntry = {
+  scannedAt: number
+  headHeight: number
+  windowBlocks: number
+  stats: Map<string, { count: number; lastTimestamp: number }>
+}
+
+/**
+ * Cache for the 24h producer-activity block scan. A full scan pages through
+ * roughly a day of blocks (~28,800 at 3s intervals) over RPC, which can take
+ * ~10 seconds on public endpoints. Within FRESH_MS the cached stats are reused
+ * as-is; within EXTEND_MS only the blocks produced since the cached head are
+ * fetched and merged; beyond that a full rescan runs.
+ */
+const producerActivityCache = new Map<string, ProducerActivityCacheEntry>()
+const PRODUCER_ACTIVITY_FRESH_MS = 120_000
+const PRODUCER_ACTIVITY_EXTEND_MS = 30 * 60_000
+
+function mergeProducerActivityItems(
+  stats: Map<string, { count: number; lastTimestamp: number }>,
+  items: Array<Record<string, unknown>>
+): void {
+  for (const item of items) {
+    const block = item.block as { header?: { signer?: string; timestamp?: string | number } } | undefined
+    const signer = `${block?.header?.signer ?? ''}`.trim()
+    if (!signer) continue
+    const timestamp = Number.parseInt(`${block?.header?.timestamp ?? '0'}`, 10)
+    const current = stats.get(signer)
+    if (current) {
+      current.count += 1
+      if (timestamp > current.lastTimestamp) current.lastTimestamp = timestamp
+    } else {
+      stats.set(signer, { count: 1, lastTimestamp: timestamp })
+    }
+  }
+}
+
 async function fetchDexScreenerKoinPriceUsd(): Promise<number | null> {
   try {
     const response = await fetch(KOIN_DEXSCREENER_PAIR_API_URL, {
       headers: {
         accept: 'application/json',
         'user-agent': 'Mozilla/5.0'
-      }
+      },
+      signal: AbortSignal.timeout(5_000)
     })
     if (!response.ok) return null
     return parseDexScreenerPairPriceUsd(await response.json())
@@ -857,7 +895,8 @@ async function fetchCoinMarketCapKoinPriceUsd(): Promise<number | null> {
     const response = await fetch(KOIN_COINMARKETCAP_PRICE_URL, {
       headers: {
         'user-agent': 'Mozilla/5.0'
-      }
+      },
+      signal: AbortSignal.timeout(5_000)
     })
     if (!response.ok) return null
     return parseCoinMarketCapKoinPriceUsd(await response.text())
@@ -866,7 +905,18 @@ async function fetchCoinMarketCapKoinPriceUsd(): Promise<number | null> {
   }
 }
 
-async function fetchProducerKoinPriceUsd(): Promise<ProducerKoinPriceSource> {
+let producerKoinPriceCache: { at: number; value: Awaited<ReturnType<typeof fetchProducerKoinPriceUsdUncached>> } | null = null
+
+async function fetchProducerKoinPriceUsd(): ReturnType<typeof fetchProducerKoinPriceUsdUncached> {
+  if (producerKoinPriceCache && Date.now() - producerKoinPriceCache.at < 60_000) {
+    return producerKoinPriceCache.value
+  }
+  const value = await fetchProducerKoinPriceUsdUncached()
+  if (value.priceUsd !== null) producerKoinPriceCache = { at: Date.now(), value }
+  return value
+}
+
+async function fetchProducerKoinPriceUsdUncached(): Promise<ProducerKoinPriceSource> {
   const [geckoTerminalPriceUsd, dexPriceUsd, coinMarketCapPriceUsd] = await Promise.all([
     fetchGeckoTerminalVkoinPriceUsd(),
     fetchDexScreenerKoinPriceUsd(),
@@ -986,21 +1036,31 @@ export function createProducerService(deps: ProducerServiceDeps) {
       let producerActivityWarning: string | null = null
 
       try {
-        const items = await deps.fetchBlocksByHeightPaged(provider, headBlockId, startHeight, headHeight)
-        baseResult.analysisWindowBlocks = items.length
+        const activityCacheKey = `${settings.network}|${rpcUrl}`
+        const cached = producerActivityCache.get(activityCacheKey)
+        const cacheAge = cached ? Date.now() - cached.scannedAt : Number.POSITIVE_INFINITY
 
-        for (const item of items) {
-          const block = item.block as { header?: { signer?: string; timestamp?: string | number } } | undefined
-          const signer = `${block?.header?.signer ?? ''}`.trim()
-          if (!signer) continue
-          const timestamp = Number.parseInt(`${block?.header?.timestamp ?? '0'}`, 10)
-          const current = producerStats.get(signer)
-          if (current) {
-            current.count += 1
-            if (timestamp > current.lastTimestamp) current.lastTimestamp = timestamp
-          } else {
-            producerStats.set(signer, { count: 1, lastTimestamp: timestamp })
-          }
+        if (cached && cacheAge < PRODUCER_ACTIVITY_FRESH_MS && cached.headHeight <= headHeight) {
+          for (const [signer, entry] of cached.stats) producerStats.set(signer, { ...entry })
+          baseResult.analysisWindowBlocks = cached.windowBlocks
+        } else if (cached && cacheAge < PRODUCER_ACTIVITY_EXTEND_MS && cached.headHeight < headHeight) {
+          const items = await deps.fetchBlocksByHeightPaged(provider, headBlockId, cached.headHeight + 1, headHeight)
+          mergeProducerActivityItems(cached.stats, items)
+          cached.headHeight = headHeight
+          cached.windowBlocks += items.length
+          cached.scannedAt = Date.now()
+          for (const [signer, entry] of cached.stats) producerStats.set(signer, { ...entry })
+          baseResult.analysisWindowBlocks = cached.windowBlocks
+        } else {
+          const items = await deps.fetchBlocksByHeightPaged(provider, headBlockId, startHeight, headHeight)
+          baseResult.analysisWindowBlocks = items.length
+          mergeProducerActivityItems(producerStats, items)
+          producerActivityCache.set(activityCacheKey, {
+            scannedAt: Date.now(),
+            headHeight,
+            windowBlocks: items.length,
+            stats: new Map(Array.from(producerStats, ([signer, entry]) => [signer, { ...entry }]))
+          })
         }
         baseResult.activeProducerCount = producerStats.size
         producerActivityAvailable = true
