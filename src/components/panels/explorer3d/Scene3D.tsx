@@ -1,32 +1,26 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
-import { Color, Matrix4, Quaternion, Vector3 } from 'three'
-import type { Group, InstancedMesh } from 'three'
+import { Color, MathUtils } from 'three'
+import type { Mesh, MeshStandardMaterial } from 'three'
 
-import { mempoolSlot, type Block3D, type Explorer3DState } from '../../../app/explorer3d'
-
-export const SCENE_COLORS = {
-  background: '#fbfcfe',
-  fog: '#fbfcfe',
-  gate: '#8c3ff0',
-  gateEmissive: '#5d00b3',
-  pendingTx: '#5d00b3',
-  block: '#33485b',
-  blockOwn: '#5d00b3',
-  track: '#d8e0ec'
-} as const
-
-export const MAX_RENDERED_PENDING_TX = 500
-const GATE_POSITION = new Vector3(-9, 1.6, 0)
-const CHAIN_START_X = 2.2
-const CHAIN_SPACING = 1.35
+import type { Block3D, Explorer3DEvent, Explorer3DState } from '../../../app/explorer3d'
+import { CHAIN_SPACING, CHAIN_START_X, GATE_POSITION, SCENE_COLORS } from './sceneConstants'
+import { TxParticles } from './TxParticles'
 
 /** API gate: a portal ring where transactions enter the scene. */
-function ApiGate() {
+function ApiGate({ animate }: { animate: boolean }) {
+  const ringRef = useRef<Mesh>(null)
+
+  useFrame((state) => {
+    if (!animate || !ringRef.current) return
+    const material = ringRef.current.material as MeshStandardMaterial
+    material.emissiveIntensity = 0.3 + Math.sin(state.clock.elapsedTime * 1.4) * 0.12
+  })
+
   return (
-    <group position={GATE_POSITION.toArray()} rotation={[0, 0, Math.PI / 2]}>
-      <mesh>
+    <group position={[GATE_POSITION.x, GATE_POSITION.y, GATE_POSITION.z]} rotation={[0, 0, Math.PI / 2]}>
+      <mesh ref={ringRef}>
         <torusGeometry args={[1.15, 0.08, 20, 72]} />
         <meshStandardMaterial
           color={SCENE_COLORS.gate}
@@ -44,96 +38,104 @@ function ApiGate() {
   )
 }
 
-/** Instanced pending-transaction particles in static orbital slots. */
-function MempoolCluster({ state, revision }: { state: Explorer3DState; revision: number }) {
-  const meshRef = useRef<InstancedMesh>(null)
-  const matrix = useMemo(() => new Matrix4(), [])
-  const quaternion = useMemo(() => new Quaternion(), [])
-  const scale = useMemo(() => new Vector3(1, 1, 1), [])
-  const position = useMemo(() => new Vector3(), [])
+/**
+ * One block cube on the chain track. Slides smoothly to its slot when newer
+ * blocks arrive and flashes on arrival (the seal moment). Own-producer blocks
+ * keep a persistent purple accent and a stronger arrival pulse.
+ */
+function BlockCube({
+  index,
+  isOwn,
+  animate
+}: {
+  index: number
+  isOwn: boolean
+  animate: boolean
+}) {
+  const meshRef = useRef<Mesh>(null)
+  const spawnedAt = useRef<number | null>(null)
+  const size = 0.72
+  const targetX = CHAIN_START_X + index * CHAIN_SPACING
+  const baseEmissive = isOwn ? 0.3 : 0
+  const y = 0.55 + size / 2 + 0.05
 
-  useEffect(() => {
+  useFrame((state, delta) => {
     const mesh = meshRef.current
     if (!mesh) return
-    let index = 0
-    for (const tx of state.txs.values()) {
-      if (tx.stage !== 'pending') continue
-      if (index >= MAX_RENDERED_PENDING_TX) break
-      const slot = mempoolSlot(tx.id)
-      position.set(slot.x, slot.y, slot.z)
-      matrix.compose(position, quaternion, scale)
-      mesh.setMatrixAt(index, matrix)
-      index += 1
+    if (spawnedAt.current === null) {
+      spawnedAt.current = state.clock.elapsedTime
+      mesh.position.set(targetX, y, 0)
     }
-    mesh.count = index
-    mesh.instanceMatrix.needsUpdate = true
-    // revision drives refresh when the feed folds new data
-  }, [state, revision, matrix, quaternion, scale, position])
+    if (!animate) {
+      mesh.position.x = targetX
+      const material = mesh.material as MeshStandardMaterial
+      material.emissiveIntensity = baseEmissive
+      mesh.scale.setScalar(1)
+      return
+    }
+    // Slide toward the current slot as newer blocks push this one down the track.
+    mesh.position.x = MathUtils.damp(mesh.position.x, targetX, 6, delta)
+
+    // Seal flash: strong emissive pulse decaying over ~1.2s after arrival.
+    const age = state.clock.elapsedTime - spawnedAt.current
+    const flash = Math.max(0, 1 - age / 1.2)
+    const material = mesh.material as MeshStandardMaterial
+    material.emissiveIntensity = baseEmissive + flash * (isOwn ? 1.1 : 0.7)
+    mesh.scale.setScalar(1 + flash * 0.25)
+  })
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, MAX_RENDERED_PENDING_TX]} frustumCulled={false}>
-      <sphereGeometry args={[0.09, 12, 12]} />
+    <mesh ref={meshRef} position={[targetX, y, 0]}>
+      <boxGeometry args={[size, size, size]} />
       <meshStandardMaterial
-        color={SCENE_COLORS.pendingTx}
-        emissive={SCENE_COLORS.pendingTx}
-        emissiveIntensity={0.25}
-        roughness={0.4}
+        color={isOwn ? SCENE_COLORS.blockOwn : SCENE_COLORS.block}
+        emissive={isOwn ? SCENE_COLORS.blockOwn : SCENE_COLORS.gateEmissive}
+        emissiveIntensity={baseEmissive}
+        roughness={0.45}
+        metalness={0.1}
       />
-    </instancedMesh>
+    </mesh>
   )
 }
 
-/** Receding track of the most recent real blocks; own-producer blocks accented. */
-function ChainTrack({ blocks, ownProducerAddress }: { blocks: Block3D[]; ownProducerAddress: string }) {
+function ChainTrack({
+  blocks,
+  ownProducerAddress,
+  animate
+}: {
+  blocks: Block3D[]
+  ownProducerAddress: string
+  animate: boolean
+}) {
   const normalizedOwn = ownProducerAddress.trim().toLowerCase()
 
   return (
     <group>
-      <mesh position={[CHAIN_START_X + 6, 0.55, 0]} rotation={[0, 0, 0]}>
+      <mesh position={[CHAIN_START_X + 6, 0.55, 0]}>
         <boxGeometry args={[16, 0.06, 1.9]} />
         <meshStandardMaterial color={SCENE_COLORS.track} roughness={0.85} transparent opacity={0.65} />
       </mesh>
-      {blocks.map((block, index) => {
-        const isOwn = Boolean(normalizedOwn && block.signer.toLowerCase() === normalizedOwn)
-        const size = 0.72
-        return (
-          <mesh
-            key={block.id}
-            position={[CHAIN_START_X + index * CHAIN_SPACING, 0.55 + size / 2 + 0.05, 0]}
-          >
-            <boxGeometry args={[size, size, size]} />
-            <meshStandardMaterial
-              color={isOwn ? SCENE_COLORS.blockOwn : SCENE_COLORS.block}
-              emissive={isOwn ? SCENE_COLORS.blockOwn : '#000000'}
-              emissiveIntensity={isOwn ? 0.3 : 0}
-              roughness={0.45}
-              metalness={0.1}
-            />
-          </mesh>
-        )
-      })}
+      {blocks.map((block, index) => (
+        <BlockCube
+          key={block.id}
+          index={index}
+          isOwn={Boolean(normalizedOwn && block.signer.toLowerCase() === normalizedOwn)}
+          animate={animate}
+        />
+      ))}
     </group>
   )
-}
-
-/** Gentle idle rotation for the mempool cluster so the scene never looks frozen. */
-function IdleSpin({ animate, children }: { animate: boolean; children: React.ReactNode }) {
-  const groupRef = useRef<Group>(null)
-  useFrame((_state, delta) => {
-    if (!animate || !groupRef.current) return
-    groupRef.current.rotation.y += delta * 0.12
-  })
-  return <group ref={groupRef}>{children}</group>
 }
 
 export type Scene3DProps = {
   state: Explorer3DState
   revision: number
+  lastEvents: Explorer3DEvent[]
   ownProducerAddress: string
   animate: boolean
 }
 
-export default function Scene3D({ state, revision, ownProducerAddress, animate }: Scene3DProps) {
+export default function Scene3D({ state, revision, lastEvents, ownProducerAddress, animate }: Scene3DProps) {
   return (
     <>
       <color attach="background" args={[SCENE_COLORS.background]} />
@@ -142,11 +144,9 @@ export default function Scene3D({ state, revision, ownProducerAddress, animate }
       <hemisphereLight args={[new Color('#ffffff'), new Color('#d8e0ec'), 0.5]} />
       <directionalLight position={[6, 9, 4]} intensity={0.65} />
 
-      <ApiGate />
-      <IdleSpin animate={animate}>
-        <MempoolCluster state={state} revision={revision} />
-      </IdleSpin>
-      <ChainTrack blocks={state.blocks} ownProducerAddress={ownProducerAddress} />
+      <ApiGate animate={animate} />
+      <TxParticles state={state} revision={revision} lastEvents={lastEvents} animate={animate} />
+      <ChainTrack blocks={state.blocks} ownProducerAddress={ownProducerAddress} animate={animate} />
 
       <OrbitControls
         enableDamping
@@ -156,7 +156,7 @@ export default function Scene3D({ state, revision, ownProducerAddress, animate }
         maxDistance={26}
         maxPolarAngle={Math.PI * 0.52}
         autoRotate={animate}
-        autoRotateSpeed={0.35}
+        autoRotateSpeed={0.3}
       />
     </>
   )

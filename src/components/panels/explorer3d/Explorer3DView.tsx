@@ -86,6 +86,7 @@ export default function Explorer3DView({ t, language, rpcUrl, rows, ownProducerA
         <Scene3D
           state={feed.state}
           revision={feed.revision}
+          lastEvents={feed.lastEvents}
           ownProducerAddress={`${ownProducerAddress ?? ''}`}
           animate={animate}
         />
