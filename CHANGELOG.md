@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Experimental 3D Explorer (phase 0): the Explorer tab gains a "3D Explorer"
+  sub-view with an Experimental badge that lazy-loads a GPU-accelerated
+  preview scene (three.js). The 3D engine is only downloaded when the
+  sub-view is opened, falls back gracefully when WebGL2 is unavailable, and
+  pauses when the window is hidden or reduced motion is requested. Real
+  transaction and block data arrives in the next phases.
+
 - Explorer rows for blocks produced by your configured producer address are
   now highlighted with an accent border and a "My producer" badge, so your own
   blocks stand out while watching the chain.

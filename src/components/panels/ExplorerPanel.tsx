@@ -1,4 +1,6 @@
-import React from 'react'
+import React, { Suspense, lazy, useState } from 'react'
+
+const Explorer3DView = lazy(() => import('./explorer3d/Explorer3DView'))
 import { LOCAL_RPC_SOURCE } from '../../app/constants'
 import { formatDateTime, formatRelativeAge, formatRpcDisplayUrl, normalizeExplorerRpcSource, shortHash } from '../../app/utils'
 import { BlockInlineDetail } from './BlockInlineDetail'
@@ -27,8 +29,46 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
     rpcUrl
   } = props
 
+  const [explorerView, setExplorerView] = useState<'list' | '3d'>('list')
+
   return (
       <>
+        <div className="settings-tabs explorer-view-tabs" role="tablist" aria-label={t('explorer.viewTabsAria')}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={explorerView === 'list'}
+            className={`settings-tab-button ${explorerView === 'list' ? 'is-active' : ''}`}
+            onClick={() => setExplorerView('list')}
+          >
+            {t('explorer.viewList')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={explorerView === '3d'}
+            className={`settings-tab-button ${explorerView === '3d' ? 'is-active' : ''}`}
+            onClick={() => setExplorerView('3d')}
+          >
+            {t('explorer.view3d')}
+            <span className="explorer3d-badge-inline">{t('explorer3d.experimentalBadge')}</span>
+          </button>
+        </div>
+
+        {explorerView === '3d' && (
+          <Suspense
+            fallback={
+              <div className="explorer3d-fallback" role="status">
+                {t('explorer3d.loading')}
+              </div>
+            }
+          >
+            <Explorer3DView t={t} />
+          </Suspense>
+        )}
+
+        {explorerView === 'list' && (
+        <>
 	      <section id="panel-explorer" className="overview-grid" aria-label={t('explorer.panelAria')} role="tabpanel" aria-labelledby="tab-explorer">
 	        <article className="stat-card">
           <span className="stat-label">{t('explorer.headLabel')}</span>
@@ -156,6 +196,8 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
           </table>
         </div>
       </main>
+        </>
+        )}
       </>
   )
 }
