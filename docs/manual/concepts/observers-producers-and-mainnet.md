@@ -83,8 +83,10 @@ Teleno Node is the native monolithic node process. It embeds the Koinos runtime
 components that were historically separate services and connects them with
 direct in-process calls plus an internal event bus.
 
-That monolithic design is an implementation choice. It must preserve Koinos
-protocol compatibility, P2P behavior, and externally consumed RPC behavior.
+That monolithic design is an implementation choice made by a community-driven
+project. The official reference implementation of the Koinos node remains the
+microservices-based stack, and Teleno Node must preserve Koinos protocol
+compatibility, P2P behavior, and externally consumed RPC behavior with it.
 
 ## Safe Operating Rule
 

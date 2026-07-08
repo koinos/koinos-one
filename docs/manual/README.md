@@ -6,6 +6,12 @@ and keep verified backups, all from one window. This manual covers the desktop
 app, the underlying `teleno_node` runtime, and the Koinos concepts behind
 them.
 
+!!! note "A community project"
+    Koinos One and its monolithic Teleno Node are a community-driven project.
+    The official reference implementation of the Koinos node remains the
+    microservices-based stack. Teleno is a full rewrite that must stay
+    protocol-compatible with the reference node software.
+
 ## Common Tasks
 
 - [Install on macOS](koinos-one/install-macos.md) and

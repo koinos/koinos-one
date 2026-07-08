@@ -1,7 +1,9 @@
 # Current Implementation Index
 
 These documents describe functionality that exists in the active Koinos One /
-Teleno implementation. If a document describes a desired future feature, it
+Teleno implementation. Koinos One / Teleno is a community-driven project; the
+official reference implementation of the Koinos node remains the
+microservices-based stack. If a document describes a desired future feature, it
 belongs under `docs/backlog/`. If it describes an old implementation path, it
 belongs under `docs/archive/implementation-plans/`.
 

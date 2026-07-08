@@ -29,7 +29,7 @@ This glossary defines common terms used across the Koinos One manual.
 | JSON-RPC | A common external RPC surface used by wallets, explorers, CLIs, and tools. |
 | KOIN | The native token of the Koinos blockchain. |
 | Koinos | The blockchain protocol and network family that Koinos One follows. |
-| Koinos One | The desktop app that supervises and operates a native Teleno Node. |
+| Koinos One | The community-driven desktop app that supervises and operates a native Teleno Node. |
 | Local repository | The native backup repository on local disk, usually under `<BASEDIR>/.teleno-native-backups/repository`. |
 | Local state write | A command that changes files under the selected `BASEDIR`, such as node databases, runtime metadata, logs, generated configs, or backup repositories. |
 | Mainnet | The public production Koinos network. |
@@ -60,7 +60,7 @@ This glossary defines common terms used across the Koinos One manual.
 | Service registry | The native lifecycle helper that starts monolith components in registered order and stops them in reverse order. |
 | State | The current chain data used to validate transactions and blocks. |
 | State root | A cryptographic commitment to the current chain state. |
-| Teleno Node | The native monolithic Koinos node binary, `teleno_node`. |
+| Teleno Node | The native monolithic Koinos node binary, `teleno_node`. A community-driven rewrite; the official reference Koinos node remains the microservices-based stack. |
 | Testnet | A public testing network separate from mainnet. |
 | Transaction | A signed user intent containing one or more operations. |
 | Unified RocksDB layout | The current monolith storage direction with one RocksDB root at `<BASEDIR>/db` and multiple column families. |

@@ -11,6 +11,12 @@ driving the node directly from a terminal.
 
 ## Project Objective
 
+Koinos One is a community-driven project. It does not replace the official
+Koinos node software: the reference implementation remains the
+microservices-based node stack. Koinos One exists to make node operation more
+approachable, and its monolithic runtime must stay protocol-compatible with the
+reference implementation.
+
 The main objective of Koinos One is to make it easy to run a Koinos node
 locally on a user's own desktop or laptop instead of relying on cloud servers or
 data centers. A local node should be practical for everyday users: it should use
