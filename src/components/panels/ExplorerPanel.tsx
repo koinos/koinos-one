@@ -20,6 +20,7 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
     errorMessage,
     rows,
     freshBlockIds,
+    ownProducerAddress,
     nowMs,
     onBlockClick,
     selectedBlockId,
@@ -91,10 +92,15 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
             <tbody>
               {rows.map((row: any) => {
                 const isSelected = selectedBlockId === row.blockId
+                const isOwnProducer = Boolean(
+                  ownProducerAddress &&
+                  row.signer &&
+                  `${row.signer}`.toLowerCase() === `${ownProducerAddress}`.trim().toLowerCase()
+                )
                 return (
                   <React.Fragment key={row.blockId}>
                     <tr
-                      className={`explorer-row ${freshBlockIds.includes(row.blockId) ? 'is-fresh' : ''} ${isSelected ? 'is-selected' : ''}`}
+                      className={`explorer-row ${freshBlockIds.includes(row.blockId) ? 'is-fresh' : ''} ${isSelected ? 'is-selected' : ''} ${isOwnProducer ? 'is-own-producer' : ''}`}
                       onClick={() => onBlockClick?.(row)}
                       style={{ cursor: 'pointer' }}
                     >
@@ -104,6 +110,11 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
                       </td>
                       <td className="mono" title={row.signer || t('common.na')}>
                         {row.signer || t('common.na')}
+                        {isOwnProducer && (
+                          <span className="explorer-own-producer-badge" title={t('explorer.ownProducerBadgeTitle')}>
+                            {t('explorer.ownProducerBadge')}
+                          </span>
+                        )}
                       </td>
                       <td>{formatRelativeAge(row.timestampMs, nowMs)}</td>
                       <td>{formatDateTime(row.timestampMs, locale, t('common.na'))}</td>
