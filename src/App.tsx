@@ -1881,6 +1881,8 @@ export function App() {
     switch (nodeProducerOverview?.producerAddressSource) {
       case 'config':
         return t('producer.source.config')
+      case 'manual':
+        return t('producer.source.manual')
       default:
         return t('producer.source.none')
     }
@@ -2903,6 +2905,26 @@ export function App() {
     producerSetupComplete,
     producerConfiguredAddress
   ])
+
+  const createNodeProducerLocalKey = async () => {
+    const bridge = getTelenoNodeBridge()
+    if (!bridge?.producerCreateLocalKey) return
+
+    try {
+      setNodeProducerActionLoading('create-key')
+      setNodeProducerError(null)
+      const result = await bridge.producerCreateLocalKey(toNodeApiSettings(nodeSettings))
+      if (!result?.ok) {
+        setNodeProducerError(result?.output || t('producer.createLocalKeyFailed'))
+        return
+      }
+      await refreshNodeProducerOverview()
+    } catch (error) {
+      setNodeProducerError(error instanceof Error ? error.message : t('producer.createLocalKeyFailed'))
+    } finally {
+      setNodeProducerActionLoading(null)
+    }
+  }
 
   const registerNodeProducer = async (producerAddressOverride?: string) => {
     const bridge = getTelenoNodeBridge()
@@ -6405,6 +6427,7 @@ export function App() {
           producerSigningWalletStatusText={producerSigningWalletStatusText}
           nodeProducerActionLoading={nodeProducerActionLoading}
           registerNodeProducer={registerNodeProducer}
+          createNodeProducerLocalKey={createNodeProducerLocalKey}
           producerRegisterDisabled={producerRegisterDisabled}
           producerConfiguredWalletMismatch={producerConfiguredWalletMismatch}
           producerReconfigureDisabled={producerReconfigureDisabled}

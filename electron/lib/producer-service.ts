@@ -896,7 +896,10 @@ export function createProducerService(deps: ProducerServiceDeps) {
     const producerAddressSource: TelenoNodeProducerAddressSource = requestedProducerAddress
       ? wallet?.address && requestedProducerAddress.toLowerCase() === wallet.address.toLowerCase()
         ? 'vault'
-        : 'config'
+        : configProducer.producerAddress &&
+            requestedProducerAddress.toLowerCase() === configProducer.producerAddress.toLowerCase()
+          ? 'config'
+          : 'manual'
       : configProducer.producerAddress
         ? 'config'
         : 'none'

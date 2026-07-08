@@ -372,7 +372,7 @@ export type KoinosJsonRpcProxyResult = {
   output: string
 }
 
-export type TelenoNodeProducerAddressSource = 'config' | 'vault' | 'none'
+export type TelenoNodeProducerAddressSource = 'config' | 'vault' | 'manual' | 'none'
 
 export type TelenoNodeProducerRegistrationStatus =
   | 'missing-address'

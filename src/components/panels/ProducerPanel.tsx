@@ -30,6 +30,7 @@ export function ProducerPanel(props: ProducerPanelProps) {
     producerOperationalNotice,
     nodeProducerActionLoading,
     registerNodeProducer,
+    createNodeProducerLocalKey,
     openWalletTab,
     onProducerBlockClick,
     locale
@@ -65,6 +66,20 @@ export function ProducerPanel(props: ProducerPanelProps) {
     <div className="node-warning producer-operational-notice" role="note">
       <strong>{t('producer.externalActiveNoticeTitle')}</strong>
       <p>{producerOperationalNoticeText}</p>
+      {producerOperationalNotice === 'external-active-missing-local-key' && createNodeProducerLocalKey ? (
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => {
+            void createNodeProducerLocalKey()
+          }}
+          disabled={nodeProducerActionLoading !== null}
+        >
+          {nodeProducerActionLoading === 'create-key'
+            ? t('producer.creatingLocalKey')
+            : t('producer.createLocalKey')}
+        </button>
+      ) : null}
     </div>
   ) : null
   const producerBlocksSection = (
@@ -188,6 +203,20 @@ export function ProducerPanel(props: ProducerPanelProps) {
             {producerOperationalNoticeNode}
 
             <div className="producer-actions">
+              {!localPublicKey && createNodeProducerLocalKey && producerOperationalNotice !== 'external-active-missing-local-key' ? (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => {
+                    void createNodeProducerLocalKey()
+                  }}
+                  disabled={nodeProducerActionLoading !== null}
+                >
+                  {nodeProducerActionLoading === 'create-key'
+                    ? t('producer.creatingLocalKey')
+                    : t('producer.createLocalKey')}
+                </button>
+              ) : null}
               {signingWalletAddress ? (
                 <button
                   type="button"

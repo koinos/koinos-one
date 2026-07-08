@@ -157,7 +157,7 @@ export type HeadSnapshot = {
   timestampMs: number
 }
 
-export type NodeProducerActionState = 'register' | 'delete' | null
+export type NodeProducerActionState = 'register' | 'delete' | 'create-key' | null
 
 export type JsonRpcError = {
   code: number

@@ -1,4 +1,6 @@
 import fs from 'node:fs'
+import path from 'node:path'
+import { randomBytes } from 'node:crypto'
 
 import { parse as parseYaml } from 'yaml'
 import { Signer, utils } from 'koilib'
@@ -74,6 +76,69 @@ export function resolveLocalProducerPublicKey(settings: { baseDir: string }): Lo
     publicKey: null,
     publicKeyPath: null,
     privateKeyPath: null
+  }
+}
+
+export type CreateLocalProducerKeyResult = {
+  ok: boolean
+  created: boolean
+  output: string
+  publicKey: string | null
+  publicKeyPath: string | null
+  privateKeyPath: string | null
+}
+
+/**
+ * Create the local producer key file without starting the node. Writes the
+ * same WIF private-key file teleno_node would create on first producer start
+ * (block_producer/private.key, owner-only permissions). Never overwrites an
+ * existing key.
+ */
+export function createLocalProducerKeyFile(settings: { baseDir: string }): CreateLocalProducerKeyResult {
+  const resolved = { baseDir: ensureKoinosBaseDir(settings.baseDir) }
+  const privateKeyPath = blockProducerPrivateKeyFilePath(resolved)
+  const publicKeyPath = blockProducerPublicKeyFilePath(resolved)
+
+  const existing = resolveLocalProducerPublicKey(resolved)
+  if (existing.publicKey) {
+    return {
+      ok: true,
+      created: false,
+      output: `A local producer key already exists at ${existing.privateKeyPath || existing.publicKeyPath}. It was not modified.`,
+      publicKey: existing.publicKey,
+      publicKeyPath: existing.publicKeyPath,
+      privateKeyPath: existing.privateKeyPath
+    }
+  }
+
+  try {
+    const signer = new Signer({ privateKey: randomBytes(32).toString('hex') })
+    const wif = signer.getPrivateKey('wif')
+    const publicKeyBytes =
+      signer.publicKey instanceof Uint8Array ? signer.publicKey : utils.toUint8Array(`${signer.publicKey}`)
+    const publicKey = utils.encodeBase64url(publicKeyBytes)
+
+    fs.mkdirSync(path.dirname(privateKeyPath), { recursive: true, mode: 0o700 })
+    fs.writeFileSync(privateKeyPath, `${wif}\n`, { encoding: 'utf8', mode: 0o600 })
+    try { fs.chmodSync(privateKeyPath, 0o600) } catch { /* best effort */ }
+
+    return {
+      ok: true,
+      created: true,
+      output: `Created local producer key at ${privateKeyPath}. Register this public key when you want this installation to produce blocks.`,
+      publicKey,
+      publicKeyPath: fs.existsSync(publicKeyPath) ? publicKeyPath : null,
+      privateKeyPath
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      created: false,
+      output: error instanceof Error ? error.message : 'Could not create the local producer key.',
+      publicKey: null,
+      publicKeyPath: null,
+      privateKeyPath: null
+    }
   }
 }
 
