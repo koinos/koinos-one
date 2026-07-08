@@ -54,6 +54,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Node Settings config editor: removed the "Ignored legacy settings" banner
+  (legacy keys such as `global.amqp` are still preserved untouched on save),
+  and all config sections now start collapsed, including `global`.
+
 - Simplified the Node presets section to a single Apply action. Apply now only
   pre-activates the preset (network, base directory, profiles and component
   selection) without starting or reconciling the node; use Start node when
