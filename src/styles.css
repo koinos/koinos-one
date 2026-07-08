@@ -5949,6 +5949,31 @@ tbody tr.is-fresh {
   animation: fresh-row 1.2s ease;
 }
 
+tbody tr.is-fresh > td {
+  animation: fresh-cell-grow 0.45s cubic-bezier(0.2, 0.8, 0.3, 1);
+  overflow: hidden;
+}
+
+@keyframes fresh-cell-grow {
+  0% {
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 0;
+    font-size: 0;
+    opacity: 0;
+  }
+  55% {
+    opacity: 0.2;
+  }
+  100% {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    line-height: 1.45;
+    font-size: 0.92rem;
+    opacity: 1;
+  }
+}
+
 @keyframes fresh-row {
   0% {
     background: rgba(93, 0, 179, 0.22);
@@ -6954,7 +6979,8 @@ code {
 
 @media (prefers-reduced-motion: reduce) {
   .status-dot,
-  tbody tr.is-fresh {
+  tbody tr.is-fresh,
+  tbody tr.is-fresh > td {
     animation: none;
   }
 
