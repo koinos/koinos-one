@@ -649,3 +649,213 @@ Result:
 For this bug, the corrective action is to replay historical receipt remove entries with tombstone-preserving semantics. Rewriting historical block receipts is not required by this proof.
 
 If a future audit finds a block receipt whose stored state-delta root cannot be reproduced even when serialized remove entries are preserved, that would be a separate evidence class. The proof here only covers the observed mismatch class where compacted receipt removes were replayed with normal absent-key remove semantics.
+
+---
+
+# Update 2026-07-08: Full-History Audit Results, Anomaly Root Causes, And The Upstream Fix
+
+This section extends the report with everything established after the
+2026-06-26 proof: the completed full-history audit, the two blocks that
+cannot be reproduced by any fixed replay semantics (including the "separate
+evidence class" the Operational Implication anticipated), their root-cause
+analysis, and the resulting fix implemented for the official Koinos
+microservices.
+
+## Full-History Audit: Final Numbers (2026-07-07)
+
+The offline auditor completed a full mainnet replay against the signed
+header chain:
+
+```text
+blocks audited:            37,280,004  (genesis to head)
+head block id:             0x12205fd14f5c2d504646bf69e88ef2e8d8db41e60b4ff6c087430a852e286cd2ada0
+head delta root:           0x1220b674199c1c179e1446691324b10bfbb27181b03f621da23b45474c80427007a6
+receipt delta entries:     290,295,679  (284,883,828 puts / 5,411,851 removes)
+clean under preserve-tombstone replay:  37,280,002 blocks
+legacy tombstone-drop blocks:           1  (height 32,789,377)
+unexplained state-root mismatches:      1  (height 30,504,202)
+```
+
+Preserve-tombstone replay reproduces consensus for everything except two
+blocks, each failing in the opposite direction:
+
+| Height | Stored receipt | Consensus root | Failure direction |
+|---|---|---|---|
+| 32,789,377 | 12 entries (2 removes) | root over 11 entries | receipt has one entry consensus never counted |
+| 30,504,202 | 8 entries (all puts) | root over 10 entries | receipt is missing two entries consensus counted |
+
+No single fixed replay semantics passes both: always-preserve fails the
+first, always-drop fails the transient-tombstone class this report proved.
+
+## Anomaly At 30,504,202: The Oct-31-2025 KFS Hardfork Receipt Bug (#858) — CLOSED
+
+This is the "separate evidence class" the Operational Implication reserved,
+and it is now fully explained and bit-exactly verified.
+
+The block is the first block whose timestamp (1761911881080 =
+2025-10-31T11:58:01.080Z) falls inside the `maybe_rectify_state()` window
+(2025-10-31T11:58:00–12:00:00) in koinos-chain's `rectify.cpp`. That
+rectification — the KFS contract hardfork — performs two `put_object`
+writes on the block node (new KFS bytecode, new contract metadata) and
+appends the two matching entries to the block receipt in memory. The state
+writes entered every validator's delta, so the consensus root includes
+them.
+
+koinos-chain bug #858 (fixed in v1.5.1): `apply_block()` rectified a copy
+of the receipt but persisted the original, unrectified receipt to
+block_store. Every block store populated by a pre-1.5.1 node therefore
+stores this block's receipt without the two rectification entries.
+
+Analytic verification (`scripts/recompute-anomaly2-rectified-root.py`,
+reading the audit's replay journal; the Merkle reimplementation is
+self-validated by reproducing the signed roots of the two clean
+predecessor blocks first):
+
+```text
+root(stored 8 entries):              0x12207fb526273e706238cef899350facfd1ddcfa5e19ae352284be53e68d5c516f45
+root(stored 8 + 2 rectify entries):  0x12209d2d9592ddf831e892a5d4d38e93324f6834e255f84509b5e1c907ccfaa685e6
+consensus (signed) root:             0x12209d2d9592ddf831e892a5d4d38e93324f6834e255f84509b5e1c907ccfaa685e6   MATCH
+```
+
+The missing data is exactly the rectification, nothing else. Consequences:
+
+- Mainnet nodes' state is correct; only stored receipts are short.
+- No replay semantics can pass this block — the information is not in the
+  receipt. Only full re-execution (which calls `maybe_rectify_state()`)
+  rebuilds the consensus root.
+- The #858 recovery notes prescribed `verify-blocks=true` reindexing for
+  affected nodes; the per-block re-execution fallback described below is
+  the surgical equivalent.
+
+## Anomaly At 32,789,377: RESOLVED — Halt-Corrupted Consensus Root (12 Is Correct)
+
+> **This supersedes the "provenance narrowed / mechanism open" text that
+> previously followed.** Direct root computation settled it: 12 delta entries
+> is the correct, honest delta for this block. Consecutive KFS blocks
+> 32,789,375 and 32,789,376 — identical in structure — match their
+> consensus-signed roots ONLY with all 12 entries preserved, proving the
+> entry-8 remove is a real, counted state change and the vote keys are
+> long-lived (created >800k blocks earlier). 32,789,377 is the last block
+> before the January 2026 halt (a ~22-hour gap and producer change follow it);
+> its 11-entry consensus root, carried in the post-restart block 32,789,378's
+> header, was produced by the tombstone-drop bug during the JGA#2 restart
+> replay and signed into the chain. It is a permanent on-chain scar, not a
+> legacy no-op.
+>
+> **Fix consequence:** re-executing this block reproduces the honest 12-entry
+> root, which does NOT match the corrupted 11-entry consensus root, so the
+> re-execution fallback halts here. Syncing past it requires a drop-subset
+> fallback (the auditor's approach). Full analysis and the revised fallback
+> design: `docs/compatibility/LEGACY_DELTA_REPLAY_ANOMALY1_HALT_ANALYSIS.md`.
+
+### (superseded) Provenance Narrowed, Mechanism Still Open
+
+The 2026-06-26 section above attributed this block to the era `erase()`
+semantics ("the receipt records both, the root counted one"). Deeper
+archaeology confirmed the WHAT bit-exactly but could not yet pin the HOW,
+and eliminated several candidate explanations:
+
+1. **Not a migration artifact.** The original badger block store returns
+   the identical 12-entry receipt (including the phantom
+   `remove("02076430234253060999996")`) via `block_store.get_blocks_by_id`;
+   the unified-DB copy did not alter it.
+2. **The receipt is locally generated.** koinos-p2p transfers blocks only —
+   it has no receipt fields at all. Every receipt in the store came from
+   this node's own execution of the block.
+3. **The same execution that recorded 12 entries computed the 11-leaf
+   root.** chain v1.4.1 already asserts
+   `previous_state_merkle_root == parent merkle root` during execution, the
+   node synced through 32,789,378 by execution, and the audit validates
+   every subsequent block against the signed headers — which requires this
+   node's state effect at 32,789,377 to have matched consensus (the key
+   absent).
+4. **No inspected code version can produce that divergence.**
+   `generate_receipt()` is byte-identical from v1.4.1 to HEAD (block receipt
+   entries come from the block node's `get_delta_entries()`);
+   `get_delta_entries()` and `merkle_root()` have read the same two sources
+   (`_backend` + `_removed_objects`) since the feature landed in 2023; and
+   `squash()` has inserted child removes into the parent's
+   `_removed_objects` unconditionally since 2022, which would have put the
+   phantom into the root as well — contradicting fact 3.
+
+Remaining hypotheses: an era-build patch not visible in the inspected
+repositories, or a mutation window between receipt generation
+(pre-finalize) and the root read (post-finalize) present only in era
+sources. The decisive test is already running: the mainnet gate resync
+(below) re-executes this block on its true prestate through the fallback.
+Modern re-execution reproducing the 11-leaf signed root confirms the fix
+holds regardless of the receipt's provenance; failure would halt exactly at
+the causal block and provide a live reproduction to debug.
+
+## Consequence: The Fix For The Official Microservices
+
+Because the two anomalies fail in opposite directions and neither is
+receipt-recoverable, the fix combines preserve-tombstone replay with
+consensus-root verification and a per-block re-execution fallback. The full
+engineering brief is `docs/compatibility/LEGACY_DELTA_REPLAY_FIX_BRIEF.md`;
+the root-cause companion is
+`docs/compatibility/LEGACY_DELTA_REPLAY_ANOMALY_ROOT_CAUSES.md`.
+
+Implementation status (2026-07-08), on the pgarciagon forks, all pushed:
+
+- **koinos-state-db-cpp** `fix/preserve-tombstone-remove`, tag v1.2.1:
+  `erase( k, preserve_tombstone )` + `remove_object_preserve_tombstone()`
+  (this report's fix, ported), plus `pending_merkle_root()` — computes a
+  writable node's delta root without caching (the cached `merkle_root()`
+  is never invalidated by mutations and asserts finalization).
+- **koinos-chain** `fix/860-state-delta-tombstone-replay` (4 commits over
+  the tombstone-preserve base):
+  - `51124213` — `apply_block_delta` now verifies the header's
+    consensus-signed parent root before applying entries and the receipt
+    root (when present) after, throwing `state_merkle_mismatch_exception`
+    at the causal block instead of corrupting silently.
+  - `f0711c91` — `apply_block_delta_checked`: compares the pending delta
+    root against the next block header's consensus root before finalizing;
+    on mismatch logs `delta_replay_fallback height=... id=...`, discards
+    the still-writable node, and re-executes the block through the same
+    internals `submit_block` uses. No retry loop: if re-execution cannot
+    reproduce the consensus root either, the sync halts at the causal
+    block.
+  - `db2e5b4b` — indexer one-block lookahead: block H is applied when H+1
+    arrives, so H+1's `previous_state_merkle_root` supplies the expectation
+    while H's node is still repairable (a finalized head node cannot be
+    discarded). The final pending item applies unchecked, cross-checked by
+    the first live block as before. Fallback count reported at completion.
+  - `52fe6e08` — unit tests: clean-path equivalence, anomaly-1-shaped
+    fallback (re-execution rebuilds the consensus root; parent already
+    head, pinning that only writable nodes are ever discarded), and an
+    unreproducible-expectation halt.
+- Full test suites green on macOS ARM64 (one pre-existing, unrelated
+  `read_contract_tests` crash predates these changes).
+
+## Validation Runs
+
+- **Negative control** (unpatched vendor chain, `verify-blocks=false`,
+  fresh state, full mainnet block store): started 2026-07-07 13:26,
+  progressed to 59.5% (height 22,229,795), then died at 2026-07-08 07:45
+  with an uncaught `rocksdb_write_exception` — an external-disk I/O
+  interruption, not a chain-semantics failure. Not restarted (its binary
+  was rebuilt meanwhile); a redo should use a genuinely unpatched upstream
+  build.
+- **Integration gate** (fixed chain binary, fresh state,
+  `verify-blocks=false`, same block store): running since 2026-07-08 08:50
+  under sleep protection. Target head 37,361,355. Pass criteria
+  (`docs/compatibility/LEGACY_DELTA_REPLAY_INTEGRATION_RUNBOOK.md`):
+  exactly two `delta_replay_fallback` lines — heights 30,504,202 and
+  32,789,377, no others — completion message `Delta replay re-execution
+  fallbacks: 2`, no state-merkle-mismatch halt, and the audited head root
+  above reproduced at 37,280,004. Early observation: replay throughput
+  with the added per-block root verification is at least as fast as the
+  unpatched control on the same hardware (~3.8%/h vs ~3.5%/h), so the
+  verification cost is negligible.
+
+## Delivery Plan Upstream
+
+Three PRs in dependency order, per the brief: koinos-state-db-cpp
+(preserve-tombstone API + pending root), koinos-chain replay asserts
+(carries `Fixes #860`), koinos-chain checked replay + indexer lookahead.
+The asserts PR alone converts silent far-from-cause corruption into a
+fail-fast halt at the causal block; the fallback PR converts the halt into
+automatic self-repair. Anomaly-1 mechanism archaeology continues in
+parallel and does not block the PRs — whatever the receipt's provenance,
+re-execution against the consensus-signed root oracle is correct.

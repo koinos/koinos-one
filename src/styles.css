@@ -30,7 +30,14 @@
   --accent-2: var(--assistant-purple-2);
   --accent-soft: var(--assistant-purple-soft);
   --success: #2f8f5b;
+  --success-soft: rgba(47, 143, 91, 0.12);
+  --success-line: rgba(47, 143, 91, 0.3);
   --danger: #c94d45;
+  --danger-soft: rgba(201, 77, 69, 0.1);
+  --danger-line: rgba(201, 77, 69, 0.28);
+  --card-bg: var(--panel);
+  --border-color: var(--line);
+  --color-bg-secondary: var(--bg-2);
   --shadow: 0 10px 28px rgba(18, 18, 18, 0.06);
   --ui-gap-tight: 10px;
   --ui-gap: 16px;
@@ -329,15 +336,15 @@ body {
   padding: 10px 14px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: rgba(9, 18, 24, 0.75);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgba(18, 18, 18, 0.04);
   font-size: 0.88rem;
   max-width: min(620px, 100%);
 }
 
 .status-pill.is-error {
-  border-color: rgba(255, 116, 108, 0.35);
-  color: #ffd1ce;
+  border-color: var(--danger-line);
+  color: var(--danger);
 }
 
 .status-pill.is-live {
@@ -345,8 +352,8 @@ body {
 }
 
 .status-pill.is-idle {
-  border-color: rgba(151, 184, 199, 0.2);
-  color: #d5e3e8;
+  border-color: var(--line);
+  color: var(--muted);
 }
 
 .status-dot {
@@ -506,7 +513,7 @@ body {
 .settings-form label {
   display: grid;
   gap: 6px;
-  color: #cce2e8;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
@@ -708,9 +715,9 @@ body {
   margin: 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(255, 116, 108, 0.08);
-  border: 1px solid rgba(255, 116, 108, 0.22);
-  color: #ffd1ce;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  color: var(--danger);
   font-size: 0.9rem;
 }
 
@@ -876,8 +883,8 @@ body {
   background: rgba(0, 0, 0, 0.1);
 }
 
-.bid-tx-card.tx-reverted { border-left: 3px solid #ff4444; }
-.bid-tx-card.tx-success { border-left: 3px solid #00cc88; }
+.bid-tx-card.tx-reverted { border-left: 3px solid var(--danger); }
+.bid-tx-card.tx-success { border-left: 3px solid var(--success); }
 
 .bid-tx-header {
   background: none;
@@ -901,8 +908,8 @@ body {
   border-radius: 8px;
 }
 
-.bid-tx-status.tx-success { background: rgba(0, 204, 136, 0.15); color: #00cc88; }
-.bid-tx-status.tx-reverted { background: rgba(255, 68, 68, 0.15); color: #ff4444; }
+.bid-tx-status.tx-success { background: var(--success-soft); color: var(--success); }
+.bid-tx-status.tx-reverted { background: var(--danger-soft); color: var(--danger); }
 
 .bid-tx-rc, .bid-tx-ops, .bid-tx-events {
   color: var(--muted, #8899aa);
@@ -1003,7 +1010,7 @@ body {
   width: 95vw;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
 
 .block-detail-header {
@@ -1129,11 +1136,11 @@ body {
 }
 
 .block-detail-tx-card.tx-reverted {
-  border-left: 3px solid #ff4444;
+  border-left: 3px solid var(--danger);
 }
 
 .block-detail-tx-card.tx-success {
-  border-left: 3px solid #00cc88;
+  border-left: 3px solid var(--success);
 }
 
 .block-detail-tx-header {
@@ -1167,13 +1174,13 @@ body {
 }
 
 .block-detail-tx-status.tx-success {
-  background: rgba(0, 204, 136, 0.15);
-  color: #00cc88;
+  background: var(--success-soft);
+  color: var(--success);
 }
 
 .block-detail-tx-status.tx-reverted {
-  background: rgba(255, 68, 68, 0.15);
-  color: #ff4444;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .block-detail-tx-id {
@@ -1569,7 +1576,7 @@ body {
 }
 
 .settings-inline-help.is-error {
-  color: #ffd1ce;
+  color: var(--danger);
 }
 
 .settings-inline-help.is-busy {
@@ -1598,7 +1605,7 @@ body {
 .primary-button {
   border: 1px solid rgba(93, 0, 179, 0.35);
   background: linear-gradient(180deg, rgba(93, 0, 179, 0.18), rgba(93, 0, 179, 0.08));
-  color: #d8fff6;
+  color: var(--accent);
 }
 
 .primary-button:hover {
@@ -1607,10 +1614,9 @@ body {
 }
 
 .danger-button {
-  border: 1px solid rgba(255, 116, 108, 0.24);
-  background: linear-gradient(180deg, rgba(255, 116, 108, 0.14), rgba(255, 116, 108, 0.06));
-  border-color: rgba(255, 116, 108, 0.24);
-  color: #ffd6d3;
+  border: 1px solid var(--danger-line);
+  background: linear-gradient(180deg, rgba(201, 77, 69, 0.12), rgba(201, 77, 69, 0.05));
+  color: var(--danger);
 }
 
 .danger-button:hover:not(:disabled) {
@@ -1834,7 +1840,7 @@ body {
   gap: 6px;
   flex: 1 1 420px;
   min-width: min(100%, 320px);
-  color: #cce2e8;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
@@ -1887,7 +1893,7 @@ body {
 }
 
 .wallet-header-toggle.is-active {
-  color: #d8fff6;
+  color: var(--accent);
   border-color: rgba(93, 0, 179, 0.22);
   background: linear-gradient(180deg, rgba(93, 0, 179, 0.14), rgba(93, 0, 179, 0.05));
 }
@@ -1956,7 +1962,7 @@ body {
 }
 
 .wallet-subtab-button.is-active {
-  color: #d8fff6;
+  color: var(--accent);
   border-color: rgba(93, 0, 179, 0.2);
   background: linear-gradient(180deg, rgba(93, 0, 179, 0.14), rgba(93, 0, 179, 0.05));
 }
@@ -2018,7 +2024,7 @@ body {
 .wallet-card label {
   display: grid;
   gap: 6px;
-  color: #cce2e8;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
@@ -2185,15 +2191,15 @@ body {
 }
 
 .wallet-activity-badge.is-ok {
-  background: rgba(93, 0, 179, 0.09);
-  border: 1px solid rgba(93, 0, 179, 0.18);
-  color: #d8fff6;
+  background: var(--success-soft);
+  border: 1px solid var(--success-line);
+  color: var(--success);
 }
 
 .wallet-activity-badge.is-error {
   background: rgba(255, 116, 108, 0.08);
   border: 1px solid rgba(255, 116, 108, 0.24);
-  color: #ffd2cf;
+  color: var(--danger);
 }
 
 .wallet-activity-meta,
@@ -2243,7 +2249,7 @@ body {
 }
 
 .wallet-account-current {
-  color: #d8fff6;
+  color: var(--accent);
   font-size: 0.78rem;
 }
 
@@ -2423,7 +2429,7 @@ body {
 .wallet-modal-body label {
   display: grid;
   gap: 6px;
-  color: #cce2e8;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
@@ -2473,7 +2479,7 @@ body {
   border-radius: 10px;
   border: 1px solid rgba(255, 116, 108, 0.24);
   background: rgba(255, 116, 108, 0.07);
-  color: #ffd2cf;
+  color: var(--danger);
   font-size: 0.88rem;
   line-height: 1.4;
 }
@@ -2506,7 +2512,7 @@ body {
 }
 
 .wallet-send-mode-button.is-active {
-  color: #d8fff6;
+  color: var(--accent);
   border-color: rgba(93, 0, 179, 0.2);
   background: linear-gradient(180deg, rgba(93, 0, 179, 0.14), rgba(93, 0, 179, 0.05));
 }
@@ -2522,7 +2528,7 @@ body {
 
 .wallet-send-advanced summary {
   cursor: pointer;
-  color: #cce2e8;
+  color: var(--muted);
 }
 
 .wallet-output {
@@ -3490,7 +3496,7 @@ body {
 .producer-form label {
   display: grid;
   gap: 6px;
-  color: #cce2e8;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
@@ -3501,7 +3507,7 @@ body {
   border-radius: 12px;
   border: 1px solid rgba(151, 184, 199, 0.1);
   background: rgba(5, 11, 15, 0.95);
-  color: #cce2e8;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
@@ -4383,7 +4389,7 @@ body {
 }
 
 .node-service-meta-label {
-  color: #d5e3e8;
+  color: var(--muted);
   font-weight: 600;
 }
 
@@ -4485,10 +4491,10 @@ body {
   align-items: center;
   min-height: 30px;
   border-radius: 999px;
-  border: 1px solid rgba(151, 184, 199, 0.16);
-  background: rgba(10, 17, 22, 0.9);
+  border: 1px solid var(--line);
+  background: var(--panel);
   padding: 5px 10px;
-  color: #d5e3e8;
+  color: var(--muted);
   font-size: 0.82rem;
 }
 
@@ -4691,7 +4697,7 @@ body {
 
 .node-backup-progress-text {
   margin: 0 0 10px;
-  color: #d5e4e9;
+  color: var(--text);
   line-height: 1.45;
 }
 
@@ -5833,7 +5839,7 @@ body {
 }
 
 .stat-note.is-error {
-  color: #ffd1ce;
+  color: var(--danger);
 }
 
 .error-banner {
@@ -5842,7 +5848,7 @@ body {
   border-radius: 10px;
   border: 1px solid rgba(255, 116, 108, 0.24);
   background: rgba(255, 116, 108, 0.07);
-  color: #ffd2cf;
+  color: var(--danger);
   font-size: 0.9rem;
 }
 

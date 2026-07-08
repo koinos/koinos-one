@@ -32,6 +32,17 @@ All notable changes to this project are documented in this file.
   parent-root and receipt-root validation. The older height-index/source-DB
   replay path remains available with `--state-db-replay`.
 
+### Fixed
+
+- Fixed several look-and-feel inconsistencies left over from an earlier dark
+  theme: primary and danger buttons, Settings/Wallet form labels, wallet
+  activity badges, error pills, and inline error text used light-on-light
+  colors that were hard to read; footer status pills and the node runtime tag
+  rendered as isolated dark chips inside the light UI; and the Explorer block
+  detail dialog fell back to a dark navy card because its CSS variables were
+  never defined. All of these now use the app's design tokens (assistant
+  palette, system success/danger colors, soft shadows).
+
 ### Changed
 
 - Added a Producer tab notice when recent blocks show the configured producer
