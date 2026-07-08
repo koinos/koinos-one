@@ -43,19 +43,21 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
           >
             {t('explorer.viewList')}
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={explorerView === '3d'}
-            className={`settings-tab-button ${explorerView === '3d' ? 'is-active' : ''}`}
-            onClick={() => setExplorerView('3d')}
-          >
-            {t('explorer.view3d')}
-            <span className="explorer3d-badge-inline">{t('explorer3d.experimentalBadge')}</span>
-          </button>
+          {settings.explorer3dQuality !== 'off' && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={explorerView === '3d'}
+              className={`settings-tab-button ${explorerView === '3d' ? 'is-active' : ''}`}
+              onClick={() => setExplorerView('3d')}
+            >
+              {t('explorer.view3d')}
+              <span className="explorer3d-badge-inline">{t('explorer3d.experimentalBadge')}</span>
+            </button>
+          )}
         </div>
 
-        {explorerView === '3d' && (
+        {explorerView === '3d' && settings.explorer3dQuality !== 'off' && (
           <Suspense
             fallback={
               <div className="explorer3d-fallback" role="status">
@@ -69,6 +71,8 @@ export function ExplorerPanel(props: ExplorerPanelProps) {
               rpcUrl={rpcUrl}
               rows={rows}
               ownProducerAddress={ownProducerAddress}
+              quality={settings.explorer3dQuality}
+              onBlockClick={onBlockClick}
             />
           </Suspense>
         )}

@@ -316,6 +316,7 @@ export function App() {
   const [appPreferencesLoaded, setAppPreferencesLoaded] = useState(() => !Boolean(getAppConfigBridge()?.loadPreferences))
   const [draftPollMs, setDraftPollMs] = useState(String(settings.pollMs))
   const [draftRowLimit, setDraftRowLimit] = useState(String(settings.rowLimit))
+  const [draftExplorer3dQuality, setDraftExplorer3dQuality] = useState<ExplorerSettings['explorer3dQuality']>(settings.explorer3dQuality)
   const [draftDashboardProducerWindowBlocks, setDraftDashboardProducerWindowBlocks] = useState(
     String(settings.dashboardProducerWindowBlocks)
   )
@@ -548,6 +549,7 @@ export function App() {
       effectiveKoinscanUrl !== settings.koinscanUrl ||
       effectivePollMs !== settings.pollMs ||
       effectiveRowLimit !== settings.rowLimit ||
+      draftExplorer3dQuality !== settings.explorer3dQuality ||
       effectiveDashboardProducerWindowBlocks !== settings.dashboardProducerWindowBlocks ||
       effectiveDashboardRefreshSeconds !== settings.dashboardRefreshSeconds ||
       draftNodeNetwork !== nodeSettings.network ||
@@ -585,7 +587,8 @@ export function App() {
     settings.nodeAdvancedMode,
     settings.pollMs,
     settings.producerAdvancedMode,
-    settings.rowLimit
+    settings.rowLimit,
+    settings.explorer3dQuality
   ])
 
   useEffect(() => {
@@ -638,6 +641,7 @@ export function App() {
     setDraftKoinscanUrl(settings.koinscanUrl)
     setDraftPollMs(String(settings.pollMs))
     setDraftRowLimit(String(settings.rowLimit))
+    setDraftExplorer3dQuality(settings.explorer3dQuality)
     setDraftDashboardProducerWindowBlocks(String(settings.dashboardProducerWindowBlocks))
     setDraftDashboardRefreshSeconds(String(settings.dashboardRefreshSeconds))
   }, [
@@ -5119,6 +5123,7 @@ export function App() {
         koinscanUrl,
         pollMs,
         rowLimit,
+        explorer3dQuality: draftExplorer3dQuality,
         dashboardProducerWindowBlocks,
         dashboardRefreshSeconds
       }
@@ -5602,6 +5607,8 @@ export function App() {
           setDraftPollMs={setDraftPollMs}
           draftRowLimit={draftRowLimit}
           setDraftRowLimit={setDraftRowLimit}
+          draftExplorer3dQuality={draftExplorer3dQuality}
+          setDraftExplorer3dQuality={setDraftExplorer3dQuality}
           draftDashboardProducerWindowBlocks={draftDashboardProducerWindowBlocks}
           setDraftDashboardProducerWindowBlocks={setDraftDashboardProducerWindowBlocks}
           draftDashboardRefreshSeconds={draftDashboardRefreshSeconds}

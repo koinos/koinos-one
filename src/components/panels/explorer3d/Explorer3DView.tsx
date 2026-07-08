@@ -4,8 +4,10 @@ import { Canvas, useFrame } from '@react-three/fiber'
 
 import Scene3D from './Scene3D'
 import { useExplorer3DFeed } from './useExplorer3DFeed'
-import type { BlockRow } from '../../../app/types'
+import type { Block3D } from '../../../app/explorer3d'
+import type { BlockRow, ExplorerSettings } from '../../../app/types'
 import type { AppLanguage } from '../../../i18n'
+import { shortHash } from '../../../app/utils'
 
 type Explorer3DViewProps = {
   t: (key: string, values?: Record<string, string | number>) => string
@@ -13,7 +15,15 @@ type Explorer3DViewProps = {
   rpcUrl: string
   rows: BlockRow[]
   ownProducerAddress?: string | null
+  quality?: ExplorerSettings['explorer3dQuality']
+  onBlockClick?: (row: BlockRow) => void
 }
+
+const QUALITY_PRESETS = {
+  low: { dpr: [1, 1] as [number, number], maxParticles: 200, antialias: false, autoOrbit: false },
+  medium: { dpr: [1, 1.75] as [number, number], maxParticles: 500, antialias: true, autoOrbit: true },
+  high: { dpr: [1, 2] as [number, number], maxParticles: 500, antialias: true, autoOrbit: true }
+} as const
 
 function supportsWebGl2(): boolean {
   try {
@@ -51,9 +61,37 @@ function FpsProbe({ onSample }: { onSample: (fps: number) => void }) {
   return null
 }
 
-export default function Explorer3DView({ t, language, rpcUrl, rows, ownProducerAddress }: Explorer3DViewProps) {
+export default function Explorer3DView({
+  t,
+  language,
+  rpcUrl,
+  rows,
+  ownProducerAddress,
+  quality = 'medium',
+  onBlockClick
+}: Explorer3DViewProps) {
   const [webGlOk] = useState(supportsWebGl2)
   const feed = useExplorer3DFeed({ language, rpcUrl, rows })
+  const [hoveredTxId, setHoveredTxId] = useState<string | null>(null)
+  const [hoveredBlock, setHoveredBlock] = useState<Block3D | null>(null)
+  const preset = QUALITY_PRESETS[quality === 'off' ? 'medium' : quality]
+
+  const handleBlockClick = (block: Block3D) => {
+    if (!onBlockClick) return
+    const row = rows.find((candidate) => candidate.blockId === block.id)
+    onBlockClick(
+      row ?? {
+        height: block.height,
+        blockId: block.id,
+        previousId: '',
+        signer: block.signer,
+        timestampMs: block.timestampMs,
+        txIds: block.txIds
+      }
+    )
+  }
+
+  const hoveredTx = hoveredTxId ? feed.state.txs.get(hoveredTxId) ?? null : null
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden')
   const [fps, setFps] = useState<number | null>(null)
   const reducedMotion = prefersReducedMotion()
@@ -80,15 +118,19 @@ export default function Explorer3DView({ t, language, rpcUrl, rows, ownProducerA
       <Canvas
         camera={{ position: [0, 4.2, 13], fov: 45 }}
         frameloop={animate ? 'always' : 'demand'}
-        dpr={[1, 1.75]}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        dpr={preset.dpr}
+        gl={{ antialias: preset.antialias, powerPreference: 'high-performance' }}
       >
         <Scene3D
           state={feed.state}
           revision={feed.revision}
           lastEvents={feed.lastEvents}
           ownProducerAddress={`${ownProducerAddress ?? ''}`}
-          animate={animate}
+          animate={animate && preset.autoOrbit}
+          maxParticles={preset.maxParticles}
+          onHoverTx={setHoveredTxId}
+          onBlockClick={handleBlockClick}
+          onHoverBlock={setHoveredBlock}
         />
         {import.meta.env.DEV && <FpsProbe onSample={setFps} />}
       </Canvas>
@@ -106,6 +148,22 @@ export default function Explorer3DView({ t, language, rpcUrl, rows, ownProducerA
           <span className="explorer3d-fps mono">{fps} fps</span>
         )}
       </div>
+      {(hoveredTx || hoveredBlock) && (
+        <div className="explorer3d-tooltip mono" role="status">
+          {hoveredTx
+            ? t('explorer3d.hoverTx', {
+                id: shortHash(hoveredTx.id, 10, 6),
+                payer: hoveredTx.payer ? shortHash(hoveredTx.payer, 8, 6) : t('common.na'),
+                ops: hoveredTx.opCount ?? 0
+              })
+            : hoveredBlock
+              ? t('explorer3d.hoverBlock', {
+                  height: hoveredBlock.height.toLocaleString(),
+                  signer: shortHash(hoveredBlock.signer, 10, 6)
+                })
+              : null}
+        </div>
+      )}
     </div>
   )
 }
