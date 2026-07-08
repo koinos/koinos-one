@@ -727,7 +727,28 @@ The missing data is exactly the rectification, nothing else. Consequences:
   affected nodes; the per-block re-execution fallback described below is
   the surgical equivalent.
 
-## Anomaly At 32,789,377: Provenance Narrowed, Mechanism Still Open
+## Anomaly At 32,789,377: RESOLVED — Halt-Corrupted Consensus Root (12 Is Correct)
+
+> **This supersedes the "provenance narrowed / mechanism open" text that
+> previously followed.** Direct root computation settled it: 12 delta entries
+> is the correct, honest delta for this block. Consecutive KFS blocks
+> 32,789,375 and 32,789,376 — identical in structure — match their
+> consensus-signed roots ONLY with all 12 entries preserved, proving the
+> entry-8 remove is a real, counted state change and the vote keys are
+> long-lived (created >800k blocks earlier). 32,789,377 is the last block
+> before the January 2026 halt (a ~22-hour gap and producer change follow it);
+> its 11-entry consensus root, carried in the post-restart block 32,789,378's
+> header, was produced by the tombstone-drop bug during the JGA#2 restart
+> replay and signed into the chain. It is a permanent on-chain scar, not a
+> legacy no-op.
+>
+> **Fix consequence:** re-executing this block reproduces the honest 12-entry
+> root, which does NOT match the corrupted 11-entry consensus root, so the
+> re-execution fallback halts here. Syncing past it requires a drop-subset
+> fallback (the auditor's approach). Full analysis and the revised fallback
+> design: `docs/compatibility/LEGACY_DELTA_REPLAY_ANOMALY1_HALT_ANALYSIS.md`.
+
+### (superseded) Provenance Narrowed, Mechanism Still Open
 
 The 2026-06-26 section above attributed this block to the era `erase()`
 semantics ("the receipt records both, the root counted one"). Deeper

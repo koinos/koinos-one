@@ -1,5 +1,19 @@
 # Root causes of the two delta-replay anomalies
 
+> **CORRECTION (2026-07-08, later same day):** The Anomaly 1 (height
+> 32,789,377) conclusion below — that consensus correctly counted 11 entries
+> and the receipt over-records a no-op remove — is **WRONG and retracted**.
+> Direct root computation of three consecutive KFS blocks proved that 12
+> entries is the correct, honest delta (blocks 32,789,375 and 32,789,376,
+> identical in shape, match their signed roots only with all 12 entries), and
+> that 32,789,377's 11-entry consensus root is a corruption baked in during the
+> January 2026 halt/restart. See
+> `LEGACY_DELTA_REPLAY_ANOMALY1_HALT_ANALYSIS.md` for the proof and the
+> resulting fix-design change (re-execution alone cannot sync past this block;
+> a drop-subset fallback is required). The Anomaly 2 (#858) analysis is
+> unaffected and remains verified.
+
+
 In-depth companion to `LEGACY_DELTA_REPLAY_FIX_BRIEF.md` §2.3 and §6, written
 after tracing both anomalies to their code-level origins (2026-07-08). All
 file/line references were checked against `koinos-chain`
