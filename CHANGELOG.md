@@ -42,6 +42,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- When the selected profile enables mainnet block production but no producer
+  address is configured, the Node tab now disables Start and Restart up front
+  and shows a persistent notice explaining why, with a shortcut to the
+  Producer tab. Previously Start appeared clickable, failed its preflight, and
+  the error message could disappear on the next action.
+
 - Made the Producer tab much faster to activate. The producer overview used to
   page through roughly a full day of blocks (~28,800) over RPC on every
   refresh to compute 24h producer activity, which could take around ten

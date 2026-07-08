@@ -1738,6 +1738,14 @@ export function App() {
   const nodeControlsUnavailableReason = !hasNodeControls ? t('node.actionDisabled.electronOnly') : null
   const nodeActionBusyReason = nodeBusy ? t('node.actionDisabled.busy', { state: nodeStateText }) : null
   const nodeStartAlreadyRunningReason = nodeRunningCount > 0 ? t('node.actionDisabled.alreadyRunning') : null
+  const producerStartBlockedReason =
+    nodeSettings.network === 'mainnet' &&
+    nodeCurrentProfiles.some((profile) => profile.toLowerCase().includes('producer')) &&
+    nodeProducerOverview !== null &&
+    !nodeProducerOverview.configHasProducer &&
+    !isProducerSetupComplete(producerProfile)
+      ? t('node.actionDisabled.producerSetupIncomplete')
+      : null
   const nodePrimaryUnavailableReason = !nodePrimaryService ? t('node.actionDisabled.noPrimaryService') : null
   const nodePrimaryStatusUnavailableReason =
     nodePrimaryService && !nodePrimaryCapabilities ? t('node.actionDisabled.statusUnavailable') : null
@@ -1748,6 +1756,7 @@ export function App() {
   const nodeStartTooltip = nodeActionTooltip(
     t('node.actionTooltip.start'),
     nodeControlsUnavailableReason,
+    producerStartBlockedReason,
     nodeStartAlreadyRunningReason,
     nodeActionBusyReason
   )
@@ -5662,6 +5671,20 @@ export function App() {
           </div>
         )}
 
+        {producerStartBlockedReason && (
+          <div className="node-warning node-busy-banner" role="alert">
+            <strong>{t('node.startBlockedTitle')}</strong>
+            <span>{t('node.startBlockedProducerSetup')}</span>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setActiveTab('producer')}
+            >
+              {t('node.openProducerTab')}
+            </button>
+          </div>
+        )}
+
         {(activeBackupProgress || nodeRestoreBackupLoading || nodeRestoreNativeBackupLoading || nodeCreateBackupLoading) && (
           <div className="node-warning node-busy-banner" role="status">
             <strong>{activeBackupActionLabel || t('status.restoringBackup')}</strong>
@@ -5721,7 +5744,7 @@ export function App() {
                 onClick={() => {
                   void runNodeAction('start')
                 }}
-                disabled={!hasNodeControls || nodeBusy || nodeRunningCount > 0}
+                disabled={!hasNodeControls || nodeBusy || nodeRunningCount > 0 || producerStartBlockedReason !== null}
               >
                 {nodeActionLoading === 'start' ? t('common.starting') : t('node.startNode')}
               </button>
@@ -5749,6 +5772,7 @@ export function App() {
                   !hasNodeControls ||
                   nodeBusy ||
                   !nodePrimaryService ||
+                  producerStartBlockedReason !== null ||
                   nodePrimaryCapabilities?.restartBlockedReason !== null
                 }
               >
