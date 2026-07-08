@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Backup and restore progress is now visible from anywhere in the app: the
+  footer status pill shows the operation (restoring, verifying or creating a
+  backup) with percentage, transfer speed, ETA and a progress bar while it
+  runs, instead of showing "Stopped". The Node tab also shows an explanatory
+  banner while a backup operation is running, since node controls, presets and
+  data actions stay locked until it finishes, and preset cards are now visibly
+  dimmed while locked.
+
 - Settings > Build information now shows the native `teleno_node` version. The
   packaged build identity captures the binary's reported version (parsed from
   `teleno_node --version`) alongside its name and SHA-256.
@@ -34,6 +42,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made the Producer tab much faster to activate. The producer overview used to
+  page through roughly a full day of blocks (~28,800) over RPC on every
+  refresh to compute 24h producer activity, which could take around ten
+  seconds. The scan result is now cached: reused as-is for two minutes,
+  extended incrementally (only newly produced blocks) for up to thirty
+  minutes, and fully rescanned after that. External KOIN price lookups now
+  carry five-second timeouts and a sixty-second cache.
+
 - Fixed a circular deadlock that could make a mainnet producer impossible to
   start: the start gate requires `block_producer.producer` in the runtime
   config, but the Producer tab told the user to start the node once to create
@@ -53,6 +69,11 @@ All notable changes to this project are documented in this file.
   palette, system success/danger colors, soft shadows).
 
 ### Changed
+
+- Renamed the Wallet account action "Set Producer" to "Set as producer". When
+  the active account is already the configured producer address, the button is
+  replaced by a passive "Producer" badge instead of offering a redundant
+  action.
 
 - Simplified the Node presets section to a single Apply action. Apply now only
   pre-activates the preset (network, base directory, profiles and component

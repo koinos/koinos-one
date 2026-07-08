@@ -1835,6 +1835,19 @@ body {
   flex-wrap: wrap;
 }
 
+.wallet-account-producer-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .wallet-account-picker {
   display: grid;
   gap: 6px;
@@ -3769,6 +3782,15 @@ body {
   padding: 40px 44px;
   background: rgba(3, 8, 11, 0.68);
   backdrop-filter: blur(10px);
+}
+
+.node-busy-banner {
+  display: grid;
+  gap: 4px;
+}
+
+.node-preset-card.is-disabled {
+  opacity: 0.55;
 }
 
 .node-preset-card {
