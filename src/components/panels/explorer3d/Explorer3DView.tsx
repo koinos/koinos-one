@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 import { useEffect, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import type { Group } from 'three'
 
+import Scene3D from './Scene3D'
 import { useExplorer3DFeed } from './useExplorer3DFeed'
 import type { BlockRow } from '../../../app/types'
 import type { AppLanguage } from '../../../i18n'
@@ -12,6 +12,7 @@ type Explorer3DViewProps = {
   language: AppLanguage
   rpcUrl: string
   rows: BlockRow[]
+  ownProducerAddress?: string | null
 }
 
 function supportsWebGl2(): boolean {
@@ -32,40 +33,6 @@ function prefersReducedMotion(): boolean {
   }
 }
 
-/**
- * Phase 0 placeholder scene: a slowly rotating wire torus in the assistant
- * palette proves the GPU pipeline (lazy chunk, WebGL2 context, animation
- * clock, pause-on-hidden) before any real data is wired in later phases.
- */
-function PlaceholderScene({ animate }: { animate: boolean }) {
-  const groupRef = useRef<Group>(null)
-
-  useFrame((_state, delta) => {
-    if (!animate || !groupRef.current) return
-    groupRef.current.rotation.y += delta * 0.25
-    groupRef.current.rotation.x += delta * 0.08
-  })
-
-  return (
-    <>
-      <color attach="background" args={['#fbfcfe']} />
-      <fog attach="fog" args={['#fbfcfe', 8, 22]} />
-      <ambientLight intensity={0.9} />
-      <directionalLight position={[4, 6, 3]} intensity={0.7} />
-      <group ref={groupRef}>
-        <mesh>
-          <torusGeometry args={[2.2, 0.6, 24, 96]} />
-          <meshStandardMaterial color="#5d00b3" wireframe opacity={0.5} transparent />
-        </mesh>
-        <mesh>
-          <icosahedronGeometry args={[0.9, 1]} />
-          <meshStandardMaterial color="#8c3ff0" roughness={0.35} metalness={0.15} />
-        </mesh>
-      </group>
-    </>
-  )
-}
-
 /** Dev-only FPS meter driven by the render loop itself. */
 function FpsProbe({ onSample }: { onSample: (fps: number) => void }) {
   const frames = useRef(0)
@@ -84,7 +51,7 @@ function FpsProbe({ onSample }: { onSample: (fps: number) => void }) {
   return null
 }
 
-export default function Explorer3DView({ t, language, rpcUrl, rows }: Explorer3DViewProps) {
+export default function Explorer3DView({ t, language, rpcUrl, rows, ownProducerAddress }: Explorer3DViewProps) {
   const [webGlOk] = useState(supportsWebGl2)
   const feed = useExplorer3DFeed({ language, rpcUrl, rows })
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden')
@@ -111,12 +78,17 @@ export default function Explorer3DView({ t, language, rpcUrl, rows }: Explorer3D
   return (
     <div className="explorer3d-stage" aria-label={t('explorer3d.stageAria')}>
       <Canvas
-        camera={{ position: [0, 2.4, 8], fov: 45 }}
+        camera={{ position: [0, 4.2, 13], fov: 45 }}
         frameloop={animate ? 'always' : 'demand'}
         dpr={[1, 1.75]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
       >
-        <PlaceholderScene animate={animate} />
+        <Scene3D
+          state={feed.state}
+          revision={feed.revision}
+          ownProducerAddress={`${ownProducerAddress ?? ''}`}
+          animate={animate}
+        />
         {import.meta.env.DEV && <FpsProbe onSample={setFps} />}
       </Canvas>
       <div className="explorer3d-hud">

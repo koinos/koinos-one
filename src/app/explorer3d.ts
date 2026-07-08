@@ -218,6 +218,30 @@ function enforceTxCap(state: Explorer3DState): void {
   }
 }
 
+/** Deterministic pseudo-random in [0, 1) from a string seed (stable layout). */
+export function hash01(seed: string, salt: number): number {
+  let h = 2166136261 ^ salt
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return ((h >>> 0) % 100000) / 100000
+}
+
+export const MEMPOOL_CENTER = { x: -2.5, y: 1.6, z: 0 } as const
+
+/** Static orbital slot for a pending transaction around the mempool center. */
+export function mempoolSlot(txId: string): { x: number; y: number; z: number } {
+  const angle = hash01(txId, 1) * Math.PI * 2
+  const radius = 1.1 + hash01(txId, 2) * 1.6
+  const height = (hash01(txId, 3) - 0.5) * 1.6
+  return {
+    x: MEMPOOL_CENTER.x + Math.cos(angle) * radius,
+    y: MEMPOOL_CENTER.y + height,
+    z: MEMPOOL_CENTER.z + Math.sin(angle) * radius
+  }
+}
+
 /** Parse the JSON-RPC mempool.get_pending_transactions response defensively. */
 export function parsePendingTransactionsResponse(response: unknown): PendingTxSummary[] {
   const list = (response as { pending_transactions?: unknown })?.pending_transactions
