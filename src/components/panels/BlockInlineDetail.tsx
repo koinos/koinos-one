@@ -173,6 +173,7 @@ export function BlockInlineDetail({ t, locale, language, rpcUrl, koinscanUrl, bl
             <Field label={t('blockDetail.timestamp')} value={formatDateTime(d?.timestampMs ?? block.timestampMs, locale, 'N/A')} mono={false} />
             <Field label={t('blockDetail.dateUtc')} value={blockDate.toISOString()} />
             <Field label={t('blockDetail.transactions')} value={txCount} mono={false} />
+            <Field label={t('blockDetail.blockEvents')} value={d?.blockEvents.length ?? 0} mono={false} />
           </div>
 
           <Field label={t('blockDetail.blockId')} value={d?.blockId ?? block.blockId} />
@@ -190,6 +191,22 @@ export function BlockInlineDetail({ t, locale, language, rpcUrl, koinscanUrl, bl
               {d.approvedProposals.length > 0 && (
                 <Section title={`${t('blockDetail.sectionGovernance')} (${d.approvedProposals.length})`}>
                   {d.approvedProposals.map((p, i) => <div key={i} className="mono bid-hash">{p}</div>)}
+                </Section>
+              )}
+
+              {d.blockEvents.length > 0 && (
+                <Section title={`${t('blockDetail.blockEvents')} (${d.blockEvents.length})`}>
+                  {d.blockEvents.map((evt, i) => (
+                    <div key={i} className="bid-event-row">
+                      <span className="bid-event-name">{evt.name || t('common.na')}</span>
+                      <span className="mono bid-event-source" title={evt.source}>{evt.source}</span>
+                      {evt.impacted.length > 0 && (
+                        <span className="bid-event-impacted mono" title={evt.impacted.join(', ')}>
+                          {t('blockDetail.impacted', { count: evt.impacted.length })}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </Section>
               )}
             </>

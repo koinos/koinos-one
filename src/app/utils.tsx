@@ -1438,6 +1438,12 @@ export async function fetchBlockDetail(
     previousStateMerkleRoot: header.previous_state_merkle_root ?? '',
     approvedProposals: header.approved_proposals ?? [],
     transactions,
+    blockEvents: (item.receipt?.events ?? []).map((e) => ({
+      source: e.source ?? '',
+      name: e.name ?? '',
+      data: e.data ?? '',
+      impacted: e.impacted ?? []
+    })),
     raw: item
   }
 }
