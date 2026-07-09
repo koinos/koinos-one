@@ -12,6 +12,15 @@ For missing work and new ideas, start with `../../backlog/README.md`.
 - `OBSERVER_ONLY_INSTALLATION_ASSISTANT_PLAN.md` (implemented; the first-run
   assistant is observer-only since 2026-06)
 
+## Fleet And Remote Nodes
+
+- `fleet/MULTI_NODE_REMOTE_INSTALL_AND_MANAGEMENT_PLAN.md` (superseded by
+  `docs/backlog/operations/NODE_FLEET_STRATEGY.md`)
+- `fleet/REMOTE_NODES_REMAINING_MVP_IMPLEMENTATION.md` (superseded by the same
+  strategy document)
+- `fleet/DISTRIBUTED_PRODUCER_FLEET_AND_VHP_PLAN.md` (superseded by the same
+  strategy document)
+
 ## Monolith Core
 
 - `monolith/core/MONOLITHIC_NODE_ARCHITECTURE.md`
