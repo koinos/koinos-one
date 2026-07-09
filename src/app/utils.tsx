@@ -435,7 +435,11 @@ export function loadInitialSettings(): ExplorerSettings {
       rpcSource: normalizeExplorerRpcSource((parsed as { rpcSource?: unknown }).rpcSource, publicRpcUrls, legacyFallback),
       publicRpcUrls,
       koinscanUrl: normalizeExternalHttpsUrl(typeof parsed.koinscanUrl === 'string' ? parsed.koinscanUrl : DEFAULT_SETTINGS.koinscanUrl),
-      pollMs: clamp(typeof parsed.pollMs === 'number' ? parsed.pollMs : DEFAULT_SETTINGS.pollMs, 1000, 30000),
+      pollMs: clamp(
+        typeof parsed.pollMs === 'number' && parsed.pollMs !== 3000 ? parsed.pollMs : DEFAULT_SETTINGS.pollMs,
+        1000,
+        30000
+      ),
       rowLimit: clamp(typeof parsed.rowLimit === 'number' ? parsed.rowLimit : DEFAULT_SETTINGS.rowLimit, 5, 50),
       producerAdvancedMode: parsed.producerAdvancedMode === true,
       nodeAdvancedMode: parsed.nodeAdvancedMode === true,
@@ -1276,6 +1280,60 @@ export async function fetchLatestBlocks(
   }
 }
 
+/**
+ * Incremental variant of fetchLatestBlocks for fast polling: fetches the head
+ * (cheap) and downloads block bodies only for heights above the newest row we
+ * already have. Falls back to a full fetch on first load, large gaps, or any
+ * discontinuity (reorg).
+ */
+export async function fetchLatestBlocksDelta(
+  language: AppLanguage,
+  rpcUrl: string,
+  rowLimit: number,
+  currentRows: BlockRow[],
+  signal: AbortSignal
+): Promise<{ head: HeadSnapshot; rows: BlockRow[] }> {
+  const top = currentRows[0]
+  if (!top) return fetchLatestBlocks(language, rpcUrl, rowLimit, signal)
+
+  const head = await fetchHeadSnapshot(language, rpcUrl, signal)
+  if (head.id === top.blockId) {
+    return { head, rows: currentRows }
+  }
+
+  const gap = head.height - top.height
+  if (gap <= 0 || gap >= rowLimit) {
+    return fetchLatestBlocks(language, rpcUrl, rowLimit, signal)
+  }
+
+  const blockStore = await rpcCall<BlocksByHeightResult>(
+    language,
+    rpcUrl,
+    'block_store.get_blocks_by_height',
+    {
+      head_block_id: head.id,
+      ancestor_start_height: String(top.height + 1),
+      num_blocks: String(gap),
+      return_block: true
+    },
+    signal
+  )
+  const newRows = (blockStore.block_items ?? [])
+    .map(mapBlockItem)
+    .filter((row): row is BlockRow => row !== null)
+    .sort((a, b) => b.height - a.height)
+
+  const lowestNew = newRows[newRows.length - 1]
+  if (!newRows.length || lowestNew.height !== top.height + 1) {
+    return fetchLatestBlocks(language, rpcUrl, rowLimit, signal)
+  }
+
+  return {
+    head,
+    rows: [...newRows, ...currentRows].slice(0, rowLimit)
+  }
+}
+
 export async function fetchHeadSnapshot(
   language: AppLanguage,
   rpcUrl: string,
@@ -1377,6 +1435,12 @@ export async function fetchBlockDetail(
     previousStateMerkleRoot: header.previous_state_merkle_root ?? '',
     approvedProposals: header.approved_proposals ?? [],
     transactions,
+    blockEvents: (item.receipt?.events ?? []).map((e) => ({
+      source: e.source ?? '',
+      name: e.name ?? '',
+      data: e.data ?? '',
+      impacted: e.impacted ?? []
+    })),
     raw: item
   }
 }

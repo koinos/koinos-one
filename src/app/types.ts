@@ -221,6 +221,7 @@ export type BlockDetailStoreItem = {
   receipt?: {
     id?: string
     transaction_receipts?: RawTransactionReceipt[]
+    events?: Array<{ source?: string; name?: string; data?: string; impacted?: string[] }>
     state_delta_entries?: unknown[]
   }
 }
@@ -279,6 +280,7 @@ export type BlockDetail = {
   previousStateMerkleRoot: string
   approvedProposals: string[]
   transactions: TransactionDetail[]
+  blockEvents: Array<{ source: string; name: string; data: string; impacted: string[] }>
   raw: object
 }
 

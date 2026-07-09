@@ -975,6 +975,27 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 
+.bid-event-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+
+.bid-event-source {
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 46ch;
+}
+
+.bid-event-impacted {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 .bid-event-name { font-weight: 500; font-size: 0.8em; color: var(--accent, #14283b); }
 .bid-event-source { font-size: 0.7em; color: var(--muted, #8899aa); word-break: break-all; }
 

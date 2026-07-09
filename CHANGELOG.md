@@ -52,6 +52,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The block detail now shows block-level receipt events (producer reward
+  mint, burn accounting and similar). Most Koinos mainnet blocks carry no
+  transactions, so the detail previously looked completely empty even though
+  every block emits events in its receipt.
 - Fixed the Explorer freezing: opening a block's detail (in the list or by
   clicking a block in the 3D view) paused the whole block feed, so new blocks
   stopped advancing everywhere. The feed now keeps polling with a detail
@@ -97,7 +101,13 @@ All notable changes to this project are documented in this file.
   branch while it matures. The Explorer keeps its list view; the block feed
   and block-detail improvements developed alongside it (near-realtime
   polling, block-level receipt events) stay in the app.
-
+- The Explorer now polls every second by default (previously every three
+  seconds), so new blocks appear in near real time. Polling became much
+  cheaper at the same time: each tick only fetches the chain head, and block
+  bodies are downloaded just for heights newer than the rows already shown
+  (with a full refetch on gaps or reorgs). Stored settings still using the old
+  3-second default are migrated to the new default; the interval remains
+  configurable in Settings.
 - The Explorer and Dashboard now highlight the active producer address (as
   shown in the Producer tab), not only the address already saved in the
   runtime config, and the Dashboard producers ranking marks your row with the
