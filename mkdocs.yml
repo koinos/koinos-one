@@ -36,7 +36,6 @@ nav:
       - Install On macOS: koinos-one/install-macos.md
       - First-Run Setup: koinos-one/first-run-setup.md
       - Node Dashboard: koinos-one/node-dashboard.md
-      - 3D Explorer (Experimental): koinos-one/explorer-3d.md
       - Syncing A Node: koinos-one/syncing-a-node.md
       - Backup And Restore: koinos-one/backup-and-restore.md
       - Public Bootstrap Restore: koinos-one/public-bootstrap-restore.md

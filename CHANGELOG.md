@@ -6,44 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Experimental 3D Explorer (phase 5, final): continuous camera auto-rotation
-  removed (the camera only moves when you drag it), quality presets
-  simplified, and the manual gains a dedicated "3D Explorer (Experimental)"
-  page in the Koinos One User Guide describing the scene, interactions,
-  quality presets, and the view's data-honesty limitations.
 
-- Experimental 3D Explorer (phase 4): the scene is now interactive - hover a
-  transaction particle or a block to see its details in a tooltip, click a
-  block to open the regular block detail dialog, and pick a quality preset in
-  Settings (Off hides the 3D view entirely; Low reduces particles and
-  disables antialiasing for modest hardware).
 
-- Experimental 3D Explorer (phase 3): the scene is now alive - transactions
-  spawn at the API gate when first seen in the mempool, orbit the pool while
-  pending, and fly into the newest block the moment it seals; blocks flash
-  and pop on arrival and slide smoothly down the chain track, with a stronger
-  pulse when your own producer signed them. Everything freezes cleanly under
-  reduced motion or when the window is hidden.
 
-- Experimental 3D Explorer (phase 2): the preview placeholder is replaced by
-  the real static scene - an API gate portal, an instanced mempool cluster
-  where each pending transaction occupies a stable orbital slot, and a chain
-  track built from the most recent real blocks with your own producer's
-  blocks accented in purple. Camera supports drag-rotate and zoom with a slow
-  auto-orbit that respects reduced-motion.
 
-- Experimental 3D Explorer (phase 1): the 3D view now tracks real data - a
-  transaction lifecycle store fed by a 2-second mempool poll (pending,
-  included, dropped) and the Explorer block feed, with live counts in the
-  scene HUD. Polling runs only while the 3D view is open and degrades to
-  blocks-only mode when the RPC source does not expose the mempool.
 
-- Experimental 3D Explorer (phase 0): the Explorer tab gains a "3D Explorer"
-  sub-view with an Experimental badge that lazy-loads a GPU-accelerated
-  preview scene (three.js). The 3D engine is only downloaded when the
-  sub-view is opened, falls back gracefully when WebGL2 is unavailable, and
-  pauses when the window is hidden or reduced motion is requested. Real
-  transaction and block data arrives in the next phases.
 
 - Explorer rows for blocks produced by your configured producer address are
   now highlighted with an accent border and a "My producer" badge, so your own
@@ -125,6 +92,11 @@ All notable changes to this project are documented in this file.
   palette, system success/danger colors, soft shadows).
 
 ### Changed
+
+- The experimental 3D Explorer was moved off `main` into the `3d_explorer`
+  branch while it matures. The Explorer keeps its list view; the block feed
+  and block-detail improvements developed alongside it (near-realtime
+  polling, block-level receipt events) stay in the app.
 
 - The Explorer and Dashboard now highlight the active producer address (as
   shown in the Producer tab), not only the address already saved in the
