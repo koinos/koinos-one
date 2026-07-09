@@ -1,5 +1,11 @@
 # Remote Nodes Remaining MVP Implementation
 
+> Archived 2026-07-09. Superseded by
+> [`docs/backlog/operations/NODE_FLEET_STRATEGY.md`](../../../backlog/operations/NODE_FLEET_STRATEGY.md),
+> which merges, prunes, and re-sequences this plan. Retained for the
+> detailed test matrices, live-evidence records, and design rationale.
+
+
 - Date: 2026-06-29
 - Scope: remaining Remote Nodes hardening after the VPS1 real GUI/IPC
   validation

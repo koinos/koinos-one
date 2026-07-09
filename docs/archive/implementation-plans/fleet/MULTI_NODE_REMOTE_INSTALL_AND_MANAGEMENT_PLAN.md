@@ -1,5 +1,11 @@
 # Multi-Node Remote Installation And Management Plan
 
+> Archived 2026-07-09. Superseded by
+> [`docs/backlog/operations/NODE_FLEET_STRATEGY.md`](../../../backlog/operations/NODE_FLEET_STRATEGY.md),
+> which merges, prunes, and re-sequences this plan. Retained for the
+> detailed test matrices, live-evidence records, and design rationale.
+
+
 - Date: 2026-06-26
 - Scope: remote installation and management of multiple Koinos One / Teleno
   nodes

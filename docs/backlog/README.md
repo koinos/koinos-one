@@ -38,12 +38,19 @@ starting a new feature or claiming full legacy parity.
 - `backup-restore/PUBLIC_BOOTSTRAP_DISK_OPTIMIZATION_IDEA.md` - proposed
   low-disk public restore modes for cost-efficient VPS observer deployment.
 
+## Node Fleet Backlog
+
+- `operations/NODE_FLEET_STRATEGY.md` - unified strategy for multi-node,
+  multi-flavor, local/remote fleet management, producer identities, funding,
+  and VHP allocation. Supersedes the archived multi-node remote, remote-nodes
+  MVP, and distributed-producer plans.
+
 ## Producer And Wallet Backlog
 
 - `producer/NETWORK_SCOPED_PRODUCER_WALLET_PLAN.md` - network-scoped producer
   wallet/profile isolation and safety rules.
-- `producer/DISTRIBUTED_PRODUCER_FLEET_AND_VHP_PLAN.md` - multi-producer fleet
-  and VHP allocation product direction.
+- Multi-producer fleet and VHP direction now lives in
+  `operations/NODE_FLEET_STRATEGY.md`.
 
 ## GUI Backlog
 
