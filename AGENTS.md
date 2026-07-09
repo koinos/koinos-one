@@ -210,6 +210,13 @@ When changing user-facing functionality, update changelog or release notes as
 appropriate, and ensure the GUI About/Build Info surface can show the exact
 version and commit included in the build.
 
+Whenever `CHANGELOG.md` changes - for any reason, not only at release time -
+regenerate the rendered manual changelog in the same change by running
+`npm run docs:sync-changelog` (which rewrites
+`docs/manual/reference/changelog.md`), and commit both files together. The
+Documentation tab renders the manual copy; letting it drift from
+`CHANGELOG.md` shows users stale release notes.
+
 ### Development Version Rule
 
 Immediately after a release, the working tree must identify itself as a

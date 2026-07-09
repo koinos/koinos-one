@@ -317,6 +317,7 @@ export function App() {
   const [appPreferencesLoaded, setAppPreferencesLoaded] = useState(() => !Boolean(getAppConfigBridge()?.loadPreferences))
   const [draftPollMs, setDraftPollMs] = useState(String(settings.pollMs))
   const [draftRowLimit, setDraftRowLimit] = useState(String(settings.rowLimit))
+  const [draftExplorer3dQuality, setDraftExplorer3dQuality] = useState<ExplorerSettings['explorer3dQuality']>(settings.explorer3dQuality)
   const [draftDashboardProducerWindowBlocks, setDraftDashboardProducerWindowBlocks] = useState(
     String(settings.dashboardProducerWindowBlocks)
   )
@@ -549,6 +550,7 @@ export function App() {
       effectiveKoinscanUrl !== settings.koinscanUrl ||
       effectivePollMs !== settings.pollMs ||
       effectiveRowLimit !== settings.rowLimit ||
+      draftExplorer3dQuality !== settings.explorer3dQuality ||
       effectiveDashboardProducerWindowBlocks !== settings.dashboardProducerWindowBlocks ||
       effectiveDashboardRefreshSeconds !== settings.dashboardRefreshSeconds ||
       draftNodeNetwork !== nodeSettings.network ||
@@ -586,7 +588,8 @@ export function App() {
     settings.nodeAdvancedMode,
     settings.pollMs,
     settings.producerAdvancedMode,
-    settings.rowLimit
+    settings.rowLimit,
+    settings.explorer3dQuality
   ])
 
   useEffect(() => {
@@ -639,6 +642,7 @@ export function App() {
     setDraftKoinscanUrl(settings.koinscanUrl)
     setDraftPollMs(String(settings.pollMs))
     setDraftRowLimit(String(settings.rowLimit))
+    setDraftExplorer3dQuality(settings.explorer3dQuality)
     setDraftDashboardProducerWindowBlocks(String(settings.dashboardProducerWindowBlocks))
     setDraftDashboardRefreshSeconds(String(settings.dashboardRefreshSeconds))
   }, [
@@ -1409,10 +1413,15 @@ export function App() {
     let inFlight = false
     let pollTimer: number | null = null
     let controller: AbortController | null = null
+    let revealTimers: number[] = []
+
+    const clearRevealTimers = () => {
+      revealTimers.forEach((id) => window.clearTimeout(id))
+      revealTimers = []
+    }
 
     const tick = async (initial: boolean) => {
       if (disposed || inFlight) return
-      if (!initial && selectedBlockRef.current) return // Pause polling while block detail is open
       inFlight = true
       controller = new AbortController()
 
@@ -1424,16 +1433,49 @@ export function App() {
         if (disposed) return
 
         const previousIds = new Set(rowsRef.current.map((row) => row.blockId))
+        const hadPreviousRows = previousIds.size > 0
         const incomingFresh = snapshot.rows
           .filter((row) => !previousIds.has(row.blockId))
           .map((row) => row.blockId)
 
+        clearRevealTimers()
         rowsRef.current = snapshot.rows
-        setRows(snapshot.rows)
+        if (
+          selectedBlockRef.current &&
+          !snapshot.rows.some((row) => row.blockId === selectedBlockRef.current?.blockId)
+        ) {
+          selectedBlockRef.current = null
+          setSelectedBlock(null)
+          setSelectedBlockRpcUrl(null)
+        }
         setHead(snapshot.head)
         setLastSuccessAt(Date.now())
         setErrorMessage(null)
-        setFreshBlockIds(incomingFresh.slice(0, 3))
+
+        if (!hadPreviousRows || incomingFresh.length <= 1) {
+          setRows(snapshot.rows)
+          setFreshBlockIds(hadPreviousRows ? incomingFresh.slice(0, 3) : [])
+        } else {
+          // Several blocks arrived in one poll: reveal them one at a time
+          // (oldest first) so the list ticks like a live feed instead of
+          // jumping by two or three rows at once.
+          const revealOrder = [...incomingFresh].reverse()
+          const stepMs = Math.max(
+            250,
+            Math.min(650, Math.floor((settings.pollMs || 3000) / (revealOrder.length + 1)))
+          )
+          const hidden = new Set(incomingFresh)
+          const revealNext = (index: number) => {
+            if (disposed) return
+            hidden.delete(revealOrder[index])
+            setRows(rowsRef.current.filter((row) => !hidden.has(row.blockId)))
+            setFreshBlockIds([revealOrder[index]])
+          }
+          revealNext(0)
+          for (let i = 1; i < revealOrder.length; i++) {
+            revealTimers.push(window.setTimeout(() => revealNext(i), stepMs * i))
+          }
+        }
       } catch (error) {
         if (disposed) return
         if (error instanceof DOMException && error.name === 'AbortError') return
@@ -1454,6 +1496,7 @@ export function App() {
 
     return () => {
       disposed = true
+      clearRevealTimers()
       controller?.abort()
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
@@ -5088,6 +5131,7 @@ export function App() {
         koinscanUrl,
         pollMs,
         rowLimit,
+        explorer3dQuality: draftExplorer3dQuality,
         dashboardProducerWindowBlocks,
         dashboardRefreshSeconds
       }
@@ -5571,6 +5615,8 @@ export function App() {
           setDraftPollMs={setDraftPollMs}
           draftRowLimit={draftRowLimit}
           setDraftRowLimit={setDraftRowLimit}
+          draftExplorer3dQuality={draftExplorer3dQuality}
+          setDraftExplorer3dQuality={setDraftExplorer3dQuality}
           draftDashboardProducerWindowBlocks={draftDashboardProducerWindowBlocks}
           setDraftDashboardProducerWindowBlocks={setDraftDashboardProducerWindowBlocks}
           draftDashboardRefreshSeconds={draftDashboardRefreshSeconds}
@@ -5622,6 +5668,7 @@ export function App() {
           dashboardPerformanceLoading={dashboardPerformanceLoading}
           dashboardPerformanceError={dashboardPerformanceError}
           nodeProducerOverview={nodeProducerOverview}
+          ownProducerAddress={nodeProducerOverview?.producerAddress || producerConfiguredAddress}
           nodeProducerLoading={nodeProducerLoading}
           nodeProducerError={nodeProducerError}
         />
@@ -6456,6 +6503,7 @@ export function App() {
       {activeTab === 'explorer' && (
         <ExplorerPanel
           t={t}
+          ownProducerAddress={nodeProducerOverview?.producerAddress || producerConfiguredAddress}
           effectiveExplorerRpcUrl={effectiveExplorerRpcUrl}
           settings={settings}
           language={language}

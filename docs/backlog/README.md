@@ -45,6 +45,11 @@ starting a new feature or claiming full legacy parity.
 - `producer/DISTRIBUTED_PRODUCER_FLEET_AND_VHP_PLAN.md` - multi-producer fleet
   and VHP allocation product direction.
 
+## GUI Backlog
+
+- `gui/EXPERIMENTAL_3D_EXPLORER_PLAN.md` - experimental real-time 3D scene of
+  transaction flow (mempool, ordering, block sealing) inside the Explorer tab.
+
 ## Strategy And Product Direction
 
 - `strategy/KOINOS_ONE_CLICK_NODE_AND_AGENT_STRATEGY.md` - market and product
