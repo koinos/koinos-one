@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS = {
   rpcSource: LOCAL_RPC_SOURCE,
   publicRpcUrls: [...DEFAULT_PUBLIC_RPC_URLS],
   koinscanUrl: DEFAULT_KOINSCAN_URL,
-  pollMs: 3000,
+  pollMs: 1000,
   rowLimit: 20,
   explorer3dQuality: 'medium',
   producerAdvancedMode: false,

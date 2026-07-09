@@ -130,6 +130,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The Explorer now polls every second by default (previously every three
+  seconds), so new blocks appear in near real time. Polling became much
+  cheaper at the same time: each tick only fetches the chain head, and block
+  bodies are downloaded just for heights newer than the rows already shown
+  (with a full refetch on gaps or reorgs). Stored settings still using the old
+  3-second default are migrated to the new default; the interval remains
+  configurable in Settings.
 - The Explorer and Dashboard now highlight the active producer address (as
   shown in the Producer tab), not only the address already saved in the
   runtime config, and the Dashboard producers ranking marks your row with the
