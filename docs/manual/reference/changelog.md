@@ -90,6 +90,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The block detail now shows block-level receipt events (producer reward
+  mint, burn accounting and similar). Most Koinos mainnet blocks carry no
+  transactions, so the detail previously looked completely empty even though
+  every block emits events in its receipt.
 - Fixed the Explorer freezing: opening a block's detail (in the list or by
   clicking a block in the 3D view) paused the whole block feed, so new blocks
   stopped advancing everywhere. The feed now keeps polling with a detail
