@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Create a draft GitHub release from the built artifacts.
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -54,6 +61,7 @@ jobs:
 
   release:
     needs: [build-mac]
+    if: github.ref_type == 'tag' || inputs.publish_release
     runs-on: ubuntu-latest
     steps:
       - name: Download macOS artifact
