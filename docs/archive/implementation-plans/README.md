@@ -7,6 +7,11 @@ operator behavior.
 For current behavior, start with `../../current/README.md`.
 For missing work and new ideas, start with `../../backlog/README.md`.
 
+## First-Run Assistant
+
+- `OBSERVER_ONLY_INSTALLATION_ASSISTANT_PLAN.md` (implemented; the first-run
+  assistant is observer-only since 2026-06)
+
 ## Monolith Core
 
 - `monolith/core/MONOLITHIC_NODE_ARCHITECTURE.md`
