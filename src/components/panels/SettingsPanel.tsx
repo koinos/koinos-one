@@ -24,8 +24,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
     draftPollMs,
     setDraftPollMs,
     draftRowLimit,
-    draftExplorer3dQuality,
-    setDraftExplorer3dQuality,
     setDraftRowLimit,
     draftDashboardProducerWindowBlocks,
     setDraftDashboardProducerWindowBlocks,
@@ -432,18 +430,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   value={draftRowLimit}
                   onChange={(event) => setDraftRowLimit(event.target.value)}
                 />
-              </label>
-              <label>
-                {t('settings.explorer3dQuality')}
-                <select
-                  value={draftExplorer3dQuality}
-                  onChange={(event) => setDraftExplorer3dQuality(event.target.value)}
-                >
-                  <option value="off">{t('settings.explorer3dQualityOff')}</option>
-                  <option value="low">{t('settings.explorer3dQualityLow')}</option>
-                  <option value="medium">{t('settings.explorer3dQualityMedium')}</option>
-                  <option value="high">{t('settings.explorer3dQualityHigh')}</option>
-                </select>
               </label>
             </div>
 

@@ -27,7 +27,6 @@ export const DEFAULT_SETTINGS = {
   koinscanUrl: DEFAULT_KOINSCAN_URL,
   pollMs: 1000,
   rowLimit: 20,
-  explorer3dQuality: 'medium',
   producerAdvancedMode: false,
   nodeAdvancedMode: false,
   dashboardProducerWindowBlocks: DASHBOARD_PRODUCER_WINDOW_BLOCKS_DEFAULT,
