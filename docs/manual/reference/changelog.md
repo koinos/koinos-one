@@ -94,6 +94,12 @@ All notable changes to this project are documented in this file.
   mint, burn accounting and similar). Most Koinos mainnet blocks carry no
   transactions, so the detail previously looked completely empty even though
   every block emits events in its receipt.
+- Fixed the Explorer freezing: opening a block's detail (in the list or by
+  clicking a block in the 3D view) paused the whole block feed, so new blocks
+  stopped advancing everywhere. The feed now keeps polling with a detail
+  open; the selection clears automatically when its block scrolls out of the
+  visible window, and clicking a block in the 3D view now jumps to the list
+  view where the detail actually renders.
 
 - When the selected profile enables mainnet block production but no producer
   address is configured, the Node tab now disables Start and Restart up front
@@ -128,6 +134,11 @@ All notable changes to this project are documented in this file.
   palette, system success/danger colors, soft shadows).
 
 ### Changed
+
+- The Explorer and Dashboard now highlight the active producer address (as
+  shown in the Producer tab), not only the address already saved in the
+  runtime config, and the Dashboard producers ranking marks your row with the
+  same persistent accent and "My producer" badge.
 
 - When one Explorer refresh brings several new blocks at once, they are now
   revealed one at a time (oldest first, evenly spaced within the poll window)

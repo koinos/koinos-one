@@ -28,11 +28,13 @@ export function DashboardPanel(props: DashboardPanelProps) {
     dashboardPerformanceLoading,
     dashboardPerformanceError,
     nodeProducerOverview,
+    ownProducerAddress,
     nodeProducerLoading,
     nodeProducerError
   } = props
 
   const producersRows = dashboardProducers?.rows ?? []
+  const normalizedOwnProducer = `${ownProducerAddress || ''}`.trim().toLowerCase()
   const peersRows = dashboardPeers?.rows ?? []
   const performanceRows = dashboardPerformance?.rows ?? []
   const hostLoadAverage = dashboardPerformance?.host.loadAverage ?? []
@@ -133,10 +135,24 @@ export function DashboardPanel(props: DashboardPanelProps) {
                       </td>
                     </tr>
                   ) : (
-                    producersRows.map((row: TelenoNodeDashboardProducerRow, index: number) => (
-                      <tr key={`${row.signer}-${row.lastBlockHeight}`}>
+                    producersRows.map((row: TelenoNodeDashboardProducerRow, index: number) => {
+                      const isOwnProducer = Boolean(
+                        normalizedOwnProducer && `${row.signer}`.toLowerCase() === normalizedOwnProducer
+                      )
+                      return (
+                      <tr
+                        key={`${row.signer}-${row.lastBlockHeight}`}
+                        className={isOwnProducer ? 'is-own-producer' : ''}
+                      >
                         <td>{index + 1}</td>
-                        <td className="mono" title={row.signer}>{shortHash(row.signer, 16, 12)}</td>
+                        <td className="mono" title={row.signer}>
+                          {shortHash(row.signer, 16, 12)}
+                          {isOwnProducer && (
+                            <span className="explorer-own-producer-badge" title={t('explorer.ownProducerBadgeTitle')}>
+                              {t('explorer.ownProducerBadge')}
+                            </span>
+                          )}
+                        </td>
                         <td title={row.koinBalance ?? t('common.na')}>
                           {formatDecimalValue(row.koinBalance, locale, 2, t('common.na'))}
                         </td>
@@ -148,7 +164,8 @@ export function DashboardPanel(props: DashboardPanelProps) {
                         <td>{formatDecimalValue(row.lastBlockHeight, locale, 0, t('common.na'))}</td>
                         <td>{formatDateTime(row.lastProducedBlockAt ?? 0, locale, t('common.na'))}</td>
                       </tr>
-                    ))
+                      )
+                    })
                   )}
                 </tbody>
               </table>
