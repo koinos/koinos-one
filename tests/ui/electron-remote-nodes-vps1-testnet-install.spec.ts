@@ -336,7 +336,7 @@ test('executes VPS1 testnet observer install restore start through real Electron
         connectionRef: VPS1_CONNECTION_REF,
         runtime: {
           kind: 'docker',
-          image: 'ghcr.io/pgarciagon/teleno-node:beta',
+          image: 'ghcr.io/koinos/teleno-node:beta',
           expectedVersion: 'live-vps1-testnet-e2e',
           serviceName: ''
         },

@@ -20,15 +20,8 @@ index-*.js
 docs/current/operations/SERVER_INVENTORY.md
 docs/operations/CONFIRMED_SSH_HOSTS.md
 
-# Native build artifacts
-node/teleno-node/build
-node/teleno-node/build/
-node/teleno-node/build*/
-node/teleno-node/build-zstd
-node/teleno-node/build-zstd/
-node/teleno-node/build-win
-node/teleno-node/build-win/
-node/teleno-node/*.exe
+# Native build artifacts (build dirs inside the teleno submodule are
+# covered by the submodule's own .gitignore)
 compat/legacy-services/*/build/
 compat/legacy-services/*/build-win/
 vendor/koinos/*/build/

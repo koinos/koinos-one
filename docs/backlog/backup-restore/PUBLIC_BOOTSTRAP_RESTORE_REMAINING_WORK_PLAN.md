@@ -20,7 +20,7 @@ Already implemented in `teleno_node`:
 - Teleno UX Node > Backups integration with separate local, private SFTP remote, and public bootstrap inventories
 - optional Ed25519 public-bootstrap signature verification through `backup.public-restore.signature-required` and `backup.public-restore.signature-public-key-file`
 - optional signed snapshot promotion through `scripts/promote-public-bootstrap-backup.js --signing-private-key-file`
-- pinned testnet public verification key at `config/public-bootstrap/testnet-ed25519.pub`
+- pinned testnet public verification key at `node/teleno-node/config/public-bootstrap/testnet-ed25519.pub`
 - unit tests and synthetic CLI fixture validation
 
 Configured public testnet route:
@@ -46,7 +46,7 @@ Publication and restore validation completed on 2026-06-20:
 - `latest.json` is published at the public HTTPS route.
 - `latest.json` points at `public-bootstrap-signature.json`.
 - Public list from a clean basedir succeeds.
-- Public list over HTTPS with `signature-required: true` succeeds using `config/public-bootstrap/testnet-ed25519.pub`.
+- Public list over HTTPS with `signature-required: true` succeeds using `node/teleno-node/config/public-bootstrap/testnet-ed25519.pub`.
 - Public fetch downloaded 75 objects and `3,113,463,513` bytes with zero retries.
 - Public restore activated into `/Volumes/external/teleno-public-bootstrap-https-validate/basedir`.
 - Restored-node smoke opened RocksDB and reached `[node] teleno_node ready`.
@@ -62,7 +62,7 @@ Signed publication details:
 ```text
 signature_key_id: teleno-testnet-bootstrap-20260620
 signature_public_key_sha256: b8a4c7573eea54c86a4ed2649b0de525dd7bd21bcdbd8e99eef0c629e4ab7c00
-public_key_file: config/public-bootstrap/testnet-ed25519.pub
+public_key_file: node/teleno-node/config/public-bootstrap/testnet-ed25519.pub
 private_key_file: ~/.teleno/public-bootstrap-signing/testnet-ed25519.pem
 ```
 

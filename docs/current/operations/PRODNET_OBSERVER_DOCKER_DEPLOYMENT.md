@@ -17,7 +17,7 @@ VPS1 was installed with this shape:
 host: VPS1 / <VPS1_PUBLIC_IP>
 ssh user: <SSH_USER>
 container: teleno-prodnet-observer
-image: ghcr.io/pgarciagon/teleno-node:beta
+image: ghcr.io/koinos/teleno:beta
 basedir: <REMOTE_PRODNET_OBSERVER_BASEDIR>
 config: <REMOTE_PRODNET_OBSERVER_BASEDIR>/config.yml
 public backup: https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap
@@ -68,13 +68,13 @@ mkdir -p "$HOME/teleno-prodnet-observer/basedir"
 Pull the image:
 
 ```bash
-docker pull ghcr.io/pgarciagon/teleno-node:beta
+docker pull ghcr.io/koinos/teleno:beta
 ```
 
 Check the bundled binary version:
 
 ```bash
-docker run --rm ghcr.io/pgarciagon/teleno-node:beta --version
+docker run --rm ghcr.io/koinos/teleno:beta --version
 ```
 
 ## Write The Observer Config
@@ -145,7 +145,7 @@ Before restoring, verify that the public backup metadata is reachable:
 ```bash
 docker run --rm \
   -v "$HOME/teleno-prodnet-observer/basedir:/data" \
-  ghcr.io/pgarciagon/teleno-node:beta \
+  ghcr.io/koinos/teleno:beta \
   --basedir /data \
   --config /data/config.yml \
   --backup-public-list \
@@ -166,7 +166,7 @@ Run restore into the empty basedir:
 ```bash
 docker run -d --name teleno-prodnet-restore \
   -v "$HOME/teleno-prodnet-observer/basedir:/data" \
-  ghcr.io/pgarciagon/teleno-node:beta \
+  ghcr.io/koinos/teleno:beta \
   --basedir /data \
   --config /data/config.yml \
   --backup-public-restore \
@@ -206,7 +206,7 @@ docker run -d --name teleno-prodnet-observer \
   -v "$HOME/teleno-prodnet-observer/basedir:/data" \
   -p 127.0.0.1:18080:18080 \
   -p 18889:18889 \
-  ghcr.io/pgarciagon/teleno-node:beta \
+  ghcr.io/koinos/teleno:beta \
   --basedir /data \
   --config /data/config.yml \
   --disable block_producer grpc contract_meta_store transaction_store account_history
@@ -275,7 +275,7 @@ docker stop teleno-prodnet-observer
 Upgrade to a newer image tag:
 
 ```bash
-docker pull ghcr.io/pgarciagon/teleno-node:beta
+docker pull ghcr.io/koinos/teleno:beta
 docker stop teleno-prodnet-observer
 docker rm teleno-prodnet-observer
 ```

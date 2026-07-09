@@ -308,7 +308,7 @@ Implemented behavior:
 - Ed25519 signature verification for public bootstrap metadata when `signature-required` is true or a verification key file is configured.
 - Reuse of the same local native repository, restore preflight, restore staging, and activation logic used by authenticated backup restore.
 - Sanitized public testnet snapshot promotion through `scripts/promote-public-bootstrap-backup.js`, including optional signed-envelope generation with `--signing-private-key-file`.
-- Bundled testnet public verification key at `config/public-bootstrap/testnet-ed25519.pub`.
+- Bundled testnet public verification key at `node/teleno-node/config/public-bootstrap/testnet-ed25519.pub`.
 - Local public-bootstrap fixture/unit tests and promotion smoke test through `scripts/smoke-public-bootstrap-promotion.sh`.
 
 The public bootstrap route currently configured for testnet is:
@@ -333,7 +333,7 @@ Public HTTPS validation completed:
 - Local admin API public restore routes are implemented and covered by `koinos_backup_admin_server_test`.
 - Teleno UX lists public bootstrap snapshots separately from local and private SFTP remote snapshots, and can verify/restore them through admin API or CLI fallback.
 - The currently published public testnet snapshot is signed with key ID `teleno-testnet-bootstrap-20260620`.
-- `--backup-public-list` over HTTPS passed with `signature-required: true` and the pinned `config/public-bootstrap/testnet-ed25519.pub` verification key.
+- `--backup-public-list` over HTTPS passed with `signature-required: true` and the pinned `node/teleno-node/config/public-bootstrap/testnet-ed25519.pub` verification key.
 - Teleno UX-generated testnet native backup configs now require that public
   bootstrap signature when the bundled key exists. Teleno UX-generated mainnet
   configs enable the standard prodnet public bootstrap source without signature

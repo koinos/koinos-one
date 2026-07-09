@@ -9,6 +9,20 @@ All notable changes to this project are documented in this file.
 <a id="v1.1.0-dev.0"></a>
 ## [1.1.0-dev.0] - Unreleased
 
+### Changed
+
+- The native `teleno_node` runtime moved to its own repository,
+  [koinos/teleno](https://github.com/koinos/teleno), and is now consumed as
+  the `node/teleno-node` git submodule. The node C++ source, native build
+  scripts, node config templates, Dockerfile and container workflow, and the
+  Teleno Node CLI manual live in that repository; the Koinos One manual keeps
+  a pointer page. The native runtime is versioned independently through the
+  submodule's `VERSION` file (currently 1.1.0) with `teleno-node-v<version>`
+  release tags, and the packaged build identity records the exact native
+  version, release tag, and SHA-256. Clone with `--recurse-submodules` or run
+  `git submodule update --init node/teleno-node` before building the native
+  node. The container image is now published as `ghcr.io/koinos/teleno`.
+
 ### Added
 
 

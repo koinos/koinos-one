@@ -268,6 +268,10 @@ export function App() {
     gitDirty: null,
     nativeNode: {
       binaryName: 'teleno_node',
+      semanticVersion: null,
+      releaseTag: null,
+      buildVersion: null,
+      versionOutput: null,
       sha256: null,
       shortSha256: null,
       sizeBytes: null,

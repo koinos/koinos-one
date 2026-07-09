@@ -4,6 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const {
+  readTelenoNodeSemanticVersion,
+  versionMatchesSemanticVersion,
+} = require('./lib/teleno-node-identity');
 
 const ROOT = path.resolve(__dirname, '..');
 const STAGING = path.resolve(process.env.PACKAGE_STAGING_DIR || path.join(ROOT, 'build', 'bundle-staging', 'teleno'));
@@ -55,6 +59,7 @@ const requiredBackupFlags = [
 ];
 
 const failures = [];
+const expectedTelenoNodeVersion = readTelenoNodeSemanticVersion(ROOT);
 
 function fail(message) {
   failures.push(message);
@@ -141,6 +146,28 @@ function requireTelenoNodeBackupCli(relativePath) {
   }
 }
 
+function requireTelenoNodeVersion(relativePath) {
+  if (isWindowsTarget) return;
+
+  const absolutePath = path.join(STAGING, relativePath);
+  if (!fs.existsSync(absolutePath)) return;
+
+  let output = '';
+  try {
+    output = execFileSync(absolutePath, ['--version'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    }).trim();
+  } catch (error) {
+    fail(`failed to inspect native version for ${relativePath}: ${error.message}`);
+    return;
+  }
+
+  if (!versionMatchesSemanticVersion(output, expectedTelenoNodeVersion)) {
+    fail(`native version mismatch in ${relativePath}: expected ${expectedTelenoNodeVersion}, got ${output || '(empty)'}`);
+  }
+}
+
 console.log('============================================================================');
 console.log('Verifying Koinos One package staging');
 console.log(`  Staging: ${STAGING}`);
@@ -154,6 +181,7 @@ if (!fs.existsSync(STAGING) || !fs.statSync(STAGING).isDirectory()) {
     requireExecutable(binary);
     requireNoThirdPartyDylibs(binary);
     if (path.basename(binary) === `teleno_node${ext}`) {
+      requireTelenoNodeVersion(binary);
       requireTelenoNodeBackupCli(binary);
     }
   }

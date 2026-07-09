@@ -7,6 +7,11 @@ import { TELENO_NODE_BINARY_NAME, isPackagedBuild, resolveMonolithBinaryPath } f
 
 type NativeNodeBuildInfo = {
   binaryName: string
+  version: string | null
+  semanticVersion: string | null
+  releaseTag: string | null
+  buildVersion: string | null
+  versionOutput: string | null
   sha256: string | null
   shortSha256: string | null
   sizeBytes: number | null
@@ -78,13 +83,37 @@ function sha256File(filePath: string): string | null {
   return hash.digest('hex')
 }
 
+function nativeNodeVersionOutput(binaryPath: string): string | null {
+  if (!fs.existsSync(binaryPath)) return null
+  try {
+    return execFileSync(binaryPath, ['--version'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim() || null
+  } catch {
+    return null
+  }
+}
+
 function nativeNodeBuildInfo(generated?: Partial<NativeNodeBuildInfo> | null): NativeNodeBuildInfo {
   const binaryPath = resolveMonolithBinaryPath()
   const stat = fs.existsSync(binaryPath) ? fs.statSync(binaryPath) : null
   const sha256 = sha256File(binaryPath) || generated?.sha256 || null
 
+  // Output shape: "teleno_node <version>+<commit>[-dirty]"
+  const versionOutput = nativeNodeVersionOutput(binaryPath) || generated?.versionOutput || null
+  const buildVersion = versionOutput?.match(/teleno_node\s+(\S+)/i)?.[1] ?? generated?.buildVersion ?? null
+  const semanticVersion = generated?.semanticVersion || buildVersion?.split('+', 1)[0] || null
+  const releaseTag = generated?.releaseTag || (semanticVersion ? `teleno-node-v${semanticVersion}` : null)
+
   return {
     binaryName: generated?.binaryName || TELENO_NODE_BINARY_NAME,
+    version: buildVersion ?? generated?.version ?? null,
+    semanticVersion,
+    releaseTag,
+    buildVersion,
+    versionOutput,
     sha256,
     shortSha256: sha256 ? sha256.slice(0, 12) : generated?.shortSha256 || null,
     sizeBytes: stat?.size ?? generated?.sizeBytes ?? null,

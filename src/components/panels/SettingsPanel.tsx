@@ -157,10 +157,16 @@ export function SettingsPanel(props: SettingsPanelProps) {
     : appBuildInfo?.gitDirty === false
       ? t('settings.buildInfoSourceClean')
       : t('common.na')
-  const nativeNodeHash = appBuildInfo?.nativeNode?.shortSha256 || appBuildInfo?.nativeNode?.sha256 || ''
-  const nativeNodeHashTitle = appBuildInfo?.nativeNode?.sha256 || nativeNodeHash || t('common.na')
+  const nativeNodeFullHash = appBuildInfo?.nativeNode?.sha256 || ''
+  const nativeNodeHash = appBuildInfo?.nativeNode?.shortSha256 || nativeNodeFullHash
+  const nativeNodeHashTitle = [
+    appBuildInfo?.nativeNode?.versionOutput,
+    nativeNodeFullHash ? `sha256:${nativeNodeFullHash}` : ''
+  ].filter(Boolean).join('\n') || nativeNodeHash || t('common.na')
+  const nativeNodeVersion = appBuildInfo?.nativeNode?.buildVersion || appBuildInfo?.nativeNode?.semanticVersion || ''
   const nativeNodeLabel = [
     buildInfoValue(appBuildInfo?.nativeNode?.binaryName),
+    nativeNodeVersion,
     nativeNodeHash ? `sha256:${nativeNodeHash}` : ''
   ].filter(Boolean).join(' · ')
 

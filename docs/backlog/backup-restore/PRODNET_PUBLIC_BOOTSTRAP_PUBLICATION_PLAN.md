@@ -84,7 +84,7 @@ openssl genpkey -algorithm ed25519 \
 chmod 600 ~/.teleno/public-bootstrap-signing/prodnet-ed25519.pem
 openssl pkey -in ~/.teleno/public-bootstrap-signing/prodnet-ed25519.pem \
   -pubout \
-  -out config/public-bootstrap/prodnet-ed25519.pub
+  -out node/teleno-node/config/public-bootstrap/prodnet-ed25519.pub
 ```
 
 The private key remains outside the repo. The public key is reviewed and committed only after the first prodnet dry-run validates the full signed payload.

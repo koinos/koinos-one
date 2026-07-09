@@ -6,3 +6,7 @@
 	path = compat/legacy-services/koinos-p2p
 	url = https://github.com/pgarciagon/koinos-p2p.git
 	branch = knodel-patches
+[submodule "node/teleno-node"]
+	path = node/teleno-node
+	url = https://github.com/koinos/teleno.git
+	branch = main

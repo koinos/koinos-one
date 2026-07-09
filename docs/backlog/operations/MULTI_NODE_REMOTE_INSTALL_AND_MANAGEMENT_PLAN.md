@@ -156,8 +156,8 @@ This plan is based on the current public project documentation:
 - `docs/current/monolith/CURRENT_MONOLITH_STATUS.md`
 - `docs/current/operations/README.md`
 - `docs/backlog/README.md`
-- `docs/operations/START_TELENO_NODE.md`
-- `docs/operations/TELENO_NODE_CONTAINER.md`
+- teleno startup guide: https://github.com/koinos/teleno/blob/main/docs/operations/start-node.md
+- teleno container guide: https://github.com/koinos/teleno/blob/main/docs/operations/container.md
 - `docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`
 - `docs/current/backup-restore/PUBLIC_BOOTSTRAP_RESTORE.md`
 - `docs/current/operations/PRODNET_OBSERVER_DOCKER_DEPLOYMENT.md`
@@ -402,7 +402,7 @@ fleet:
       connection_ref: ssh-prodnet-a
       runtime:
         kind: docker
-        image: ghcr.io/pgarciagon/teleno-node:beta
+        image: ghcr.io/koinos/teleno:beta
         expected_version: "<teleno_node-version-or-commit>"
       paths:
         basedir: "<remote-basedir>"

@@ -7,8 +7,8 @@ work originally happened.
 
 - **Users:** read `manual/koinos-one/README.md` first, then the install, first-run,
   backup, wallet, and producer pages that match the task.
-- **Node operators:** read `manual/teleno-node/README.md` for the CLI flow and
-  `operations/START_TELENO_NODE.md` or `operations/TELENO_NODE_CONTAINER.md`
+- **Node operators:** read the [teleno CLI guide](https://github.com/koinos/teleno/blob/main/docs/README.md) for the CLI flow and
+  the teleno [startup](https://github.com/koinos/teleno/blob/main/docs/operations/start-node.md) or [container](https://github.com/koinos/teleno/blob/main/docs/operations/container.md) guides
   for direct runtime startup.
 - **Contributors:** read `manual/developers/repository-tour.md` and
   `manual/developers/local-development.md` before changing code or docs.
@@ -24,7 +24,8 @@ and intended for users, operators, and contributors.
 - `manual/README.md` - publishable documentation entrypoint.
 - `manual/concepts/` - basic Koinos blockchain concepts.
 - `manual/koinos-one/` - desktop app user guide.
-- `manual/teleno-node/` - command-line guide for the native `teleno_node`
+- `manual/teleno-node/` - pointer to the native `teleno_node` CLI guide, which
+  lives in the [koinos/teleno](https://github.com/koinos/teleno) repository
   binary.
 - `manual/developers/` - contributor documentation for the GUI and native node.
 - `manual/reference/` - glossary, ports, paths, config, security, and release

@@ -18,14 +18,22 @@ docs/archive/AGENTS_FULL_20260621.md
 - Active remote: `https://github.com/koinos/koinos-one.git`
 - Active branch for the current release track: `main`
 - Product name: Koinos One.
-- Native runtime: `teleno_node`.
+- Native runtime: `teleno_node`, developed in its own repository
+  `https://github.com/koinos/teleno` and consumed here as the git submodule
+  `node/teleno-node`. Node C++ source, native build scripts, node configs,
+  Dockerfile/container CI, and the node CLI manual live in that repository.
+  Clone with `--recurse-submodules` or run
+  `git submodule update --init node/teleno-node` before native builds. Bump
+  the submodule pin deliberately and record it in the changelog when it
+  changes packaged behavior.
 - `Teleno` owns the monolithic Koinos node app, release packaging, native backup
   and restore, first-run setup, and monolith validation.
 - `Knodel` is the separate legacy/microservice app. Do not edit, build, launch,
   or commit Knodel/microservice work unless the user explicitly asks for it.
-- If a resumed session starts in `/Users/pgarcgo/code/teleno`,
-  `/Users/pgarcgo/code/knodel`, or another stale repo, switch to
-  `/Users/pgarcgo/code/koinos-one` before monolith work.
+- If a resumed session starts in `/Users/pgarcgo/code/knodel` or another stale
+  repo, switch to `/Users/pgarcgo/code/koinos-one` before monolith work.
+  `/Users/pgarcgo/code/teleno` is the standalone teleno node repository
+  (`koinos/teleno`); work there only for node-only changes.
 
 ## Documentation Map
 
@@ -229,9 +237,13 @@ development version, not the released version:
 - The `CHANGELOG.md` unreleased section is headed with that same version
   (example: `## [1.1.0-dev.0] - Unreleased`) and the manual changelog is kept
   in sync.
-- The native `teleno_node` CMake project version is aligned with the same
-  major.minor.patch (CMake versions cannot carry a prerelease suffix; dev state
-  is conveyed by the `+<git-commit>[-dirty]` build-version suffix).
+- The native `teleno_node` runtime is versioned independently in the
+  `koinos/teleno` repository (consumed as the `node/teleno-node` git
+  submodule). Its SemVer source of truth is the submodule's `VERSION` file,
+  native release tags use the form `teleno-node-v<version>`, and dev state is
+  conveyed by the `+<git-commit>[-dirty]` build-version suffix. Do not try to
+  keep it in lockstep with the app version; instead record the exact native
+  identity in build info (`scripts/lib/teleno-node-identity.js`).
 
 This development version stays in place until the next release is actually
 made. At release time, drop the `-dev` segment, date the changelog section, and
@@ -333,6 +345,8 @@ persistent state merkle mismatch:
 ```bash
 npm run dev
 npm run build
+git submodule update --init node/teleno-node
+./scripts/build-cpp-libp2p-koinos.sh
 cmake --build node/teleno-node/build --target teleno_node --parallel
 ctest --test-dir node/teleno-node/build --output-on-failure
 ```
