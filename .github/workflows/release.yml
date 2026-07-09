@@ -24,7 +24,7 @@ jobs:
       - name: Install macOS build dependencies
         run: |
           brew install gmp ninja
-          pip3 install cmake==3.28.4 --break-system-packages
+          pip3 install cmake==3.28.4 mkdocs --break-system-packages
 
       - name: Cache Teleno native dependencies
         uses: actions/cache@v4
