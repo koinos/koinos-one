@@ -33,6 +33,6 @@ belongs under `docs/archive/implementation-plans/`.
   SSH users, workloads, and resource snapshots.
 - `operations/PRODNET_OBSERVER_DOCKER_DEPLOYMENT.md` - Docker-based prodnet
   observer deployment, public-bootstrap restore, verification, and sizing notes.
-- `../operations/START_TELENO_NODE.md` - command-line startup guide.
-- `../operations/TELENO_NODE_CONTAINER.md` - Linux container guide.
+- [teleno command-line startup guide](https://github.com/koinos/teleno/blob/main/docs/operations/start-node.md).
+- [teleno Linux container guide](https://github.com/koinos/teleno/blob/main/docs/operations/container.md).
 - `../koinos/KOINOS_PROTOCOL.md` - Koinos protocol compatibility reference.

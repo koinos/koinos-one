@@ -1,72 +1,29 @@
 # Teleno Node CLI Guide
 
-This section documents the native `teleno_node` binary for operators who run it
-outside the Koinos One GUI. `teleno_node` is a community-driven monolithic
-rewrite of the Koinos node; the official reference implementation remains the
-microservices-based stack. It is written for observer-first operation: start
-safe, verify the node, then enable higher-risk behavior only after the required
-checks pass.
+The native `teleno_node` runtime now lives in its own repository:
+[github.com/koinos/teleno](https://github.com/koinos/teleno).
 
-## Pages
+Koinos One consumes that repository as the `node/teleno-node` git submodule
+and bundles the built binary into packaged releases. The full CLI guide for
+operators who run `teleno_node` outside the Koinos One GUI moved with it:
 
-- [Install Or Build](install-or-build.md) - build, locate, or run the native
-  binary.
-- [Quickstart](quickstart.md) - start a safe observer node and verify RPC.
-- [Configuration](configuration.md) - config files, profiles, basedirs,
-  feature flags, and ports.
-- [Running Observer Nodes](running-observer-node.md) - normal observer runtime
-  operations.
-- [Running Producer Nodes](running-producer-node.md) - carefully gated producer
-  runtime operations.
-- [Backup And Restore CLI](backup-restore-cli.md) - native backup, restore,
-  public bootstrap, and deletion workflows.
-- [RPC Endpoints](rpc-endpoints.md) - JSON-RPC, gRPC, P2P, and local admin API
-  exposure rules.
-- [Logs And Diagnostics](logs-and-diagnostics.md) - logs, readiness checks,
-  storage reports, and diagnostic commands.
-- [Command Reference](command-reference.md) - validated command snippets and
-  option notes.
-- [Troubleshooting](troubleshooting.md) - failure modes and recovery-first
-  actions.
+- [CLI guide index](https://github.com/koinos/teleno/blob/main/docs/README.md)
+- [Install or build](https://github.com/koinos/teleno/blob/main/docs/install-or-build.md)
+- [Quickstart](https://github.com/koinos/teleno/blob/main/docs/quickstart.md)
+- [Configuration](https://github.com/koinos/teleno/blob/main/docs/configuration.md)
+- [Running observer nodes](https://github.com/koinos/teleno/blob/main/docs/running-observer-node.md)
+- [Running producer nodes](https://github.com/koinos/teleno/blob/main/docs/running-producer-node.md)
+- [Backup and restore CLI](https://github.com/koinos/teleno/blob/main/docs/backup-restore-cli.md)
+- [RPC endpoints](https://github.com/koinos/teleno/blob/main/docs/rpc-endpoints.md)
+- [Logs and diagnostics](https://github.com/koinos/teleno/blob/main/docs/logs-and-diagnostics.md)
+- [Command reference](https://github.com/koinos/teleno/blob/main/docs/command-reference.md)
+- [Troubleshooting](https://github.com/koinos/teleno/blob/main/docs/troubleshooting.md)
+- [Release builds](https://github.com/koinos/teleno/blob/main/docs/release-builds.md)
 
-## Safety Model
+## Versioning
 
-Use observer mode until the node proves it can follow the selected network.
-Producer mode is optional and must be enabled only after database health,
-network identity, peer health, producer address, VHP, and producer-key checks
-pass.
-
-Commands in this guide are labeled when they write local state, write config,
-delete backup data, activate restores, or enable block production. Any mainnet
-producer action, transaction signing/submission, VHP burn, producer
-registration, default-account change, or config write targeting a producer is
-high-risk and requires a fresh explicit operator decision.
-
-Public bootstrap restore means a public read-only backup source. It does not
-mean public administrative access. Backup admin endpoints are local-only and
-bearer-token protected.
-
-## Deep References
-
-The manual keeps workflows concise. For implementation details, start with
-these rendered manual references:
-
-- [Current Monolithic Node Architecture](../developers/deeper-references/monolith-architecture.md)
-- [Monolith Service Coverage](../developers/deeper-references/monolith-service-coverage.md)
-
-Additional engineering source paths outside the manual source tree:
-
-- [`docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md)
-- [`docs/current/backup-restore/PUBLIC_BOOTSTRAP_RESTORE.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/backup-restore/PUBLIC_BOOTSTRAP_RESTORE.md)
-- [`docs/operations/START_TELENO_NODE.md`](https://github.com/koinos/koinos-one/blob/main/docs/operations/START_TELENO_NODE.md)
-- [`docs/operations/TELENO_NODE_CONTAINER.md`](https://github.com/koinos/koinos-one/blob/main/docs/operations/TELENO_NODE_CONTAINER.md)
-
-## Normal Workflow
-
-1. Build or locate `teleno_node`.
-2. Create or select a basedir.
-3. Start as an observer with JSON-RPC bound to loopback unless public RPC is
-   intentional.
-4. Verify logs, head info, peers, and disk usage.
-5. Configure backup and restore paths before relying on the node.
-6. Consider producer mode only after the producer checklist passes.
+The native runtime is versioned independently from the Koinos One app. Its
+SemVer source of truth is the `VERSION` file in the teleno repository, and
+native release tags use the form `teleno-node-v<version>`. Packaged Koinos One
+builds record the exact native binary identity (version, release tag, and
+SHA-256) in the build information shown under Settings.

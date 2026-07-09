@@ -25,9 +25,9 @@ Koinos One is the Koinos Foundation desktop app for running, restoring, backing 
 
 - **Users:** start with the [Koinos One user guide](docs/manual/koinos-one/README.md)
   and [Install On macOS](docs/manual/koinos-one/install-macos.md).
-- **Node operators:** use the [Teleno Node CLI guide](docs/manual/teleno-node/README.md),
-  [command-line startup guide](docs/operations/START_TELENO_NODE.md), and
-  [container guide](docs/operations/TELENO_NODE_CONTAINER.md).
+- **Node operators:** use the [Teleno Node CLI guide](https://github.com/koinos/teleno/blob/main/docs/README.md),
+  [command-line startup guide](https://github.com/koinos/teleno/blob/main/docs/operations/start-node.md), and
+  [container guide](https://github.com/koinos/teleno/blob/main/docs/operations/container.md).
 - **Contributors:** read the [repository tour](docs/manual/developers/repository-tour.md),
   [local development guide](docs/manual/developers/local-development.md), and
   [contributing guide](CONTRIBUTING.md).
@@ -41,14 +41,13 @@ The active node code and UX live in this repository. Legacy Koinos material rema
 
 ```text
 assets/                 Koinos One branding and UI assets
-config/                 Ready-to-use node config templates
 docs/current/           Current implementation docs
 docs/backlog/           Missing work and documented future ideas
 docs/legacy/            Legacy compatibility evidence
 docs/operations/        Operator docs, including command-line startup
 docs/roadmap/           Historical roadmap records and validation reports
 electron/               Electron main process, IPC, native runtime control
-node/teleno-node/       Monolithic C++ Koinos node source
+node/teleno-node/       Native node (git submodule of github.com/koinos/teleno)
 scripts/                Build, benchmark, smoke, soak, and packaging helpers
 src/                    React renderer and shared frontend logic
 tests/                  UI test assets
@@ -73,7 +72,7 @@ git submodule update --init --recursive
 
 ## Build The Monolithic Node
 
-The C++ source tree lives under `node/teleno-node`. CMake builds the monolith executable as `teleno_node`, and packaging stages the same binary name.
+The native node is developed in its own repository, [koinos/teleno](https://github.com/koinos/teleno), and consumed here as the `node/teleno-node` git submodule. CMake builds the monolith executable as `teleno_node`, and packaging stages the same binary name.
 
 ```bash
 ./scripts/build-cpp-libp2p-koinos.sh
@@ -85,11 +84,8 @@ The previous `koinos_node` binary name is no longer the active runtime name. Use
 
 Koinos One manages one local `teleno_node` process. The Node tab reports the resolved runtime version, BASEDIR, binary path, and log path together so operators can confirm exactly what is running.
 
-For direct command-line startup on public testnet or mainnet, see:
-
-```text
-docs/operations/START_TELENO_NODE.md
-```
+For direct command-line startup on public testnet or mainnet, see the
+[teleno startup guide](https://github.com/koinos/teleno/blob/main/docs/operations/start-node.md).
 
 Key runtime notes:
 

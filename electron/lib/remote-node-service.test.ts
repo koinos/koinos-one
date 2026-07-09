@@ -110,7 +110,7 @@ describe('remote node execution service', () => {
       role: 'observer',
       connectionRef: 'ssh-prodnet-trusted-a',
       producer: { enabled: false },
-      runtime: { image: `ghcr.io/pgarciagon/teleno-node@${digest}` },
+      runtime: { image: `ghcr.io/koinos/teleno-node@${digest}` },
       backup: { publicBootstrapUrl: 'https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap' },
       trust: {
         artifactDigest: digest,
@@ -130,7 +130,7 @@ describe('remote node execution service', () => {
           `echo "TELENO_ARTIFACT_DIGEST_PINNED ${digest}"`,
           'echo "TELENO_BOOTSTRAP_POLICY prodnet-public-bootstrap-v1"',
           'echo "TELENO_PRODNET_OBSERVER_ONLY block_production_disabled"',
-          'docker run -d --name teleno-prodnet-trusted-a -p 127.0.0.1:18080:18080 ghcr.io/pgarciagon/teleno-node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --basedir /data --config /data/config.yml',
+          'docker run -d --name teleno-prodnet-trusted-a -p 127.0.0.1:18080:18080 ghcr.io/koinos/teleno-node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --basedir /data --config /data/config.yml',
           'TELENO_REMOTE'
         ].join('\n'),
         hostMutation: true,

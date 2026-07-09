@@ -42,18 +42,7 @@ nav:
       - Wallet And Accounts: koinos-one/wallet-and-accounts.md
       - Producer Mode: koinos-one/producer-mode.md
       - Troubleshooting: koinos-one/troubleshooting.md
-  - Teleno Node CLI Guide:
-      - Overview: teleno-node/README.md
-      - Install Or Build: teleno-node/install-or-build.md
-      - Quickstart: teleno-node/quickstart.md
-      - Configuration: teleno-node/configuration.md
-      - Running Observer Nodes: teleno-node/running-observer-node.md
-      - Running Producer Nodes: teleno-node/running-producer-node.md
-      - Backup And Restore CLI: teleno-node/backup-restore-cli.md
-      - RPC Endpoints: teleno-node/rpc-endpoints.md
-      - Logs And Diagnostics: teleno-node/logs-and-diagnostics.md
-      - Command Reference: teleno-node/command-reference.md
-      - Troubleshooting: teleno-node/troubleshooting.md
+  - Teleno Node CLI Guide: teleno-node/README.md
   - Developer Documentation:
       - Overview: developers/README.md
       - Repository Tour: developers/repository-tour.md

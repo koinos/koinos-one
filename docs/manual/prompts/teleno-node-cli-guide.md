@@ -1,6 +1,12 @@
 # Goal Prompt: Teleno Node CLI Guide
 
-Write the `docs/manual/teleno-node/` section of the Koinos One manual.
+Historical note: the full CLI guide moved to the standalone
+[koinos/teleno](https://github.com/koinos/teleno) repository (`docs/`).
+The Koinos One manual keeps only a pointer page at
+`docs/manual/teleno-node/README.md`. Use this prompt in the teleno
+repository when regenerating that guide.
+
+Write the `docs/` operator guide of the teleno repository.
 
 ## Objective
 
@@ -34,8 +40,8 @@ operation.
 - `AGENTS.md`
 - `docs/manual/README.md`
 - `mkdocs.yml`
-- `docs/operations/START_TELENO_NODE.md`
-- `docs/operations/TELENO_NODE_CONTAINER.md`
+- teleno startup guide: https://github.com/koinos/teleno/blob/main/docs/operations/start-node.md
+- teleno container guide: https://github.com/koinos/teleno/blob/main/docs/operations/container.md
 - `docs/current/operations/README.md`
 - `docs/current/monolith/ARCHITECTURE.md`
 - `docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`

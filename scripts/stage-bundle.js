@@ -132,7 +132,7 @@ if (fs.existsSync(harbingerSrc)) {
 }
 
 // Copy Koinos One config resources such as public bootstrap verification keys.
-const telenoConfigSrc = path.join(ROOT, 'config');
+const telenoConfigSrc = path.join(NODE_DIR, 'config');
 if (fs.existsSync(telenoConfigSrc)) {
   copyDirRecursive(telenoConfigSrc, CONFIG_DIR);
   console.log(`  OK:   teleno config resources`);

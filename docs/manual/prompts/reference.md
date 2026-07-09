@@ -32,7 +32,7 @@ easy to scan.
 - `docs/current/monolith/ARCHITECTURE.md`
 - `docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`
 - `docs/current/backup-restore/PUBLIC_BOOTSTRAP_RESTORE.md`
-- `docs/operations/START_TELENO_NODE.md`
+- teleno startup guide: https://github.com/koinos/teleno/blob/main/docs/operations/start-node.md
 - `electron-builder.yml`
 - `package.json`
 - Relevant config files under `config/`.
