@@ -9,7 +9,7 @@ producer, storage, or protocol-sensitive behavior.
 
 - Node.js and npm for the renderer and Electron build.
 - A CMake toolchain for
-  [`node/teleno-node`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node).
+  [`node/teleno-node`](https://github.com/koinos/teleno).
 - Native dependencies required by the Koinos/Teleno C++ build.
 - Submodules initialized when native or protocol code is needed.
 
