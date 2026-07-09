@@ -10,6 +10,11 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: deps
+    ignore:
+      # Major bumps need real migrations (ethers v6 wallet API, TS 7 config,
+      # Electron/Vite/React majors); handle them deliberately, not via bot.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       app-dependencies:
         patterns:
