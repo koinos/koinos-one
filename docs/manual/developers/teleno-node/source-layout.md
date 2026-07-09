@@ -1,7 +1,9 @@
 # Native Source Layout
 
-The native node source lives under
-[`node/teleno-node/src/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src).
+The native node source lives in the
+[koinos/teleno](https://github.com/koinos/teleno) repository (checked out here
+as the `node/teleno-node` submodule) under
+[`src/`](https://github.com/koinos/teleno/tree/main/src).
 
 ## Core Directories
 
@@ -27,7 +29,7 @@ The native node source lives under
 
 ## Build Structure
 
-[`node/teleno-node/src/CMakeLists.txt`](https://github.com/koinos/koinos-one/blob/main/node/teleno-node/src/CMakeLists.txt)
+[`node/teleno-node/src/CMakeLists.txt`](https://github.com/koinos/teleno/blob/main/src/CMakeLists.txt)
 splits the node into library targets such as core, storage, backup, block
 store, mempool, chain, P2P, JSON-RPC, gRPC, and block producer libraries. The
 final executable is `teleno_node`.
@@ -38,7 +40,7 @@ it depends on `teleno_node`.
 ## Tests
 
 Native tests live under
-[`node/teleno-node/tests/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/tests)
+[`node/teleno-node/tests/`](https://github.com/koinos/teleno/tree/main/tests)
 and are registered from
 `CMakeLists.txt` when `KOINOS_BUILD_TESTS` is enabled.
 

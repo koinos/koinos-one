@@ -3,6 +3,13 @@
 `teleno_node` is the native monolithic Koinos node binary used by Koinos One.
 It embeds the runtime components that were historically separate services.
 
+The node is developed in its own repository,
+[koinos/teleno](https://github.com/koinos/teleno), and consumed here as the
+`node/teleno-node` git submodule, so working-tree paths below still resolve
+locally after `git submodule update --init node/teleno-node`. The native
+runtime is versioned independently through the submodule's `VERSION` file with
+`teleno-node-v<version>` release tags.
+
 ## Pages
 
 - [Native Source Layout](source-layout.md)
@@ -16,16 +23,16 @@ It embeds the runtime components that were historically separate services.
 
 ## Main Source Areas
 
-- [`node/teleno-node/src/main.cpp`](https://github.com/koinos/koinos-one/blob/main/node/teleno-node/src/main.cpp)
-- [`node/teleno-node/src/core/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/core)
-- [`node/teleno-node/src/block_store/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/block_store)
-- [`node/teleno-node/src/mempool/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/mempool)
-- [`node/teleno-node/src/p2p/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/p2p)
-- [`node/teleno-node/src/jsonrpc/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/jsonrpc)
-- [`node/teleno-node/src/grpc_server/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/grpc_server)
-- [`node/teleno-node/src/block_production/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/block_production)
-- [`node/teleno-node/src/storage/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/storage)
-- [`node/teleno-node/src/backup/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src/backup)
+- [`node/teleno-node/src/main.cpp`](https://github.com/koinos/teleno/blob/main/src/main.cpp)
+- [`node/teleno-node/src/core/`](https://github.com/koinos/teleno/tree/main/src/core)
+- [`node/teleno-node/src/block_store/`](https://github.com/koinos/teleno/tree/main/src/block_store)
+- [`node/teleno-node/src/mempool/`](https://github.com/koinos/teleno/tree/main/src/mempool)
+- [`node/teleno-node/src/p2p/`](https://github.com/koinos/teleno/tree/main/src/p2p)
+- [`node/teleno-node/src/jsonrpc/`](https://github.com/koinos/teleno/tree/main/src/jsonrpc)
+- [`node/teleno-node/src/grpc_server/`](https://github.com/koinos/teleno/tree/main/src/grpc_server)
+- [`node/teleno-node/src/block_production/`](https://github.com/koinos/teleno/tree/main/src/block_production)
+- [`node/teleno-node/src/storage/`](https://github.com/koinos/teleno/tree/main/src/storage)
+- [`node/teleno-node/src/backup/`](https://github.com/koinos/teleno/tree/main/src/backup)
 
 ## Development Principle
 

@@ -20,10 +20,8 @@ protocol parity, migration safety, or validation evidence.
 | --- | --- |
 | [`src/`](https://github.com/koinos/koinos-one/tree/main/src) | React renderer, app state, i18n, styles, and GUI panels. |
 | [`electron/`](https://github.com/koinos/koinos-one/tree/main/electron) | Electron main process, preload bridge, IPC handlers, native runtime services, wallet services, and local storage helpers. |
-| [`node/teleno-node/src/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/src) | Native C++ monolithic Koinos node source. |
-| [`node/teleno-node/tests/`](https://github.com/koinos/koinos-one/tree/main/node/teleno-node/tests) | Native C++ unit and integration-style tests. |
-| [`scripts/`](https://github.com/koinos/koinos-one/tree/main/scripts) | Build, staging, smoke, benchmark, migration, parity, and validation scripts. |
-| [`config/`](https://github.com/koinos/koinos-one/tree/main/config) | Network and bootstrap configuration templates. |
+| [`node/teleno-node/`](https://github.com/koinos/teleno) | Native node git submodule. The `teleno_node` C++ source, tests, CMake projects, native build scripts, and network/bootstrap config templates live in the [koinos/teleno](https://github.com/koinos/teleno) repository. |
+| [`scripts/`](https://github.com/koinos/koinos-one/tree/main/scripts) | Build wrapper, staging, smoke, benchmark, migration, parity, and validation scripts. |
 | [`tests/`](https://github.com/koinos/koinos-one/tree/main/tests) | Vitest, Playwright, package, promotion, and UI validation tests. |
 | [`docs/current/`](https://github.com/koinos/koinos-one/tree/main/docs/current) | Current implementation source of truth. |
 | [`docs/backlog/`](https://github.com/koinos/koinos-one/tree/main/docs/backlog) | Planned or missing work that is not fully implemented or approved. |
@@ -43,7 +41,7 @@ protocol parity, migration safety, or validation evidence.
   claiming complete service parity.
 - [`package.json`](https://github.com/koinos/koinos-one/blob/main/package.json)
   - supported app build, test, docs, and packaging commands.
-- [`node/teleno-node/src/CMakeLists.txt`](https://github.com/koinos/koinos-one/blob/main/node/teleno-node/src/CMakeLists.txt)
+- [`node/teleno-node/src/CMakeLists.txt`](https://github.com/koinos/teleno/blob/main/src/CMakeLists.txt)
   - native library and executable target
   boundaries.
 - [`mkdocs.yml`](https://github.com/koinos/koinos-one/blob/main/mkdocs.yml)
