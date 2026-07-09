@@ -1,5 +1,11 @@
 # Distributed Producer Fleet And VHP Allocation Plan
 
+> Archived 2026-07-09. Superseded by
+> [`docs/backlog/operations/NODE_FLEET_STRATEGY.md`](../../../backlog/operations/NODE_FLEET_STRATEGY.md),
+> which merges, prunes, and re-sequences this plan. Retained for the
+> detailed test matrices, live-evidence records, and design rationale.
+
+
 - Date: 2026-06-24
 - Scope: staged product and implementation plan for one-click producer onboarding, distributed producer fleets, VHP allocation, local-first decentralization, optional remote deployment, and Fogata pool integration
 - First target: local Mac and testnet workflows with read-only simulation before transaction submission
