@@ -452,9 +452,12 @@ Required outcomes:
 - expose operator profile and health metrics;
 - avoid custody of other users' funds.
 
-### Phase 4: Add Remote Node Management
+### Phase 4: Integrate With Koinos Node Manager
 
-Required outcomes:
+Remote and fleet management is a separate product. Koinos One should integrate
+through versioned contracts and explicit handoff links rather than embedding a
+fleet console. These outcomes belong to
+[Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager):
 
 - local inventory;
 - dry-run command plans;

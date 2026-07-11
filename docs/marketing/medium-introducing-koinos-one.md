@@ -347,11 +347,13 @@ The first priority is to keep improving the basic observer experience. A new use
 
 That path will continue to improve through clearer first-run guidance, better restore progress, stronger backup evidence, signed public backup metadata, safer disk-space estimates, and lower-disk restore options for servers where keeping a full local copy of the public backup repository is not practical. The goal is simple: make the first safe Koinos node experience understandable.
 
-The next major product direction is remote node installation and operation. Many operators will want to run Koinos nodes on user-owned Linux servers while still controlling them from the desktop app. Koinos One should help those operators add a server, review a safe plan, install the node, restore a public backup, start an observer, verify health, and keep receipts of what happened.
-
-That remote path should remain conservative. It should begin with bring-your-own-server workflows, SSH-based execution, local-only inventory, redacted logs, and clear confirmations. Provider integrations can come later, but the safety model should not depend on storing cloud provider tokens or hiding infrastructure changes behind a button.
-
-Over time, the project should grow toward a unified fleet view. A Koinos operator should be able to see local and remote observers, standby nodes, and producer candidates in one place. The app should show which network each node is on, whether the node is synced, whether public RPC or admin surfaces are safely bound, which backup source was used, and whether the node is ready for a more advanced role.
+Remote installation and fleet operation are a related but distinct operator
+problem. They now belong to the separate
+[Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager)
+product, which can evolve around inventories, rollouts, remote credentials, and
+many-node health without making Koinos One's local-node experience ambiguous.
+The products can still share versioned Teleno health, artifact, backup, plan,
+and receipt contracts.
 
 Producer operation is another major project area. Koinos One should make the producer path understandable: create or import the right wallet, understand Mana and VHP, fund explicitly, burn KOIN into VHP when the user chooses to, register the producer key, validate the node, and only then enable production.
 
@@ -378,8 +380,8 @@ In practical terms, the project direction includes:
 - a smoother first-run observer setup;
 - signed and validated public backup workflows;
 - lower-disk restore modes for VPS and server deployment;
-- remote node installation, bootstrap, health checks, logs, and receipts;
-- a fleet view for local and remote observers, standby nodes, and producer candidates;
+- explicit integration points with Koinos Node Manager for operators who also
+  manage remote fleets;
 - producer readiness checks before block production is enabled;
 - safer VHP allocation planning across independent producer identities;
 - explicit funding, burn, transfer, registration, and activation previews;

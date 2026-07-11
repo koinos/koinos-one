@@ -38,19 +38,20 @@ starting a new feature or claiming full legacy parity.
 - `backup-restore/PUBLIC_BOOTSTRAP_DISK_OPTIMIZATION_IDEA.md` - proposed
   low-disk public restore modes for cost-efficient VPS observer deployment.
 
-## Node Fleet Backlog
+## Separate Node Manager Product
 
-- `operations/NODE_FLEET_STRATEGY.md` - unified strategy for multi-node,
-  multi-flavor, local/remote fleet management, producer identities, funding,
-  and VHP allocation. Supersedes the archived multi-node remote, remote-nodes
-  MVP, and distributed-producer plans.
+Multi-node, fleet, and remote-node management now belong to the separate
+[Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager)
+product. Koinos One remains focused on installing and operating one primary
+local Teleno node. Shared runtime, health, artifact, plan, and receipt contracts
+may be extracted into independently versioned libraries used by both products.
 
 ## Producer And Wallet Backlog
 
 - `producer/NETWORK_SCOPED_PRODUCER_WALLET_PLAN.md` - network-scoped producer
   wallet/profile isolation and safety rules.
-- Multi-producer fleet and VHP direction now lives in
-  `operations/NODE_FLEET_STRATEGY.md`.
+- Multi-producer fleet and VHP planning now lives in
+  [Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager).
 
 ## GUI Backlog
 

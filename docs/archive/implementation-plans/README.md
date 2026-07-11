@@ -14,12 +14,9 @@ For missing work and new ideas, start with `../../backlog/README.md`.
 
 ## Fleet And Remote Nodes
 
-- `fleet/MULTI_NODE_REMOTE_INSTALL_AND_MANAGEMENT_PLAN.md` (superseded by
-  `docs/backlog/operations/NODE_FLEET_STRATEGY.md`)
-- `fleet/REMOTE_NODES_REMAINING_MVP_IMPLEMENTATION.md` (superseded by the same
-  strategy document)
-- `fleet/DISTRIBUTED_PRODUCER_FLEET_AND_VHP_PLAN.md` (superseded by the same
-  strategy document)
+- Historical fleet and remote-node plans moved to the separate
+  [Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager)
+  repository when that product boundary was established.
 
 ## Monolith Core
 

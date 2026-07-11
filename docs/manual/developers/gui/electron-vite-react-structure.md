@@ -14,9 +14,12 @@ The desktop app has three JavaScript/TypeScript layers:
 mounts `<App />` and imports
 [`src/styles.css`](https://github.com/koinos/koinos-one/blob/main/src/styles.css).
 [`src/App.tsx`](https://github.com/koinos/koinos-one/blob/main/src/App.tsx)
-contains the top-level app state and routes between major tabs such as
-Explorer, Dashboard, Node, Remote, Producer, Wallet, Documentation, and
-Settings.
+contains the top-level app state and routes between the local-product tabs such
+as Explorer, Dashboard, Node, Producer, Wallet, Documentation, and Settings.
+Fleet and remote management belong to the separate
+[Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager)
+product. Transitional remote-node code still present in this repository is
+extraction input, not part of the long-term Koinos One navigation model.
 
 Panel components live under
 [`src/components/panels/`](https://github.com/koinos/koinos-one/tree/main/src/components/panels).
@@ -29,8 +32,10 @@ public bootstrap defaults, and settings conversion belongs under
 
 [`electron/preload.ts`](https://github.com/koinos/koinos-one/blob/main/electron/preload.ts)
 exposes `window.teleno` through Electron `contextBridge`. It wraps IPC calls
-for app lifecycle, app config, remote nodes, native node actions, logs, backup
-progress, and wallet actions.
+for app lifecycle, app config, native node actions, logs, backup progress, and
+wallet actions. Shared contracts needed by Koinos Node Manager should be
+extracted as independently versioned libraries rather than expanding this
+bridge into a fleet-management API.
 
 The renderer should call the bridge through helper functions in
 [`src/app/utils.tsx`](https://github.com/koinos/koinos-one/blob/main/src/app/utils.tsx)
