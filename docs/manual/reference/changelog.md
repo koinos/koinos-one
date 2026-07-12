@@ -5,9 +5,9 @@
 All notable changes to this project are documented in this file.
 
 
-<a id="version-1.1.0-dev.0"></a>
-<a id="v1.1.0-dev.0"></a>
-## [1.1.0-dev.0] - Unreleased
+<a id="version-1.1.0"></a>
+<a id="v1.1.0"></a>
+## [1.1.0] - 2026-07-12
 
 ### Changed
 
@@ -22,15 +22,22 @@ All notable changes to this project are documented in this file.
   version, release tag, and SHA-256. Clone with `--recurse-submodules` or run
   `git submodule update --init node/teleno-node` before building the native
   node. The container image is now published as `ghcr.io/koinos/teleno`.
+- Multi-node, fleet, and remote-management strategy documentation moved to the
+  separate [Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager)
+  product. Koinos One remains focused on installing and operating one primary
+  local Teleno node, while shared runtime contracts may be reused by both
+  products.
+- Public documentation now consistently presents Koinos One and Teleno as a
+  community-driven experimental implementation. The legacy microservice node
+  remains the independent protocol-compatibility reference.
+- Release and CI workflows now run on Node.js 22, initialize the Teleno
+  submodule, install MkDocs for strict manual builds, and support manual package
+  verification runs before a release tag is published.
+- Application and frontend dependencies received their tested minor and patch
+  updates; Dependabot is constrained from introducing unreviewed npm major
+  upgrades into the release track.
 
 ### Added
-
-
-
-
-
-
-
 - Explorer rows for blocks produced by your configured producer address are
   now highlighted with an accent border and a "My producer" badge, so your own
   blocks stand out while watching the chain.
@@ -68,6 +75,16 @@ All notable changes to this project are documented in this file.
   compaction stalls, and a full scratch state DB rebuild while preserving
   parent-root and receipt-root validation. The older height-index/source-DB
   replay path remains available with `--state-db-replay`.
+
+### Validation
+
+- Completed the mainnet producer milestone: the monolithic `teleno_node`,
+  operated through Koinos One, synchronized on mainnet and produced blocks that
+  were accepted by the public network. This closes the former mainnet producer
+  sign-off gate; continued soak testing and legacy/Teleno comparison remain
+  normal release-hardening activities rather than blockers for this release.
+  The sanitized evidence boundary is recorded in
+  `docs/current/monolith/MAINNET_PRODUCTION_VALIDATION.md`.
 
 ### Fixed
 

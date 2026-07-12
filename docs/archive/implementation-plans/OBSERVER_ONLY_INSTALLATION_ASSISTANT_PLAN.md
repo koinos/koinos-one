@@ -103,9 +103,9 @@ Current documentation:
 - `docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md`
   - Restore starts observer-first, disables block production, and excludes
     producer keys and wallet files.
-- `docs/backlog/operations/MULTI_NODE_REMOTE_INSTALL_AND_MANAGEMENT_PLAN.md`
-  - Remote install planning also treats observer install as the default safe
-    role and producer activation as a separate explicit workflow.
+- [Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager)
+  owns remote installation planning and preserves the same observer-first
+  boundary for remotely managed nodes.
 
 ## Proposed Linear Wizard Flow
 

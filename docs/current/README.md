@@ -13,6 +13,8 @@ belongs under `docs/archive/implementation-plans/`.
 - `monolith/SERVICE_COVERAGE.md` - current legacy-service coverage and known
   parity limits.
 - `monolith/CURRENT_MONOLITH_STATUS.md` - detailed status and validation history.
+- `monolith/MAINNET_PRODUCTION_VALIDATION.md` - completed Teleno/Koinos One
+  mainnet producer milestone and its evidence boundary.
 
 ## Backup And Restore
 

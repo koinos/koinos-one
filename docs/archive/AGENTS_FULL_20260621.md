@@ -55,7 +55,9 @@ All project documentation must be written in English, even when discussion with 
 - Public bootstrap restore is exposed through the local backup admin API with `GET /admin/backup/public/config`, `GET /admin/backup/public/snapshots`, `POST /admin/backup/public/fetch`, `POST /admin/backup/public/preflight`, `POST /admin/backup/public/restore/stage`, and `POST /admin/backup/public/restore/activate`. These endpoints are still loopback-only and bearer-token protected; public means the HTTP(S) backup source, not external admin API exposure. `koinos_backup_admin_server_test` covers the routes with a synthetic `file://` public repository.
 - Teleno UX exposes public bootstrap restore in Node > Backups as a separate read-only testnet source. It lists public snapshots separately from local native backups and private SFTP remote backups, uses the running-node local admin API when available, and falls back to `teleno_node --backup-public-*` when the node is stopped or this is a first-install restore. The generated native backup config enables `backup.public-restore` only for testnet and leaves it disabled for mainnet/custom.
 - Public restore documentation is now centralized in `docs/current/backup-restore/PUBLIC_BOOTSTRAP_RESTORE.md`, with summary links from `docs/current/backup-restore/NATIVE_BACKUP_CURRENT_IMPLEMENTATION.md` and `docs/current/README.md`.
-- Distributed producer/VHP planning is captured in `docs/backlog/producer/DISTRIBUTED_PRODUCER_FLEET_AND_VHP_PLAN.md`. Core principle: active distributed production means separate producer addresses, hot keys, basedirs, and ports. Multiple active nodes using the same producer address/key are standby/failover, not distributed production. Start with read-only fleet inventory and testnet workflows; mainnet producer/VHP mutations remain explicitly gated and reviewed.
+- Historical distributed producer/VHP planning moved to
+  [Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager).
+  Koinos One retains only its single-local-node producer responsibilities.
 
 ## What Works Now
 

@@ -17,12 +17,7 @@ starting a new feature or claiming full legacy parity.
    - Required outcome: restored/bootstrap databases either include these column
      families or can rebuild them safely from retained block data.
 
-3. Mainnet/prodnet long-run validation.
-   - Current status: observer and bootstrap flows have evidence, but full
-     production signoff still needs longer mainnet observation, comparison, and
-     operator reports.
-
-4. Signed prodnet public bootstrap publication and governance.
+3. Signed prodnet public bootstrap publication and governance.
    - Detailed plan: `backup-restore/PRODNET_PUBLIC_BOOTSTRAP_PUBLICATION_PLAN.md`.
    - Required outcome: a public prodnet bootstrap source with signed metadata,
      validation evidence, and clear publication/retention rules.
@@ -38,19 +33,20 @@ starting a new feature or claiming full legacy parity.
 - `backup-restore/PUBLIC_BOOTSTRAP_DISK_OPTIMIZATION_IDEA.md` - proposed
   low-disk public restore modes for cost-efficient VPS observer deployment.
 
-## Node Fleet Backlog
+## Separate Node Manager Product
 
-- `operations/NODE_FLEET_STRATEGY.md` - unified strategy for multi-node,
-  multi-flavor, local/remote fleet management, producer identities, funding,
-  and VHP allocation. Supersedes the archived multi-node remote, remote-nodes
-  MVP, and distributed-producer plans.
+Multi-node, fleet, and remote-node management now belong to the separate
+[Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager)
+product. Koinos One remains focused on installing and operating one primary
+local Teleno node. Shared runtime, health, artifact, plan, and receipt contracts
+may be extracted into independently versioned libraries used by both products.
 
 ## Producer And Wallet Backlog
 
 - `producer/NETWORK_SCOPED_PRODUCER_WALLET_PLAN.md` - network-scoped producer
   wallet/profile isolation and safety rules.
-- Multi-producer fleet and VHP direction now lives in
-  `operations/NODE_FLEET_STRATEGY.md`.
+- Multi-producer fleet and VHP planning now lives in
+  [Koinos Node Manager](https://github.com/pgarciagon/koinos-node-manager).
 
 ## GUI Backlog
 
@@ -80,11 +76,9 @@ starting a new feature or claiming full legacy parity.
 ## Additional Deferred Work
 
 - gRPC ACL enforcement matching the intended JSON-RPC access-control model.
-- Mainnet producer activation signoff.
 - Runtime component restart/supervision hardening.
-- macOS menu bar background mode for keeping Koinos One available as a status
-  item while the main window is hidden:
-  `operations/MACOS_MENU_BAR_BACKGROUND_MODE_PLAN.md`.
 - Remaining log-prefix normalization below the monolith wrapper.
-- First-run installation assistant welcome screen and UX signoff:
-  `operations/FIRST_RUN_INSTALLATION_ASSISTANT_PLAN.md`.
+
+Mainnet observer and producer validation is complete. Continued mainnet soak,
+legacy/Teleno comparison, and operational monitoring are ongoing regression
+work, not an uncompleted activation gate.
