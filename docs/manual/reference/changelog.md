@@ -5,6 +5,16 @@
 All notable changes to this project are documented in this file.
 
 
+<a id="version-1.2.0-dev.0"></a>
+<a id="v1.2.0-dev.0"></a>
+## [1.2.0-dev.0] - Unreleased
+
+### Changed
+
+- Started the post-1.1.0 development track. New user-facing work must be
+  documented under this version until the next release is prepared.
+
+
 <a id="version-1.1.0"></a>
 <a id="v1.1.0"></a>
 ## [1.1.0] - 2026-07-12
