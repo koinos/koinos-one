@@ -200,11 +200,11 @@ The goal is not to create a different Koinos. The goal is to run the same Koinos
 
 This compatibility requirement has guided the work from the beginning. Koinos One has been run and tested on both testnet and mainnet, because a node implementation only earns confidence by operating against real network conditions.
 
-At the same time, this is still an experimental public release of a rewritten node binary. The existing microservices architecture remains the primary reference implementation for running Koinos nodes. For that reason, the Koinos Community Foundation does not yet recommend running the majority of the network's VHP on nodes operated by the `teleno_node` binary.
+At the same time, this is still an experimental public release of a rewritten node binary. The existing microservices architecture remains the independent reference implementation for running Koinos nodes. Teleno has now synchronized and produced accepted blocks on Koinos mainnet through Koinos One, completing the original mainnet producer milestone without changing Koinos consensus or chain identity.
 
 This is not a negative statement about the monolithic direction. It is the normal way responsible infrastructure evolves. Bitcoin began with one dominant implementation and later gained alternative implementations that explored different engineering tradeoffs. That diversity can be healthy when compatibility, validation, and operational discipline remain strict.
 
-Adoption should therefore be responsible. Observers, developers, infrastructure operators, and producers should test, inspect, compare, and build confidence over time. Producers who experiment with Koinos One should do so gradually, keep operational fallbacks, and avoid concentrating too much consensus weight on any new implementation before it has accumulated more public runtime history.
+Adoption should therefore be responsible. Observers, developers, infrastructure operators, and producers should test, inspect, compare, and build confidence over time. Producers using Koinos One should keep operational monitoring, backups, and reviewed fallback procedures while Teleno accumulates more public runtime history.
 
 ## What Users Can Do Today
 

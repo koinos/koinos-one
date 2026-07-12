@@ -4,7 +4,10 @@
 
 # Koinos One
 
-Koinos One is the Koinos Foundation desktop app for running, restoring, backing up, and producing with a native **Koinos** node. It is powered by the Teleno native node engine and manages the single `teleno_node` runtime.
+Koinos One is a community-driven experimental desktop app, led by
+[`pgarciagon`](https://github.com/pgarciagon), for running, restoring, backing
+up, and producing with a native **Koinos** node. It is powered by the Teleno
+native node engine and manages one primary local `teleno_node` runtime.
 
 ## Stack
 
@@ -15,11 +18,17 @@ Koinos One is the Koinos Foundation desktop app for running, restoring, backing 
 
 ## Current Release Highlights
 
-- Public bootstrap restore now shows live download and staging progress, including file counts, byte progress, transfer rate, and restore phase.
-- In-progress restores can be stopped safely from the UI. A cancelled restore preserves staging data and never activates a partial database.
-- If a previous restore left a stale native staging directory, Koinos One reports the cause and can clear only the stale restore staging folder on retry.
-- Node and Wallet controls explain disabled states through tooltips, including unavailable logs, restart/stop actions, wallet registration, and account actions.
-- Settings treats the selected Base Data Folder as the default root for local native backup paths.
+- Teleno and Koinos One have completed accepted block production on Koinos
+  mainnet, following the observer-first and explicit producer-key safety model.
+- The native `teleno_node` runtime is now versioned in the standalone
+  [`koinos/teleno`](https://github.com/koinos/teleno) repository and consumed as
+  a pinned submodule with exact build identity.
+- Explorer updates arrive near real time, show block receipt events, and
+  highlight blocks produced by the configured producer.
+- Node presets, producer setup, backup/restore progress, and locked-operation
+  notices provide clearer and safer operator feedback.
+- The embedded manual and build-information surface document the exact app and
+  native runtime included in a package.
 
 ## Start Here
 

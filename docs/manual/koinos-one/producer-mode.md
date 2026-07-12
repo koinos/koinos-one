@@ -9,10 +9,11 @@ Use this page only after the node has run as a healthy observer and you are read
 to review producer identity, wallet funding, VHP, local producer keys, and
 registration state.
 
-`teleno_node` is a community-driven node implementation. The Koinos Community
-Foundation does not yet recommend running the majority of the network's VHP on
-`teleno_node`; the microservices-based reference node remains the primary
-recommendation for large producers.
+`teleno_node` is a community-driven node implementation. It has synchronized
+and produced accepted blocks on Koinos mainnet through Koinos One. The
+microservices-based node remains the independent reference implementation, and
+responsible operators should retain monitoring, backups, and a reviewed
+fallback while Teleno accumulates broader production history.
 
 ## Before You Start
 

@@ -87,8 +87,11 @@ Current behavior is summarized under
 Missing or incomplete validation belongs in
 [`docs/backlog/`](https://github.com/koinos/koinos-one/tree/main/docs/backlog).
 
-Do not claim full mainnet, account-history, historical index, or producer
-signoff unless current docs and fresh evidence support that claim.
+Mainnet observer and producer validation has been completed for Teleno through
+Koinos One. Do not generalize that evidence into claims of full account-history
+or historical-index parity; those remain separately documented gaps. Future
+mainnet validation claims still require current evidence rather than relying on
+the original sign-off alone.
 
 ## Mainnet And Producer Validation
 

@@ -13,10 +13,10 @@ microservice compatibility evidence.
 | `chain` | Implemented | Core validation and JSON-RPC/gRPC methods are wired. |
 | `block_store` | Implemented | Blocks and block metadata live in the monolith RocksDB layout. |
 | `mempool` | Implemented | Pending transactions, nonce checks, RC reservation, and expiration are covered. |
-| `p2p` | Implemented | Peer RPC and GossipSub interop exist; long mainnet soak remains a release gate. |
+| `p2p` | Implemented | Peer RPC and GossipSub interop exist; mainnet synchronization and production have been validated. |
 | `jsonrpc` | Implemented | Public Koinos JSON-RPC compatibility is the main client surface. |
 | `grpc` | Implemented | Typed protobuf service is wired; ACL enforcement remains backlog work. |
-| `block_producer` | Implemented | Testnet production has been validated; mainnet producer signoff remains gated. |
+| `block_producer` | Implemented | Private PoB, public testnet, and mainnet production have been validated. |
 | `transaction_store` | Partially implemented | Forward indexing exists; historical backfill/import parity remains backlog work. |
 | `contract_meta_store` | Partially implemented | Forward indexing exists; historical metadata backfill remains backlog work. |
 | `account_history` | Partially implemented | Simplified and disabled in current prodnet deployment; full legacy parity/backfill remains backlog work. |
