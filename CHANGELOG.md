@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.0-dev.0] - Unreleased
+
+### Changed
+
+- Started the post-1.1.0 development track. New user-facing work must be
+  documented under this version until the next release is prepared.
+
 ## [1.1.0] - 2026-07-12
 
 ### Changed
