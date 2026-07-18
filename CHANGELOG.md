@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.1] - 2026-07-19
+
+### Fixed
+
+- Rebuilt the Apple Silicon distribution with a Developer ID Application
+  signature and Apple notarization so a verified GitHub release opens through
+  Gatekeeper without the misleading macOS "damaged" warning produced by the
+  unsigned 1.1.0 package.
+- Hardened the release packaging command so it requires both a Developer ID
+  Application identity and notarization credentials, then verifies the app
+  signature, Gatekeeper assessment, stapled notarization tickets, and DMG
+  integrity before the package can be published.
+- Restricted the GitHub-hosted unsigned packaging workflow to manual package
+  verification. It no longer runs on release tags or publishes unsigned DMGs
+  as stable GitHub releases.
+
+### Validation
+
+- Apple accepted the application bundle and the completed DMG for
+  notarization. Both carry stapled tickets, pass strict code-signature checks,
+  and are accepted by Gatekeeper as `Notarized Developer ID` artifacts. The
+  final DMG also passes `hdiutil` integrity verification.
+
 ## [1.1.0] - 2026-07-12
 
 ### Changed
