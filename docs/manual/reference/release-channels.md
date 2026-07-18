@@ -8,7 +8,7 @@ Release identity must make every packaged Koinos One build traceable.
 | --- | --- |
 | Product name | `KoinosOne` in [`electron-builder.yml`](https://github.com/koinos/koinos-one/blob/main/electron-builder.yml). |
 | App ID | `io.koinosone.desktop` in [`electron-builder.yml`](https://github.com/koinos/koinos-one/blob/main/electron-builder.yml). |
-| Product version | `1.0.3` in [`package.json`](https://github.com/koinos/koinos-one/blob/main/package.json). |
+| Product version | `1.2.0-dev.0` in [`package.json`](https://github.com/koinos/koinos-one/blob/main/package.json). |
 | Native binary | `teleno_node`. |
 | Package artifacts | `${productName}-${version}-${arch}.${ext}` for macOS DMG and Windows NSIS outputs. |
 | Static manual site | `build/docs/manual-site/` from `mkdocs build --strict`. |
@@ -66,6 +66,10 @@ carry unique build metadata and a traceable native node identity.
 
 ## Release Expectations
 
+- Stable macOS DMGs must be signed with Developer ID Application, accepted by
+  Gatekeeper, notarized by Apple, and stapled before publication.
+- Unsigned GitHub Actions package artifacts are for manual package verification
+  only and must not be published as stable releases.
 - The About/Build Info surface should be able to show product version, release
   channel, build timestamp, Git commit, and native node identity.
 - Do not ship a native node build that diverges from Koinos protocol behavior.

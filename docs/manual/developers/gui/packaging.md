@@ -39,6 +39,24 @@ npm run package:mac:unsigned
 `package:mac` includes notarization preflight. Use unsigned or dir packaging for
 local development when signing is not available.
 
+Stable macOS releases must use `package:mac`. The command requires a Developer
+ID Application certificate and Apple notarization credentials. After packaging,
+it verifies the complete app signature, Gatekeeper acceptance, the stapled
+notarization tickets on both the app and DMG, and the DMG checksum structure.
+An unsigned package is a development artifact and must not be attached to a
+stable GitHub release.
+
+Electron Builder signs and notarizes the application bundle before creating the
+DMG. The release command then signs the completed DMG with Developer ID
+Application, submits it separately with `notarytool`, waits for Apple
+acceptance, and staples that second ticket before running distribution
+verification.
+
+The GitHub-hosted package workflow is intentionally manual and unsigned because
+the repository does not store the private Apple signing material. A trusted
+release operator builds and verifies the signed/notarized DMG locally, then
+uploads that exact artifact and its SHA-256 file to GitHub Releases.
+
 ## Staging Checks
 
 [`scripts/stage-bundle.js`](https://github.com/koinos/koinos-one/blob/main/scripts/stage-bundle.js)

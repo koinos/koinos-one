@@ -51,8 +51,10 @@ includes that metadata.
 ## Troubleshooting
 
 If macOS prevents launch, confirm that you downloaded the intended build and
-that the package identity matches the release notes you expected. Do not bypass
-macOS security prompts for an unknown package.
+that the package identity and SHA-256 match the release notes you expected.
+Stable Koinos One releases are Developer ID signed and Apple notarized. Do not
+remove quarantine attributes or bypass macOS security prompts for an unknown or
+unverified package.
 
 If the first-run assistant does not appear in a packaged install, open
 `Settings` and verify the selected `Base Data Folder`, then open `Node` and use
