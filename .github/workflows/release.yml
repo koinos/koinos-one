@@ -25,7 +25,7 @@ jobs:
           pip3 install cmake==3.28.4 mkdocs --break-system-packages
 
       - name: Cache Teleno native dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .deps/teleno-node
           key: teleno-node-mac-arm64-${{ hashFiles('node/teleno-node/CMakeLists.txt', 'node/teleno-node/CMakeLists.hunter.txt', 'node/teleno-node/scripts/build-*.sh') }}
