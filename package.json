@@ -52,11 +52,11 @@
   "dependencies": {
     "better-sqlite3": "^11.7.0",
     "ethers": "^5.8.0",
-    "express": "^4.22.2",
-    "koilib": "^9.2.0",
+    "express": "^4.22.3",
+    "koilib": "^9.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
