@@ -126,7 +126,7 @@ export function coreContractAbiCandidatePaths(abiName: CoreAbiName): string[] {
 export function resolveCoreContractAbi(contractId: string): unknown | null {
   const abiName = CORE_CONTRACT_ABI_BY_ID.get(contractId)
   if (!abiName) return null
-  if (abiName === 'pob') return TESTNET_COMPAT_POB_ABI
+  if (contractId === TESTNET_CONTRACTS.pob) return TESTNET_COMPAT_POB_ABI
 
   for (const candidatePath of coreContractAbiCandidatePaths(abiName)) {
     try {

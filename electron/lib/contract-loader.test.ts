@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Contract, type Provider } from 'koilib'
+import { Contract, utils, type Provider } from 'koilib'
 
 import { createCachedContractLoader } from './contract-loader'
 
@@ -8,6 +8,9 @@ const FAKE_ABI_WITH_TYPES = {
   methods: {},
   types: {}
 } as unknown as NonNullable<Awaited<ReturnType<Contract['fetchAbi']>>>
+const CONTRACT_ID = utils.encodeBase58(new Uint8Array(20))
+const PROVIDER_A = { rpcNodes: ['http://127.0.0.1:31501/'] } as Provider
+const PROVIDER_B = { rpcNodes: ['http://127.0.0.1:31502/'] } as Provider
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -21,8 +24,8 @@ describe('createCachedContractLoader', () => {
     const loadContract = createCachedContractLoader(normalizeAbi)
 
     await Promise.all([
-      loadContract({} as Provider, '15DJN4a8SgrbGhhGksSBASiSYjGnMU8dGL'),
-      loadContract({} as Provider, '15DJN4a8SgrbGhhGksSBASiSYjGnMU8dGL')
+      loadContract(PROVIDER_A, CONTRACT_ID),
+      loadContract(PROVIDER_A, CONTRACT_ID)
     ])
 
     expect(fetchAbi).toHaveBeenCalledTimes(1)
@@ -37,8 +40,8 @@ describe('createCachedContractLoader', () => {
     vi.spyOn(Contract.prototype, 'updateFunctionsFromAbi').mockImplementation(() => false)
     const loadContract = createCachedContractLoader((abi) => abi)
 
-    await expect(loadContract({} as Provider, '15DJN4a8SgrbGhhGksSBASiSYjGnMU8dGL')).rejects.toThrow('boom')
-    await expect(loadContract({} as Provider, '15DJN4a8SgrbGhhGksSBASiSYjGnMU8dGL')).resolves.toBeInstanceOf(Contract)
+    await expect(loadContract(PROVIDER_A, CONTRACT_ID)).rejects.toThrow('boom')
+    await expect(loadContract(PROVIDER_A, CONTRACT_ID)).resolves.toBeInstanceOf(Contract)
 
     expect(fetchAbi).toHaveBeenCalledTimes(2)
   })
@@ -47,7 +50,7 @@ describe('createCachedContractLoader', () => {
     vi.spyOn(Contract.prototype, 'fetchAbi').mockResolvedValue(FAKE_ABI_WITH_TYPES)
     const loadContract = createCachedContractLoader((abi) => abi)
 
-    const contract = await loadContract({} as Provider, '15DJN4a8SgrbGhhGksSBASiSYjGnMU8dGL')
+    const contract = await loadContract(PROVIDER_A, CONTRACT_ID)
 
     expect(contract.abi).toEqual(FAKE_ABI_WITH_TYPES)
     expect(contract.serializer).toBeTruthy()
@@ -62,11 +65,46 @@ describe('createCachedContractLoader', () => {
     const normalizeAbi = vi.fn((abi: typeof FAKE_ABI_WITH_TYPES) => abi)
     const loadContract = createCachedContractLoader(normalizeAbi, resolveFallbackAbi)
 
-    const contract = await loadContract({} as Provider, '1MAbK5pYkhp9yHnfhYamC3tfSLmVRTDjd9')
+    const contract = await loadContract(PROVIDER_A, CONTRACT_ID)
 
     expect(contract.abi).toEqual(FAKE_ABI_WITH_TYPES)
-    expect(fetchAbi).toHaveBeenCalledTimes(1)
-    expect(resolveFallbackAbi).toHaveBeenCalledWith('1MAbK5pYkhp9yHnfhYamC3tfSLmVRTDjd9')
+    expect(fetchAbi).not.toHaveBeenCalled()
+    expect(resolveFallbackAbi).toHaveBeenCalledWith(CONTRACT_ID)
     expect(normalizeAbi).toHaveBeenCalledWith(FAKE_ABI_WITH_TYPES)
+  })
+
+  it('separates cached ABI by RPC URL', async () => {
+    const fetchAbi = vi.spyOn(Contract.prototype, 'fetchAbi').mockResolvedValue(FAKE_ABI)
+    const loadContract = createCachedContractLoader((abi) => abi)
+
+    await loadContract(PROVIDER_A, CONTRACT_ID)
+    await loadContract(PROVIDER_B, CONTRACT_ID)
+    expect(fetchAbi).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not cache an invalid ABI and rejects before generated code runs', async () => {
+    const marker = globalThis as typeof globalThis & { __klbMarker?: number }
+    marker.__klbMarker = 0
+    const invalid = {
+      methods: {},
+      koilib_types: {
+        nested: {
+          Safe: {
+            fields: {
+              value: { type: 'bytes', id: 1, options: { default: ['0];globalThis["__klbMarker"]=1;//'] } }
+            }
+          }
+        }
+      }
+    } as unknown as NonNullable<Awaited<ReturnType<Contract['fetchAbi']>>>
+    const fetchAbi = vi.spyOn(Contract.prototype, 'fetchAbi')
+      .mockResolvedValueOnce(invalid)
+      .mockResolvedValueOnce(FAKE_ABI)
+    const loadContract = createCachedContractLoader((abi) => abi)
+
+    await expect(loadContract(PROVIDER_A, CONTRACT_ID)).rejects.toThrow(/invalid ABI/)
+    expect(marker.__klbMarker).toBe(0)
+    await expect(loadContract(PROVIDER_A, CONTRACT_ID)).resolves.toBeInstanceOf(Contract)
+    expect(fetchAbi).toHaveBeenCalledTimes(2)
   })
 })
