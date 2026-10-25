@@ -116,10 +116,9 @@ export function coreContractAbiCandidatePaths(abiName: CoreAbiName): string[] {
   const resourcesPath = typeof process.resourcesPath === 'string' ? process.resourcesPath : ''
 
   return uniquePaths([
-    path.resolve(process.cwd(), vendorRelativePath),
-    path.resolve(__dirname, '..', '..', vendorRelativePath),
     resourcesPath ? path.join(resourcesPath, 'teleno', 'abis', resourceFileName) : '',
-    resourcesPath ? path.join(resourcesPath, 'koinos', 'abis', resourceFileName) : ''
+    resourcesPath ? path.join(resourcesPath, 'koinos', 'abis', resourceFileName) : '',
+    path.resolve(__dirname, '..', '..', vendorRelativePath)
   ])
 }
 

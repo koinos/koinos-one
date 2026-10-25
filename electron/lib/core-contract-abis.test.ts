@@ -25,9 +25,14 @@ describe('core contract ABI resolution', () => {
   it('looks for packaged ABIs in the Teleno resource bundle', () => {
     setResourcesPath('/Applications/Koinos One.app/Contents/Resources')
 
-    expect(coreContractAbiCandidatePaths('koin')).toContain(
+    expect(coreContractAbiCandidatePaths('koin')[0]).toEqual(
       path.join('/Applications/Koinos One.app/Contents/Resources', 'teleno', 'abis', 'koin.abi')
     )
+  })
+
+  it('does not treat the process working directory as a trusted ABI root', () => {
+    const paths = coreContractAbiCandidatePaths('koin')
+    expect(paths).toEqual(paths.filter((candidate) => candidate.startsWith(path.resolve(__dirname, '..', '..'))))
   })
 
   it('keeps the legacy koinos resource ABI path as a fallback', () => {
