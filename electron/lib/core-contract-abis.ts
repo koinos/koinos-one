@@ -116,17 +116,16 @@ export function coreContractAbiCandidatePaths(abiName: CoreAbiName): string[] {
   const resourcesPath = typeof process.resourcesPath === 'string' ? process.resourcesPath : ''
 
   return uniquePaths([
-    path.resolve(process.cwd(), vendorRelativePath),
-    path.resolve(__dirname, '..', '..', vendorRelativePath),
     resourcesPath ? path.join(resourcesPath, 'teleno', 'abis', resourceFileName) : '',
-    resourcesPath ? path.join(resourcesPath, 'koinos', 'abis', resourceFileName) : ''
+    resourcesPath ? path.join(resourcesPath, 'koinos', 'abis', resourceFileName) : '',
+    path.resolve(__dirname, '..', '..', vendorRelativePath)
   ])
 }
 
 export function resolveCoreContractAbi(contractId: string): unknown | null {
   const abiName = CORE_CONTRACT_ABI_BY_ID.get(contractId)
   if (!abiName) return null
-  if (abiName === 'pob') return TESTNET_COMPAT_POB_ABI
+  if (contractId === TESTNET_CONTRACTS.pob) return TESTNET_COMPAT_POB_ABI
 
   for (const candidatePath of coreContractAbiCandidatePaths(abiName)) {
     try {

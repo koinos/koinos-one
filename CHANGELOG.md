@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [1.2.0-dev.0] - Unreleased
 
+### Fixed
+
+- Validate fetched contract ABI data before caching and use bundled core ABIs
+  from application resources rather than the process working directory.
+- Preserve zero-decimal token balances when the protobuf response omits its
+  default scalar value.
+
 ### Changed
 
 - Continued the 1.2.0 development track after the 1.1.1 macOS distribution

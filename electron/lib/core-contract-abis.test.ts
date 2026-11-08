@@ -3,7 +3,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { coreContractAbiCandidatePaths, resolveCoreContractAbi } from './core-contract-abis'
-import { TESTNET_CONTRACTS } from './network-profiles'
+import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from './network-profiles'
 
 const originalResourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
 
@@ -25,9 +25,14 @@ describe('core contract ABI resolution', () => {
   it('looks for packaged ABIs in the Teleno resource bundle', () => {
     setResourcesPath('/Applications/Koinos One.app/Contents/Resources')
 
-    expect(coreContractAbiCandidatePaths('koin')).toContain(
+    expect(coreContractAbiCandidatePaths('koin')[0]).toEqual(
       path.join('/Applications/Koinos One.app/Contents/Resources', 'teleno', 'abis', 'koin.abi')
     )
+  })
+
+  it('does not treat the process working directory as a trusted ABI root', () => {
+    const paths = coreContractAbiCandidatePaths('koin')
+    expect(paths).toEqual(paths.filter((candidate) => candidate.startsWith(path.resolve(__dirname, '..', '..'))))
   })
 
   it('keeps the legacy koinos resource ABI path as a fallback', () => {
@@ -50,5 +55,15 @@ describe('core contract ABI resolution', () => {
     } | null
 
     expect(abi?.methods?.get_consensus_parameters?.entry_point).toBe(1607969807)
+  })
+
+  it('uses the packaged PoB ABI for mainnet', () => {
+    const abi = resolveCoreContractAbi(MAINNET_CONTRACTS.pob) as {
+      methods?: Record<string, { argument?: string }>
+    } | null
+
+    expect(abi?.methods?.get_consensus_parameters?.argument).toBe(
+      'koinos.contracts.pob.get_consensus_parameters_arguments'
+    )
   })
 })

@@ -11,24 +11,30 @@ export function createCachedContractLoader(
 
   return async function loadContractWithFetchedAbi(provider: Provider, contractId: string): Promise<Contract> {
     const contract = new Contract({ id: contractId, provider })
+    const cacheKey = `${JSON.stringify(provider.rpcNodes)}:${contractId}`
 
-    let pendingAbi = abiCache.get(contractId)
+    let pendingAbi = abiCache.get(cacheKey)
     if (!pendingAbi) {
-      pendingAbi = contract
-        .fetchAbi()
-        .then(async (fetchedAbi) => {
-          const abi = fetchedAbi ?? await resolveFallbackAbi?.(contractId)
+      pendingAbi = Promise.resolve()
+        .then(async () => {
+          // Core contracts use the ABI shipped with this app for the selected
+          // network. Other contracts still fetch their ABI from the RPC.
+          const localAbi = await resolveFallbackAbi?.(contractId)
+          const abi = localAbi ?? await contract.fetchAbi()
           if (!abi) {
             throw new Error(`Could not load ABI for contract ${contractId}`)
           }
-          return normalizeAbi(abi)
+          const normalized = normalizeAbi(abi)
+          // Validate before placing an untrusted ABI in the shared cache.
+          new Contract({ id: contractId, provider, abi: normalized })
+          return normalized
         })
         .catch((error) => {
-          abiCache.delete(contractId)
+          abiCache.delete(cacheKey)
           throw error
         })
 
-      abiCache.set(contractId, pendingAbi)
+      abiCache.set(cacheKey, pendingAbi)
     }
 
     const abi = await pendingAbi

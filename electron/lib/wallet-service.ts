@@ -1049,7 +1049,9 @@ export function createWalletService(deps: WalletServiceDeps) {
         contract.functions.decimals ? contract.functions.decimals({}) : { result: { value: 8 } },
         contract.functions.balance_of({ owner: address })
       ])
-      const decimals = Number.parseInt(`${decimalsResult.result?.value ?? '8'}`, 10)
+      // A decoded protobuf scalar may omit its zero value. The fallback for
+      // contracts without a decimals method is already supplied above.
+      const decimals = Number.parseInt(`${decimalsResult.result?.value ?? '0'}`, 10)
       return {
         ok: true,
         output: `Token balance loaded for ${address}.`,
