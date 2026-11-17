@@ -182,6 +182,9 @@ export function WalletSendModal(props: WalletSendModalProps) {
                   <input type="checkbox" checked={walletTransferUseFreeMana} onChange={(event) => setWalletTransferUseFreeMana(event.target.checked)} />
                   <span>{t('wallet.useFreeMana')}</span>
                 </label>
+                {walletTransferDryRun && walletTransferUseFreeMana && (
+                  <p className="wallet-modal-note">{t('wallet.freeManaPreviewNote')}</p>
+                )}
               </details>
             </>
           ) : (
@@ -233,6 +236,9 @@ export function WalletSendModal(props: WalletSendModalProps) {
                   <input type="checkbox" checked={walletBurnUseFreeMana} onChange={(event) => setWalletBurnUseFreeMana(event.target.checked)} />
                   <span>{t('wallet.useFreeMana')}</span>
                 </label>
+                {walletBurnDryRun && walletBurnUseFreeMana && (
+                  <p className="wallet-modal-note">{t('wallet.freeManaPreviewNote')}</p>
+                )}
               </details>
             </>
           )}

@@ -68,6 +68,8 @@ account. By default, the receiver is the current account address.
 
 `Use free mana` can be enabled when you intentionally want to use available free
 mana for the operation.
+Free-mana dry runs check the amount and balance without signing or submitting a
+transaction. The free-mana cost is estimated when you send the transaction.
 
 ## How To Verify It Worked
 

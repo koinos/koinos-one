@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Keep free-mana dry runs unsigned and defer cost estimation until the send action.
 - Validate fetched contract ABI data before caching and use bundled core ABIs
   from application resources rather than the process working directory.
 - Preserve zero-decimal token balances when the protobuf response omits its
