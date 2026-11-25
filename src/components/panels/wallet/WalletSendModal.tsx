@@ -74,6 +74,9 @@ export function WalletSendModal(props: WalletSendModalProps) {
   if (!open) return null
 
   const isSend = mode === 'send'
+  const showSignedEstimateNotice = isSend
+    ? walletTransferUseFreeMana && !walletTransferDryRun
+    : walletBurnUseFreeMana && !walletBurnDryRun
   const isBusy = walletActionLoading !== null
   const submitDisabledTitle = !hasWalletControls
     ? t('wallet.disabledTooltip.electronOnly')
@@ -243,6 +246,11 @@ export function WalletSendModal(props: WalletSendModalProps) {
             </>
           )}
 
+          {showSignedEstimateNotice && (
+            <p id="wallet-signed-estimate-notice" className="wallet-modal-note">
+              {t('wallet.freeManaSendNotice')}
+            </p>
+          )}
           <div className="wallet-modal-actions">
             <button type="button" className="ghost-button" onClick={onClose}>
               {t('common.cancel')}
@@ -252,6 +260,7 @@ export function WalletSendModal(props: WalletSendModalProps) {
               className="primary-button"
               onClick={isSend ? transferWalletToken : burnKoinToVhp}
               disabled={!hasWalletControls || isBusy || !activeWalletCanSign}
+              aria-describedby={showSignedEstimateNotice ? 'wallet-signed-estimate-notice' : undefined}
               title={submitDisabledTitle}
             >
               {isBusy ? t('common.loading') : isSend ? t('wallet.transferAction') : t('wallet.burnAction')}
