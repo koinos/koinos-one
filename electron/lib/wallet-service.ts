@@ -149,8 +149,9 @@ async function prepareWalletTransactionWithFreeMana(params: {
   provider: Provider
   walletAddress: string
   operations: Array<Record<string, unknown>>
+  dryRun: boolean
 }): Promise<{ transaction: Transaction; payerAddress: string }> {
-  const { signer, provider, walletAddress, operations } = params
+  const { signer, provider, walletAddress, operations, dryRun } = params
   const manaMeterRcRaw = await provider.getAccountRc(FREE_MANA_METER_ADDRESS)
   const manaMeterRc = manaMeterRcRaw ? BigInt(manaMeterRcRaw) : BigInt(0)
   if (manaMeterRc <= BigInt(0)) {
@@ -174,6 +175,11 @@ async function prepareWalletTransactionWithFreeMana(params: {
 
   setWalletTransactionSponsor(transaction, FREE_MANA_METER_ADDRESS, walletAddress, initialRcLimit)
   await transaction.prepare()
+  if (dryRun) {
+    // Estimating with submit_transaction would disclose an executable signature.
+    setWalletTransactionSponsor(transaction, FREE_MANA_SHARER_ADDRESS, walletAddress, initialRcLimit)
+    return { transaction, payerAddress: FREE_MANA_SHARER_ADDRESS }
+  }
   await transaction.sign()
 
   const phase1Receipt = await transaction.send({ broadcast: false })
@@ -1188,9 +1194,6 @@ export function createWalletService(deps: WalletServiceDeps) {
         deps.loadContractWithFetchedAbi(provider, contracts.vhp),
         deps.loadContractWithFetchedAbi(provider, contracts.pob)
       ])
-      koin.signer = signer
-      pob.signer = signer
-
       const [{ result: koinBalanceResult }, { result: oldVhpResult }, manaRaw] = await Promise.all([
         koin.functions.balance_of({ owner: signingAccount.address }),
         vhp.functions.balance_of({ owner: signingAccount.address }),
@@ -1256,7 +1259,8 @@ export function createWalletService(deps: WalletServiceDeps) {
             signer,
             provider,
             walletAddress: signingAccount.address,
-            operations
+            operations,
+            dryRun
           })
         : null
       const transaction =
@@ -1281,7 +1285,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         return {
           ok: true,
           output: useFreeMana
-            ? `Dry run prepared ${operations.length} operation(s) for burn using free mana.`
+            ? `Dry run prepared ${operations.length} operation(s) for burn. Free mana cost will be checked when you send.`
             : `Dry run prepared ${operations.length} operation(s) for burn.`,
           rpcUrl,
           dryRun: true,
@@ -1295,7 +1299,7 @@ export function createWalletService(deps: WalletServiceDeps) {
           newVhp: null,
           usedFreeMana: useFreeMana,
           payer: payerAddress,
-          txId: transaction.transaction.id || null
+          txId: useFreeMana ? null : transaction.transaction.id || null
         }
       }
 
@@ -1377,7 +1381,6 @@ export function createWalletService(deps: WalletServiceDeps) {
       const signer = Signer.fromWif(signingAccount.privateKey)
       signer.provider = provider
       const vhp = await deps.loadContractWithFetchedAbi(provider, contracts.vhp)
-      vhp.signer = signer
 
       const transferAmount = BigInt(Math.floor(amount * 1e8))
       if (transferAmount <= BigInt(0)) return fail('Transfer amount is too small.')
@@ -1405,7 +1408,8 @@ export function createWalletService(deps: WalletServiceDeps) {
             signer,
             provider,
             walletAddress: signingAccount.address,
-            operations: [operation]
+            operations: [operation],
+            dryRun
           })
         : null
       const transaction =
@@ -1428,7 +1432,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         return {
           ok: true,
           output: useFreeMana
-            ? 'Dry run prepared VHP transfer operation using free mana.'
+            ? 'Dry run prepared VHP transfer operation. Free mana cost will be checked when you send.'
             : 'Dry run prepared VHP transfer operation.',
           rpcUrl,
           dryRun: true,
@@ -1437,7 +1441,7 @@ export function createWalletService(deps: WalletServiceDeps) {
           amountVhp: deps.formatWholeUnits(transferAmount),
           usedFreeMana: useFreeMana,
           payer: payerAddress,
-          txId: transaction.transaction.id || null
+          txId: useFreeMana ? null : transaction.transaction.id || null
         }
       }
 
@@ -1509,7 +1513,6 @@ export function createWalletService(deps: WalletServiceDeps) {
       const signer = Signer.fromWif(signingAccount.privateKey)
       signer.provider = provider
       const koin = await deps.loadContractWithFetchedAbi(provider, contracts.koin)
-      koin.signer = signer
 
       const transferAmount = BigInt(Math.floor(amount * 1e8))
       if (transferAmount <= BigInt(0)) return fail('Transfer amount is too small.')
@@ -1540,7 +1543,8 @@ export function createWalletService(deps: WalletServiceDeps) {
             signer,
             provider,
             walletAddress: signingAccount.address,
-            operations: [operation]
+            operations: [operation],
+            dryRun
           })
         : null
       const transaction =
@@ -1563,7 +1567,7 @@ export function createWalletService(deps: WalletServiceDeps) {
         return {
           ok: true,
           output: useFreeMana
-            ? 'Dry run prepared KOIN transfer operation using free mana.'
+            ? 'Dry run prepared KOIN transfer operation. Free mana cost will be checked when you send.'
             : 'Dry run prepared KOIN transfer operation.',
           rpcUrl,
           dryRun: true,
@@ -1572,7 +1576,7 @@ export function createWalletService(deps: WalletServiceDeps) {
           amountKoin: deps.formatWholeUnits(transferAmount),
           usedFreeMana: useFreeMana,
           payer: payerAddress,
-          txId: transaction.transaction.id || null
+          txId: useFreeMana ? null : transaction.transaction.id || null
         }
       }
 

@@ -68,6 +68,10 @@ account. By default, the receiver is the current account address.
 
 `Use free mana` can be enabled when you intentionally want to use available free
 mana for the operation.
+Free mana previews check the amount and balance without signing or submitting a
+transaction. Before you confirm a transfer or burn with free mana, the wallet
+shows a notice that it will send signed transactions to the selected RPC server
+to estimate mana usage.
 
 ## How To Verify It Worked
 
