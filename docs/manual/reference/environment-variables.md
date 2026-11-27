@@ -64,10 +64,45 @@ public bootstrap restore into public administrative control.
 | `TELENO_API_PORT` | [`backend/src/server.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/server.js) | Local backend helper port. Default: `8787`. This is not the native monolith JSON-RPC port. |
 | `TELENO_DATA_DIR` | [`backend/src/config.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/config.js) | Local backend helper data directory. |
 | `TELENO_DB_PATH` | [`backend/src/config.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/config.js) | Local backend helper SQLite database path. |
-| `TELENO_BACKUP_BASE_URL` | [`backend/src/config.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/config.js) | Local backend helper backup base URL. |
-| `TELENO_BACKUP_URL` | [`backend/src/bootstrap.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/bootstrap.js) | Local backend bootstrap backup URL override. |
-| `TELENO_BACKUP_LOCAL_PATH` | [`backend/src/bootstrap.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/bootstrap.js) | Local backend bootstrap archive path override. |
+| `TELENO_BACKUP_BASE_URL` | [`backend/src/config.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/config.js) | Local backend helper backup index. Defaults to `https://seed.koinosfoundation.org/backups/`. The index and discovered archive links must use HTTPS without credentials and share an origin. Redirects are refused. |
+| `TELENO_BACKUP_URL` | [`backend/src/bootstrap.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/bootstrap.js) | Select a specific HTTPS archive instead of using the index. Archive URLs must omit credentials, query strings and fragments. Discovered and explicit archives use the same filename and signature rules. |
+| `TELENO_BACKUP_SIGNATURE_PUBLIC_KEY_FILE` | [`backend/src/bootstrap.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/bootstrap.js) | Path to a trusted PEM Ed25519 public key in SPKI format. Required for remote legacy bootstrap. Obtain the key through a trusted channel separate from the backup mirror. |
+| `TELENO_BACKUP_LOCAL_PATH` | [`backend/src/bootstrap.js`](https://github.com/koinos/koinos-one/blob/main/backend/src/bootstrap.js) | Path to a local archive you trust. This takes precedence over remote settings and works without a public key or sidecars. |
 
 The backend helper variables belong to older local helper scripts. They are not
 the current native backup, public bootstrap, JSON-RPC, gRPC, or P2P config
 surface.
+
+### Remote archives for the source checkout helper
+
+`npm run bootstrap:offline` can use a signed legacy archive over HTTPS. Use a
+filename that starts with an ASCII letter or digit, contains only ASCII
+letters, digits, dots, underscores or hyphens, and ends in `.tar.gz`, `.tgz`
+or `.zip`. Windows device names such as `CON` and `NUL` are refused.
+
+Publish the archive and the exact bytes of its `<archive>.metadata` and
+`<archive>.manifest.json` sidecars at adjacent URLs. The version 1
+`teleno-legacy-backup-signature` manifest signs the final archive URL and the
+SHA-256 digests of the archive and metadata with Ed25519. The helper verifies
+all three bindings before extraction and refuses redirects for both sidecars
+and the archive. A publication shared with the legacy
+desktop restore also needs the desktop consumer's `<archive>.sha256` sidecar.
+
+The publisher can generate the manifest offline with
+[`scripts/sign-legacy-blockchain-backup.js`](https://github.com/koinos/koinos-one/blob/main/scripts/sign-legacy-blockchain-backup.js).
+Keep the private key on the publisher's trusted signing machine and distribute
+the public key separately.
+
+```bash
+node scripts/sign-legacy-blockchain-backup.js \
+  --archive backup.tar.gz --metadata backup.tar.gz.metadata \
+  --archive-url https://backups.example/backup.tar.gz \
+  --private-key /path/to/publisher-signing.pem \
+  --output backup.tar.gz.manifest.json
+```
+
+Before using the default index or a custom mirror, ensure the selected archive
+has both sidecars and configure the corresponding trusted public key. Mirrors
+that currently use HTTP or publish unsigned archives must prepare the signed
+HTTPS files first. For an archive obtained through a separate trusted workflow,
+set `TELENO_BACKUP_LOCAL_PATH`.
