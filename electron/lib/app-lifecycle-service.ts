@@ -1,6 +1,8 @@
+import { realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { BrowserWindow, dialog, type MessageBoxOptions, type MessageBoxReturnValue } from 'electron'
+import { BrowserWindow, dialog, type MessageBoxOptions, type MessageBoxReturnValue, type WebContents, type WebFrameMain } from 'electron'
 
 import type {
   TelenoAppPreferences,
@@ -10,9 +12,10 @@ import type {
 } from './main-types'
 
 type AppLifecycleServiceDeps = {
-  isDev: boolean
+  isPackaged: boolean
   platform?: NodeJS.Platform
   viteDevServerUrl?: string
+  bundledEntryPath: string
   preloadPath: string
   nodeSettingsStorageKey: string
   languageStorageKey: string
@@ -40,19 +43,47 @@ type AppLifecycleServiceDeps = {
   quitApp: () => void
 }
 
-function isHttpUrl(value: string): boolean {
+function isExternalWebUrl(value: string, developmentEntry?: URL): boolean {
   try {
     const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:'
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== developmentEntry?.origin
   } catch {
     return false
   }
 }
 
-function isSameOriginUrl(value: string, originValue: string | undefined): boolean {
-  if (!originValue) return false
+function isWithinDirectory(directory: string, filename: string): boolean {
+  const relative = path.relative(directory, filename)
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+function isManualDocument(value: string, entry: URL, developmentEntry?: URL): boolean {
   try {
-    return new URL(value).origin === new URL(originValue).origin
+    const destination = new URL(value)
+    if (!destination.pathname.endsWith('.html')) return false
+    const manual = new URL('manual-site/', entry)
+    // The generated MkDocs search form submits a single q field to search.html.
+    if (destination.search && (
+      destination.pathname !== new URL('search.html', manual).pathname ||
+      destination.searchParams.size !== 1 ||
+      !destination.searchParams.has('q')
+    )) return false
+    if (developmentEntry) {
+      return destination.origin === developmentEntry.origin && destination.pathname.startsWith(manual.pathname)
+    }
+    if (destination.protocol !== 'file:' || entry.host !== '' || destination.host !== entry.host) return false
+
+    const manualPath = fileURLToPath(manual)
+    const requestedPath = fileURLToPath(destination)
+    if (!isWithinDirectory(manualPath, requestedPath)) return false
+
+    // Resolve local links through Electron's ASAR-aware filesystem before allowing the document.
+    const rendererDirectory = realpathSync(path.dirname(fileURLToPath(entry)))
+    const manualDirectory = realpathSync(manualPath)
+    if (path.relative(path.join(rendererDirectory, 'manual-site'), manualDirectory) !== '') return false
+    const document = realpathSync(requestedPath)
+    return isWithinDirectory(manualDirectory, document) &&
+      path.extname(document) === '.html' && statSync(document).isFile()
   } catch {
     return false
   }
@@ -178,6 +209,15 @@ function producerLooksRunning(status: TelenoNodeStatus): boolean {
 }
 
 export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
+  const entryUrls = new WeakMap<WebContents, string>()
+
+  function isTrustedIpcSender(sender: WebContents, senderFrame: WebFrameMain | null): boolean {
+    const win = deps.getMainWindow()
+    const entryUrl = entryUrls.get(sender)
+    return Boolean(entryUrl && win && !win.isDestroyed() && win.webContents === sender &&
+      !sender.isDestroyed() && senderFrame && senderFrame === sender.mainFrame &&
+      !senderFrame.isDestroyed() && senderFrame.url === entryUrl && sender.getURL() === entryUrl)
+  }
   const platform = deps.platform ?? process.platform
 
   async function loadRendererShutdownContext(
@@ -462,6 +502,10 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
   }
 
   function createWindow(): BrowserWindow {
+    const developmentEntry = !deps.isPackaged && deps.viteDevServerUrl
+      ? new URL(deps.viteDevServerUrl)
+      : undefined
+    const entry = developmentEntry ?? pathToFileURL(deps.bundledEntryPath)
     const win = new BrowserWindow({
       title: 'Koinos One',
       width: 1280,
@@ -470,33 +514,38 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
       autoHideMenuBar: true,
       webPreferences: {
         preload: deps.preloadPath,
-        sandbox: false
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false
       }
     })
     deps.setMainWindow(win)
 
-    const openExternalNavigation = (url: string): boolean => {
-      if (!isHttpUrl(url)) return false
-      if (deps.isDev && isSameOriginUrl(url, deps.viteDevServerUrl)) return false
+    entryUrls.set(win.webContents, entry.href)
 
-      void deps.openExternalUrl?.(url)
-      return true
-    }
-
-    win.webContents.on('will-frame-navigate', (event) => {
-      if (!openExternalNavigation(event.url)) return
+    const guardNavigation = (event: { url: string; frame: WebFrameMain | null; preventDefault: () => void }) => {
+      if (event.frame === win.webContents.mainFrame && event.url === entry.href) return
+      if (event.frame !== win.webContents.mainFrame &&
+          event.frame && isManualDocument(event.url, entry, developmentEntry)) return
       event.preventDefault()
-    })
+      if (isExternalWebUrl(event.url, developmentEntry)) {
+        void deps.openExternalUrl?.(event.url)
+      }
+    }
+    win.webContents.on('will-frame-navigate', guardNavigation)
+    win.webContents.on('will-redirect', guardNavigation)
 
     win.webContents.setWindowOpenHandler((details) => {
-      if (!openExternalNavigation(details.url)) return { action: 'allow' }
+      if (isExternalWebUrl(details.url, developmentEntry)) {
+        void deps.openExternalUrl?.(details.url)
+      }
       return { action: 'deny' }
     })
 
-    if (deps.isDev && deps.viteDevServerUrl) {
-      void win.loadURL(deps.viteDevServerUrl)
+    if (developmentEntry) {
+      void win.loadURL(entry.href)
     } else {
-      void win.loadFile(path.join(__dirname, '../../dist/index.html'))
+      void win.loadFile(deps.bundledEntryPath)
     }
 
     win.on('close', (event) => {
@@ -526,6 +575,7 @@ export function createAppLifecycleService(deps: AppLifecycleServiceDeps) {
 
   return {
     createWindow,
+    isTrustedIpcSender,
     cleanupAppRuntimeResources,
     requestOrderedAppShutdown,
     showMainWindow,

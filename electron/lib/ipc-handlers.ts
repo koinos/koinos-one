@@ -1,4 +1,4 @@
-import type { IpcMain, WebContents } from 'electron'
+import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, WebContents, WebFrameMain } from 'electron'
 
 import type {
   KoinosJsonRpcProxyInput,
@@ -53,6 +53,7 @@ import { loadKoinosOneBuildInfo } from './build-info'
 type Awaitable<T> = T | Promise<T>
 
 type IpcHandlerDeps = {
+  isTrustedIpcSender: (sender: WebContents, senderFrame: WebFrameMain | null) => boolean
   quitApp: () => void
   firstRunSetupState: () => Awaitable<unknown>
   completeFirstRunSetup: (input?: unknown) => Awaitable<unknown>
@@ -146,7 +147,33 @@ function isManagedFileKind(kind: unknown): kind is TelenoNodeManagedFileKind {
   return kind === 'compose' || kind === 'env' || kind === 'config'
 }
 
-export function registerTelenoIpcHandlers(ipcMain: IpcMain, deps: IpcHandlerDeps): void {
+export function registerTelenoIpcHandlers(rawIpcMain: IpcMain, deps: IpcHandlerDeps): void {
+  // Keep the trust check at the registration boundary so new handlers cannot omit it.
+  const ipcMain = new Proxy(rawIpcMain, {
+    get(target, property) {
+      if (property === 'handle') {
+        return (channel: string, listener: (event: IpcMainInvokeEvent, ...args: any[]) => unknown) =>
+          target.handle(channel, (event, ...args) => {
+            if (!deps.isTrustedIpcSender(event.sender, event.senderFrame)) {
+              throw new Error('Unauthorized IPC sender')
+            }
+            return listener(event, ...args)
+          })
+      }
+      if (property === 'on') {
+        return (channel: string, listener: (event: IpcMainEvent, ...args: any[]) => void) =>
+          target.on(channel, (event, ...args) => {
+            if (!deps.isTrustedIpcSender(event.sender, event.senderFrame)) {
+              event.returnValue = undefined
+              return
+            }
+            listener(event, ...args)
+          })
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
   const handlers = [
     'teleno:app:quit',
     'teleno:app:first-run-state',
