@@ -30,7 +30,7 @@ function createWalletTestService(options?: {
   return {
     storage,
     service: createWalletService({
-      loadTelenoWalletFile: (network) => storage.loadWalletFile(network),
+      loadTelenoWalletFile: (network, migrate) => storage.loadWalletFile(network, migrate),
       telenoProducerWalletFilePath: (network) => storage.producerWalletFilePath(network),
       currentUnlockedProducerWallet: (network) => storage.getUnlockedWallet(network),
       saveTelenoWallet: (privateKey, address, password, options) => storage.saveWallet(privateKey, address, password, options),
@@ -61,6 +61,71 @@ function createWalletTestService(options?: {
 }
 
 describe('wallet-service helpers', () => {
+  it('rejects a wrong password on a scoped legacy vault and keeps its response IDs consistent', async () => {
+    const { storage, service } = createWalletTestService()
+    const [first, second] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 2)
+    const network = 'mainnet'
+    const walletFilePath = storage.saveWallet(first.privateKeyWif, first.address, 'original-password', { network })
+    const legacy = JSON.parse(fs.readFileSync(walletFilePath, 'utf8'))
+    delete legacy.version
+    delete legacy.accounts
+    delete legacy.activeAccountId
+    fs.writeFileSync(walletFilePath, JSON.stringify(legacy))
+    const before = fs.readFileSync(walletFilePath)
+    const unlockedBefore = structuredClone(storage.getUnlockedWallet(network))
+
+    const input = { privateKey: second.privateKeyWif, network } as const
+    const result = await service.walletImportAccount({ ...input, password: 'other-password' })
+    expect(result).toMatchObject({
+      ok: false,
+      output: 'Could not import the wallet account.',
+      walletAddress: first.address,
+      account: null
+    })
+    expect(result.activeAccountId).toBeTruthy()
+    expect(result.accounts).toMatchObject([{ id: result.activeAccountId, address: first.address, isActive: true }])
+    expect(fs.readFileSync(walletFilePath)).toEqual(before)
+    expect(storage.getUnlockedWallet(network)).toEqual(unlockedBefore)
+
+    const accepted = await service.walletImportAccount({ ...input, password: 'original-password' })
+    expect(accepted).toMatchObject({ ok: true, account: { address: second.address } })
+    storage.closeWalletSession(network)
+    const unlocked = storage.unlockWalletSession('original-password', network)
+    expect(unlocked?.accounts.map((account) => account.privateKey)).toEqual([first.privateKeyWif, second.privateKeyWif])
+  })
+
+  it.each([
+    { action: 'adding a new address', upgrade: false },
+    { action: 'upgrading a watched address', upgrade: true }
+  ])('sets the first password in a watch-only vault when $action', async ({ upgrade }) => {
+    const { storage, service } = createWalletTestService()
+    const [original, watched, retained] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 3)
+    const network = 'mainnet'
+    storage.saveWallet(original.privateKeyWif, original.address, 'previous-password', { network })
+    const [priorAccount] = storage.listWalletAccounts(network)
+    const watchedAccount = storage.importWatchWalletAccount(watched.address, 'Watched', network)
+    const retainedAccount = storage.importWatchWalletAccount(retained.address, 'Retained', network)
+    expect(storage.removeWalletAccount(priorAccount.id, network)?.map((account) => account.kind))
+      .toEqual(['watch-only', 'watch-only'])
+
+    const imported = upgrade ? watched : original
+    const result = await service.walletImportAccount({
+      privateKey: imported.privateKeyWif,
+      password: 'first-vault-password',
+      network
+    })
+    expect(result).toMatchObject({ ok: true, account: { address: imported.address, kind: 'imported-wif', isActive: true } })
+    expect(result.accounts).toHaveLength(upgrade ? 2 : 3)
+    expect(result.accounts.find((account) => account.id === watchedAccount?.id)?.kind)
+      .toBe(upgrade ? 'imported-wif' : 'watch-only')
+    expect(result.accounts.find((account) => account.id === retainedAccount?.id))
+      .toMatchObject({ address: retained.address, name: 'Retained', kind: 'watch-only' })
+
+    storage.closeWalletSession(network)
+    const unlocked = storage.unlockWalletSession('first-vault-password', network)
+    expect(unlocked).toMatchObject({ activeAccountId: result.activeAccountId, privateKey: imported.privateKeyWif })
+  })
+
   it('builds the expected derivation path', () => {
     expect(walletDerivationPath(0)).toBe("m/44'/659'/0'/0/0")
     expect(walletDerivationPath(1)).toBe("m/44'/659'/1'/0/0")
