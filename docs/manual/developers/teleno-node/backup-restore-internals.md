@@ -76,3 +76,29 @@ is not.
 Public bootstrap sources are read-only from the operator UI. Publishing public
 bootstrap backups is a maintainer/release workflow, not a normal settings
 operation.
+
+## JavaScript Public Bootstrap Publisher
+
+The unreleased Koinos One source candidate requires an Ed25519 signing key for
+actual publication through both JavaScript publisher routes. The promotion
+script's `--dry-run` may be unsigned and writes no public tree; the overlay
+command has no dry-run mode. The overlay publisher
+copies only hash-verified objects selected by the snapshot; it refuses an old
+destination that links `objects` to the private repository. Published metadata
+and objects are checked after writing. Consumers still need the matching
+trusted public key and signature-required configuration.
+
+Both publishers hold a destination write lock until the staged snapshot is
+verified, the pointer is updated, and retention finishes. Overlay `--replace`
+creates a new published ID and keeps the source backup ID as provenance.
+Publication includes the validated observer config even when the source omitted
+it. Consult the operator guide below before clearing an interrupted writer's
+lock or staging directory.
+
+For a tree that uses the old symlink layout, stage a new independent destination
+and verify its signed contents and a trust-configured consumer before an
+approved hosting or upload cutover. Preserve the old tree and routing record
+for rollback review. Do not serve the old tree again if it exposes the private
+store; withdraw the bootstrap route until a safe tree is ready. The detailed
+operator boundary is in
+[`PUBLIC_BOOTSTRAP_RESTORE.md`](https://github.com/koinos/koinos-one/blob/main/docs/current/backup-restore/PUBLIC_BOOTSTRAP_RESTORE.md).

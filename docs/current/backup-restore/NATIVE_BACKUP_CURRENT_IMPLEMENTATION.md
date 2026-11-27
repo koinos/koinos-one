@@ -307,9 +307,9 @@ Implemented behavior:
 - SHA-256 verification for every accepted object.
 - Ed25519 signature verification for public bootstrap metadata when `signature-required` is true or a verification key file is configured.
 - Reuse of the same local native repository, restore preflight, restore staging, and activation logic used by authenticated backup restore.
-- Sanitized public testnet snapshot promotion through `scripts/promote-public-bootstrap-backup.js`, including optional signed-envelope generation with `--signing-private-key-file`.
+- Sanitized public testnet snapshot promotion through `scripts/promote-public-bootstrap-backup.js`. The development publisher requires an Ed25519 key via `--signing-private-key-file` for publication. An unsigned `--dry-run` can plan the promotion.
 - Bundled testnet public verification key at `node/teleno-node/config/public-bootstrap/testnet-ed25519.pub`.
-- Local public-bootstrap fixture/unit tests and promotion smoke test through `scripts/smoke-public-bootstrap-promotion.sh`.
+- Local public-bootstrap fixture and unit tests. The promotion smoke script `scripts/smoke-public-bootstrap-promotion.sh` uses a disposable signing key and requires signature verification for its local `file://` list and fetch.
 
 The public bootstrap route currently configured for testnet is:
 

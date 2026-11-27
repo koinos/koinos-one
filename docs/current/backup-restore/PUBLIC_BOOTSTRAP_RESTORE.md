@@ -123,6 +123,52 @@ tests/helpers/public-bootstrap-fixture.js
 tests/promote-public-bootstrap-backup.test.js
 ```
 
+## Operator publisher source candidate
+
+The JavaScript `promote-public-bootstrap-backup.js` and
+`publish-public-bootstrap-overlay.js` routes in the unreleased source candidate
+require an Ed25519 private key through `--signing-private-key-file` for actual
+publication. The promotion script's unsigned `--dry-run` remains available for
+planning and writes no public tree; the overlay command has no dry-run mode.
+The overlay route copies only the selected snapshot's
+hash-verified objects into an independent destination and refuses an existing
+`objects` symlink to the private source repository. A source-valid plan and a
+published-tree check are both required. The operator must separately configure
+the matching trusted public key and signature enforcement for each consumer;
+the publisher's signature alone does not establish consumer trust.
+
+Both publisher commands use one write lock per destination. They verify the
+staged snapshot and its signed pointer before making it current, then apply
+retention while holding the lock. An overlay `--replace` publishes a new
+backup ID for the same source backup. Use the new `backup_id` for explicit
+restore and `source_backup_id` to trace the input. The previous snapshot stays
+available until it is eligible for normal retention. The validated observer
+template is included even when the source omitted `config.yml`.
+
+If a process stops abruptly, pause both publishers and verify that no writer is
+still using the destination before clearing the empty
+`.public-bootstrap-write.lock` directory. Check `latest.json` and the completed
+snapshot it names. An interrupted run can leave `.public-bootstrap-stage-*`
+directories beside the targets or a verified snapshot that was installed before
+the pointer changed. Keep completed snapshots for inspection or normal retention.
+Once writers are stopped, discard only the abandoned staging directories and
+retry. Use the overlay's `--replace` to stage a fresh published ID
+if the previous attempt already installed a completed snapshot. Keep lock and
+staging directories out of the upload.
+
+For an existing symlink-based publication tree, prepare a fresh independent
+destination outside the private repository. Keep the old tree intact while the
+operator reviews the source snapshot, runs a dry-run, and checks that the new
+signed tree contains only intended objects and has a real `objects` directory.
+Validate a restore consumer with its intended trust key and signature-required
+setting against that staged tree. Only after review and explicit approval should
+an operator switch the hosting or upload target to it. Retain the old tree and
+the previous routing configuration as rollback evidence. Before restoring a
+previous route, verify that its tree is safe to serve; if it still exposes a
+private store, withdraw the public bootstrap route until a safe destination is
+available. This source change does not perform a hosting cutover or migrate an
+existing tree automatically.
+
 New CMake targets:
 
 ```text
