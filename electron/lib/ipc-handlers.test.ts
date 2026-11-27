@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { registerTelenoIpcHandlers } from './ipc-handlers'
 
-type FakeHandler = (event: { sender: unknown }, input?: unknown) => Promise<unknown>
+type FakeHandler = (event: { sender: unknown; senderFrame?: unknown }, input?: unknown) => Promise<unknown>
 
 function createFakeIpcMain() {
   const handlers = new Map<string, FakeHandler>()
@@ -24,6 +24,7 @@ function createFakeIpcMain() {
 
 function createDeps() {
   return {
+    isTrustedIpcSender: vi.fn(() => true),
     quitApp: vi.fn(),
     firstRunSetupState: vi.fn(async () => ({ ok: true, completed: false })),
     completeFirstRunSetup: vi.fn(async (input?: unknown) => ({ ok: true, completed: true, setup: input })),
@@ -113,6 +114,26 @@ function createDeps() {
 }
 
 describe('ipc-handlers', () => {
+  it('rejects an untrusted frame on every privileged handler', async () => {
+    const ipcMain = createFakeIpcMain()
+    const deps = createDeps()
+    deps.isTrustedIpcSender.mockReturnValue(false)
+    registerTelenoIpcHandlers(ipcMain as any, deps as any)
+
+    for (const handler of ipcMain.handlers.values()) {
+      await expect(Promise.resolve().then(() => handler({ sender: {}, senderFrame: {} })))
+        .rejects.toThrow('Unauthorized IPC sender')
+    }
+    for (const handler of ipcMain.syncHandlers.values()) {
+      const event = { sender: {}, senderFrame: {}, returnValue: 'untrusted' }
+      ;(handler as (input: { sender: unknown; senderFrame: unknown; returnValue: unknown }) => void)(event)
+      expect(event.returnValue).toBeUndefined()
+    }
+    expect(deps.quitApp).not.toHaveBeenCalled()
+    expect(deps.walletShowSeed).not.toHaveBeenCalled()
+    expect(deps.executeRemoteCommandPlan).not.toHaveBeenCalled()
+    expect(deps.koinosJsonRpcProxy).not.toHaveBeenCalled()
+  })
   it('registers the app quit handler', async () => {
     const ipcMain = createFakeIpcMain()
     const deps = createDeps()

@@ -11,6 +11,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Keep the Electron main window on the app entry, verify the sender frame
+  before privileged IPC, and run the renderer in the sandbox.
 - Keep free mana previews unsigned and warn before confirming a send or burn
   that will submit signed estimates to the selected RPC server.
 - Validate fetched contract ABI data before caching and use bundled core ABIs
