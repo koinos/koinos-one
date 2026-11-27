@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Verify the existing wallet password before adding an imported key to a vault.
 - Keep free mana previews unsigned and warn before confirming a send or burn
   that will submit signed estimates to the selected RPC server.
 - Validate fetched contract ABI data before caching and use bundled core ABIs

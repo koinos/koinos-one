@@ -266,6 +266,10 @@ function accountSummary(account: TelenoEncryptedWalletAccount, activeAccountId: 
   }
 }
 
+export function summarizeWalletAccounts(wallet: TelenoEncryptedWallet | null): TelenoWalletAccountSummary[] {
+  return (wallet?.accounts || []).map((account) => accountSummary(account, wallet?.activeAccountId || null))
+}
+
 function sanitizeAccountName(name: string | undefined, fallback: string): string {
   const trimmed = `${name || ''}`.trim()
   return trimmed || fallback
@@ -461,6 +465,58 @@ function unlockedWalletFromFile(wallet: TelenoEncryptedWallet, password: string)
     accountName: activeAccount?.name || null,
     accountKind: activeAccount?.kind || null,
     accounts
+  }
+}
+
+function isWatchOnlyVaultWithoutSecrets(parsed: unknown): boolean {
+  const wallet = parsed as Partial<TelenoEncryptedWallet> | null
+  if (
+    wallet?.version !== 2 ||
+    wallet.encryptedKey != null ||
+    wallet.encryptedSeedPhrase != null ||
+    wallet.seedDerivationPath != null ||
+    !Array.isArray(wallet.accounts) ||
+    wallet.accounts.length === 0
+  ) return false
+
+  const ids = new Set<string>()
+  const addresses = new Set<string>()
+  for (const account of wallet.accounts) {
+    if (
+      account?.kind !== 'watch-only' ||
+      account.encryptedKey != null ||
+      account.derivationPath != null ||
+      typeof account.id !== 'string' || !account.id.trim() ||
+      typeof account.name !== 'string' || !account.name.trim() ||
+      typeof account.address !== 'string' || !account.address.trim()
+    ) return false
+
+    const id = account.id.trim()
+    const address = account.address.trim().toLowerCase()
+    if (ids.has(id) || addresses.has(address)) return false
+    ids.add(id)
+    addresses.add(address)
+  }
+
+  return wallet.accounts.some((account) => account.id === wallet.activeAccountId && account.address === wallet.address)
+}
+
+function assertVaultAcceptsImportPassword(wallet: TelenoEncryptedWallet, parsed: unknown, password: string): void {
+  const secrets = [
+    wallet.encryptedSeedPhrase,
+    wallet.encryptedKey,
+    ...(wallet.accounts || []).map((account) => account.encryptedKey)
+  ].filter((secret): secret is TelenoEncryptedSecret => Boolean(secret))
+
+  if (secrets.length === 0) {
+    // Check the stored record because normalization can discard malformed accounts and secret fields.
+    if (isWatchOnlyVaultWithoutSecrets(parsed)) return
+    throw new Error('Could not import the wallet account.')
+  }
+  try {
+    for (const secret of secrets) decryptTelenoWalletSecret(secret, password)
+  } catch {
+    throw new Error('Could not import the wallet account.')
   }
 }
 
@@ -786,25 +842,28 @@ export function createTelenoStorage(userDataPath: string) {
     }
   }
 
-  const loadWalletFile = (network?: KoinosNetworkId): TelenoEncryptedWallet | null => {
+  const readWalletFile = (network?: KoinosNetworkId, migrate = true) => {
     const walletFilePath = producerWalletFilePath(network)
     if (!fs.existsSync(walletFilePath)) return null
 
     try {
       const raw = fs.readFileSync(walletFilePath, 'utf8')
-      const parsed = JSON.parse(raw)
+      const parsed: unknown = JSON.parse(raw)
       const normalized = normalizeWalletFilePayload(parsed)
       if (!normalized) return null
 
-      if (normalized.version !== 2 || !Array.isArray((parsed as { accounts?: unknown }).accounts)) {
+      if (migrate && (normalized.version !== 2 || !Array.isArray((parsed as { accounts?: unknown }).accounts))) {
         writeWalletFile(normalized, network)
       }
 
-      return normalized
+      return { wallet: normalized, parsed }
     } catch {
       return null
     }
   }
+
+  const loadWalletFile = (network?: KoinosNetworkId, migrate = true): TelenoEncryptedWallet | null =>
+    readWalletFile(network, migrate)?.wallet ?? null
 
   const loadProducerProfile = (network?: KoinosNetworkId): TelenoProducerProfile | null => {
     const requestedNetwork = requestedWalletNetwork(network)
@@ -949,10 +1008,8 @@ export function createTelenoStorage(userDataPath: string) {
     return walletAddress
   }
 
-  const listWalletAccounts = (network?: KoinosNetworkId): TelenoWalletAccountSummary[] => {
-    const wallet = loadWalletFile(network)
-    return (wallet?.accounts || []).map((account) => accountSummary(account, wallet?.activeAccountId || null))
-  }
+  const listWalletAccounts = (network?: KoinosNetworkId): TelenoWalletAccountSummary[] =>
+    summarizeWalletAccounts(loadWalletFile(network))
 
   const resolveWalletQueryAddress = (address?: string, accountId?: string, network?: KoinosNetworkId): string | null => {
     const scopedUnlockedWallet = getUnlockedWalletForNetwork(network)
@@ -1056,11 +1113,15 @@ export function createTelenoStorage(userDataPath: string) {
   ): TelenoWalletAccountSummary | null => {
     const signer = Signer.fromWif(privateKey)
     const address = signer.getAddress()
-    const existingWallet = loadWalletFile(network)
-    if (!existingWallet) {
+    const existing = readWalletFile(network, false)
+    if (!existing) {
+      if (fs.existsSync(producerWalletFilePath(network))) throw new Error('Could not import the wallet account.')
       saveWallet(privateKey, address, password, { network })
       return listWalletAccounts(network)[0] || null
     }
+
+    const { wallet: existingWallet, parsed } = existing
+    assertVaultAcceptsImportPassword(existingWallet, parsed, password)
 
     const existingAccounts = existingWallet.accounts || []
     const existingIndex = existingAccounts.findIndex((account) => account.address.toLowerCase() === address.toLowerCase())
