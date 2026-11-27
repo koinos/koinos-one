@@ -1597,8 +1597,8 @@ async function executeRemoteCommandPlan(input?: unknown) {
   return result
 }
 
-function loadTelenoWalletFile(network?: KoinosNetworkId): TelenoEncryptedWallet | null {
-  return telenoStorage.loadWalletFile(network) as TelenoEncryptedWallet | null
+function loadTelenoWalletFile(network?: KoinosNetworkId, migrate?: boolean): TelenoEncryptedWallet | null {
+  return telenoStorage.loadWalletFile(network, migrate) as TelenoEncryptedWallet | null
 }
 
 function loadProducerProfile(network?: KoinosNetworkId): TelenoProducerProfile | null {

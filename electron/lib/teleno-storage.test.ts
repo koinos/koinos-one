@@ -299,4 +299,103 @@ describe('teleno storage', () => {
     expect(storage.getUnlockedWallet()?.activeAccountId).toBe(watchOnly?.id)
     expect(storage.getUnlockedWallet()?.privateKey).toBe(secondAccount.privateKeyWif)
   })
+
+  it('rejects a different password before changing an existing vault or unlocked session', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-password-'))
+    const seedPhrase = 'test test test test test test test test test test test junk'
+    const [first, second] = deriveWalletAccountsFromSeed(seedPhrase, 2)
+    const walletFilePath = storage.saveWallet(first.privateKeyWif, first.address, 'original-password', {
+      seedPhrase,
+      derivationPath: first.derivationPath
+    })
+    const before = fs.readFileSync(walletFilePath)
+    const unlockedBefore = structuredClone(storage.getUnlockedWallet())
+
+    expect(() => storage.importWalletAccount(second.privateKeyWif, 'other-password')).toThrow()
+    expect(fs.readFileSync(walletFilePath).equals(before)).toBe(true)
+    expect(storage.getUnlockedWallet()).toEqual(unlockedBefore)
+    expect(storage.loadWallet('original-password')?.privateKey).toBe(first.privateKeyWif)
+  })
+
+  it('rejects a different password when upgrading a watch-only account', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-password-watch-'))
+    const [first, second] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 2)
+    const walletFilePath = storage.saveWallet(first.privateKeyWif, first.address, 'original-password')
+    const watch = storage.importWatchWalletAccount(second.address)
+    const before = fs.readFileSync(walletFilePath)
+    const unlockedBefore = structuredClone(storage.getUnlockedWallet())
+
+    expect(() => storage.importWalletAccount(second.privateKeyWif, 'other-password')).toThrow()
+    expect(fs.readFileSync(walletFilePath).equals(before)).toBe(true)
+    expect(storage.getUnlockedWallet()).toEqual(unlockedBefore)
+    expect(storage.loadWallet('original-password')?.accounts.find((account) => account.id === watch?.id)?.kind).toBe('watch-only')
+  })
+
+  it('imports with the original password and keeps previous secrets readable', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-password-valid-'))
+    const [first, second] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 2)
+    storage.saveWallet(first.privateKeyWif, first.address, 'original-password')
+    expect(storage.importWalletAccount(second.privateKeyWif, 'original-password')?.address).toBe(second.address)
+    const loaded = storage.loadWallet('original-password')
+    expect(loaded?.accounts.map((account) => account.privateKey)).toEqual([first.privateKeyWif, second.privateKeyWif])
+    expect(() => storage.loadWallet('other-password')).toThrow()
+  })
+
+  it('creates a new vault through account import when no file exists', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-password-new-'))
+    const [first] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 1)
+    expect(storage.importWalletAccount(first.privateKeyWif, 'original-password')?.address).toBe(first.address)
+    expect(storage.loadWallet('original-password')?.privateKey).toBe(first.privateKeyWif)
+  })
+
+  it('leaves an existing vault without an authenticatable secret unchanged', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-password-empty-'))
+    const [first, second] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 2)
+    const walletFilePath = storage.saveWallet(first.privateKeyWif, first.address, 'original-password')
+    const wallet = JSON.parse(fs.readFileSync(walletFilePath, 'utf8'))
+    wallet.encryptedKey = null
+    wallet.accounts[0].encryptedKey = null
+    fs.writeFileSync(walletFilePath, JSON.stringify(wallet))
+    const before = fs.readFileSync(walletFilePath)
+
+    expect(() => storage.importWalletAccount(second.privateKeyWif, 'original-password')).toThrow()
+    expect(fs.readFileSync(walletFilePath).equals(before)).toBe(true)
+  })
+
+  it.each(['malformed encrypted field', 'malformed account'])('refuses first password setup with a %s', (damage) => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-watch-only-invalid-'))
+    const [first, second] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 2)
+    const walletFilePath = storage.saveWallet(first.privateKeyWif, first.address, 'original-password')
+    const [priorAccount] = storage.listWalletAccounts()
+    storage.importWatchWalletAccount(second.address)
+    storage.removeWalletAccount(priorAccount.id)
+    const wallet = JSON.parse(fs.readFileSync(walletFilePath, 'utf8'))
+    if (damage === 'malformed encrypted field') {
+      wallet.encryptedKey = 'incomplete'
+    } else {
+      wallet.accounts.push(null)
+    }
+    fs.writeFileSync(walletFilePath, JSON.stringify(wallet))
+    const before = fs.readFileSync(walletFilePath)
+
+    expect(() => storage.importWalletAccount(first.privateKeyWif, 'other-password')).toThrow('Could not import the wallet account.')
+    expect(fs.readFileSync(walletFilePath)).toEqual(before)
+  })
+
+  it('does not migrate a legacy file before rejecting a different password', () => {
+    const storage = createTelenoStorage(createTempDir('teleno-storage-password-legacy-'))
+    const [first, second] = deriveWalletAccountsFromSeed('test test test test test test test test test test test junk', 2)
+    const walletFilePath = storage.saveWallet(first.privateKeyWif, first.address, 'original-password')
+    const wallet = JSON.parse(fs.readFileSync(walletFilePath, 'utf8'))
+    delete wallet.version
+    delete wallet.accounts
+    delete wallet.activeAccountId
+    fs.writeFileSync(walletFilePath, JSON.stringify(wallet))
+    const before = fs.readFileSync(walletFilePath)
+
+    expect(() => storage.importWalletAccount(second.privateKeyWif, 'other-password')).toThrow()
+    expect(fs.readFileSync(walletFilePath).equals(before)).toBe(true)
+    expect(storage.importWalletAccount(second.privateKeyWif, 'original-password')?.address).toBe(second.address)
+    expect(storage.loadWallet('original-password')?.accounts).toHaveLength(2)
+  })
 })
