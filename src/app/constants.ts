@@ -1,3 +1,4 @@
+import { MAINNET_LEGACY_BACKUP_URL } from '../../electron/lib/legacy-backup-url'
 import type { ExplorerSettings, NodeBackupSettings, NodeManagerSettings } from './types'
 import { MAINNET_PUBLIC_RPC_URLS } from './network'
 
@@ -71,7 +72,7 @@ export const DEFAULT_NODE_SETTINGS = {
   repoPath: '/Users/pgarcgo/code/koinos_code/koinos',
   baseDir: '~/.teleno',
   profiles: 'mainnet_observer',
-  blockchainBackupUrl: 'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz',
+  blockchainBackupUrl: MAINNET_LEGACY_BACKUP_URL,
   backup: { ...DEFAULT_NODE_BACKUP_SETTINGS }
 } as const satisfies NodeManagerSettings
 

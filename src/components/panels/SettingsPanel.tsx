@@ -32,6 +32,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     hasNodeControls,
     draftNodeNetwork,
     setDraftNodeNetwork,
+    draftNodeBlockchainBackupUrl,
+    setDraftNodeBlockchainBackupUrl,
     draftNodeBackup,
     setDraftNodeBackup,
     draftNodeBackupPassword = '',
@@ -501,6 +503,29 @@ export function SettingsPanel(props: SettingsPanelProps) {
         )}
 
         {/* ─── Backup ─── */}
+        {activeTab === 'backup' && hasNodeControls && (
+          <div className="settings-row">
+            <label htmlFor="legacy-backup-url">
+              {t('settings.blockchainBackupTitle')}
+              <input
+                id="legacy-backup-url"
+                type="text"
+                inputMode="url"
+                value={draftNodeBlockchainBackupUrl}
+                aria-describedby="legacy-backup-url-help"
+                onChange={(event) => {
+                  setFormError(null)
+                  setDraftNodeBlockchainBackupUrl(event.target.value)
+                }}
+                spellCheck={false}
+                autoComplete="off"
+                disabled={nodeBusy}
+              />
+            </label>
+            <p id="legacy-backup-url-help" className="settings-inline-help">{t('settings.blockchainBackupDescription')}</p>
+          </div>
+        )}
+
         {activeTab === 'backup' && !advancedMode && (
           <>
             <div className="settings-subheader">
@@ -510,6 +535,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             <p className="settings-inline-help">
               {t('settings.backupSimpleRestoreHint')}
             </p>
+            {hasNodeControls && renderFormError()}
             <div className="settings-actions settings-actions-inline">
               <button
                 type="button"
@@ -519,6 +545,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
               >
                 {t('settings.backupShowExpertControls')}
               </button>
+              {hasNodeControls && (
+                <button type="submit" className={saveSettingsButtonClass} disabled={!settingsDirty}>
+                  {t('settings.saveSettings')}
+                </button>
+              )}
             </div>
           </>
         )}

@@ -9,6 +9,7 @@ import {
   resolveKoinosConfigRoot
 } from './constants'
 import { isExistingTelenoNodeBaseDir } from './basedir-identity'
+import { legacyBackupUrlForNetwork } from './legacy-backup-url'
 import {
   defaultProfilesForNetwork,
   normalizeKoinosNetworkId,
@@ -280,9 +281,7 @@ export function normalizeNodeSettings(
   const network = resolveNetworkProfile(input?.network, profileFromInput).id
   const baseDir = ensureKoinosBaseDir(input?.baseDir || defaultBaseDirForNetwork(network))
   const profiles = profileFromInput ?? defaultProfilesForNetwork(network) ?? NATIVE_DEFAULT_PROFILES
-  const networkProfile = resolveNetworkProfile(network, profiles)
-  const defaultBackupUrl = networkProfile.blockchainBackupUrl ?? ''
-  const blockchainBackupUrl = (input?.blockchainBackupUrl ?? defaultBackupUrl).trim()
+  const blockchainBackupUrl = legacyBackupUrlForNetwork(input?.blockchainBackupUrl, network)
 
   return {
     network,

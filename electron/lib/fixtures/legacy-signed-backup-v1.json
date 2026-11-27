@@ -1,0 +1,19 @@
+{
+  "description": "Disposable TAR and Ed25519 public key. The manifest came from the legacy v1 publisher.",
+  "archiveUrl": "https://backups.example.test/backup.tar.gz",
+  "archiveBase64": "H4sIAAAAAAAC/+3USw6CMBhF4Y5dhRswtNDHckxFjEQUwiPR3dsQB4ZonEjVeL5JmTE4uX/jL1Xtt4mYkQycMeMbTN8H3y5zViyNiGDoet+GX4r/1Nz653tfnpIv6a+ktpL+Mftvqjo/rLu+bovk8/2Vk5r+8fdf9sVxnv1brZ/3V3baP8vC/Zf0n92uPPdDW6zG/gsB7v/br8DL/ad6sv/UWMX+Y+7/rj9XAAAAAAAAAAAAAPhRV3tmzykAKAAA",
+  "metadata": "Backup Metadata\r\nIncluded Directories:\r\nchain/   1 KB\r\nblock_store/   1 KB\r\n",
+  "checksumSidecar": "c92a8cf513e91260ec5d77b38192a8251301e628aa5f4c5b0d342620c4696a71  backup.tar.gz\n",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAjedHZUBALrbv0gAi9BsnUygFt9u9O9wUw2XDVP4lex4=\n-----END PUBLIC KEY-----\n",
+  "manifest": {
+    "format": "teleno-legacy-backup-signature",
+    "version": 1,
+    "algorithm": "ed25519",
+    "payload": {
+      "archive_url": "https://backups.example.test/backup.tar.gz",
+      "archive_sha256": "c92a8cf513e91260ec5d77b38192a8251301e628aa5f4c5b0d342620c4696a71",
+      "metadata_sha256": "371a9885d454510dbd4deebda7c1a6c2762f744a1312c0c4f7350d05abed39a5"
+    },
+    "signature_hex": "e1519663723d69b18b14ae4598cbf4749af792e8cf62fae34f2508deee7631b76306d7ac35427faf6861501224188d325c54b5fab4dbbf66be007b2218a17509"
+  }
+}

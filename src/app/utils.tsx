@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { LegacyBackupUrlError, legacyBackupUrlForNetwork, normalizeBlockchainBackupArchiveUrl } from '../../electron/lib/legacy-backup-url'
 import { detectAppLanguage, normalizeAppLanguage, translate, type AppLanguage } from '../i18n'
 import {
   ANSI_BASIC_COLORS,
@@ -46,7 +47,7 @@ import type {
   RawTransactionReceipt,
   TransactionDetail
 } from './types'
-import { normalizeKoinosNetworkId, type KoinosNetworkId } from './network'
+import { KOINOS_NETWORK_OPTIONS, normalizeKoinosNetworkId, type KoinosNetworkId } from './network'
 
 export function safeParseInt(value: string | undefined, fallback = 0): number {
   if (!value) return fallback
@@ -275,16 +276,18 @@ export function normalizeRpcUrl(raw: string, language: AppLanguage): string {
 }
 
 export function normalizeBackupTarGzUrl(raw: string, language: AppLanguage): string {
-  const value = raw.trim()
-  if (!value) throw new Error(translate(language, 'backup.validation.empty'))
-  const parsed = new URL(value)
-  if (!/^https?:$/.test(parsed.protocol)) {
-    throw new Error(translate(language, 'backup.validation.http'))
+  try {
+    return normalizeBlockchainBackupArchiveUrl(raw)
+  } catch (error) {
+    if (error instanceof LegacyBackupUrlError) {
+      throw new Error(translate(language, `backup.validation.${error.reason}`))
+    }
+    throw error
   }
-  if (!parsed.pathname.endsWith('.tar.gz')) {
-    throw new Error(translate(language, 'backup.validation.tar'))
-  }
-  return parsed.toString()
+}
+
+export function normalizeBackupUrlSetting(raw: string, network: KoinosNetworkId, language: AppLanguage): string {
+  return raw.trim() ? normalizeBackupTarGzUrl(raw, language) : legacyBackupUrlForNetwork(undefined, network)
 }
 
 export function tryNormalizeHttpUrl(raw: string): string | null {
@@ -530,7 +533,42 @@ type InitialNodeSettingsInput = {
   baseDir?: unknown
   profiles?: unknown
   blockchainBackupUrl?: unknown
+  blockchainBackupUrlsByNetwork?: unknown
   backup?: Partial<NodeBackupSettings> | null
+}
+
+function parseNodeBackupUrls(input: unknown): Partial<Record<KoinosNetworkId, string>> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const values = input as Record<string, unknown>
+  const urls: Partial<Record<KoinosNetworkId, string>> = {}
+  for (const { id } of KOINOS_NETWORK_OPTIONS) {
+    const value = values[id]
+    if (typeof value === 'string') urls[id] = legacyBackupUrlForNetwork(value, id)
+  }
+  return urls
+}
+
+function savedNodeBackupUrls(settings: NodeManagerSettings): Partial<Record<KoinosNetworkId, string>> {
+  return settings.blockchainBackupUrlsByNetwork ?? { [settings.network]: settings.blockchainBackupUrl }
+}
+
+export function nodeBackupUrlForNetwork(settings: NodeManagerSettings, network = settings.network): string {
+  return legacyBackupUrlForNetwork(savedNodeBackupUrls(settings)[network], network)
+}
+
+export function nodeSettingsWithBackupUrl(
+  settings: NodeManagerSettings,
+  network: KoinosNetworkId,
+  explicitUrl?: string
+): NodeManagerSettings {
+  const saved = savedNodeBackupUrls(settings)
+  const blockchainBackupUrl = legacyBackupUrlForNetwork(explicitUrl ?? saved[network], network)
+  return {
+    ...settings,
+    network,
+    blockchainBackupUrl,
+    blockchainBackupUrlsByNetwork: explicitUrl === undefined ? saved : { ...saved, [network]: blockchainBackupUrl }
+  }
 }
 
 function normalizeInitialNodeSettings(
@@ -559,6 +597,10 @@ function normalizeInitialNodeSettings(
     options.preferInputBaseDir && parsedBaseDir
       ? normalizeNodeBaseDirInput(parsedBaseDir)
       : resolveNodeBaseDirForNetwork(network, parsedBaseDir)
+  const blockchainBackupUrlsByNetwork = parseNodeBackupUrls(parsed.blockchainBackupUrlsByNetwork) ??
+    (typeof parsed.blockchainBackupUrl === 'string'
+      ? { [network]: legacyBackupUrlForNetwork(parsed.blockchainBackupUrl, network) }
+      : {})
   return {
     network,
     repoPath:
@@ -567,10 +609,8 @@ function normalizeInitialNodeSettings(
         : DEFAULT_NODE_SETTINGS.repoPath,
     baseDir,
     profiles,
-    blockchainBackupUrl:
-      typeof parsed.blockchainBackupUrl === 'string' && parsed.blockchainBackupUrl.trim()
-        ? parsed.blockchainBackupUrl
-        : DEFAULT_NODE_SETTINGS.blockchainBackupUrl,
+    blockchainBackupUrl: legacyBackupUrlForNetwork(blockchainBackupUrlsByNetwork[network], network),
+    blockchainBackupUrlsByNetwork,
     backup: syncLocalBackupPathsToBaseDir(normalizeNodeBackupSettings(parsed.backup), baseDir)
   }
 }
@@ -588,27 +628,34 @@ function applyLaunchNodeSettingsOverride(settings: NodeManagerSettings): NodeMan
   const override = readLaunchNodeSettingsOverride()
   if (!override) return settings
 
-  const overrideNetwork = override.network ? normalizeKoinosNetworkId(override.network) : null
+  const network = override.network ? normalizeKoinosNetworkId(override.network) : settings.network
+  const launchSettings = nodeSettingsWithBackupUrl(
+    settings,
+    network,
+    typeof override.blockchainBackupUrl === 'string' ? override.blockchainBackupUrl : undefined
+  )
   const hasProfiles =
     (typeof override.profiles === 'string' && override.profiles.trim().length > 0) ||
     (Array.isArray(override.profiles) && override.profiles.some((profile) => typeof profile === 'string' && profile.trim()))
   const hasBaseDir = typeof override.baseDir === 'string' && override.baseDir.trim().length > 0
-  const networkChanged = Boolean(overrideNetwork && overrideNetwork !== settings.network)
+  const networkChanged = network !== settings.network
   const overrideBackup = override.backup && typeof override.backup === 'object' ? override.backup : {}
 
   return normalizeInitialNodeSettings(
     {
-      ...settings,
+      ...launchSettings,
       ...override,
+      network,
+      blockchainBackupUrlsByNetwork: launchSettings.blockchainBackupUrlsByNetwork,
       profiles: hasProfiles
         ? override.profiles
-        : networkChanged && overrideNetwork
-          ? defaultNodeProfilesForNetwork(overrideNetwork)
+        : networkChanged
+          ? defaultNodeProfilesForNetwork(network)
           : settings.profiles,
       baseDir: hasBaseDir
         ? override.baseDir
-        : networkChanged && overrideNetwork
-          ? defaultNodeBaseDirForNetwork(overrideNetwork)
+        : networkChanged
+          ? defaultNodeBaseDirForNetwork(network)
           : settings.baseDir,
       backup: {
         ...settings.backup,
@@ -779,7 +826,7 @@ export function toNodeApiSettings(settings: NodeManagerSettings): TelenoNodeSett
     repoPath: settings.repoPath.trim(),
     baseDir: normalizeNodeBaseDirInput(settings.baseDir),
     profiles: expandNodeProfiles(parseProfilesCsv(settings.profiles)),
-    blockchainBackupUrl: settings.blockchainBackupUrl.trim(),
+    blockchainBackupUrl: nodeBackupUrlForNetwork(settings),
     backup: normalizeNodeBackupSettings(settings.backup)
   }
 }

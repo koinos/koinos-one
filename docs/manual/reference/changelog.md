@@ -16,6 +16,12 @@ All notable changes to this project are documented in this file.
   before privileged IPC, and run the renderer in the sandbox.
 - Keep free mana previews unsigned and warn before confirming a send or burn
   that will submit signed estimates to the selected RPC server.
+- Limit legacy blockchain restore to the expected data directories and check
+  restore paths before replacing local data.
+- Authenticate remote legacy blockchain backups with a trusted signed
+  manifest over HTTPS, verify the archive used for extraction, and isolate
+  overlapping restores. Save legacy URLs per network in Settings > Backup
+  and migrate the former backup default on mainnet.
 - Isolate exported bootstrap objects from private storage and require an
   Ed25519-signed plan for publication.
 - Keep the current bootstrap snapshot readable until its replacement is verified
