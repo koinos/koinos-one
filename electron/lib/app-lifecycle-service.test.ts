@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const electronMock = vi.hoisted(() => ({
   nextWindow: null as any,
@@ -42,6 +46,8 @@ function createFakeWindow() {
     setProgressBar: vi.fn(),
     webContents: {
       isDestroyed: vi.fn(() => false),
+      mainFrame: { url: '', isDestroyed: vi.fn(() => false) },
+      getURL: vi.fn(() => ''),
       on: vi.fn((event: string, handler: (...args: any[]) => void) => {
         webContentsHandlers.set(event, handler)
         return undefined
@@ -108,8 +114,9 @@ function createDeps(overrides: Partial<Parameters<typeof createAppLifecycleServi
   let shutdownInProgress = false
   const nativeServiceProcesses = new Map<string, NativeServiceProcessState>()
   return {
-    isDev: false,
+    isPackaged: false,
     platform: 'darwin' as NodeJS.Platform,
+    bundledEntryPath: path.join(__dirname, '../../dist/index.html'),
     preloadPath: '/tmp/preload.js',
     nodeSettingsStorageKey: 'node-settings',
     languageStorageKey: 'language',
@@ -256,7 +263,6 @@ describe('app lifecycle service menu bar behavior', () => {
     const win = createFakeWindow()
     electronMock.nextWindow = win
     const deps = createDeps({
-      isDev: true,
       viteDevServerUrl: 'http://localhost:5173/'
     })
     const service = createAppLifecycleService(deps)
@@ -272,23 +278,32 @@ describe('app lifecycle service menu bar behavior', () => {
     expect(deps.openExternalUrl).toHaveBeenCalledWith('https://github.com/koinos/koinos-one/blob/main/src/i18n.ts')
   })
 
-  it('keeps documentation iframe navigation inside the app for local manual pages', () => {
+  it('loads and trusts the Vite entry and permits same-origin manual links and search', () => {
     const win = createFakeWindow()
     electronMock.nextWindow = win
     const deps = createDeps({
-      isDev: true,
       viteDevServerUrl: 'http://localhost:5173/'
     })
     const service = createAppLifecycleService(deps)
     service.createWindow()
 
-    const event = {
-      url: 'http://localhost:5173/manual-site/developers/gui/i18n-and-gui-copy.html',
-      preventDefault: vi.fn()
-    }
-    win.webContentsHandlers.get('will-frame-navigate')?.(event)
+    expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173/')
+    expect(win.loadFile).not.toHaveBeenCalled()
+    const frame = win.webContents.mainFrame
+    frame.url = 'http://localhost:5173/'
+    win.webContents.getURL.mockReturnValue(frame.url)
+    expect(service.isTrustedIpcSender(win.webContents as any, frame as any)).toBe(true)
 
-    expect(event.preventDefault).not.toHaveBeenCalled()
+    const guide = 'http://localhost:5173/manual-site/developers/gui/i18n-and-gui-copy.html'
+    const navigate = (url: string) => {
+      const event = { url, frame: {}, preventDefault: vi.fn() }
+      win.webContentsHandlers.get('will-frame-navigate')?.(event)
+      return event.preventDefault
+    }
+
+    expect(navigate(guide + '#examples')).not.toHaveBeenCalled()
+    expect(navigate('http://localhost:5173/manual-site/search.html?q=GUI+copy')).not.toHaveBeenCalled()
+    expect(navigate(guide + '?q=GUI+copy')).toHaveBeenCalledOnce()
     expect(deps.openExternalUrl).not.toHaveBeenCalled()
   })
 
@@ -305,5 +320,90 @@ describe('app lifecycle service menu bar behavior', () => {
 
     expect(response).toEqual({ action: 'deny' })
     expect(deps.openExternalUrl).toHaveBeenCalledWith('https://github.com/koinos/koinos-one')
+  })
+
+  it('denies non-HTTP navigation and child windows without opening them externally', () => {
+    const win = createFakeWindow()
+    electronMock.nextWindow = win
+    const deps = createDeps()
+    const service = createAppLifecycleService(deps)
+    service.createWindow()
+
+    const event = { url: 'data:text/html,inert', frame: {}, preventDefault: vi.fn() }
+    win.webContentsHandlers.get('will-frame-navigate')?.(event)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    win.webContentsHandlers.get('will-redirect')?.(event)
+    expect(event.preventDefault).toHaveBeenCalledTimes(2)
+    expect(win.getWindowOpenHandler()?.({ url: 'file:///tmp/inert.html' })).toEqual({ action: 'deny' })
+    expect(deps.openExternalUrl).not.toHaveBeenCalled()
+  })
+
+  it('selects and trusts the exact bundled entry in a packaged app even with a Vite URL configured', () => {
+    const win = createFakeWindow()
+    electronMock.nextWindow = win
+    const deps = createDeps({ isPackaged: true, viteDevServerUrl: 'http://localhost:5173/' })
+    const service = createAppLifecycleService(deps)
+    service.createWindow()
+    expect(win.loadURL).not.toHaveBeenCalled()
+    expect(win.loadFile).toHaveBeenCalledWith(deps.bundledEntryPath)
+    const entry = pathToFileURL(deps.bundledEntryPath).href
+    const frame = win.webContents.mainFrame
+    frame.url = entry
+    win.webContents.getURL.mockReturnValue(entry)
+
+    expect(service.isTrustedIpcSender(win.webContents as any, frame as any)).toBe(true)
+    expect(service.isTrustedIpcSender(win.webContents as any, { url: entry } as any)).toBe(false)
+    frame.url = 'http://localhost:5173/'
+    win.webContents.getURL.mockReturnValue(frame.url)
+    expect(service.isTrustedIpcSender(win.webContents as any, frame as any)).toBe(false)
+  })
+
+  it('permits local bundled HTML only in a child frame and checks its canonical location', () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'koinos-one-manual-'))
+    try {
+      const renderer = path.join(directory, 'dist')
+      const manual = path.join(renderer, 'manual-site')
+      const other = path.join(directory, 'other')
+      mkdirSync(manual, { recursive: true })
+      mkdirSync(other)
+      const entry = path.join(renderer, 'index.html')
+      const guide = path.join(manual, 'guide.html')
+      const search = path.join(manual, 'search.html')
+      writeFileSync(entry, 'Test entry')
+      writeFileSync(guide, 'Test guide')
+      writeFileSync(search, 'Test search page')
+      writeFileSync(path.join(other, 'guide.html'), 'Separate test guide')
+      symlinkSync(other, path.join(manual, 'linked'), 'junction')
+
+      const win = createFakeWindow()
+      electronMock.nextWindow = win
+      const deps = createDeps({ isPackaged: true, bundledEntryPath: entry })
+      createAppLifecycleService(deps).createWindow()
+      const localGuide = pathToFileURL(guide)
+      localGuide.hash = 'section'
+      const searchResult = pathToFileURL(search)
+      searchResult.searchParams.set('q', 'Build information')
+      const otherAuthority = new URL(localGuide)
+      otherAuthority.host = 'manual.example.invalid'
+      const frame = {}
+      const navigate = (url: URL, sender = frame) => {
+        const event = { url: url.href, frame: sender, preventDefault: vi.fn() }
+        win.webContentsHandlers.get('will-frame-navigate')?.(event)
+        return event.preventDefault
+      }
+
+      expect(navigate(localGuide)).not.toHaveBeenCalled()
+      expect(navigate(localGuide, win.webContents.mainFrame)).toHaveBeenCalledOnce()
+      expect(navigate(searchResult)).not.toHaveBeenCalled()
+      expect(navigate(searchResult, win.webContents.mainFrame)).toHaveBeenCalledOnce()
+      const multipleFields = new URL(searchResult)
+      multipleFields.searchParams.set('page', '2')
+      expect(navigate(multipleFields)).toHaveBeenCalledOnce()
+      expect(navigate(otherAuthority)).toHaveBeenCalledOnce()
+      expect(navigate(pathToFileURL(path.join(manual, 'linked', 'guide.html')))).toHaveBeenCalledOnce()
+      expect(deps.openExternalUrl).not.toHaveBeenCalled()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

@@ -62,7 +62,7 @@ test('publish writes sanitized snapshot', () => withTempDir((root) => {
   const backupId = createSourceRepository(root);
   writeTemplate(root);
 
-  const plan = promote.buildPlan(options(root, false));
+  const plan = promote.buildPlan({ ...options(root, false), signingPrivateKeyFile: writeEd25519PrivateKey(root) });
   promote.publish(plan);
   promote.validatePublishedTree(plan);
 
@@ -86,6 +86,53 @@ test('publish writes sanitized snapshot', () => withTempDir((root) => {
   assert.equal(manifest.public_bootstrap.restore_space.object_download_bytes, plan.publicMetadataJson.total_bytes);
   assert.equal(plan.publicMetadataJson.source.storage_layout, 'unified');
   assert.equal(plan.publicMetadataJson.restore_space.minimum_target_free_bytes, manifest.sizes.minimum_target_free_bytes);
+}));
+
+test('signed publish includes the observer template when the source config is absent', () => withTempDir((root) => {
+  const backupId = createSourceRepository(root, [], { includeConfig: false });
+  writeTemplate(root);
+  const signingPrivateKeyFile = writeEd25519PrivateKey(root);
+  const plan = promote.buildPlan({ ...options(root, false), signingPrivateKeyFile });
+  promote.publish(plan);
+  const dest = plan.destinationRepository;
+  const snapshot = path.join(dest, 'snapshots', backupId);
+  const filesBytes = fs.readFileSync(path.join(snapshot, 'files.json'));
+  const manifestBytes = fs.readFileSync(path.join(snapshot, 'manifest.json'));
+  const metadataBytes = fs.readFileSync(path.join(snapshot, 'public-bootstrap.json'));
+  const envelope = JSON.parse(fs.readFileSync(path.join(snapshot, 'public-bootstrap-signature.json'), 'utf8'));
+  const files = JSON.parse(filesBytes).files;
+  const manifest = JSON.parse(manifestBytes);
+  const metadata = JSON.parse(metadataBytes);
+  const config = files.find((entry) => entry.path === 'config.yml');
+  assert.equal(config.runtime_file, true);
+  assert.equal(config.sha256, metadata.sanitized_config_sha256);
+  assert.equal(config.size_bytes, metadata.sanitized_config_size_bytes);
+  const configBytes = fs.readFileSync(promote.objectPath(dest, config.sha256));
+  assert.equal(configBytes.toString('utf8'), OBSERVER_CONFIG);
+  assert.equal(configBytes.length, config.size_bytes);
+  assert.equal(sha256(configBytes), config.sha256);
+  assert.equal(files.length, 4);
+  assert.equal(manifest.snapshot.file_count, files.length);
+  assert.equal(metadata.file_count, files.length);
+  const objectCount = new Set(files.map((entry) => entry.sha256)).size;
+  const totalBytes = files.reduce((total, entry) => total + entry.size_bytes, 0);
+  assert.equal(metadata.object_count, objectCount);
+  assert.equal(envelope.payload.object_count, objectCount);
+  assert.equal(manifest.snapshot.total_bytes, totalBytes);
+  assert.equal(metadata.total_bytes, totalBytes);
+  assert.equal(envelope.payload.total_bytes, totalBytes);
+  assert.equal(envelope.payload.sanitized_config_sha256, config.sha256);
+  for (const [field, bytes] of [
+    ['latest_sha256', fs.readFileSync(path.join(dest, 'latest.json'))],
+    ['files_sha256', filesBytes],
+    ['manifest_sha256', manifestBytes],
+    ['public_metadata_sha256', metadataBytes],
+  ]) {
+    assert.equal(envelope.payload[field], sha256(bytes));
+  }
+  const publicKey = crypto.createPublicKey(fs.readFileSync(signingPrivateKeyFile));
+  assert.ok(crypto.verify(null, Buffer.from(promote.canonicalizeJson(envelope.payload)), publicKey,
+    Buffer.from(envelope.signature_hex, 'hex')));
 }));
 
 test('publish can write and verify a signed public bootstrap envelope', () => withTempDir((root) => {
@@ -147,6 +194,72 @@ test('rejects object hash mismatch', () => withTempDir((root) => {
   fs.writeFileSync(promote.objectPath(path.join(root, 'source-repository'), dbEntry.sha256), 'corrupt');
 
   assert.throws(() => promote.buildPlan(options(root, true)), /size mismatch|hash mismatch/);
+}));
+
+test('rejects unsigned publication while allowing an unsigned dry-run plan', () => withTempDir((root) => {
+  createSourceRepository(root);
+  writeTemplate(root);
+  const plan = promote.buildPlan(options(root, true));
+  assert.equal(plan.signed, false);
+  assert.throws(() => promote.publish(plan), /requires an Ed25519 signature/);
+  assert.equal(fs.existsSync(path.join(root, 'teleno-bootstrap')), false);
+}));
+
+test('rejects backslash paths', () => withTempDir((root) => {
+  const repo = path.join(root, 'source-repository');
+  const entry = makeFileEntry(repo, 'db\\..\\private.key', Buffer.from('synthetic'), false);
+  createSourceRepository(root, [entry]);
+  writeTemplate(root);
+  assert.throws(() => promote.buildPlan(options(root, true)), /unsafe relative path/);
+}));
+
+test('parses effective observer YAML and allows harmless comments', () => withTempDir((root) => {
+  createSourceRepository(root);
+  const template = writeTemplate(root);
+  fs.appendFileSync(template, '# block_producer: true and private-key-file are examples only\n');
+  assert.doesNotThrow(() => promote.buildPlan(options(root, true)));
+  fs.writeFileSync(template, 'features:\n  block_producer: false\nchain:\n  verify-blocks: false\n# verify-blocks: true\n');
+  assert.throws(() => promote.buildPlan(options(root, true)), /must enable chain.verify-blocks/);
+  fs.writeFileSync(template, 'features:\n  block_producer: false\n  block_producer: true\nchain:\n  verify-blocks: true\n');
+  assert.throws(() => promote.buildPlan(options(root, true)), /invalid YAML/);
+  fs.writeFileSync(template, 'safe: &producer true\nfeatures:\n  block_producer: *producer\nchain:\n  verify-blocks: true\n');
+  assert.throws(() => promote.buildPlan(options(root, true)), /disable block production/);
+  fs.writeFileSync(template, 'features:\n  block_producer: false\nchain:\n  verify-blocks: true\nbackup:\n  password-file: synthetic-secret-path\n');
+  assert.throws(() => promote.buildPlan(options(root, true)), /forbidden setting/);
+}));
+
+test('rejects nested admin token settings in observer YAML', () => withTempDir((root) => {
+  createSourceRepository(root);
+  const template = writeTemplate(root);
+  fs.appendFileSync(template, 'admin:\n  token: synthetic-token\n');
+  assert.throws(() => promote.buildPlan(options(root, true)), /forbidden setting: admin.token/);
+  fs.writeFileSync(template, `${OBSERVER_CONFIG}extension:\n  admin:\n    token: synthetic-token\n`);
+  assert.throws(() => promote.buildPlan(options(root, true)), /forbidden setting: admin.token/);
+}));
+
+test('rejects a non-Ed25519 signing key', () => withTempDir((root) => {
+  createSourceRepository(root);
+  writeTemplate(root);
+  const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const keyFile = path.join(root, 'rsa-key.pem');
+  fs.writeFileSync(keyFile, privateKey.export({ type: 'pkcs8', format: 'pem' }));
+  assert.throws(() => promote.buildPlan({ ...options(root, false), signingPrivateKeyFile: keyFile }), /must be Ed25519/);
+}));
+
+test('publishes only allowlisted manifest fields', () => withTempDir((root) => {
+  const backupId = createSourceRepository(root);
+  writeTemplate(root);
+  const file = path.join(root, 'source-repository', 'snapshots', backupId, 'manifest.json');
+  const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+  source.operator_secret = 'synthetic-private-marker';
+  source.node.operator_secret = 'synthetic-private-marker';
+  fs.writeFileSync(file, JSON.stringify(source));
+  const plan = promote.buildPlan(options(root, true));
+  assert.equal(JSON.stringify(plan.manifestJson).includes('synthetic-private-marker'), false);
+  assert.deepEqual(Object.keys(plan.manifestJson).sort(), [
+    'backup_id', 'created_at', 'format', 'node', 'public_bootstrap', 'repository',
+    'restore', 'sizes', 'snapshot', 'source', 'version',
+  ]);
 }));
 
 test('main dry-run does not write public destination', () => withTempDir((root) => {
