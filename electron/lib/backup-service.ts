@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, createPublicKey, randomBytes, verify, type KeyObject } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -10,9 +10,6 @@ import { parseDocument } from 'yaml'
 
 import { DEFAULT_BASEDIR, resolveMonolithBinaryPath, resolveTelenoConfigRoot } from './constants'
 import type {
-  BlockchainBackupArchiveState,
-  BlockchainBackupExtractState,
-  BlockchainBackupWorkspacePaths,
   KoinosJsonRpcProxyInput,
   KoinosJsonRpcProxyResult,
   TelenoNodeBackupProgressAction,
@@ -41,6 +38,7 @@ import type {
   TelenoNodeValidateBaseDirResult
 } from './main-types'
 import { normalizeBackupSettings } from './node-paths'
+import { legacyBackupUrlForNetwork, normalizeBlockchainBackupArchiveUrl } from './legacy-backup-url'
 import { directoryHasEntries } from './workspace-service'
 
 const BLOCKCHAIN_BACKUP_REQUIRED_DIRS = ['chain', 'block_store'] as const
@@ -62,6 +60,10 @@ function saveLastBackupPath(backupFilePath: string): void {
 }
 const BLOCKCHAIN_BACKUP_RESET_DIRS = ['mempool'] as const
 const BLOCKCHAIN_BACKUP_CACHE_DIR = '.teleno-blockchain-backup-cache'
+const LEGACY_RESTORE_LOCK = '.teleno-legacy-restore.lock'
+const legacyRestoreQueue = new Map<string, Promise<void>>()
+const EXCLUSIVE_ARCHIVE_COPY = fs.constants.COPYFILE_EXCL | fs.constants.COPYFILE_FICLONE
+class LegacyRestoreRecoveryError extends Error {}
 const NATIVE_BACKUP_DIR = '.teleno-native-backups'
 const PUBLIC_TESTNET_BOOTSTRAP_URL = 'https://testnet.koinosfoundation.org/backups/testnet/teleno-bootstrap'
 const PUBLIC_MAINNET_BOOTSTRAP_URL = 'https://seed.koinosfoundation.org/backups/prodnet/teleno-bootstrap'
@@ -156,22 +158,7 @@ type BackupServiceDeps = {
   ) => Promise<{ ok: boolean; code: number | null; output: string }>
 }
 
-export function normalizeBlockchainBackupArchiveUrl(raw: string): string {
-  const value = raw.trim()
-  if (!value) {
-    throw new Error('La URL del backup blockchain no puede estar vacia')
-  }
-
-  const parsed = new URL(value)
-  if (!/^https?:$/.test(parsed.protocol)) {
-    throw new Error('La URL del backup blockchain debe usar http o https')
-  }
-  if (!parsed.pathname.endsWith('.tar.gz')) {
-    throw new Error('La URL del backup blockchain debe apuntar a un archivo .tar.gz')
-  }
-
-  return parsed.toString()
-}
+export { normalizeBlockchainBackupArchiveUrl } from './legacy-backup-url'
 
 function blockchainBackupMetadataUrl(archiveUrl: string): string {
   const parsed = new URL(archiveUrl)
@@ -185,39 +172,66 @@ export function blockchainBackupChecksumUrl(archiveUrl: string): string {
   return parsed.toString()
 }
 
-function blockchainBackupWorkspacePaths(
+function blockchainBackupCachePath(
   restoreWorkspaceParent: string,
   archiveUrl: string,
   checksum: string
-): BlockchainBackupWorkspacePaths {
+): string {
   const archiveKey = createHash('sha1').update(archiveUrl).digest('hex').slice(0, 12)
-  const workspaceDir = path.join(
-    restoreWorkspaceParent,
-    BLOCKCHAIN_BACKUP_CACHE_DIR,
-    `${archiveKey}-${checksum.slice(0, 12)}`
-  )
-  return {
-    workspaceDir,
-    archivePath: path.join(workspaceDir, 'backup.tar.gz'),
-    archiveStatePath: path.join(workspaceDir, 'archive-state.json'),
-    extractDir: path.join(workspaceDir, 'extract'),
-    extractStatePath: path.join(workspaceDir, 'extract-state.json')
+  const cacheRoot = checkedRestoreChild(restoreWorkspaceParent, BLOCKCHAIN_BACKUP_CACHE_DIR)
+  fs.mkdirSync(cacheRoot, { recursive: true, mode: 0o700 })
+  const cacheDir = checkedRestoreChild(cacheRoot, `${archiveKey}-${checksum.slice(0, 12)}`)
+  fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 })
+  return checkedRestoreChild(cacheDir, 'backup.tar.gz')
+}
+
+function createRestoreAttempt(restoreWorkspaceParent: string): string {
+  fs.mkdirSync(restoreWorkspaceParent, { recursive: true })
+  return fs.mkdtempSync(path.join(fs.realpathSync(restoreWorkspaceParent), '.teleno-legacy-restore-'))
+}
+
+function removeRestoreAttempt(attempt: string): void {
+  try {
+    fs.rmSync(attempt, { recursive: true, force: true })
+  } catch (error) {
+    console.warn('Could not remove the legacy restore workspace', attempt, error)
   }
 }
 
-function readJsonFile<T>(filePath: string): T | null {
-  if (!fs.existsSync(filePath)) return null
+async function withLegacyRestoreDestination<T>(
+  settings: TelenoNodeSettings,
+  restore: (lockedSettings: TelenoNodeSettings) => Promise<T>
+): Promise<T> {
+  fs.mkdirSync(settings.baseDir, { recursive: true })
+  if (fs.lstatSync(settings.baseDir).isSymbolicLink()) throw new Error('Select the real node data directory for restore.')
+  const baseDir = fs.realpathSync(settings.baseDir)
+  const { dev, ino } = fs.statSync(baseDir, { bigint: true })
+  const key = ino === 0n ? baseDir : `${dev}:${ino}`
+  const previous = legacyRestoreQueue.get(key)
+  let release!: () => void
+  const turn = new Promise<void>((resolve) => { release = resolve })
+  legacyRestoreQueue.set(key, turn)
+  await previous
 
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-  } catch {
-    return null
+    const lockPath = path.join(baseDir, LEGACY_RESTORE_LOCK)
+    const lock = await fs.promises.open(lockPath, 'wx', 0o600).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'EEXIST') throw new Error('Another legacy restore holds this data folder. Retry after it finishes.')
+      throw error
+    })
+    try {
+      return await restore({ ...settings, baseDir })
+    } finally {
+      try {
+        await lock.close()
+      } finally {
+        await fs.promises.unlink(lockPath)
+      }
+    }
+  } finally {
+    release()
+    if (legacyRestoreQueue.get(key) === turn) legacyRestoreQueue.delete(key)
   }
-}
-
-function writeJsonFile(filePath: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true })
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
 function nativeBackupRepositoryDir(baseDir: string): string {
@@ -876,21 +890,6 @@ function uniqueStringList(values: string[]): string[] {
   return result
 }
 
-function buildBlockchainBackupArchiveState(archivePath: string): BlockchainBackupArchiveState {
-  const stats = fs.statSync(archivePath)
-  return {
-    size: stats.size,
-    mtimeMs: stats.mtimeMs,
-    updatedAt: Date.now()
-  }
-}
-
-function archiveStateMatchesFile(filePath: string, state: BlockchainBackupArchiveState | null): boolean {
-  if (!state || !fs.existsSync(filePath)) return false
-  const stats = fs.statSync(filePath)
-  return stats.size === state.size && stats.mtimeMs === state.mtimeMs
-}
-
 export function parseBlockchainBackupMetadataDirectories(raw: string): string[] {
   const lines = raw.split(/\r?\n/)
   let inSection = false
@@ -909,10 +908,58 @@ export function parseBlockchainBackupMetadataDirectories(raw: string): string[] 
 
     const match = trimmed.match(/^([^\s]+\/)(?:\s|$)/)
     if (!match) continue
-    directories.push(match[1].replace(/\/+$/, ''))
+    const dirName = match[1].replace(/\/+$/, '')
+    if (match[1] !== `${dirName}/`) throw new Error(`Invalid blockchain restore directory: ${JSON.stringify(match[1])}`)
+    assertBlockchainRestoreDirectory(dirName)
+    directories.push(dirName)
   }
 
   return uniqueStringList(directories)
+}
+
+function isBlockchainRestoreDirectory(dirName: string): boolean {
+  return (BLOCKCHAIN_BACKUP_REQUIRED_DIRS as readonly string[]).includes(dirName)
+}
+
+function assertBlockchainRestoreDirectory(dirName: string): void {
+  if (!isBlockchainRestoreDirectory(dirName)) {
+    throw new Error(`Unsupported blockchain restore directory: ${JSON.stringify(dirName)}`)
+  }
+}
+
+function validatedBlockchainRestoreDirectories(directories: string[]): string[] {
+  const unique = uniqueStringList(directories)
+  for (const dirName of unique) assertBlockchainRestoreDirectory(dirName)
+  if (!unique.length) throw new Error('No supported blockchain restore directories')
+  return unique
+}
+
+// Resolve every path component before a cleanup or copy. A symlink in a cached
+// extraction or the selected data directory must never redirect a restore.
+function checkedRestoreChild(baseDir: string, dirName: string): string {
+  const base = path.resolve(baseDir)
+  if (fs.lstatSync(base).isSymbolicLink()) throw new Error(`Restore directory is a symlink: ${base}`)
+  const realBase = fs.realpathSync(base)
+  const child = path.join(base, dirName)
+  if (path.relative(base, child) !== dirName) {
+    throw new Error(`Restore path leaves its base: ${child}`)
+  }
+  try {
+    const stat = fs.lstatSync(child)
+    if (stat.isSymbolicLink()) throw new Error(`Restore path is a symlink: ${child}`)
+    if (fs.realpathSync(child) !== path.join(realBase, dirName)) throw new Error(`Restore path leaves its base: ${child}`)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  return child
+}
+
+function assertRestoreTreeHasNoSymlinks(root: string): void {
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const entryPath = path.join(root, entry.name)
+    if (entry.isSymbolicLink()) throw new Error(`Backup payload contains a symlink: ${entryPath}`)
+    if (entry.isDirectory()) assertRestoreTreeHasNoSymlinks(entryPath)
+  }
 }
 
 export function parseBlockchainBackupSha256Checksum(
@@ -951,7 +998,7 @@ async function fetchBlockchainBackupChecksum(archiveUrl: string): Promise<{ ok: 
   const checksumUrl = blockchainBackupChecksumUrl(archiveUrl)
 
   try {
-    const response = await fetch(checksumUrl)
+    const response = await fetch(checksumUrl, { redirect: 'error' })
     if (!response.ok) {
       return {
         ok: false,
@@ -974,39 +1021,64 @@ async function fetchBlockchainBackupChecksum(archiveUrl: string): Promise<{ ok: 
   }
 }
 
-async function fetchBlockchainBackupMetadata(
-  archiveUrl: string
-): Promise<{ ok: boolean; directories?: string[]; output: string }> {
+async function fetchBlockchainBackupMetadata(archiveUrl: string): Promise<Buffer> {
   const metadataUrl = blockchainBackupMetadataUrl(archiveUrl)
+  const response = await fetch(metadataUrl, { redirect: 'error' })
+  if (!response.ok) {
+    throw new Error(`Legacy backup metadata unavailable (HTTP ${response.status})`)
+  }
+  return Buffer.from(await response.arrayBuffer())
+}
 
+function loadLegacyBlockchainBackupPublicKey(): KeyObject {
+  const publicKeyFile = process.env.TELENO_BACKUP_SIGNATURE_PUBLIC_KEY_FILE
+  if (!publicKeyFile) throw new Error('Set TELENO_BACKUP_SIGNATURE_PUBLIC_KEY_FILE to a trusted legacy backup public key')
+
+  let publicKey: KeyObject
   try {
-    const response = await fetch(metadataUrl)
-    if (!response.ok) {
-      return {
-        ok: false,
-        output: `No se pudo descargar el metadata del backup blockchain (HTTP ${response.status})`
-      }
-    }
+    publicKey = createPublicKey(fs.readFileSync(publicKeyFile))
+  } catch {
+    throw new Error('Could not read the configured legacy backup public key')
+  }
+  if (publicKey.asymmetricKeyType !== 'ed25519') throw new Error('The legacy backup public key must be Ed25519')
+  return publicKey
+}
 
-    const body = await response.text()
-    const directories = parseBlockchainBackupMetadataDirectories(body)
-    if (!directories.length) {
-      return {
-        ok: false,
-        output: `El metadata del backup blockchain no lista directorios restaurables: ${metadataUrl}`
-      }
-    }
+function canonicalBackupSignatureJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalBackupSignatureJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    const fields = Object.keys(value).sort().map((key) => {
+      const item = (value as Record<string, unknown>)[key]
+      return `${JSON.stringify(key)}:${canonicalBackupSignatureJson(item)}`
+    })
+    return `{${fields.join(',')}}`
+  }
+  return JSON.stringify(value)
+}
 
-    return {
-      ok: true,
-      directories,
-      output: `Metadata directories: ${directories.join(', ')}`
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      output: error instanceof Error ? error.message : 'No se pudo obtener el metadata del backup blockchain'
-    }
+async function verifyLegacyBlockchainBackupManifest(
+  archiveUrl: string,
+  metadata: Buffer,
+  checksum: string,
+  publicKey: KeyObject
+): Promise<void> {
+  const response = await fetch(`${archiveUrl}.manifest.json`, { redirect: 'error' })
+  if (!response.ok) throw new Error(`Legacy backup manifest unavailable (HTTP ${response.status})`)
+
+  const envelope = await response.json() as Record<string, unknown> | null
+  const payload = envelope?.payload as Record<string, unknown> | undefined
+  const signature = envelope?.signature_hex
+  if (envelope?.format !== 'teleno-legacy-backup-signature' || envelope.version !== 1 || envelope.algorithm !== 'ed25519' ||
+      !payload || typeof payload !== 'object' || Array.isArray(payload) ||
+      typeof signature !== 'string' || !/^[0-9a-f]{128}$/i.test(signature)) {
+    throw new Error('Invalid legacy backup signature envelope')
+  }
+  if (!verify(null, Buffer.from(canonicalBackupSignatureJson(payload)), publicKey, Buffer.from(signature, 'hex'))) {
+    throw new Error('Legacy backup signature does not match the trusted key')
+  }
+  if (payload.archive_url !== archiveUrl || payload.archive_sha256 !== checksum ||
+      payload.metadata_sha256 !== createHash('sha256').update(metadata).digest('hex')) {
+    throw new Error('Legacy backup signed manifest does not match the archive or metadata')
   }
 }
 
@@ -1024,24 +1096,6 @@ function formatByteCount(bytes: number): string {
 
 function normalizeTarEntryPath(entry: string): string {
   return entry.replace(/\\/g, '/').replace(/^\.\//, '')
-}
-
-function hasBlockchainBackupPayload(dirPath: string): boolean {
-  return BLOCKCHAIN_BACKUP_REQUIRED_DIRS.some((entry) => fs.existsSync(path.join(dirPath, entry)))
-}
-
-function findBlockchainBackupPayloadRoot(dirPath: string, depth = 0): string | null {
-  if (hasBlockchainBackupPayload(dirPath)) return dirPath
-  if (depth >= 4) return null
-
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const candidate = findBlockchainBackupPayloadRoot(path.join(dirPath, entry.name), depth + 1)
-    if (candidate) return candidate
-  }
-
-  return null
 }
 
 function scanBlockchainBackupArchive(
@@ -1207,7 +1261,7 @@ async function listBlockchainBackupPayloadDirectoriesFromArchive(
     if (segments.length === 1 && !rawEntry.endsWith('/')) return false
 
     const dirName = segments[0]
-    if (!seen.has(dirName)) {
+    if (isBlockchainRestoreDirectory(dirName) && !seen.has(dirName)) {
       seen.add(dirName)
       directories.push(dirName)
     }
@@ -1276,13 +1330,10 @@ async function verifyBlockchainBackupArchiveFile(
 async function downloadBlockchainBackupArchive(
   url: string,
   archivePath: string,
-  expectedSha256: string,
   onProgress?: (downloadedBytes: number, totalBytes: number | null) => void
 ): Promise<{ ok: boolean; output: string }> {
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true })
-
   try {
-    const response = await fetch(url)
+    const response = await fetch(url, { redirect: 'error' })
     if (!response.ok) {
       return {
         ok: false,
@@ -1301,36 +1352,25 @@ async function downloadBlockchainBackupArchive(
     const parsedTotal = totalHeader ? Number.parseInt(totalHeader, 10) : Number.NaN
     const totalBytes = Number.isFinite(parsedTotal) && parsedTotal > 0 ? parsedTotal : null
     let downloadedBytes = 0
-    const hash = createHash('sha256')
     onProgress?.(downloadedBytes, totalBytes)
 
     const source = Readable.fromWeb(response.body as never)
     const progressTap = new Transform({
       transform(chunk, _encoding, callback) {
-        hash.update(chunk)
         downloadedBytes += chunk.length
         onProgress?.(downloadedBytes, totalBytes)
         callback(null, chunk)
       }
     })
 
-    await pipeline(source, progressTap, fs.createWriteStream(archivePath))
+    await pipeline(source, progressTap, fs.createWriteStream(archivePath, { flags: 'wx', mode: 0o600 }))
     onProgress?.(downloadedBytes, totalBytes)
-    const actualSha256 = hash.digest('hex')
-
-    if (actualSha256 !== expectedSha256) {
-      return {
-        ok: false,
-        output: `Checksum SHA-256 invalido para el backup blockchain (esperado ${expectedSha256}, recibido ${actualSha256})`
-      }
-    }
-
     return {
       ok: true,
       output:
         totalBytes !== null
-          ? `Downloaded ${formatByteCount(downloadedBytes)} of ${formatByteCount(totalBytes)} and verified SHA-256 ${actualSha256}`
-          : `Downloaded ${formatByteCount(downloadedBytes)} and verified SHA-256 ${actualSha256}`
+          ? `Downloaded ${formatByteCount(downloadedBytes)} of ${formatByteCount(totalBytes)}`
+          : `Downloaded ${formatByteCount(downloadedBytes)}`
     }
   } catch (error) {
     return {
@@ -1340,79 +1380,57 @@ async function downloadBlockchainBackupArchive(
   }
 }
 
-async function ensureBlockchainBackupArchiveCached(
+async function prepareLegacyRestoreArchive(
   archiveUrl: string,
+  cachePath: string,
   archivePath: string,
-  archiveStatePath: string,
   expectedSha256: string,
   onProgress?: (downloadedBytes: number, totalBytes: number | null) => void
-): Promise<{ ok: boolean; output: string }> {
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true })
-
-  let reuseNote = ''
-  const cachedState = readJsonFile<BlockchainBackupArchiveState>(archiveStatePath)
-  if (fs.existsSync(archivePath)) {
-    if (archiveStateMatchesFile(archivePath, cachedState)) {
-      return {
-        ok: true,
-        output: `Using cached backup archive ${archivePath}`
-      }
-    }
-
-    const verifyResult = await verifyBlockchainBackupArchiveFile(archivePath, expectedSha256)
-    if (verifyResult.ok) {
-      writeJsonFile(archiveStatePath, buildBlockchainBackupArchiveState(archivePath))
-      return {
-        ok: true,
-        output: `Using existing backup archive ${archivePath}. ${verifyResult.output}`
-      }
-    }
-
-    reuseNote = `Cached backup archive invalid, re-downloading. ${verifyResult.output}`
-    fs.rmSync(archivePath, { force: true })
-    fs.rmSync(archiveStatePath, { force: true })
+): Promise<{ ok: boolean; output: string; downloaded: boolean }> {
+  let cacheNote = ''
+  try {
+    // Verification and TAR both use this attempt's copy.
+    await fs.promises.copyFile(cachePath, archivePath, EXCLUSIVE_ARCHIVE_COPY)
+    const verification = await verifyBlockchainBackupArchiveFile(archivePath, expectedSha256)
+    if (verification.ok) return { ok: true, downloaded: false, output: `Using cached archive. ${verification.output}` }
+    cacheNote = `Cached backup archive did not verify. ${verification.output}`
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') cacheNote = 'Could not copy the cached backup archive.'
   }
+  fs.rmSync(archivePath, { force: true })
 
-  const downloadResult = await downloadBlockchainBackupArchive(archiveUrl, archivePath, expectedSha256, onProgress)
-  if (!downloadResult.ok) {
-    fs.rmSync(archivePath, { force: true })
-    return {
-      ok: false,
-      output: [reuseNote, downloadResult.output].filter(Boolean).join('\n')
-    }
-  }
-
-  writeJsonFile(archiveStatePath, buildBlockchainBackupArchiveState(archivePath))
+  const download = await downloadBlockchainBackupArchive(archiveUrl, archivePath, onProgress)
+  if (!download.ok) return { ok: false, downloaded: false, output: [cacheNote, download.output].filter(Boolean).join('\n') }
+  const verification = await verifyBlockchainBackupArchiveFile(archivePath, expectedSha256)
   return {
-    ok: true,
-    output: [reuseNote, downloadResult.output].filter(Boolean).join('\n')
+    ok: verification.ok,
+    downloaded: verification.ok,
+    output: [cacheNote, download.output, verification.output].filter(Boolean).join('\n')
   }
 }
 
 function blockchainBackupPayloadRootPath(extractDir: string, payloadRootRelativePath: string): string {
-  if (!payloadRootRelativePath) return extractDir
-  return path.join(extractDir, ...payloadRootRelativePath.split('/').filter(Boolean))
-}
-
-function buildBlockchainBackupExtractState(
-  payloadRootRelativePath: string,
-  restoreDirectories: string[],
-  completedDirectories: string[]
-): BlockchainBackupExtractState {
-  const normalizedRestoreDirectories = uniqueStringList(restoreDirectories)
-  const allowed = new Set<string>(normalizedRestoreDirectories)
-  return {
-    payloadRootRelativePath,
-    restoreDirectories: normalizedRestoreDirectories,
-    completedDirectories: uniqueStringList(completedDirectories).filter((dirName) => allowed.has(dirName)),
-    updatedAt: Date.now()
+  let current = path.resolve(extractDir)
+  if (fs.lstatSync(current).isSymbolicLink()) throw new Error(`Restore directory is a symlink: ${current}`)
+  if (!payloadRootRelativePath) return current
+  for (const segment of payloadRootRelativePath.split('/')) {
+    if (!/^[A-Za-z0-9._-]+$/.test(segment) || segment === '.' || segment === '..') {
+      throw new Error(`Invalid archive payload root: ${JSON.stringify(payloadRootRelativePath)}`)
+    }
+    const next = path.join(current, segment)
+    try {
+      if (fs.lstatSync(next).isSymbolicLink()) throw new Error(`Restore directory is a symlink: ${next}`)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    current = next
   }
+  return current
 }
 
-async function extractBlockchainBackupDirectories(
+export async function extractBlockchainBackupDirectories(
   archivePath: string,
   extractDir: string,
-  extractStatePath: string,
   payloadRootRelativePath: string,
   restoreDirectories: string[],
   runCommand: BackupServiceDeps['runCommand'],
@@ -1420,46 +1438,17 @@ async function extractBlockchainBackupDirectories(
   /** Called periodically during extraction with (extractedBytes) for incremental progress */
   onExtractPoll?: (extractedBytes: number) => void
 ): Promise<{ ok: boolean; output: string }> {
-  fs.mkdirSync(extractDir, { recursive: true })
-
+  const directories = validatedBlockchainRestoreDirectories(restoreDirectories)
+  fs.mkdirSync(extractDir)
   const payloadRoot = blockchainBackupPayloadRootPath(extractDir, payloadRootRelativePath)
-  const existingState = readJsonFile<BlockchainBackupExtractState>(extractStatePath)
-  const currentRestoreDirectories = uniqueStringList(restoreDirectories)
-  const extractedDirectories = new Set<string>()
+  fs.mkdirSync(payloadRoot, { recursive: true })
 
-  if (
-    existingState &&
-    existingState.payloadRootRelativePath === payloadRootRelativePath &&
-    existingState.restoreDirectories.every((dirName) => currentRestoreDirectories.includes(dirName))
-  ) {
-    for (const dirName of existingState.completedDirectories) {
-      if (fs.existsSync(path.join(payloadRoot, dirName))) extractedDirectories.add(dirName)
-    }
-  }
-
-  let extractState = buildBlockchainBackupExtractState(
-    payloadRootRelativePath,
-    currentRestoreDirectories,
-    [...extractedDirectories]
-  )
-  writeJsonFile(extractStatePath, extractState)
-
-  const pendingDirectories = currentRestoreDirectories.filter((dirName) => !extractedDirectories.has(dirName))
-  if (!pendingDirectories.length) {
-    return {
-      ok: true,
-      output: `Using cached extracted backup directories: ${currentRestoreDirectories.join(', ')}`
-    }
-  }
-
-  const newlyExtracted: string[] = []
-  for (let index = 0; index < pendingDirectories.length; index += 1) {
-    const dirName = pendingDirectories[index]
-    onProgress?.(dirName, index, pendingDirectories.length)
+  for (let index = 0; index < directories.length; index += 1) {
+    const dirName = directories[index]
+    onProgress?.(dirName, index, directories.length)
 
     const archiveMemberPath = payloadRootRelativePath ? path.posix.join(payloadRootRelativePath, dirName) : dirName
-    const targetPath = path.join(payloadRoot, dirName)
-    fs.rmSync(targetPath, { recursive: true, force: true })
+    const targetPath = checkedRestoreChild(payloadRoot, dirName)
 
     // Poll extracted directory size for incremental progress
     let pollTimer: NodeJS.Timeout | null = null
@@ -1491,11 +1480,14 @@ async function extractBlockchainBackupDirectories(
     // On Windows, use the built-in bsdtar (System32\tar.exe) which handles
     // Windows paths natively, avoiding MSYS/Git Bash path mangling issues
     const tarExtractCmd = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
-    const extractResult = await runCommand(tarExtractCmd, ['-xzf', archivePath, '-C', extractDir, archiveMemberPath], {
-      cwd: process.cwd()
-    })
-
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+    let extractResult: Awaited<ReturnType<BackupServiceDeps['runCommand']>>
+    try {
+      extractResult = await runCommand(tarExtractCmd, ['-xzf', archivePath, '-C', extractDir, '--', archiveMemberPath], {
+        cwd: process.cwd()
+      })
+    } finally {
+      if (pollTimer) clearInterval(pollTimer)
+    }
 
     if (!extractResult.ok) {
       return {
@@ -1504,57 +1496,70 @@ async function extractBlockchainBackupDirectories(
       }
     }
 
-    newlyExtracted.push(dirName)
-    extractedDirectories.add(dirName)
-    extractState = buildBlockchainBackupExtractState(
-      payloadRootRelativePath,
-      currentRestoreDirectories,
-      [...extractedDirectories]
-    )
-    writeJsonFile(extractStatePath, extractState)
   }
-
-  return {
-    ok: true,
-    output: [
-      extractedDirectories.size > newlyExtracted.length
-        ? `Reused extracted directories: ${currentRestoreDirectories.filter((dirName) => !newlyExtracted.includes(dirName)).join(', ')}`
-        : '',
-      newlyExtracted.length ? `Extracted missing directories: ${newlyExtracted.join(', ')}` : ''
-    ]
-      .filter(Boolean)
-      .join('\n')
-  }
+  return { ok: true, output: `Extracted backup directories: ${directories.join(', ')}` }
 }
 
-function restoreBlockchainBackupPayload(
+export function restoreBlockchainBackupPayload(
   payloadRoot: string,
   restoreDirectories: string[],
   settings: TelenoNodeSettings
 ): string[] {
+  const validated = validatedBlockchainRestoreDirectories(restoreDirectories)
   fs.mkdirSync(settings.baseDir, { recursive: true })
 
-  for (const dirName of BLOCKCHAIN_BACKUP_RESET_DIRS) {
-    fs.rmSync(path.join(settings.baseDir, dirName), { recursive: true, force: true })
-  }
-
-  const restored: string[] = []
-  for (const dirName of restoreDirectories) {
-    const sourcePath = path.join(payloadRoot, dirName)
-    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) {
+  // Validate the entire plan before moving any installed data.
+  const sources = validated.map((dirName) => {
+    const sourcePath = checkedRestoreChild(payloadRoot, dirName)
+    if (!fs.existsSync(sourcePath) || !fs.lstatSync(sourcePath).isDirectory()) {
       throw new Error(`El directorio ${dirName} no existe en el backup extraido (${sourcePath})`)
     }
+    assertRestoreTreeHasNoSymlinks(sourcePath)
+    return { dirName, sourcePath, targetPath: checkedRestoreChild(settings.baseDir, dirName) }
+  })
+  const resetPaths = BLOCKCHAIN_BACKUP_RESET_DIRS.map((dirName) => checkedRestoreChild(settings.baseDir, dirName))
 
-    const targetPath = path.join(settings.baseDir, dirName)
-    fs.rmSync(targetPath, { recursive: true, force: true })
-    fs.cpSync(sourcePath, targetPath, { recursive: true })
-    restored.push(dirName)
+  const install = fs.mkdtempSync(path.join(settings.baseDir, '.teleno-legacy-install-'))
+  const undo: Array<() => void> = []
+  let preserveRecovery = false
+  try {
+    for (const { dirName, sourcePath } of sources) {
+      const incoming = path.join(install, `incoming-${dirName}`)
+      try {
+        fs.renameSync(sourcePath, incoming)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error
+        fs.cpSync(sourcePath, incoming, { recursive: true, force: false, errorOnExist: true })
+      }
+    }
+    for (const target of [...sources.map(({ targetPath }) => targetPath), ...resetPaths]) {
+      if (!fs.existsSync(target)) continue
+      const previous = path.join(install, `previous-${path.basename(target)}`)
+      fs.renameSync(target, previous)
+      undo.push(() => fs.renameSync(previous, target))
+    }
+    for (const { dirName, targetPath } of sources) {
+      const incoming = path.join(install, `incoming-${dirName}`)
+      fs.renameSync(incoming, targetPath)
+      undo.push(() => fs.renameSync(targetPath, incoming))
+    }
+  } catch (error) {
+    for (const rollback of undo.reverse()) {
+      try {
+        rollback()
+      } catch {
+        preserveRecovery = true
+      }
+    }
+    if (preserveRecovery) {
+      throw new LegacyRestoreRecoveryError(`Legacy restore could not roll back completely. Recover the data retained in ${install}.`)
+    }
+    throw error
+  } finally {
+    if (!preserveRecovery) removeRestoreAttempt(install)
   }
 
-  if (restored.length === 0) {
-    throw new Error('El backup no contiene ningun subdirectorio restaurable')
-  }
-
+  const restored = sources.map(({ dirName }) => dirName)
   // Write marker file so chain knows to run verify-blocks on first startup after restore
   if (restored.includes('chain') || restored.includes('block_store')) {
     try {
@@ -1793,7 +1798,8 @@ export function createBackupService(deps: BackupServiceDeps) {
     input?: TelenoNodeSettingsInput,
     sender?: WebContents,
     progressAction: TelenoNodeBackupProgressAction = 'restore-backup',
-    completeOnSuccess = true
+    completeOnSuccess = true,
+    onRestored?: (settings: TelenoNodeSettings, output: string) => Promise<TelenoNodeBackupRestoreResult>
   ): Promise<TelenoNodeBackupRestoreResult> {
     const settings = deps.normalizeNodeSettings(input)
     const notes: string[] = []
@@ -1801,220 +1807,100 @@ export function createBackupService(deps: BackupServiceDeps) {
 
     try {
       deps.assertRepoReady(settings)
-      const backupUrl = normalizeBlockchainBackupArchiveUrl(settings.blockchainBackupUrl)
-      const checksumUrl = blockchainBackupChecksumUrl(backupUrl)
-      const baseDirValidation = deps.validateNodeBaseDirAccess(settings)
-      if (!baseDirValidation.ok) {
-        reportProgress('error', 0, baseDirValidation.output)
-        return {
-          ok: false,
-          action: progressAction,
-          output: [...notes, baseDirValidation.output].filter(Boolean).join('\n'),
-          status: await deps.telenoNodeStatus(settings)
-        }
-      }
-
-      reportProgress('prepare', 2, `Preparing backup restore into ${settings.baseDir}`)
-      reportProgress(
-        'prepare',
-        6,
-        `Writable BASEDIR confirmed. Temporary restore workspace: ${baseDirValidation.restoreWorkspaceParent}`
-      )
-      reportProgress('stop', 8, 'Stopping node before restoring backup')
-      const stopResult = await deps.telenoNodeAction('stop', input)
-
-      if (stopResult.output) notes.push(stopResult.output)
-      if (!stopResult.ok) {
-        reportProgress('error', 8, stopResult.output || 'No se pudo detener el nodo antes de restaurar el backup')
-        return {
-          ok: false,
-          action: progressAction,
-          output: [...notes, 'No se pudo detener el nodo antes de restaurar el backup'].filter(Boolean).join('\n'),
-          status: stopResult.status
-        }
-      }
-
-      reportProgress('prepare', 15, 'Preparing runtime configuration files')
-      const configPrep = deps.ensureKoinosConfigFiles(settings)
-      if (configPrep.output) notes.push(configPrep.output)
-
-      const restoreWorkspaceParent = baseDirValidation.restoreWorkspaceParent
-      fs.mkdirSync(restoreWorkspaceParent, { recursive: true })
-      notes.push(`Restoring blockchain backup from ${backupUrl}`)
-      notes.push(`Backup workspace parent: ${restoreWorkspaceParent}`)
-
-      reportProgress('checksum', 18, `Fetching SHA-256 checksum from ${checksumUrl}`)
-      const [checksumResult, metadataResult] = await Promise.all([
+      const backupUrl = normalizeBlockchainBackupArchiveUrl(legacyBackupUrlForNetwork(settings.blockchainBackupUrl, settings.network))
+      const publicKey = loadLegacyBlockchainBackupPublicKey()
+      reportProgress('checksum', 1, 'Authenticating legacy backup metadata')
+      const [checksumResult, metadata] = await Promise.all([
         fetchBlockchainBackupChecksum(backupUrl),
         fetchBlockchainBackupMetadata(backupUrl)
       ])
-      if (!checksumResult.ok || !checksumResult.checksum) {
-        reportProgress('error', 18, checksumResult.output || 'No se pudo obtener el checksum SHA-256 del backup blockchain')
-        return {
-          ok: false,
-          action: progressAction,
-          output: [...notes, checksumResult.output || 'No se pudo obtener el checksum SHA-256 del backup blockchain']
-            .filter(Boolean)
-            .join('\n'),
-          status: await deps.telenoNodeStatus(settings)
-        }
-      }
-      notes.push(checksumResult.output)
+      if (!checksumResult.ok || !checksumResult.checksum) throw new Error(checksumResult.output)
+      const checksum = checksumResult.checksum
+      const metadataText = metadata.toString('utf8')
+      if (!metadataText.trim()) throw new Error('Signed legacy backup metadata is required')
+      await verifyLegacyBlockchainBackupManifest(backupUrl, metadata, checksum, publicKey)
+      let restoreDirectories = parseBlockchainBackupMetadataDirectories(metadataText)
+      notes.push('Legacy backup signature verified against the configured public key', checksumResult.output)
 
-      const workspace = blockchainBackupWorkspacePaths(restoreWorkspaceParent, backupUrl, checksumResult.checksum)
-      fs.mkdirSync(workspace.workspaceDir, { recursive: true })
-      notes.push(`Backup workspace: ${workspace.workspaceDir}`)
+      return await withLegacyRestoreDestination(settings, async (lockedSettings) => {
+        const validation = deps.validateNodeBaseDirAccess(lockedSettings)
+        if (!validation.ok) throw new Error(validation.output)
 
-      reportProgress('download', 20, `Checking backup archive cache in ${workspace.workspaceDir}`)
-      const archiveResult = await ensureBlockchainBackupArchiveCached(
-        backupUrl,
-        workspace.archivePath,
-        workspace.archiveStatePath,
-        checksumResult.checksum,
-        (downloadedBytes, totalBytes) => {
-          const phaseProgress = totalBytes && totalBytes > 0
-            ? Math.max(0, Math.min(1, downloadedBytes / totalBytes))
-            : null
-          const progress = phaseProgress !== null ? 20 + (phaseProgress * 40) : 35
-          const message =
-            totalBytes && totalBytes > 0
-              ? `Downloading backup archive (${formatByteCount(downloadedBytes)} of ${formatByteCount(totalBytes)})`
-              : `Downloading backup archive (${formatByteCount(downloadedBytes)})`
-          reportProgress('download', progress, message, {
-            completedBytes: downloadedBytes,
-            totalBytes,
-            phaseProgress,
-            progressRangeStart: 20,
-            progressRangeEnd: 60
-          })
-        }
-      )
-      if (!archiveResult.ok) {
-        reportProgress('error', 60, archiveResult.output || 'No se pudo descargar el backup blockchain')
-        return {
-          ok: false,
-          action: progressAction,
-          output: [...notes, archiveResult.output || 'No se pudo descargar el backup blockchain'].filter(Boolean).join('\n'),
-          status: await deps.telenoNodeStatus(settings)
-        }
-      }
-      reportProgress('checksum', 64, 'SHA-256 checksum verified for backup archive')
-      notes.push(archiveResult.output)
+        const attempt = createRestoreAttempt(validation.restoreWorkspaceParent)
+        try {
+          const archivePath = path.join(attempt, 'backup.tar.gz')
+          const extractDir = path.join(attempt, 'extract')
+          const cachePath = blockchainBackupCachePath(path.dirname(attempt), backupUrl, checksum)
+          reportProgress('download', 20, 'Preparing a private copy of the backup archive')
+          const archiveResult = await prepareLegacyRestoreArchive(
+            backupUrl,
+            cachePath,
+            archivePath,
+            checksum,
+            (downloadedBytes, totalBytes) => {
+              const phaseProgress = totalBytes ? Math.min(1, downloadedBytes / totalBytes) : null
+              reportProgress(
+                'download',
+                phaseProgress === null ? 35 : 20 + phaseProgress * 40,
+                `Downloading backup archive (${formatByteCount(downloadedBytes)})`,
+                { completedBytes: downloadedBytes, totalBytes, phaseProgress, progressRangeStart: 20, progressRangeEnd: 60 }
+              )
+            }
+          )
+          if (!archiveResult.ok) throw new Error(archiveResult.output)
+          notes.push(archiveResult.output)
+          reportProgress('checksum', 64, 'SHA-256 verified for the staged archive')
 
-      let extractState = readJsonFile<BlockchainBackupExtractState>(workspace.extractStatePath)
-      let payloadRootRelativePath = extractState?.payloadRootRelativePath ?? ''
-      if (!payloadRootRelativePath) {
-        const payloadRootResult = await discoverBlockchainBackupPayloadRootInArchive(workspace.archivePath)
-        if (!payloadRootResult.ok || payloadRootResult.payloadRootRelativePath === undefined) {
-          reportProgress('error', 64, payloadRootResult.output || 'No se pudo localizar el payload del backup blockchain')
-          return {
-            ok: false,
-            action: progressAction,
-            output: [...notes, payloadRootResult.output || 'No se pudo localizar el payload del backup blockchain']
-              .filter(Boolean)
-              .join('\n'),
-            status: await deps.telenoNodeStatus(settings)
+          const root = await discoverBlockchainBackupPayloadRootInArchive(archivePath)
+          if (!root.ok || root.payloadRootRelativePath === undefined) throw new Error(root.output || 'Unable to locate backup data')
+          const relativeRoot = root.payloadRootRelativePath
+          notes.push(root.output)
+          if (!restoreDirectories.length) {
+            const contents = await listBlockchainBackupPayloadDirectoriesFromArchive(archivePath, relativeRoot)
+            if (!contents.ok || !contents.directories?.length) throw new Error(contents.output || 'Unable to list backup directories')
+            restoreDirectories = contents.directories
+            notes.push(contents.output)
           }
-        }
-        payloadRootRelativePath = payloadRootResult.payloadRootRelativePath
-        notes.push(payloadRootResult.output)
-      }
 
-      let restoreDirectories = extractState?.restoreDirectories ?? metadataResult.directories ?? []
-      if (!restoreDirectories.length) {
-        const archiveDirectoriesResult = await listBlockchainBackupPayloadDirectoriesFromArchive(
-          workspace.archivePath,
-          payloadRootRelativePath
-        )
-        if (!archiveDirectoriesResult.ok || !archiveDirectoriesResult.directories?.length) {
-          reportProgress('error', 64, archiveDirectoriesResult.output || 'No se pudieron listar los directorios del backup')
-          return {
-            ok: false,
-            action: progressAction,
-            output: [...notes, archiveDirectoriesResult.output || 'No se pudieron listar los directorios del backup']
-              .filter(Boolean)
-              .join('\n'),
-            status: await deps.telenoNodeStatus(settings)
+          const extraction = await extractBlockchainBackupDirectories(
+            archivePath, extractDir, relativeRoot, restoreDirectories, deps.runCommand,
+            (dirName, index, total) => reportProgress('extract', 65 + Math.round((index + 1) / total * 12), `Extracting ${dirName}`)
+          )
+          if (!extraction.ok) throw new Error(extraction.output)
+          notes.push(extraction.output)
+
+          reportProgress('stop', 79, 'Stopping node before installing backup data')
+          const stop = await deps.telenoNodeAction('stop', lockedSettings)
+          if (!stop.ok) throw new Error(stop.output || 'Unable to stop the node before restore')
+          const config = deps.ensureKoinosConfigFiles(lockedSettings)
+          notes.push(stop.output, config.output)
+
+          reportProgress('restore', 80, `Restoring blockchain state into ${lockedSettings.baseDir}`)
+          const restored = restoreBlockchainBackupPayload(
+            blockchainBackupPayloadRootPath(extractDir, relativeRoot), restoreDirectories, lockedSettings
+          )
+          notes.push(`Restored blockchain state: ${restored.join(', ')}`)
+          if (archiveResult.downloaded) {
+            try {
+              // TAR is finished. Publish the verified file in one atomic replacement.
+              await fs.promises.rename(archivePath, cachePath)
+            } catch {
+              notes.push('The restore succeeded. The verified download could not be cached.')
+            }
           }
-        }
-        restoreDirectories = archiveDirectoriesResult.directories
-        notes.push(archiveDirectoriesResult.output)
-        if (!metadataResult.ok) {
-          notes.push(`Metadata unavailable, inspected archive directly. ${metadataResult.output}`)
-        }
-      } else if (metadataResult.ok) {
-        notes.push(metadataResult.output)
-      }
 
-      reportProgress('extract', 65, `Preparing extracted backup directories in ${workspace.extractDir}`)
-      const extractResult = await extractBlockchainBackupDirectories(
-        workspace.archivePath,
-        workspace.extractDir,
-        workspace.extractStatePath,
-        payloadRootRelativePath,
-        restoreDirectories,
-        deps.runCommand,
-        (dirName, index, total) => {
-          const progress = 65 + Math.round(((index + 1) / Math.max(total, 1)) * 14)
-          reportProgress('extract', Math.min(progress, 79), `Extracting ${dirName} (${index + 1} of ${total})`)
+          reportProgress('restore', 90, 'Preparing BASEDIR runtime files')
+          notes.push(deps.ensureBaseDirKoinosRuntimeFiles(lockedSettings))
+          notes.push(setConfigVerifyBlocks(lockedSettings.baseDir, true).output)
+          const output = notes.filter(Boolean).join('\n')
+          if (onRestored) return await onRestored(lockedSettings, output)
+
+          if (completeOnSuccess) reportProgress('complete', 100, 'Backup restored with verify-blocks enabled')
+          return { ok: true, action: progressAction, output, status: await deps.telenoNodeStatus(lockedSettings) }
+        } finally {
+          removeRestoreAttempt(attempt)
         }
-      )
-      if (!extractResult.ok) {
-        reportProgress('error', 79, extractResult.output || 'No se pudo extraer el backup blockchain')
-        return {
-          ok: false,
-          action: progressAction,
-          output: [...notes, extractResult.output || 'No se pudo descargar o extraer el backup'].filter(Boolean).join('\n'),
-          status: await deps.telenoNodeStatus(settings)
-        }
-      }
-      notes.push(extractResult.output)
-
-      reportProgress('restore', 80, `Restoring blockchain state into ${settings.baseDir}`)
-      extractState = readJsonFile<BlockchainBackupExtractState>(workspace.extractStatePath)
-      const payloadRootCandidate = blockchainBackupPayloadRootPath(
-        workspace.extractDir,
-        extractState?.payloadRootRelativePath ?? payloadRootRelativePath
-      )
-      const payloadRoot = fs.existsSync(payloadRootCandidate)
-        ? payloadRootCandidate
-        : findBlockchainBackupPayloadRoot(workspace.extractDir)
-      if (!payloadRoot) {
-        const payloadError = `El backup no contiene los directorios esperados (${BLOCKCHAIN_BACKUP_REQUIRED_DIRS.join(', ')})`
-        reportProgress('error', 80, payloadError)
-        return {
-          ok: false,
-          action: progressAction,
-          output: [...notes, payloadError].filter(Boolean).join('\n'),
-          status: await deps.telenoNodeStatus(settings)
-        }
-      }
-
-      const restoredDirs = restoreBlockchainBackupPayload(payloadRoot, restoreDirectories, settings)
-      notes.push(`Restored blockchain state: ${restoredDirs.join(', ')}`)
-      if (BLOCKCHAIN_BACKUP_RESET_DIRS.length) {
-        notes.push(`Cleared runtime state: ${BLOCKCHAIN_BACKUP_RESET_DIRS.join(', ')}`)
-      }
-      reportProgress('restore', 90, 'Preparing BASEDIR runtime files')
-      notes.push(deps.ensureBaseDirKoinosRuntimeFiles(settings))
-
-      // Enable verify-blocks: true for safe re-sync after restore.
-      // P2P state deltas may not match the restored chain state, causing
-      // "block previous state merkle mismatch" errors with verify-blocks: false.
-      reportProgress('restore', 92, 'Enabling verify-blocks for safe re-sync...')
-      const verifyResult = setConfigVerifyBlocks(settings.baseDir, true)
-      notes.push(verifyResult.output)
-
-      const status = await deps.telenoNodeStatus(settings)
-      if (completeOnSuccess) {
-        reportProgress('complete', 100, `Backup restored into ${settings.baseDir}. verify-blocks enabled for safe re-sync.`)
-      }
-      return {
-        ok: true,
-        action: progressAction,
-        output: notes.filter(Boolean).join('\n'),
-        status
-      }
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo restaurar el backup blockchain'
       reportProgress('error', 0, message)
@@ -2053,46 +1939,27 @@ export function createBackupService(deps: BackupServiceDeps) {
       }
 
       reportProgress('prepare', 0, `Preparing restore + verify for ${settings.baseDir}`)
-      const restoreResult = await telenoNodeRestoreBackup(settings, sender, 'restore-backup-verify', false)
-      if (restoreResult.output) notes.push(restoreResult.output)
-      if (!restoreResult.ok) {
-        return {
-          ok: false,
-          action: 'restore-backup-verify',
-          output: notes.filter(Boolean).join('\n'),
-          status: restoreResult.status
+      return await telenoNodeRestoreBackup(settings, sender, 'restore-backup-verify', false, async (lockedSettings, output) => {
+        notes.push(output)
+        reportProgress('start', 93, 'Starting node after backup restore')
+        const start = await deps.telenoNodeAction('start', lockedSettings)
+        notes.push(start.output)
+        if (!start.ok) {
+          reportProgress('error', 93, start.output || 'No se pudo arrancar el nodo tras restaurar el backup')
+          return { ok: false, action: 'restore-backup-verify', output: notes.filter(Boolean).join('\n'), status: start.status }
         }
-      }
 
-      reportProgress('start', 84, 'Starting node after backup restore')
-      const startResult = await deps.telenoNodeAction('start', settings)
-      if (startResult.output) notes.push(startResult.output)
-      if (!startResult.ok) {
-        reportProgress('error', 84, startResult.output || 'No se pudo arrancar el nodo tras restaurar el backup')
-        return {
-          ok: false,
-          action: 'restore-backup-verify',
-          output: notes.filter(Boolean).join('\n'),
-          status: startResult.status
-        }
-      }
-
-      reportProgress('verify', 92, 'Verifying local JSON-RPC response from chain.get_head_info')
-      const verificationResult = await waitForLocalNodeJsonRpcVerification(settings, serviceDefinitions)
-      notes.push(verificationResult.output)
-      const status = await deps.telenoNodeStatus(settings)
-      reportProgress(
-        verificationResult.ok ? 'complete' : 'error',
-        verificationResult.ok ? 100 : 96,
-        verificationResult.ok ? 'Backup restored and local node verified' : verificationResult.output
-      )
-
-      return {
-        ok: verificationResult.ok,
-        action: 'restore-backup-verify',
-        output: notes.filter(Boolean).join('\n'),
-        status
-      }
+        reportProgress('verify', 96, 'Verifying local JSON-RPC response from chain.get_head_info')
+        const verification = await waitForLocalNodeJsonRpcVerification(lockedSettings, serviceDefinitions)
+        notes.push(verification.output)
+        const status = await deps.telenoNodeStatus(lockedSettings)
+        reportProgress(
+          verification.ok ? 'complete' : 'error',
+          verification.ok ? 100 : 96,
+          verification.ok ? 'Backup restored and local node verified' : verification.output
+        )
+        return { ok: verification.ok, action: 'restore-backup-verify', output: notes.filter(Boolean).join('\n'), status }
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo verificar el restore del backup'
       reportProgress('error', 0, message)
@@ -2260,11 +2127,7 @@ export function createBackupService(deps: BackupServiceDeps) {
 
     try {
       const settings = deps.normalizeNodeSettings(input)
-
-      // 1. Ask user to pick a local .tar.gz backup file
       reportProgress('prepare', 2, 'Selecciona el archivo de backup local...')
-
-      // Default to the directory where the last backup was created
       const lastBackupDir = readLastBackupPath()
       const dialogOptions: OpenDialogOptions = {
         title: 'Seleccionar backup local (.tar.gz)',
@@ -2272,145 +2135,87 @@ export function createBackupService(deps: BackupServiceDeps) {
         properties: ['openFile'],
         ...(lastBackupDir ? { defaultPath: lastBackupDir } : {})
       }
-      const result = await dialog.showOpenDialog(dialogOptions)
-      if (result.canceled || !result.filePaths.length) {
+      const selected = await dialog.showOpenDialog(dialogOptions)
+      if (selected.canceled || !selected.filePaths.length) {
         return { ok: false, action, output: 'Restauracion cancelada por el usuario', status: 'cancelled' }
       }
-      const archivePath = result.filePaths[0]
-      notes.push(`Restoring from local file: ${archivePath}`)
+      const sourceArchive = selected.filePaths[0]
+      const source = fs.statSync(sourceArchive)
+      if (!source.isFile() || source.size === 0) throw new Error('Selecciona un archivo de backup local no vacío.')
+      notes.push(`Restoring from local file: ${sourceArchive}`)
 
-      // 2. Validate the archive exists and is non-empty
-      if (!fs.existsSync(archivePath)) {
-        reportProgress('error', 2, `Archivo no encontrado: ${archivePath}`)
-        return { ok: false, action, output: `Archivo no encontrado: ${archivePath}`, status: 'error' }
-      }
-      const archiveStats = fs.statSync(archivePath)
-      if (archiveStats.size === 0) {
-        reportProgress('error', 2, 'El archivo de backup esta vacio')
-        return { ok: false, action, output: 'El archivo de backup esta vacio', status: 'error' }
-      }
-      notes.push(`Archive size: ${(archiveStats.size / (1024 ** 3)).toFixed(2)} GB`)
+      return await withLegacyRestoreDestination(settings, async (lockedSettings) => {
+        const validation = deps.validateNodeBaseDirAccess(lockedSettings)
+        if (!validation.ok) throw new Error(validation.output)
+        const attempt = createRestoreAttempt(validation.restoreWorkspaceParent)
+        let stopped = false
 
-      // 3. Stop services
-      reportProgress('stop', 8, 'Parando servicios antes de restaurar...')
-      const stopResult = await deps.telenoNodeAction('stop', input)
-      if (stopResult.output) notes.push(stopResult.output)
-      if (!stopResult.ok) {
-        reportProgress('error', 8, stopResult.output || 'No se pudieron parar los servicios')
-        return { ok: false, action, output: [...notes, 'No se pudieron parar los servicios'].filter(Boolean).join('\n'), status: stopResult.status }
-      }
+        try {
+          const archivePath = path.join(attempt, 'backup.tar.gz')
+          const extractDir = path.join(attempt, 'extract')
+          await fs.promises.copyFile(sourceArchive, archivePath, EXCLUSIVE_ARCHIVE_COPY)
+          const archiveSize = fs.statSync(archivePath).size
+          if (!archiveSize) throw new Error('El archivo de backup esta vacio')
 
-      // 4. Prepare runtime config
-      reportProgress('prepare', 15, 'Preparando archivos de configuracion...')
-      const configPrep = deps.ensureKoinosConfigFiles(settings)
-      if (configPrep.output) notes.push(configPrep.output)
+          reportProgress('extract', 20, 'Inspeccionando contenido del archivo...')
+          const root = await discoverBlockchainBackupPayloadRootInArchive(archivePath)
+          if (!root.ok || root.payloadRootRelativePath === undefined) throw new Error(root.output || 'No se pudo localizar el payload del backup')
+          const relativeRoot = root.payloadRootRelativePath
+          notes.push(root.output)
+          const directories = [...BLOCKCHAIN_BACKUP_REQUIRED_DIRS]
+          const extraction = await extractBlockchainBackupDirectories(
+            archivePath, extractDir, relativeRoot, directories, deps.runCommand,
+            (dirName, index, total) => reportProgress('extract', 30 + Math.round((index + 1) / total * 40), `Extrayendo ${dirName}`),
+            (extractedBytes) => {
+              const progress = Math.min(1, extractedBytes / (archiveSize * 2))
+              reportProgress('extract', 30 + Math.round(progress * 39), `Extrayendo backup (${formatByteCount(extractedBytes)})`)
+            }
+          )
+          if (!extraction.ok) throw new Error(extraction.output)
+          notes.push(extraction.output)
 
-      // 5. Discover payload root in archive
-      reportProgress('extract', 20, 'Inspeccionando contenido del archivo...')
-      const payloadRootResult = await discoverBlockchainBackupPayloadRootInArchive(archivePath)
-      if (!payloadRootResult.ok || payloadRootResult.payloadRootRelativePath === undefined) {
-        reportProgress('error', 20, payloadRootResult.output || 'No se pudo localizar el payload del backup')
-        await deps.telenoNodeAction('start', input)
-        return { ok: false, action, output: [...notes, payloadRootResult.output].filter(Boolean).join('\n'), status: await deps.telenoNodeStatus(settings) }
-      }
-      const payloadRootRelativePath = payloadRootResult.payloadRootRelativePath
-      notes.push(payloadRootResult.output)
+          reportProgress('stop', 74, 'Parando servicios antes de instalar el backup...')
+          const stop = await deps.telenoNodeAction('stop', lockedSettings)
+          if (!stop.ok) {
+            reportProgress('error', 74, stop.output || 'No se pudieron parar los servicios')
+            return { ok: false, action, output: [...notes, stop.output].filter(Boolean).join('\n'), status: stop.status }
+          }
+          stopped = true
+          notes.push(stop.output, deps.ensureKoinosConfigFiles(lockedSettings).output)
 
-      // 6. Determine restorable directories
-      //    For local backups (created by Teleno), skip the expensive full tar listing
-      //    and use the known required directories directly.
-      reportProgress('extract', 22, 'Determinando directorios a restaurar...')
-      const restoreDirectories = [...BLOCKCHAIN_BACKUP_REQUIRED_DIRS] as string[]
-      notes.push(`Directories to restore: ${restoreDirectories.join(', ')}`)
+          reportProgress('restore', 75, 'Restaurando blockchain state en BASEDIR...')
+          const restored = restoreBlockchainBackupPayload(
+            blockchainBackupPayloadRootPath(extractDir, relativeRoot), directories, lockedSettings
+          )
+          notes.push(`Restored: ${restored.join(', ')}`)
+          reportProgress('restore', 88, 'Preparando archivos de runtime...')
+          notes.push(deps.ensureBaseDirKoinosRuntimeFiles(lockedSettings))
+          notes.push(setConfigVerifyBlocks(lockedSettings.baseDir, true).output)
 
-      // 7. Extract to temp workspace
-      const baseDirValidation = deps.validateNodeBaseDirAccess(settings)
-      const restoreWorkspaceParent = baseDirValidation.restoreWorkspaceParent || path.join(settings.baseDir, '..')
-      const extractDir = path.join(restoreWorkspaceParent, '.teleno-local-restore-tmp')
-      fs.rmSync(extractDir, { recursive: true, force: true })
-      fs.mkdirSync(extractDir, { recursive: true })
-
-      // Estimate uncompressed size as ~2x the archive (typical gzip ratio)
-      const estimatedUncompressedBytes = archiveStats.size * 2
-      const archiveGB = (archiveStats.size / (1024 ** 3)).toFixed(1)
-      reportProgress('extract', 30, `Extrayendo backup (~${archiveGB} GB comprimido, esto puede tardar varios minutos)...`)
-      const extractResult = await extractBlockchainBackupDirectories(
-        archivePath,
-        extractDir,
-        path.join(extractDir, 'extract-state.json'),
-        payloadRootRelativePath,
-        restoreDirectories,
-        deps.runCommand,
-        (dirName, index, total) => {
-          const progress = 30 + Math.round(((index + 1) / Math.max(total, 1)) * 40)
-          reportProgress('extract', Math.min(progress, 70), `Extrayendo ${dirName} (${index + 1} de ${total})`)
-        },
-        (extractedBytes) => {
-          // Map extractedBytes to progress range 30..70
-          const fraction = Math.min(extractedBytes / estimatedUncompressedBytes, 0.99)
-          const progress = Math.round(30 + fraction * 40)
-          const extractedGB = (extractedBytes / (1024 ** 3)).toFixed(1)
-          const estGB = (estimatedUncompressedBytes / (1024 ** 3)).toFixed(1)
-          reportProgress('extract', Math.min(progress, 69), `Extrayendo... ${extractedGB} / ~${estGB} GB (~${Math.round(fraction * 100)}%)`)
+          reportProgress('start', 92, 'Reiniciando servicios...')
+          stopped = false
+          const start = await deps.telenoNodeAction('start', lockedSettings)
+          notes.push(start.output)
+          if (!start.ok) {
+            reportProgress('error', 92, start.output || 'No se pudo arrancar el nodo tras restaurar el backup')
+            return { ok: false, action, output: notes.filter(Boolean).join('\n'), status: start.status }
+          }
+          reportProgress('complete', 100, `Backup restaurado desde ${path.basename(sourceArchive)}. verify-blocks activado.`)
+          return { ok: true, action, output: notes.filter(Boolean).join('\n'), status: await deps.telenoNodeStatus(lockedSettings) }
+        } catch (error) {
+          try {
+            if (stopped && !(error instanceof LegacyRestoreRecoveryError)) {
+              await deps.telenoNodeAction('start', lockedSettings)
+            }
+          } catch { /* best effort after a successful stop */ }
+          throw error
+        } finally {
+          removeRestoreAttempt(attempt)
         }
-      )
-      if (!extractResult.ok) {
-        reportProgress('error', 70, extractResult.output || 'No se pudo extraer el backup')
-        fs.rmSync(extractDir, { recursive: true, force: true })
-        await deps.telenoNodeAction('start', input)
-        return { ok: false, action, output: [...notes, extractResult.output].filter(Boolean).join('\n'), status: await deps.telenoNodeStatus(settings) }
-      }
-      notes.push(extractResult.output)
-
-      // 8. Restore into BASEDIR
-      reportProgress('restore', 75, `Restaurando blockchain state en ${settings.baseDir}...`)
-      const payloadRoot = blockchainBackupPayloadRootPath(extractDir, payloadRootRelativePath)
-      const finalPayloadRoot = fs.existsSync(payloadRoot)
-        ? payloadRoot
-        : findBlockchainBackupPayloadRoot(extractDir)
-      if (!finalPayloadRoot) {
-        const err = `El backup no contiene los directorios esperados (${BLOCKCHAIN_BACKUP_REQUIRED_DIRS.join(', ')})`
-        reportProgress('error', 75, err)
-        fs.rmSync(extractDir, { recursive: true, force: true })
-        await deps.telenoNodeAction('start', input)
-        return { ok: false, action, output: [...notes, err].filter(Boolean).join('\n'), status: await deps.telenoNodeStatus(settings) }
-      }
-
-      const restoredDirs = restoreBlockchainBackupPayload(finalPayloadRoot, restoreDirectories, settings)
-      notes.push(`Restored: ${restoredDirs.join(', ')}`)
-
-      // 9. Clean up temp workspace
-      fs.rmSync(extractDir, { recursive: true, force: true })
-
-      // 10. Prepare runtime and restart
-      reportProgress('restore', 88, 'Preparando archivos de runtime...')
-      notes.push(deps.ensureBaseDirKoinosRuntimeFiles(settings))
-
-      // 11. Enable verify-blocks: true for safe re-sync after restore
-      //     P2P state deltas may not match the restored chain state, causing
-      //     "block previous state merkle mismatch" errors with verify-blocks: false.
-      //     Chain will re-execute WASM for each block, which is slower but always correct.
-      reportProgress('restore', 90, 'Activando verify-blocks para re-sync seguro...')
-      const verifyResult = setConfigVerifyBlocks(settings.baseDir, true)
-      notes.push(verifyResult.output)
-      if (verifyResult.ok) {
-        reportProgress('restore', 91, 'verify-blocks activado — chain re-verificará bloques tras restaurar')
-      }
-
-      reportProgress('start', 92, 'Reiniciando servicios...')
-      await deps.telenoNodeAction('start', input)
-
-      reportProgress('complete', 100, `Backup restaurado desde ${path.basename(archivePath)}. verify-blocks activado para re-sync seguro.`)
-      return {
-        ok: true,
-        action,
-        output: notes.filter(Boolean).join('\n'),
-        status: await deps.telenoNodeStatus(settings)
-      }
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error restaurando backup local'
       reportProgress('error', 0, message)
-      try { await deps.telenoNodeAction('start', input) } catch { /* best effort */ }
       return { ok: false, action, output: [...notes, message].filter(Boolean).join('\n'), status: 'error' }
     }
   }

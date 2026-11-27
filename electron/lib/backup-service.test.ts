@@ -1,22 +1,29 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { generateKeyPairSync } from 'node:crypto'
 
+import { dialog, type WebContents } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseDocument } from 'yaml'
 
 import {
   blockchainBackupChecksumUrl,
   createBackupService,
+  extractBlockchainBackupDirectories,
   extractHeadInfoSummary,
   normalizeBlockchainBackupArchiveUrl,
   parseBlockchainBackupMetadataDirectories,
   parseBlockchainBackupSha256Checksum,
+  restoreBlockchainBackupPayload,
   restoreBlockedMessageFromOutput,
   writeNativeBackupConfig
 } from './backup-service'
 import { resolveMonolithBinaryPath, resolveTelenoConfigRoot } from './constants'
-import type { TelenoNodeBackupSettings, TelenoNodeSettings } from './main-types'
+import type { TelenoNodeBackupSettings, TelenoNodeSettings, TelenoNodeStatus } from './main-types'
+
+vi.mock('electron', () => ({ BrowserWindow: class {}, dialog: { showOpenDialog: vi.fn() } }))
 
 const tempDirs: string[] = []
 
@@ -80,9 +87,249 @@ function nodeSettings(overrides: Partial<TelenoNodeSettings> = {}): TelenoNodeSe
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   while (tempDirs.length > 0) {
     fs.rmSync(tempDirs.pop()!, { recursive: true, force: true })
   }
+})
+
+describe('legacy archive restore', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'legacy-signed-backup-v1.json'), 'utf8')) as {
+    archiveUrl: string
+    archiveBase64: string
+    metadata: string
+    checksumSidecar: string
+    publicKeyPem: string
+    manifest: object
+  }
+  const archiveBytes = Uint8Array.from(Buffer.from(fixture.archiveBase64, 'base64'))
+  const tar = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
+
+  function setupRestore() {
+    const settings = nodeSettings({ blockchainBackupUrl: fixture.archiveUrl })
+    const { baseDir, repoPath, profiles } = settings
+    const restoreWorkspaceParent = path.join(repoPath, 'workspace')
+    const oldData = path.join(baseDir, 'chain', 'old')
+    const unrelatedData = path.join(baseDir, 'block_producer', 'fixture')
+    fs.mkdirSync(path.dirname(oldData))
+    fs.mkdirSync(path.dirname(unrelatedData))
+    fs.writeFileSync(oldData, 'old chain data')
+    fs.writeFileSync(unrelatedData, 'unrelated data')
+
+    const status: TelenoNodeStatus = {
+      ok: true, baseDir, repoPath, profiles, configReady: true, configDir: baseDir,
+      services: [], components: [], runningServices: 0, output: ''
+    }
+    const validate = vi.fn(() => ({ ok: true, baseDir, restoreWorkspaceParent, writable: true, output: '' }))
+    const action = vi.fn(async (name: 'start' | 'stop') => ({ ok: true, action: name, output: '', status }))
+    const prepare = vi.fn(() => ({ configReady: true, output: '' }))
+    const runCommand = vi.fn(async (command: string, args: string[], options: { cwd: string }) => {
+      expect(command).toBe(tar)
+      expect(args[0]).toBe('-xzf')
+      expect(args[1].startsWith(`${repoPath}${path.sep}`)).toBe(true)
+      execFileSync(command, args, { cwd: options.cwd })
+      return { ok: true, code: 0, output: '' }
+    })
+    const service = createBackupService({
+      normalizeNodeSettings: (input) => ({
+        ...settings,
+        baseDir: input?.baseDir ?? settings.baseDir,
+        network: input?.network ?? settings.network,
+        blockchainBackupUrl: input?.blockchainBackupUrl ?? settings.blockchainBackupUrl
+      }),
+      assertRepoReady: () => {},
+      validateNodeBaseDirAccess: validate,
+      telenoNodeStatus: async () => status,
+      telenoNodeAction: action,
+      ensureKoinosConfigFiles: prepare,
+      ensureBaseDirKoinosRuntimeFiles: () => '',
+      restoreWorkspaceParentPath: () => restoreWorkspaceParent,
+      ensureKoinosBaseDir: () => baseDir,
+      readServiceDefinitions: () => new Map(),
+      selectedManagedComposeServiceIds: () => ['jsonrpc'],
+      composeServicePortByTarget: () => null,
+      runCommand
+    })
+    return { settings, service, restoreWorkspaceParent, oldData, unrelatedData, validate, action, prepare, runCommand }
+  }
+
+  function mockPublication(publicKeyFile: string, responses: Partial<Record<string, () => Response>> = {}) {
+    vi.stubEnv('TELENO_BACKUP_SIGNATURE_PUBLIC_KEY_FILE', publicKeyFile)
+    const sidecars: Record<string, () => Response> = {
+      '.sha256': () => new Response(fixture.checksumSidecar),
+      '.metadata': () => new Response(fixture.metadata),
+      '.manifest.json': () => Response.json(fixture.manifest),
+      '': () => new Response(archiveBytes),
+      ...responses
+    }
+    const fetchMock = vi.fn(async (url: string, options: { redirect: string }) => {
+      expect(options.redirect).toBe('error')
+      expect(url.startsWith(fixture.archiveUrl)).toBe(true)
+      const respond = sidecars[url.slice(fixture.archiveUrl.length)]
+      if (!respond) throw new Error('Unexpected fixture request')
+      return respond()
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('restores a signed archive and re-extracts a verified cache copy in a new workspace', async () => {
+    const restore = setupRestore()
+    const publicKey = path.join(restore.settings.repoPath, 'trusted.pub')
+    fs.writeFileSync(publicKey, fixture.publicKeyPem)
+    const fetchMock = mockPublication(publicKey)
+
+    const result = await restore.service.telenoNodeRestoreBackup()
+    expect(result.ok, result.output).toBe(true)
+    expect(restore.action).toHaveBeenCalledOnce()
+    expect(restore.runCommand).toHaveBeenCalledTimes(2)
+    const firstArchive = restore.runCommand.mock.calls[0][1][1]
+    expect(fs.existsSync(path.dirname(firstArchive))).toBe(false)
+    expect(fs.readFileSync(path.join(restore.settings.baseDir, 'chain', 'item'), 'utf8')).toBe('fixture-chain\n')
+    expect(fs.readFileSync(path.join(restore.settings.baseDir, 'block_store', 'item'), 'utf8')).toBe('fixture-block_store\n')
+    expect(fs.existsSync(restore.oldData)).toBe(false)
+    expect(fs.readFileSync(restore.unrelatedData, 'utf8')).toBe('unrelated data')
+
+    const resumed = await restore.service.telenoNodeRestoreBackup()
+    expect(resumed.ok, resumed.output).toBe(true)
+    expect(resumed.output).toContain('Verified SHA-256')
+    expect(fetchMock.mock.calls.filter(([url]) => url === fixture.archiveUrl)).toHaveLength(1)
+    expect(restore.runCommand).toHaveBeenCalledTimes(4)
+    const secondArchive = restore.runCommand.mock.calls[2][1][1]
+    expect(secondArchive).not.toBe(firstArchive)
+    expect(fs.existsSync(path.dirname(secondArchive))).toBe(false)
+  })
+
+  it.each([
+    ['missing metadata', '.metadata', () => new Response(null, { status: 404 }), /metadata unavailable/i],
+    ['different metadata', '.metadata', () => new Response(`${fixture.metadata}\r\nBackup complete\r\n`), /manifest does not match/i],
+    ['missing manifest', '.manifest.json', () => new Response(null, { status: 404 }), /manifest unavailable/i]
+  ] as const)('rejects %s before any restore work', async (_case, suffix, response, error) => {
+    const restore = setupRestore()
+    const publicKey = path.join(restore.settings.repoPath, 'trusted.pub')
+    fs.writeFileSync(publicKey, fixture.publicKeyPem)
+    const fetchMock = mockPublication(publicKey, { [suffix]: response })
+
+    const result = await restore.service.telenoNodeRestoreBackup()
+    expect(result.ok).toBe(false)
+    expect(result.output).toMatch(error)
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(fixture.archiveUrl)
+    expect(restore.validate).not.toHaveBeenCalled()
+    expect(restore.action).not.toHaveBeenCalled()
+    expect(restore.prepare).not.toHaveBeenCalled()
+    expect(restore.runCommand).not.toHaveBeenCalled()
+    expect(fs.existsSync(restore.restoreWorkspaceParent)).toBe(false)
+    expect(fs.readFileSync(restore.oldData, 'utf8')).toBe('old chain data')
+  })
+
+  it('rejects a different Ed25519 public key before stopping the node', async () => {
+    const restore = setupRestore()
+    const publicKeyFile = path.join(restore.settings.repoPath, 'different.pub')
+    const { publicKey } = generateKeyPairSync('ed25519')
+    fs.writeFileSync(publicKeyFile, publicKey.export({ type: 'spki', format: 'pem' }))
+    mockPublication(publicKeyFile)
+
+    const result = await restore.service.telenoNodeRestoreBackup()
+    expect(result.ok).toBe(false)
+    expect(result.output).toMatch(/signature does not match the trusted key/i)
+    expect(restore.validate).not.toHaveBeenCalled()
+    expect(restore.action).not.toHaveBeenCalled()
+    expect(fs.readFileSync(restore.oldData, 'utf8')).toBe('old chain data')
+  })
+
+  it('rejects an ordinary archive digest mismatch before extraction and allows retry', async () => {
+    const restore = setupRestore()
+    const publicKey = path.join(restore.settings.repoPath, 'trusted.pub')
+    fs.writeFileSync(publicKey, fixture.publicKeyPem)
+    mockPublication(publicKey, { '': () => new Response('different archive response') })
+
+    const result = await restore.service.telenoNodeRestoreBackup()
+    expect(result.ok).toBe(false)
+    expect(result.output).toMatch(/checksum SHA-256 invalido/i)
+    expect(restore.runCommand).not.toHaveBeenCalled()
+    expect(restore.action).not.toHaveBeenCalled()
+    expect(fs.readFileSync(restore.oldData, 'utf8')).toBe('old chain data')
+    expect(fs.readdirSync(restore.restoreWorkspaceParent)).toEqual(['.teleno-blockchain-backup-cache'])
+
+    mockPublication(publicKey)
+    const retry = await restore.service.telenoNodeRestoreBackup()
+    expect(retry.ok, retry.output).toBe(true)
+  })
+
+  it('restores a selected local TAR file without a remote signature configuration', async () => {
+    const restore = setupRestore()
+    const archive = path.join(restore.settings.repoPath, 'local.tar.gz')
+    fs.writeFileSync(archive, archiveBytes)
+    vi.stubEnv('HOME', restore.settings.repoPath)
+    vi.stubEnv('TELENO_BACKUP_SIGNATURE_PUBLIC_KEY_FILE', undefined)
+    const fetchMock = vi.fn(() => { throw new Error('Local restore must not fetch') })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({ canceled: false, filePaths: [archive] })
+    const sender = { isDestroyed: () => true } as WebContents
+
+    const result = await restore.service.restoreFromLocalFile(undefined, sender)
+    expect(result.ok, result.output).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(restore.action.mock.calls.map(([action]) => action)).toEqual(['stop', 'start'])
+    expect(fs.readFileSync(path.join(restore.settings.baseDir, 'chain', 'item'), 'utf8')).toBe('fixture-chain\n')
+    expect(fs.readFileSync(path.join(restore.settings.baseDir, 'block_store', 'item'), 'utf8')).toBe('fixture-block_store\n')
+    expect(fs.readFileSync(restore.unrelatedData, 'utf8')).toBe('unrelated data')
+  })
+
+  it('queues an overlapping signed and local restore for the same resolved destination', async () => {
+    const restore = setupRestore()
+    const { repoPath, baseDir } = restore.settings
+    const publicKey = path.join(repoPath, 'trusted.pub')
+    fs.writeFileSync(publicKey, fixture.publicKeyPem)
+    mockPublication(publicKey)
+    vi.stubEnv('HOME', repoPath)
+    const localArchive = path.join(repoPath, 'selected.tar.gz')
+    fs.writeFileSync(localArchive, archiveBytes)
+    const alias = path.join(repoPath, 'same-volume')
+    fs.symlinkSync(repoPath, alias, 'junction')
+    const aliasedBaseDir = path.join(alias, path.basename(baseDir))
+    const sender = { isDestroyed: () => true } as WebContents
+
+    let signalFirstAtStop!: () => void
+    const firstAtStop = new Promise<void>((resolve) => { signalFirstAtStop = resolve })
+    let releaseFirst!: () => void
+    const firstCanFinish = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const performAction = restore.action.getMockImplementation()!
+    restore.action.mockImplementationOnce(async (name) => {
+      signalFirstAtStop()
+      await firstCanFinish
+      return performAction(name)
+    })
+    const remote = restore.service.telenoNodeRestoreBackup()
+    let local: ReturnType<typeof restore.service.restoreFromLocalFile> | undefined
+    try {
+      await Promise.race([firstAtStop, remote.then((result) => { throw new Error(result.output) })])
+      vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({ canceled: false, filePaths: [localArchive] })
+      local = restore.service.restoreFromLocalFile({ baseDir: aliasedBaseDir }, sender)
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+      expect(dialog.showOpenDialog).toHaveBeenCalled()
+      expect(restore.action).toHaveBeenCalledOnce()
+      expect(restore.runCommand).toHaveBeenCalledTimes(2)
+      expect(fs.readFileSync(restore.oldData, 'utf8')).toBe('old chain data')
+    } finally {
+      releaseFirst()
+      await Promise.all([remote, local])
+    }
+    expect((await remote).ok).toBe(true)
+    expect((await local)?.ok).toBe(true)
+    expect(restore.action.mock.calls.map(([action]) => action)).toEqual(['stop', 'stop', 'start'])
+    const stagedArchives = new Set(restore.runCommand.mock.calls.map(([, args]) => args[1]))
+    expect(stagedArchives.size).toBe(2)
+    for (const archive of stagedArchives) {
+      expect(archive).not.toBe(localArchive)
+      expect(fs.existsSync(path.dirname(archive))).toBe(false)
+    }
+    expect(fs.existsSync(localArchive)).toBe(true)
+    expect(fs.readFileSync(restore.unrelatedData, 'utf8')).toBe('unrelated data')
+  })
+
+
 })
 
 describe('backup-service helpers', () => {
@@ -105,7 +352,10 @@ describe('backup-service helpers', () => {
     expect(normalizeBlockchainBackupArchiveUrl('https://example.com/backup.tar.gz')).toBe(
       'https://example.com/backup.tar.gz'
     )
-    expect(() => normalizeBlockchainBackupArchiveUrl('ftp://example.com/backup.tar.gz')).toThrow(/http o https/)
+    expect(() => normalizeBlockchainBackupArchiveUrl('http://example.com/backup.tar.gz')).toThrow(/HTTPS/)
+    expect(() => normalizeBlockchainBackupArchiveUrl('ftp://example.com/backup.tar.gz')).toThrow(/HTTPS/)
+    expect(() => normalizeBlockchainBackupArchiveUrl('https://example.com/backup.tar.gz?')).toThrow(/query/)
+    expect(() => normalizeBlockchainBackupArchiveUrl('https://example.com/backup.tar.gz#')).toThrow(/fragment/)
     expect(() => normalizeBlockchainBackupArchiveUrl('https://example.com/backup.zip')).toThrow(/\.tar\.gz/)
   })
 
@@ -138,6 +388,69 @@ foo
 `
 
     expect(parseBlockchainBackupMetadataDirectories(raw)).toEqual(['chain', 'block_store'])
+  })
+
+  it('restores ordinary blockchain backup directories', async () => {
+    const root = makeTempDir()
+    const payload = path.join(root, 'payload')
+    const archive = path.join(root, 'backup.tar.gz')
+    const extractDir = path.join(root, 'extracted')
+    const directories = parseBlockchainBackupMetadataDirectories('Included Directories:\nchain/ 1 KB\nblock_store/ 1 KB\n')
+    const settings = nodeSettings()
+    for (const directory of directories) {
+      fs.mkdirSync(path.join(payload, directory), { recursive: true })
+      fs.writeFileSync(path.join(payload, directory, 'item'), directory)
+      fs.mkdirSync(path.join(settings.baseDir, directory))
+      fs.writeFileSync(path.join(settings.baseDir, directory, 'old-item'), 'replace this data')
+    }
+    const unrelatedDirectory = path.join(settings.baseDir, 'block_producer')
+    fs.mkdirSync(unrelatedDirectory)
+    const sentinel = path.join(unrelatedDirectory, 'fixture')
+    fs.writeFileSync(sentinel, 'preserved')
+
+    const tar = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
+    execFileSync(tar, ['-czf', archive, '-C', root, 'payload'])
+    const runCommand = vi.fn(async (command: string, args: string[], options?: { cwd?: string }) => {
+      execFileSync(command, args, { cwd: options?.cwd })
+      return { ok: true, code: 0, output: '' }
+    })
+    const extracted = await extractBlockchainBackupDirectories(archive, extractDir, 'payload', directories, runCommand)
+    expect(extracted.ok).toBe(true)
+    expect(runCommand).toHaveBeenCalledTimes(2)
+
+    expect(restoreBlockchainBackupPayload(path.join(extractDir, 'payload'), directories, settings)).toEqual(directories)
+    expect(fs.readFileSync(path.join(settings.baseDir, 'chain', 'item'), 'utf8')).toBe('chain')
+    expect(fs.readFileSync(path.join(settings.baseDir, 'block_store', 'item'), 'utf8')).toBe('block_store')
+    expect(fs.existsSync(path.join(settings.baseDir, 'chain', 'old-item'))).toBe(false)
+    expect(fs.existsSync(path.join(settings.baseDir, 'block_store', 'old-item'))).toBe(false)
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('preserved')
+  })
+
+  it('preserves existing blockchain directories if an install rename fails', () => {
+    const payload = makeTempDir()
+    const settings = nodeSettings()
+    const directories = ['chain', 'block_store', 'mempool']
+    for (const directory of directories) {
+      fs.mkdirSync(path.join(settings.baseDir, directory))
+      fs.writeFileSync(path.join(settings.baseDir, directory, 'item'), `previous-${directory}`)
+    }
+    for (const directory of ['chain', 'block_store']) {
+      fs.mkdirSync(path.join(payload, directory))
+      fs.writeFileSync(path.join(payload, directory, 'item'), `next-${directory}`)
+    }
+    const rename = fs.renameSync
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (path.basename(String(from)) === 'incoming-block_store' && to === path.join(settings.baseDir, 'block_store')) {
+        throw new Error('fixture rename failed')
+      }
+      return rename(from, to)
+    })
+
+    expect(() => restoreBlockchainBackupPayload(payload, ['chain', 'block_store'], settings)).toThrow('fixture rename failed')
+    for (const directory of directories) {
+      expect(fs.readFileSync(path.join(settings.baseDir, directory, 'item'), 'utf8')).toBe(`previous-${directory}`)
+    }
+    expect(fs.readdirSync(settings.baseDir).some((name) => name.startsWith('.teleno-legacy-install-'))).toBe(false)
   })
 
   it('summarizes head info responses', () => {

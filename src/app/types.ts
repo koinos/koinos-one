@@ -25,6 +25,7 @@ export type NodeManagerSettings = {
   baseDir: string
   profiles: string
   blockchainBackupUrl: string
+  blockchainBackupUrlsByNetwork?: Partial<Record<KoinosNetworkId, string>>
   backup: NodeBackupSettings
 }
 

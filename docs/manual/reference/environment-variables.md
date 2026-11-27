@@ -12,6 +12,12 @@ Do not add variables here unless they are implemented.
 | `HOME` | Electron path helpers and native CLI | Used for `~` expansion and for the native CLI default basedir fallback. |
 | `USERPROFILE` | Electron backup/path helpers on Windows | Used as a home-directory fallback for `~` expansion and backup helper paths. |
 
+## Legacy Desktop Archive Restore
+
+| Variable | Used by | Meaning |
+| --- | --- | --- |
+| `TELENO_BACKUP_SIGNATURE_PUBLIC_KEY_FILE` | Electron legacy TAR restore | Absolute path to the trusted PEM SPKI Ed25519 public key. Set it in the app launch environment before using a remote legacy archive. See [legacy restore requirements](../koinos-one/backup-and-restore.md#restore-a-legacy-tar-archive). |
+
 ## Native Backup Developer Overrides
 
 Koinos One can write a generated native backup config from app settings. These

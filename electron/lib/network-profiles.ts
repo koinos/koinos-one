@@ -1,3 +1,5 @@
+import { MAINNET_LEGACY_BACKUP_URL } from './legacy-backup-url';
+
 export type KoinosNetworkId = 'mainnet' | 'testnet' | 'custom';
 
 export interface KoinosNetworkContracts {
@@ -28,8 +30,7 @@ export const TESTNET_PUBLIC_RPC_URLS = [
   'https://testnet.koinosfoundation.org/jsonrpc',
 ];
 
-export const MAINNET_BLOCKCHAIN_BACKUP_URL =
-  'http://seed.koinosfoundation.org/backups/koinos_blockchain_backup.tar.gz';
+export const MAINNET_BLOCKCHAIN_BACKUP_URL = MAINNET_LEGACY_BACKUP_URL;
 
 export const MAINNET_CONTRACTS: KoinosNetworkContracts = {
   koin: '19GYjDBVXU7keLbYvMLazsGQn3GTWHjHkK',

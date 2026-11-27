@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { legacyBackupUrlForNetwork } from '../electron/lib/legacy-backup-url'
 import { localeForLanguage, translate, type AppLanguage } from './i18n'
 import {
   DEFAULT_NODE_SETTINGS,
@@ -77,9 +78,12 @@ import {
   loadInitialNodeSettings,
   loadInitialSettings,
   looksLikeNodeErrorOutput,
+  nodeBackupUrlForNetwork,
+  nodeSettingsWithBackupUrl,
   normalizeDashboardProducerWindowBlocks,
   normalizeDashboardRefreshSeconds,
   normalizeBackupTarGzUrl,
+  normalizeBackupUrlSetting,
   normalizeExternalHttpsUrl,
   normalizeExplorerRpcSource,
   normalizeNodeBaseDirInput,
@@ -331,7 +335,11 @@ export function App() {
   const [draftNodeNetwork, setDraftNodeNetwork] = useState<KoinosNetworkId>(nodeSettings.network)
   const [draftNodeBaseDir, setDraftNodeBaseDir] = useState(nodeSettings.baseDir)
   const [draftNodeProfiles, setDraftNodeProfiles] = useState(nodeSettings.profiles)
-  const [draftNodeBlockchainBackupUrl, setDraftNodeBlockchainBackupUrl] = useState(nodeSettings.blockchainBackupUrl)
+  const [draftNodeBackupUrlEdit, setDraftNodeBackupUrlEdit] = useState<{ network: KoinosNetworkId; value: string } | null>(null)
+  const savedBackupUrlForDraftNetwork = nodeBackupUrlForNetwork(nodeSettings, draftNodeNetwork)
+  const draftNodeBlockchainBackupUrl = draftNodeBackupUrlEdit?.network === draftNodeNetwork
+    ? draftNodeBackupUrlEdit.value
+    : savedBackupUrlForDraftNetwork
   const [draftNodeBackup, setDraftNodeBackup] = useState(() => normalizeNodeBackupSettings(nodeSettings.backup))
   const [draftNodeBackupPassword, setDraftNodeBackupPassword] = useState('')
   const [nodeBaseDirPickerLoading, setNodeBaseDirPickerLoading] = useState(false)
@@ -535,12 +543,9 @@ export function App() {
     const effectiveRepoPath = draftNodeRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
     const effectiveBaseDir = normalizeNodeBaseDirInput(draftNodeBaseDir)
     const effectiveProfiles = expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)).join(',')
-    const rawBlockchainBackupUrl = draftNodeBlockchainBackupUrl.trim()
-    const effectiveBlockchainBackupUrl = rawBlockchainBackupUrl
-      ? rawBlockchainBackupUrl
-      : draftNodeNetwork === 'mainnet'
-        ? DEFAULT_NODE_SETTINGS.blockchainBackupUrl
-        : ''
+    const effectiveBlockchainBackupUrl = draftNodeBlockchainBackupUrl.trim()
+      ? draftNodeBlockchainBackupUrl
+      : legacyBackupUrlForNetwork(undefined, draftNodeNetwork)
     const effectiveBackup = normalizeNodeBackupSettings(draftNodeBackup)
 
     return (
@@ -559,7 +564,7 @@ export function App() {
       effectiveRepoPath !== nodeSettings.repoPath ||
       effectiveBaseDir !== nodeSettings.baseDir ||
       effectiveProfiles !== nodeSettings.profiles ||
-      effectiveBlockchainBackupUrl !== nodeSettings.blockchainBackupUrl ||
+      effectiveBlockchainBackupUrl !== savedBackupUrlForDraftNetwork ||
       !sameNodeBackupSettings(effectiveBackup, nodeSettings.backup)
     )
   }, [
@@ -580,6 +585,7 @@ export function App() {
     language,
     nodeSettings,
     publicRpcUrlsByNetwork,
+    savedBackupUrlForDraftNetwork,
     savedLanguage,
     savedAppPreferences.keepRunningInMenuBar,
     savedSettings.nodeAdvancedMode,
@@ -737,7 +743,7 @@ export function App() {
     setDraftNodeNetwork(nodeSettings.network)
     setDraftNodeBaseDir(nodeSettings.baseDir)
     setDraftNodeProfiles(nodeSettings.profiles)
-    setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
+    setDraftNodeBackupUrlEdit(null)
     setDraftNodeBackup(normalizeNodeBackupSettings(nodeSettings.backup))
     setDraftNodeBackupPassword('')
     nativeBackupUserEditedRef.current = false
@@ -2548,7 +2554,7 @@ export function App() {
         ? nodeSettings.baseDir
         : resolveNodeBaseDirForNetwork(nextNetwork)
 
-    return { ...nodeSettings, network: nextNetwork, baseDir: nextBaseDir, profiles: nextProfiles }
+    return { ...nodeSettingsWithBackupUrl(nodeSettings, nextNetwork), baseDir: nextBaseDir, profiles: nextProfiles }
   }
 
   const applyNodePreset = (preset: TelenoNodePreset) => {
@@ -4032,12 +4038,15 @@ export function App() {
   const currentDraftNodeApiSettings = (
     overrides?: Partial<TelenoNodeSettings>
   ): TelenoNodeSettings => {
+    const network = overrides?.network ?? draftNodeNetwork
     return {
-      network: overrides?.network ?? draftNodeNetwork,
+      network,
       repoPath: overrides?.repoPath ?? draftNodeRepoPath.trim(),
       baseDir: overrides?.baseDir ?? draftNodeBaseDir.trim(),
       profiles: overrides?.profiles ?? expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)),
-      blockchainBackupUrl: overrides?.blockchainBackupUrl ?? draftNodeBlockchainBackupUrl.trim(),
+      blockchainBackupUrl: overrides?.blockchainBackupUrl ?? (network === draftNodeNetwork
+        ? draftNodeBlockchainBackupUrl
+        : nodeBackupUrlForNetwork(nodeSettings, network)),
       backup: overrides?.backup ?? normalizeNodeBackupSettings(draftNodeBackup)
     }
   }
@@ -4392,13 +4401,14 @@ export function App() {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreBackup) return
 
-    setNodeRestoreBackupLoading(true)
-    setNodeError(null)
-    backupProgressSampleRef.current = null
-    setNodeBackupProgress(createBackupProgressState('restore-backup', 'prepare', 0, t('node.preparingRestore')))
-
     try {
-      const result = await bridge.restoreBackup(toNodeApiSettings(nodeSettings))
+      const request = toNodeApiSettings(nodeSettings)
+      const blockchainBackupUrl = normalizeBackupTarGzUrl(request.blockchainBackupUrl ?? '', language)
+      setNodeRestoreBackupLoading(true)
+      setNodeError(null)
+      backupProgressSampleRef.current = null
+      setNodeBackupProgress(createBackupProgressState('restore-backup', 'prepare', 0, t('node.preparingRestore')))
+      const result = await bridge.restoreBackup({ ...request, blockchainBackupUrl })
       setNodeStatus(result.status)
       setNodeOutput(result.output || result.status.output || '')
 
@@ -4422,13 +4432,14 @@ export function App() {
     const bridge = getTelenoNodeBridge()
     if (!bridge?.restoreBackupVerify) return
 
-    setNodeRestoreBackupVerifyLoading(true)
-    setNodeError(null)
-    backupProgressSampleRef.current = null
-    setNodeBackupProgress(createBackupProgressState('restore-backup-verify', 'prepare', 0, t('node.preparingRestoreVerify')))
-
     try {
-      const result = await bridge.restoreBackupVerify(toNodeApiSettings(nodeSettings))
+      const request = toNodeApiSettings(nodeSettings)
+      const blockchainBackupUrl = normalizeBackupTarGzUrl(request.blockchainBackupUrl ?? '', language)
+      setNodeRestoreBackupVerifyLoading(true)
+      setNodeError(null)
+      backupProgressSampleRef.current = null
+      setNodeBackupProgress(createBackupProgressState('restore-backup-verify', 'prepare', 0, t('node.preparingRestoreVerify')))
+      const result = await bridge.restoreBackupVerify({ ...request, blockchainBackupUrl })
       setNodeStatus(result.status)
       setNodeOutput(result.output || result.status.output || '')
 
@@ -5039,12 +5050,9 @@ export function App() {
       const network = draftNodeNetwork
       const repoPath = draftNodeRepoPath.trim() || DEFAULT_NODE_SETTINGS.repoPath
       const profiles = expandNodeProfiles(parseProfilesCsv(draftNodeProfiles)).join(',')
-      const rawBlockchainBackupUrl = draftNodeBlockchainBackupUrl.trim()
-      const blockchainBackupUrl = rawBlockchainBackupUrl
-        ? normalizeBackupTarGzUrl(rawBlockchainBackupUrl, language)
-        : network === 'mainnet'
-          ? normalizeBackupTarGzUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl, language)
-          : ''
+      const editedBackupUrl = draftNodeBlockchainBackupUrl === savedBackupUrlForDraftNetwork
+        ? undefined
+        : normalizeBackupUrlSetting(draftNodeBlockchainBackupUrl, network, language)
       let backup = validateDraftNodeBackup(overrides.backup ?? draftNodeBackup, {
         sshPassword: draftNodeBackupPassword
       })
@@ -5154,7 +5162,7 @@ export function App() {
         ...current,
         [network]: publicRpcUrls
       }))
-      setNodeSettings({ network, repoPath, baseDir, profiles, blockchainBackupUrl, backup })
+      setNodeSettings({ ...nodeSettingsWithBackupUrl(previousNodeSettings, network, editedBackupUrl), repoPath, baseDir, profiles, backup })
       setDraftNodeNetwork(network)
       setDraftNodeBaseDir(baseDir)
       setDraftNodeBackup(backup)
@@ -5211,7 +5219,7 @@ export function App() {
     setDraftNodeNetwork(nodeSettings.network)
     setDraftNodeBaseDir(nodeSettings.baseDir)
     setDraftNodeProfiles(nodeSettings.profiles)
-    setDraftNodeBlockchainBackupUrl(nodeSettings.blockchainBackupUrl)
+    setDraftNodeBackupUrlEdit(null)
     setDraftNodeBackup(normalizeNodeBackupSettings(nodeSettings.backup))
     setDraftNodeBackupPassword('')
     nativeBackupUserEditedRef.current = false
@@ -5291,7 +5299,7 @@ export function App() {
     setDraftNodeNetwork(DEFAULT_NODE_SETTINGS.network)
     setDraftNodeBaseDir(DEFAULT_NODE_SETTINGS.baseDir)
     setDraftNodeProfiles(DEFAULT_NODE_SETTINGS.profiles)
-    setDraftNodeBlockchainBackupUrl(DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
+    setDraftNodeBackupUrlEdit({ network: DEFAULT_NODE_SETTINGS.network, value: DEFAULT_NODE_SETTINGS.blockchainBackupUrl })
     setDraftNodeBackup(normalizeNodeBackupSettings(DEFAULT_NODE_SETTINGS.backup))
     setNodeBaseDirValidation(null)
     setFormError(null)
@@ -5308,11 +5316,6 @@ export function App() {
     setFormError(null)
     const nextPublicRpcUrls = publicRpcUrlsForActiveNetwork(network, publicRpcUrlsByNetwork)
     setDraftPublicRpcUrls(nextPublicRpcUrls.join('\n'))
-    if (network === 'mainnet') {
-      setDraftNodeBlockchainBackupUrl((current) => current.trim() || DEFAULT_NODE_SETTINGS.blockchainBackupUrl)
-    } else {
-      setDraftNodeBlockchainBackupUrl('')
-    }
   }
 
   const completeFirstRunSetup = () => {
@@ -5621,6 +5624,8 @@ export function App() {
           draftNodeNetwork={draftNodeNetwork}
           setDraftNodeNetwork={updateDraftNodeNetwork}
           hasNodeControls={hasNodeControls}
+          draftNodeBlockchainBackupUrl={draftNodeBlockchainBackupUrl}
+          setDraftNodeBlockchainBackupUrl={(value: string) => setDraftNodeBackupUrlEdit({ network: draftNodeNetwork, value })}
           draftNodeBackup={draftNodeBackup}
           setDraftNodeBackup={setDraftNodeBackupFromUser}
           draftNodeBackupPassword={draftNodeBackupPassword}

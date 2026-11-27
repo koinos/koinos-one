@@ -8,6 +8,12 @@ All notable changes to this project are documented in this file.
 
 - Keep free mana previews unsigned and warn before confirming a send or burn
   that will submit signed estimates to the selected RPC server.
+- Limit legacy blockchain restore to the expected data directories and check
+  restore paths before replacing local data.
+- Authenticate remote legacy blockchain backups with a trusted signed
+  manifest over HTTPS, verify the archive used for extraction, and isolate
+  overlapping restores. Save legacy URLs per network in Settings > Backup
+  and migrate the former backup default on mainnet.
 - Validate fetched contract ABI data before caching and use bundled core ABIs
   from application resources rather than the process working directory.
 - Preserve zero-decimal token balances when the protobuf response omits its

@@ -85,6 +85,45 @@ bootstrap restore.
 7. Confirm only when the target backup and folder are correct.
 8. Start the restored node as an observer first.
 
+## Restore A Legacy TAR Archive
+
+For a legacy desktop restore from a configured URL, supply a direct HTTPS
+link to a `.tar.gz` file without credentials, a query, or a fragment. Before
+starting Koinos One, set `TELENO_BACKUP_SIGNATURE_PUBLIC_KEY_FILE` in its
+launch environment to the absolute path of the publisher's PEM SPKI Ed25519
+public key. Obtain the key through a trusted channel independent of the
+backup server.
+
+The server must offer the archive and three adjacent sidecars at the final
+HTTPS URL. The app refuses redirects for all four requests.
+
+| Sidecar suffix | Contents |
+| --- | --- |
+| `.metadata` | Nonempty metadata text with the publisher's original bytes. When `Included Directories` is present, it can list `chain` and `block_store`. |
+| `.sha256` | The archive's SHA-256 digest, optionally followed by its filename. |
+| `.manifest.json` | A version 1 `teleno-legacy-backup-signature` manifest with an Ed25519 signature covering the normalized archive URL and the SHA-256 digests of the archive and metadata. |
+
+Edit the **Legacy backup URL** in **Settings > Backup**. Koinos One saves a
+separate URL for each network. Switching networks selects the saved URL for
+the new network or its default. Mainnet defaults to the built-in HTTPS archive,
+including on migration from the former built-in HTTP URL. Testnet and custom
+networks start with an empty URL, including profiles that inherited that HTTP
+default. Enter a signed HTTPS archive for the selected network to enable
+legacy remote restore there.
+
+An existing custom URL stays saved when other settings change. Replace
+custom HTTP or redirecting URLs with the final signed HTTPS archive URL
+before using remote restore. The mirror must publish the signed sidecars,
+and its operators must distribute the trusted public key.
+
+For a legacy TAR file you already trust, use the local archive restore
+option. It works with the selected file and needs no remote sidecars. The
+legacy restore extracts into a new staging directory on every attempt.
+Remote restores may reuse a cached archive after verifying their own copy.
+Allow space for the archive copy and extracted data while the current
+blockchain directories are still present. Use the public bootstrap inventory
+for native snapshot restore.
+
 ## How To Verify It Worked
 
 - Restore completes without a hash, size, or disk-space error.
@@ -111,6 +150,13 @@ database should not be replaced unless activation completed.
 If remote listing succeeds but restore later downloads objects, that is
 expected. Remote listing caches metadata first; objects are fetched during
 selected restore or fetch.
+
+If the app quit during a legacy restore and a later attempt reports that
+the data folder is locked, confirm that all Koinos One processes using the
+folder have exited. Inspect any retained `.teleno-legacy-install-*` recovery
+directory before clearing the stale `.teleno-legacy-restore.lock` file from
+that specific node data folder. Keep recovery data until the blockchain
+directories have been verified.
 
 ## Related Pages
 

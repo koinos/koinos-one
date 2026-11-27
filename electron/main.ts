@@ -16,7 +16,6 @@ import {
   DASHBOARD_PRODUCER_WINDOW_BLOCKS_MAX,
   DASHBOARD_PRODUCER_WINDOW_BLOCKS_MIN,
   DEFAULT_BASEDIR,
-  DEFAULT_BLOCKCHAIN_BACKUP_URL,
   DEFAULT_PUBLIC_RPC_URLS,
   FREE_MANA_METER_ADDRESS,
   FREE_MANA_SHARER_ADDRESS,
@@ -1987,23 +1986,6 @@ function ensureKoinosConfigFiles(settings: TelenoNodeSettings): { configReady: b
 
 function ensureBaseDirKoinosRuntimeFiles(settings: TelenoNodeSettings): string {
   return workspaceService.ensureBaseDirKoinosRuntimeFiles(settings)
-}
-
-function normalizeBlockchainBackupArchiveUrl(raw: string): string {
-  const value = raw.trim()
-  if (!value) {
-    throw new Error('La URL del backup blockchain no puede estar vacia')
-  }
-
-  const parsed = new URL(value)
-  if (!/^https?:$/.test(parsed.protocol)) {
-    throw new Error('La URL del backup blockchain debe usar http o https')
-  }
-  if (!parsed.pathname.endsWith('.tar.gz')) {
-    throw new Error('La URL del backup blockchain debe apuntar a un archivo .tar.gz')
-  }
-
-  return parsed.toString()
 }
 
 function blockchainBackupMetadataUrl(archiveUrl: string): string {
