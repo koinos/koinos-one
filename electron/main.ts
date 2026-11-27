@@ -250,7 +250,6 @@ import { createRemoteNodeExecutionService, type RemoteExecutionRequest } from '.
 import { createWalletService } from './lib/wallet-service'
 import { createWorkspaceService } from './lib/workspace-service'
 
-const isDev = !!process.env.VITE_DEV_SERVER_URL
 app.setName('KoinosOne')
 let appShutdownInProgress = false
 let appShutdownApproved = false
@@ -1082,9 +1081,10 @@ const nativeRuntimeService = createNativeRuntimeService({
 })
 
 const appLifecycleService = createAppLifecycleService({
-  isDev,
+  isPackaged: app.isPackaged,
   platform: process.platform,
   viteDevServerUrl: process.env.VITE_DEV_SERVER_URL,
+  bundledEntryPath: path.join(__dirname, '../dist/index.html'),
   preloadPath: path.join(__dirname, 'preload.js'),
   nodeSettingsStorageKey: NODE_SETTINGS_STORAGE_KEY,
   languageStorageKey: LANGUAGE_STORAGE_KEY,
@@ -1597,8 +1597,8 @@ async function executeRemoteCommandPlan(input?: unknown) {
   return result
 }
 
-function loadTelenoWalletFile(network?: KoinosNetworkId): TelenoEncryptedWallet | null {
-  return telenoStorage.loadWalletFile(network) as TelenoEncryptedWallet | null
+function loadTelenoWalletFile(network?: KoinosNetworkId, migrate?: boolean): TelenoEncryptedWallet | null {
+  return telenoStorage.loadWalletFile(network, migrate) as TelenoEncryptedWallet | null
 }
 
 function loadProducerProfile(network?: KoinosNetworkId): TelenoProducerProfile | null {
@@ -4500,6 +4500,7 @@ async function telenoNodeLogsFollowStart(
 
 function registerIpcHandlers() {
   return registerTelenoIpcHandlers(ipcMain, {
+    isTrustedIpcSender: appLifecycleService.isTrustedIpcSender,
     quitApp: () => app.quit(),
     firstRunSetupState: readFirstRunSetupState,
     completeFirstRunSetup,

@@ -59,10 +59,11 @@ import type {
   WalletUnlockInput,
   WalletUnlockResult
 } from './main-types'
+import { summarizeWalletAccounts } from './teleno-storage'
 import { deriveWalletAccountsFromSeed, walletDerivationPath } from './wallet-accounts'
 
 type WalletServiceDeps = {
-  loadTelenoWalletFile: (network?: KoinosNetworkId) => TelenoEncryptedWallet | null
+  loadTelenoWalletFile: (network?: KoinosNetworkId, migrate?: boolean) => TelenoEncryptedWallet | null
   telenoProducerWalletFilePath: (network?: KoinosNetworkId) => string
   currentUnlockedProducerWallet: (network?: KoinosNetworkId) => TelenoUnlockedWallet | null
   saveTelenoWallet: (
@@ -482,7 +483,7 @@ export function createWalletService(deps: WalletServiceDeps) {
   async function walletImportAccount(input?: WalletImportAccountInput): Promise<WalletAccountMutationResult> {
     const network = walletNetwork(input)
     try {
-      const wallet = deps.loadTelenoWalletFile(network)
+      const wallet = deps.loadTelenoWalletFile(network, false)
       if (!wallet) throw new Error('No wallet stored in Koinos One yet.')
       const privateKey = `${input?.privateKey || ''}`.trim()
       const password = `${input?.password || ''}`
@@ -500,13 +501,14 @@ export function createWalletService(deps: WalletServiceDeps) {
         accounts: deps.listWalletAccounts(network)
       }
     } catch (error) {
+      const wallet = deps.loadTelenoWalletFile(network, false)
       return {
         ok: false,
         output: error instanceof Error ? error.message : 'Could not import the wallet account',
-        walletAddress: deps.loadTelenoWalletFile(network)?.address ?? null,
-        activeAccountId: deps.loadTelenoWalletFile(network)?.activeAccountId ?? null,
+        walletAddress: wallet?.address ?? null,
+        activeAccountId: wallet?.activeAccountId ?? null,
         account: null,
-        accounts: deps.listWalletAccounts(network)
+        accounts: summarizeWalletAccounts(wallet)
       }
     }
   }
