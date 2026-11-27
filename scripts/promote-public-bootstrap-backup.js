@@ -3,10 +3,13 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const YAML = require('yaml');
 
 const METADATA_OVERHEAD_BYTES = 128 * 1024 * 1024;
 const RECOMMENDED_MIN_MARGIN_BYTES = 10 * 1024 * 1024 * 1024;
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const WRITE_LOCK = '.public-bootstrap-write.lock';
+const STAGING_PREFIX = '.public-bootstrap-stage-';
 
 const ALLOWED_EXACT_PATHS = new Set([
   'config.yml',
@@ -39,20 +42,6 @@ function readJson(file) {
     }
     throw new PromotionError(`invalid JSON in ${file}: ${error.message}`);
   }
-}
-
-function writeJsonAtomic(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, jsonBytes(value));
-  fs.renameSync(tmp, file);
-}
-
-function writeBytesAtomic(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, value);
-  fs.renameSync(tmp, file);
 }
 
 function sha256Buffer(buffer) {
@@ -96,7 +85,7 @@ function validateBackupId(backupId) {
 }
 
 function validateRelativePath(relativePath) {
-  if (!relativePath || path.posix.isAbsolute(relativePath)) {
+  if (!relativePath || path.posix.isAbsolute(relativePath) || relativePath.includes('\\')) {
     throw new PromotionError(`unsafe relative path: ${relativePath}`);
   }
   for (const part of relativePath.split('/')) {
@@ -160,7 +149,7 @@ function parseFilesJson(filesJson) {
 function validateSourceObjects(repository, entries) {
   for (const entry of entries) {
     const source = objectPath(repository, entry.sha256);
-    if (!fs.existsSync(source) || !fs.statSync(source).isFile()) {
+    if (!fs.existsSync(source) || !fs.lstatSync(source).isFile()) {
       throw new PromotionError(`missing object for ${entry.path}: ${source}`);
     }
     const actualSize = fs.statSync(source).size;
@@ -175,21 +164,33 @@ function validateSourceObjects(repository, entries) {
 }
 
 function validateObserverConfig(buffer) {
-  const lower = buffer.toString('utf8').toLowerCase();
-  if (lower.includes('block_producer: true')) {
-    throw new PromotionError('observer config enables block_producer feature');
+  const document = YAML.parseDocument(buffer.toString('utf8'), { uniqueKeys: true, merge: true });
+  if (document.errors.length) {
+    throw new PromotionError(`observer config is invalid YAML: ${document.errors[0].message}`);
   }
-  if (!lower.includes('features:') || !lower.includes('block_producer: false')) {
+  const config = document.toJS({ maxAliasCount: 100 });
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new PromotionError('observer config must be a YAML mapping');
+  }
+  if (config.features?.block_producer !== false) {
     throw new PromotionError('observer config must explicitly disable block production');
   }
-  if (!lower.includes('verify-blocks: true')) {
+  if (config.chain?.['verify-blocks'] !== true) {
     throw new PromotionError('observer config must enable chain.verify-blocks');
   }
-  for (const forbidden of ['private-key-file', 'password-file', 'passphrase-file', 'admin.token']) {
-    if (lower.includes(forbidden)) {
-      throw new PromotionError(`observer config contains forbidden setting: ${forbidden}`);
+  const forbidden = new Set(['private-key-file', 'password-file', 'passphrase-file', 'admin.token']);
+  const visit = (value, parentKey = '') => {
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      const lowerKey = key.toLowerCase();
+      const setting = parentKey === 'admin' && lowerKey === 'token' ? 'admin.token' : lowerKey;
+      if (forbidden.has(setting)) {
+        throw new PromotionError(`observer config contains forbidden setting: ${setting}`);
+      }
+      visit(child, lowerKey);
     }
-  }
+  };
+  visit(config);
 }
 
 function latestForBackupId(backupId, signed = false) {
@@ -259,6 +260,9 @@ function optionalSafeInteger(...values) {
 function signPublicBootstrapPayload(payload, privateKeyFile, keyId) {
   const privateKeyPem = fs.readFileSync(path.resolve(privateKeyFile));
   const privateKey = crypto.createPrivateKey(privateKeyPem);
+  if (privateKey.asymmetricKeyType !== 'ed25519') {
+    throw new PromotionError('public bootstrap signing key must be Ed25519');
+  }
   const publicKey = crypto.createPublicKey(privateKey);
   const publicKeyDer = publicKey.export({ type: 'spki', format: 'der' });
   const canonicalPayload = canonicalizeJson(payload);
@@ -283,19 +287,29 @@ function buildPlan(options) {
   if (destinationRepository.startsWith(`${sourceRepository}${path.sep}`)) {
     throw new PromotionError('destination repository must not be inside the source repository');
   }
+  if (sourceRepository.startsWith(`${destinationRepository}${path.sep}`)) {
+    throw new PromotionError('source repository must not be inside the public destination');
+  }
+  if (options.signatureKeyId && !options.signingPrivateKeyFile) {
+    throw new PromotionError('signature key ID requires a signing private key');
+  }
 
-  const backupId = resolveBackupId(sourceRepository, options.backupId);
-  const snapshotDir = path.join(sourceRepository, 'snapshots', backupId);
+  const sourceBackupId = resolveBackupId(sourceRepository, options.backupId);
+  const snapshotDir = path.join(sourceRepository, 'snapshots', sourceBackupId);
   if (!fs.existsSync(path.join(snapshotDir, 'COMPLETE'))) {
-    throw new PromotionError(`snapshot is not complete: ${backupId}`);
+    throw new PromotionError(`snapshot is not complete: ${sourceBackupId}`);
   }
 
   const sourceManifest = readJson(path.join(snapshotDir, 'manifest.json'));
   const sourceFilesJson = readJson(path.join(snapshotDir, 'files.json'));
-  if (sourceManifest.backup_id !== backupId) {
+  if (sourceManifest.format !== 'teleno-native-rocksdb-snapshot'
+      || sourceManifest.version !== 1) {
+    throw new PromotionError('source manifest has unexpected format or version');
+  }
+  if (sourceManifest.backup_id !== sourceBackupId) {
     throw new PromotionError('manifest backup_id does not match selected snapshot');
   }
-  if (sourceFilesJson.backup_id !== backupId) {
+  if (sourceFilesJson.backup_id !== sourceBackupId) {
     throw new PromotionError('files.json backup_id does not match selected snapshot');
   }
 
@@ -307,15 +321,10 @@ function buildPlan(options) {
   const configSha = sha256Buffer(configTemplate);
   const configSize = configTemplate.length;
 
-  const outputEntries = [];
-  const objects = new Map();
+  const outputEntries = [{ path: 'config.yml', sha256: configSha, size_bytes: configSize, runtime_file: true }];
+  const objects = new Map([[configSha, { sha256: configSha, size_bytes: configSize, content: configTemplate }]]);
   for (const entry of sourceEntries) {
-    if (entry.path === 'config.yml') {
-      const sanitized = { path: 'config.yml', sha256: configSha, size_bytes: configSize, runtime_file: true };
-      outputEntries.push(sanitized);
-      objects.set(configSha, { sha256: configSha, size_bytes: configSize, content: configTemplate });
-      continue;
-    }
+    if (entry.path === 'config.yml') continue;
     outputEntries.push(entry);
     if (!objects.has(entry.sha256)) {
       objects.set(entry.sha256, {
@@ -330,6 +339,8 @@ function buildPlan(options) {
   const sizes = recomputeSizes(outputEntries);
   const totalBytes = sizes.object_download_bytes;
   const promotedAt = utcTimestamp();
+  // A replacement must coexist with the snapshot that the old signed pointer names.
+  const backupId = options.replace ? `${promotedAt}-pub-${crypto.randomUUID()}` : sourceBackupId;
   const publicBaseUrl = options.publicBaseUrl.replace(/\/+$/, '');
   const sourceNode = sourceManifest.node || {};
   const sourceInfo = sourceManifest.source || {};
@@ -338,7 +349,7 @@ function buildPlan(options) {
   const sourceLib = sourceManifest.lib || {};
   const sourceSnapshot = sourceManifest.snapshot || {};
   const publicSourceMetadata = {
-    backup_id: backupId,
+    backup_id: sourceBackupId,
     created_at: optionalString(sourceManifest.created_at),
     node_id: optionalString(sourceInfo.node_id),
     node_version: optionalString(sourceNode.version),
@@ -360,39 +371,48 @@ function buildPlan(options) {
     ),
   };
 
-  const manifest = JSON.parse(JSON.stringify(sourceManifest));
-  manifest.source = {
-    node_id: `public-bootstrap-${options.network}`,
-    storage_layout: sourceManifest.source?.storage_layout || 'unified',
-    network: options.network,
-    chain_id: publicSourceMetadata.chain_id || '',
-  };
-  manifest.repository = {
-    type: 'public-bootstrap-object-store',
-    base_url: publicBaseUrl,
-  };
-  manifest.snapshot = {
-    file_count: outputEntries.length,
-    object_count: objects.size,
-    total_bytes: totalBytes,
-  };
-  manifest.sizes = sizes;
-  manifest.restore = {
-    requires_node_stop: true,
-    start_as_observer_first: true,
-    force_block_producer_disabled_on_first_start: true,
-  };
-  manifest.public_bootstrap = {
-    version: 1,
-    network: options.network,
-    chain_id: publicSourceMetadata.chain_id || '',
-    source_backup_id: backupId,
-    public_base_url: publicBaseUrl,
-    promoted_at: promotedAt,
-    producer_mode: false,
-    sanitized_config: true,
-    source: publicSourceMetadata,
-    restore_space: sizes,
+  const manifest = {
+    format: 'teleno-native-rocksdb-snapshot',
+    version: sourceManifest.version,
+    backup_id: backupId,
+    created_at: optionalString(sourceManifest.created_at),
+    node: {
+      name: optionalString(sourceNode.name),
+      version: publicSourceMetadata.node_version,
+    },
+    source: {
+      node_id: `public-bootstrap-${options.network}`,
+      storage_layout: publicSourceMetadata.storage_layout,
+      network: options.network,
+      chain_id: publicSourceMetadata.chain_id || '',
+    },
+    repository: {
+      type: 'public-bootstrap-object-store',
+      base_url: publicBaseUrl,
+    },
+    snapshot: {
+      file_count: outputEntries.length,
+      object_count: objects.size,
+      total_bytes: totalBytes,
+    },
+    sizes,
+    restore: {
+      requires_node_stop: true,
+      start_as_observer_first: true,
+      force_block_producer_disabled_on_first_start: true,
+    },
+    public_bootstrap: {
+      version: 1,
+      network: options.network,
+      chain_id: publicSourceMetadata.chain_id || '',
+      source_backup_id: sourceBackupId,
+      public_base_url: publicBaseUrl,
+      promoted_at: promotedAt,
+      producer_mode: false,
+      sanitized_config: true,
+      source: publicSourceMetadata,
+      restore_space: sizes,
+    },
   };
 
   const filesJson = {
@@ -408,7 +428,7 @@ function buildPlan(options) {
     network: options.network,
     chain_id: publicSourceMetadata.chain_id || '',
     backup_id: backupId,
-    source_backup_id: backupId,
+    source_backup_id: sourceBackupId,
     public_base_url: publicBaseUrl,
     promoted_at: promotedAt,
     sanitized_config_sha256: configSha,
@@ -463,80 +483,217 @@ function buildPlan(options) {
 }
 
 function verifyExistingObject(file, sha, size) {
-  return fs.existsSync(file) && fs.statSync(file).isFile() && fs.statSync(file).size === size && sha256File(file) === sha;
+  return fs.existsSync(file) && fs.lstatSync(file).isFile() && fs.statSync(file).size === size && sha256File(file) === sha;
+}
+
+function ensureSafeDirectory(root, relative = '', { create = true } = {}) {
+  if (create && !fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
+  if (!fs.lstatSync(root).isDirectory()) {
+    throw new PromotionError(`destination is not a real directory: ${root}`);
+  }
+  let current = root;
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    if (create && !fs.existsSync(current)) fs.mkdirSync(current);
+    if (!fs.lstatSync(current).isDirectory()) {
+      throw new PromotionError(`destination has a symlink or non-directory parent: ${current}`);
+    }
+  }
+}
+
+function assertSafeDestinationFile(file) {
+  try {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile()) throw new PromotionError(`destination is not a regular file: ${file}`);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function pathExistsLstat(file) {
+  try {
+    fs.lstatSync(file);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function canonicalDestinationPath(file) {
+  let existing = path.resolve(file);
+  const missing = [];
+  while (!pathExistsLstat(existing)) {
+    missing.unshift(path.basename(existing));
+    existing = path.dirname(existing);
+  }
+  return path.join(fs.realpathSync(existing), ...missing);
+}
+
+function assertIndependentRepositories(plan) {
+  const source = fs.realpathSync(plan.sourceRepository);
+  const destination = canonicalDestinationPath(plan.destinationRepository);
+  if (destination === source || destination.startsWith(`${source}${path.sep}`)
+      || source.startsWith(`${destination}${path.sep}`)) {
+    throw new PromotionError('source and public destination repositories must be independent');
+  }
+}
+
+function withDestinationWriteLock(destinationRepository, write) {
+  ensureSafeDirectory(destinationRepository);
+  const lock = path.join(destinationRepository, WRITE_LOCK);
+  try {
+    fs.mkdirSync(lock);
+  } catch (error) {
+    if (error.code === 'EEXIST') {
+      throw new PromotionError(`public bootstrap destination is locked: ${lock}`);
+    }
+    throw error;
+  }
+  try {
+    return write();
+  } finally {
+    fs.rmdirSync(lock);
+  }
+}
+
+function withStagingDirectory(parent, work) {
+  const dir = fs.mkdtempSync(path.join(parent, STAGING_PREFIX));
+  try {
+    return work(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function pruneCompletedSnapshots(destinationRepository, retentionCount) {
+  if (!Number.isSafeInteger(retentionCount) || retentionCount <= 0) return [];
+  ensureSafeDirectory(destinationRepository, 'snapshots', { create: false });
+  const snapshotsDir = path.join(destinationRepository, 'snapshots');
+  const latestFile = path.join(destinationRepository, 'latest.json');
+  if (!assertSafeDestinationFile(latestFile)) {
+    throw new PromotionError('latest.json is missing');
+  }
+  const latest = readJson(latestFile);
+  const currentDir = latest.snapshot_dir ?? latest.backup_id;
+  const completed = fs.readdirSync(snapshotsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith(STAGING_PREFIX) && !entry.name.includes('.partial'))
+    .map((entry) => entry.name)
+    .filter((name) => fs.lstatSync(path.join(snapshotsDir, name, 'COMPLETE'), { throwIfNoEntry: false })?.isFile())
+    .sort((a, b) => a.localeCompare(b));
+  if (!completed.includes(currentDir)) {
+    throw new PromotionError('latest.json does not name a completed public snapshot');
+  }
+  const removable = completed.filter((name) => name !== currentDir && name !== latest.backup_id);
+  const removed = removable.slice(0, Math.max(0, completed.length - retentionCount));
+  for (const name of removed) {
+    fs.rmSync(path.join(snapshotsDir, name), { recursive: true });
+  }
+  return removed;
+}
+
+function prunePublicSnapshots(destinationRepository, retentionCount) {
+  if (!Number.isSafeInteger(retentionCount) || retentionCount <= 0) return [];
+  return withDestinationWriteLock(destinationRepository, () => pruneCompletedSnapshots(destinationRepository, retentionCount));
 }
 
 function publishObject(destinationRepository, object) {
   const destination = objectPath(destinationRepository, object.sha256);
+  const objectsDir = path.dirname(destination);
+  ensureSafeDirectory(destinationRepository, path.relative(destinationRepository, objectsDir));
+  const exists = assertSafeDestinationFile(destination);
   if (verifyExistingObject(destination, object.sha256, object.size_bytes)) return;
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  const partial = `${destination}.partial`;
-  if (object.content) {
-    fs.writeFileSync(partial, object.content);
-  } else {
-    fs.copyFileSync(object.sourcePath, partial);
-  }
-  if (!verifyExistingObject(partial, object.sha256, object.size_bytes)) {
-    fs.rmSync(partial, { force: true });
-    throw new PromotionError(`failed to write verified object: ${object.sha256}`);
-  }
-  fs.renameSync(partial, destination);
-}
-
-function publish(plan) {
-  fs.mkdirSync(plan.destinationRepository, { recursive: true });
-  for (const object of plan.objects.values()) {
-    publishObject(plan.destinationRepository, object);
-  }
-
-  const snapshotsDir = path.join(plan.destinationRepository, 'snapshots');
-  fs.mkdirSync(snapshotsDir, { recursive: true });
-  const finalSnapshot = path.join(snapshotsDir, plan.backupId);
-  if (fs.existsSync(finalSnapshot)) {
-    throw new PromotionError(`destination snapshot already exists: ${finalSnapshot}`);
-  }
-
-  const partialSnapshot = path.join(snapshotsDir, `${plan.backupId}.partial-${process.pid}`);
-  fs.rmSync(partialSnapshot, { recursive: true, force: true });
-  fs.mkdirSync(partialSnapshot, { recursive: true });
-  try {
-    writeJsonAtomic(path.join(partialSnapshot, 'manifest.json'), plan.manifestJson);
-    writeJsonAtomic(path.join(partialSnapshot, 'files.json'), plan.filesJson);
-    writeJsonAtomic(path.join(partialSnapshot, 'public-bootstrap.json'), plan.publicMetadataJson);
-    if (plan.signatureJson) {
-      writeJsonAtomic(path.join(partialSnapshot, 'public-bootstrap-signature.json'), plan.signatureJson);
+  if (exists) throw new PromotionError(`published object conflicts with hash: ${object.sha256}`);
+  withStagingDirectory(objectsDir, (stage) => {
+    const partial = path.join(stage, object.sha256);
+    if (object.content !== undefined) {
+      fs.writeFileSync(partial, object.content, { flag: 'wx' });
+    } else {
+      fs.copyFileSync(object.sourcePath, partial, fs.constants.COPYFILE_EXCL);
     }
-    writeBytesAtomic(path.join(partialSnapshot, 'COMPLETE'), Buffer.from('complete\n'));
-    fs.renameSync(partialSnapshot, finalSnapshot);
-  } catch (error) {
-    fs.rmSync(partialSnapshot, { recursive: true, force: true });
-    throw error;
-  }
-
-  const latestPartial = path.join(plan.destinationRepository, 'latest.json.partial');
-  writeJsonAtomic(latestPartial, plan.latestJson);
-  fs.renameSync(latestPartial, path.join(plan.destinationRepository, 'latest.json'));
+    if (!verifyExistingObject(partial, object.sha256, object.size_bytes)) {
+      throw new PromotionError(`failed to write verified object: ${object.sha256}`);
+    }
+    fs.renameSync(partial, destination);
+  });
 }
 
-function validatePublishedTree(plan) {
+function publish(plan, { publicRetentionCount = 0 } = {}) {
+  if (!plan.signatureJson) throw new PromotionError('public publication requires an Ed25519 signature');
+  assertIndependentRepositories(plan);
+  const destination = plan.destinationRepository;
+  return withDestinationWriteLock(destination, () => {
+    ensureSafeDirectory(destination, path.join('objects', 'sha256'));
+    ensureSafeDirectory(destination, 'snapshots');
+    const snapshotsDir = path.join(destination, 'snapshots');
+    const finalSnapshot = path.join(snapshotsDir, plan.backupId);
+    if (pathExistsLstat(finalSnapshot)) {
+      throw new PromotionError(`destination snapshot already exists: ${finalSnapshot}`);
+    }
+    const latestFile = path.join(destination, 'latest.json');
+    assertSafeDestinationFile(latestFile);
+
+    for (const object of plan.objects.values()) {
+      publishObject(destination, object);
+    }
+
+    // Stage beside each target so its rename stays on the target filesystem.
+    withStagingDirectory(destination, (pointerStage) => {
+      withStagingDirectory(snapshotsDir, (snapshotStage) => {
+        const stagedSnapshot = path.join(snapshotStage, 'snapshot');
+        const stagedLatest = path.join(pointerStage, 'latest.json');
+        fs.mkdirSync(stagedSnapshot);
+        for (const [name, bytes] of snapshotMetadata(plan)) {
+          fs.writeFileSync(path.join(stagedSnapshot, name), bytes, { flag: 'wx' });
+        }
+        fs.writeFileSync(stagedLatest, jsonBytes(plan.latestJson), { flag: 'wx' });
+        validatePublishedTree(plan, { snapshotDir: stagedSnapshot, latestFile: stagedLatest });
+
+        // Readers of the old signed pointer keep its completed snapshot until
+        // the verified successor becomes latest.
+        fs.renameSync(stagedSnapshot, finalSnapshot);
+        fs.renameSync(stagedLatest, latestFile);
+      });
+    });
+    return { removedPublicSnapshots: pruneCompletedSnapshots(destination, publicRetentionCount) };
+  });
+}
+
+function snapshotMetadata(plan) {
+  return [
+    ['manifest.json', jsonBytes(plan.manifestJson)],
+    ['files.json', jsonBytes(plan.filesJson)],
+    ['public-bootstrap.json', jsonBytes(plan.publicMetadataJson)],
+    ['public-bootstrap-signature.json', jsonBytes(plan.signatureJson)],
+    ['COMPLETE', Buffer.from('complete\n')],
+  ];
+}
+
+function validatePublishedTree(plan, {
+  snapshotDir = path.join(plan.destinationRepository, 'snapshots', plan.backupId),
+  latestFile = path.join(plan.destinationRepository, 'latest.json'),
+} = {}) {
+  const destinationRepository = plan.destinationRepository;
+  const readOnly = { create: false };
+  ensureSafeDirectory(destinationRepository, path.join('objects', 'sha256'), readOnly);
+  ensureSafeDirectory(destinationRepository, path.relative(destinationRepository, snapshotDir), readOnly);
   for (const object of plan.objects.values()) {
-    const destination = objectPath(plan.destinationRepository, object.sha256);
+    const destination = objectPath(destinationRepository, object.sha256);
+    ensureSafeDirectory(destinationRepository, path.relative(destinationRepository, path.dirname(destination)), readOnly);
     if (!verifyExistingObject(destination, object.sha256, object.size_bytes)) {
       throw new PromotionError(`published object failed verification: ${object.sha256}`);
     }
   }
-  const snapshotDir = path.join(plan.destinationRepository, 'snapshots', plan.backupId);
-  for (const name of ['manifest.json', 'files.json', 'COMPLETE']) {
-    if (!fs.existsSync(path.join(snapshotDir, name))) {
-      throw new PromotionError(`published snapshot is missing ${name}`);
+  for (const [name, value] of snapshotMetadata(plan)) {
+    const file = path.join(snapshotDir, name);
+    if (!assertSafeDestinationFile(file) || !fs.readFileSync(file).equals(value)) {
+      throw new PromotionError(`published snapshot failed verification: ${name}`);
     }
   }
-  if (plan.signatureJson && !fs.existsSync(path.join(snapshotDir, 'public-bootstrap-signature.json'))) {
-    throw new PromotionError('published signed snapshot is missing public-bootstrap-signature.json');
-  }
-  const latest = readJson(path.join(plan.destinationRepository, 'latest.json'));
-  if (latest.backup_id !== plan.backupId) {
-    throw new PromotionError('published latest.json does not point at promoted backup');
+  if (!assertSafeDestinationFile(latestFile) || !fs.readFileSync(latestFile).equals(jsonBytes(plan.latestJson))) {
+    throw new PromotionError('published latest.json failed verification');
   }
 }
 
@@ -545,6 +702,7 @@ function reportForPlan(plan, dryRun) {
     ok: true,
     dry_run: dryRun,
     backup_id: plan.backupId,
+    source_backup_id: plan.publicMetadataJson.source_backup_id,
     source_repository: plan.sourceRepository,
     destination_repository: plan.destinationRepository,
     public_base_url: plan.publicMetadataJson.public_base_url,
@@ -598,10 +756,7 @@ function main(argv = process.argv.slice(2)) {
   try {
     const options = parseArgs(argv);
     const plan = buildPlan(options);
-    if (!options.dryRun) {
-      publish(plan);
-      validatePublishedTree(plan);
-    }
+    if (!options.dryRun) publish(plan);
     const report = reportForPlan(plan, options.dryRun);
     const output = `${JSON.stringify(report, null, 2)}\n`;
     if (options.report) fs.writeFileSync(options.report, output);
@@ -625,6 +780,7 @@ module.exports = {
   sha256Buffer,
   signPublicBootstrapPayload,
   validatePublishedTree,
+  prunePublicSnapshots,
 };
 
 if (require.main === module) {

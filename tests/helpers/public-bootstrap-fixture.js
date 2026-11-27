@@ -70,7 +70,7 @@ function makeFileEntry(repo, relativePath, data, runtimeFile) {
   };
 }
 
-function createSourceRepository(root, extraEntries = []) {
+function createSourceRepository(root, extraEntries = [], { includeConfig = true } = {}) {
   const repo = path.join(root, 'source-repository');
   const backupId = '20260620T120000Z-ms-1-files-4';
   const snapshot = path.join(repo, 'snapshots', backupId);
@@ -78,7 +78,7 @@ function createSourceRepository(root, extraEntries = []) {
 
   const entries = [
     makeFileEntry(repo, 'chain/genesis_data.json', Buffer.from('genesis'), true),
-    makeFileEntry(repo, 'config.yml', Buffer.from(UNSAFE_SOURCE_CONFIG), true),
+    ...(includeConfig ? [makeFileEntry(repo, 'config.yml', Buffer.from(UNSAFE_SOURCE_CONFIG), true)] : []),
     makeFileEntry(repo, 'db/000001.sst', Buffer.from('db-data-1'), false),
     makeFileEntry(repo, 'jsonrpc/descriptors/koinos_descriptors.pb', Buffer.from('descriptors'), true),
     ...extraEntries,

@@ -20,20 +20,41 @@ die() {
 
 mkdir -p "$SMOKE_ROOT" "$BASEDIR"
 
-node - "$SOURCE_REPO" "$TEMPLATE" "$ROOT_DIR" <<'JS'
+SIGNING_DIR="$(mktemp -d "$SMOKE_ROOT/signing.XXXXXXXX")"
+cleanup_signing() {
+  rm -f -- "$SIGNING_DIR/private.pem" "$SIGNING_DIR/public.pem"
+  rmdir -- "$SIGNING_DIR"
+}
+trap cleanup_signing EXIT
+
+node - "$SMOKE_ROOT" "$TEMPLATE" "$CONFIG" "$SIGNING_DIR" "$ROOT_DIR" <<'JS'
+const { generateKeyPairSync } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const sourceRepo = process.argv[2];
-const template = process.argv[3];
-const rootDir = process.argv[4];
+const [smokeRoot, template, config, signingDir, rootDir] = process.argv.slice(2);
 const fixture = require(path.join(rootDir, 'tests', 'helpers', 'public-bootstrap-fixture.js'));
 
-fixture.createSourceRepository(path.dirname(sourceRepo));
+fixture.createSourceRepository(smokeRoot);
 fs.writeFileSync(template, fixture.OBSERVER_CONFIG);
+const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+const publicKeyFile = path.resolve(signingDir, 'public.pem');
+fs.writeFileSync(path.join(signingDir, 'private.pem'), privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+fs.writeFileSync(publicKeyFile, publicKey.export({ type: 'spki', format: 'pem' }));
+fs.writeFileSync(config, JSON.stringify({
+  features: { block_producer: false },
+  chain: { 'verify-blocks': true },
+  backup: {
+    enabled: false,
+    'public-restore': {
+      enabled: true,
+      network: 'testnet',
+      'signature-required': true,
+      'signature-public-key-file': publicKeyFile,
+    },
+  },
+}, null, 2) + '\n');
 JS
-
-cp "$TEMPLATE" "$CONFIG"
 
 node "$ROOT_DIR/scripts/promote-public-bootstrap-backup.js" \
   --source-repository "$SOURCE_REPO" \
@@ -48,7 +69,8 @@ node "$ROOT_DIR/scripts/promote-public-bootstrap-backup.js" \
   --destination-repository "$PUBLIC_REPO" \
   --network testnet \
   --public-base-url "file://$PUBLIC_REPO" \
-  --observer-config-template "$TEMPLATE" >/dev/null
+  --observer-config-template "$TEMPLATE" \
+  --signing-private-key-file "$SIGNING_DIR/private.pem" >/dev/null
 
 "$NODE_BIN" \
   --basedir "$BASEDIR" \

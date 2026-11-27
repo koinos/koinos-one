@@ -13,6 +13,10 @@ All notable changes to this project are documented in this file.
 
 - Keep free mana previews unsigned and warn before confirming a send or burn
   that will submit signed estimates to the selected RPC server.
+- Isolate exported bootstrap objects from private storage and require an
+  Ed25519-signed plan for publication.
+- Keep the current bootstrap snapshot readable until its replacement is verified
+  and include the observer config in the signed export when the source omits it.
 - Validate fetched contract ABI data before caching and use bundled core ABIs
   from application resources rather than the process working directory.
 - Preserve zero-decimal token balances when the protobuf response omits its
